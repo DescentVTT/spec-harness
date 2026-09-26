@@ -5,7 +5,9 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import type { Decision } from '../../src/guard.js';
 import type { EscalationRequest } from '../../src/rulings.js';
+import { tools } from '../../src/server.js';
 import type { Finding } from '../../src/types.js';
+import { openWorkspace, parseOptions } from '../../src/workspace.js';
 import { brief, BRIEF_FILE, cleanup, cli, commitSigned, hasSshKeygen, parsed, repository, signingKey, temp, type Repository } from './helpers.js';
 
 afterAll(cleanup);
@@ -164,11 +166,13 @@ describe('rule', () => {
 describe.skipIf(!hasSshKeygen())('a ruling is a row whose commit a person signed (needs ssh-keygen on PATH)', () => {
   let repo: Repository;
   let key: string;
+  let signers: string;
 
   beforeAll(async () => {
     const keys = temp();
     const made = signingKey(keys);
     key = made.key;
+    signers = made.signers;
     repo = round({ '.github/allowed_signers': made.signers });
     await cli(['escalate', '--path', 'src/db/schema.ts', '--reason', 'Rotation needs a column.'], repo.root);
     await cli(['rule', 'E-001-1', '--allow', '--note', 'One column.'], repo.root);
@@ -251,6 +255,35 @@ describe.skipIf(!hasSshKeygen())('a ruling is a row whose commit a person signed
     expect(state.verified).toEqual([]);
     expect(state.unverified[0]?.reason.startsWith(`commit ${commit.slice(0, 12)} last changed its row, and `)).toBe(true);
     expect(state.unverified[0]?.reason).not.toContain('it is not signed');
+  });
+
+  it('reads the signers from the base --base names in guard, context and the server, as rulings does', async () => {
+    // No remote and no base configured: without the flag there is no base.
+    const other = repository({ [BRIEF_FILE]: brief({ affected: ['src/auth/**'], protected: ['src/db/**'] }), ...FILES, '.github/allowed_signers': signers }, { base: null });
+    other.git('checkout', '-q', '-b', 'brief/001-rotate');
+    await cli(['escalate', '--path', 'src/db/schema.ts', '--reason', 'r'], other.root);
+    await cli(['rule', 'E-001-1', '--allow', '--note', 'n'], other.root);
+    commitSigned(other, key, 'ruling R-001-1: allow');
+    expect(parsed<RulingsDocument>(await cli(['rulings', '--base', 'main', '--format', 'json'], other.root)).verified.map((r) => r.id)).toEqual(['R-001-1']);
+
+    expect(await decision(other, 'src/db/schema.ts')).toMatchObject({ verdict: 'deny', reason: 'protected' });
+    const guarded = await cli(['guard', 'src/db/schema.ts', '--base', 'main', '--format', 'json'], other.root);
+    expect(guarded.code).toBe(0);
+    expect(parsed<{ decisions: Decision[] }>(guarded).decisions[0]).toMatchObject({ verdict: 'allow', reason: 'ruled', because: ['R-001-1'] });
+
+    expect((await cli(['context'], other.root)).stdout).toContain('Rulings in force:\n- none\n');
+    const context = await cli(['context', '--base', 'main'], other.root);
+    expect(context.stdout).toContain(' · measured from `main`\n');
+    expect(context.stdout).toContain('Rulings in force:\n- R-001-1, signed by t@example.com: `src/db/schema.ts`\n');
+
+    const workspace = await openWorkspace(parseOptions(['mcp']), { stdout: { write: () => true }, stderr: { write: () => true }, cwd: other.root, env: {} });
+    const tool = (name: string) => tools(workspace, {}).find((candidate) => candidate.descriptor.name === name);
+    expect((await tool('check_path')?.call({ paths: ['src/db/schema.ts'] }))?.text).toMatch(/^deny: /);
+    expect((await tool('check_path')?.call({ paths: ['src/db/schema.ts'], base: 'main' }))?.text).toBe(
+      'allow: src/db/schema.ts is protected by brief 001, and ruling R-001-1, signed by t@example.com, allows it',
+    );
+    expect((await tool('start_round')?.call({}))?.text).toContain('Rulings in force:\n- none\n');
+    expect((await tool('start_round')?.call({ base: 'main' }))?.text).toContain('Rulings in force:\n- R-001-1, signed by t@example.com: `src/db/schema.ts`\n');
   });
 
   it('says a ruling cannot count with no base to read the signers from', async () => {
