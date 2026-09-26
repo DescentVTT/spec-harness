@@ -127,8 +127,8 @@ export interface Siblings {
   locate(name: SiblingName): Sibling;
   /** Every brief, live and archived. Exit 2 from spec-brief is an error here too. */
   briefs(): Promise<BriefRow[]>;
-  /** A sibling's JSON output for a command line, with its exit code; `absent` says why it cannot be run, missing or outdated. */
-  json(name: SiblingName, args: readonly string[]): Promise<{ readonly code: number; readonly document: unknown } | { readonly absent: string }>;
+  /** A sibling's JSON output for a command line, with its exit code and what it said on stderr; `absent` says why it cannot be run, missing or outdated. */
+  json(name: SiblingName, args: readonly string[]): Promise<{ readonly code: number; readonly document: unknown; readonly stderr: string } | { readonly absent: string }>;
 }
 
 export function createSiblings(root: string, config: HarnessConfig): Siblings {
@@ -156,7 +156,7 @@ export function createSiblings(root: string, config: HarnessConfig): Siblings {
       const sibling = locate(name, root, config);
       if (sibling.kind !== 'found') return { absent: sibling.reason };
       const run = await runSibling(sibling.command, args, root);
-      return { code: run.code, document: parseJson(name, run) };
+      return { code: run.code, document: parseJson(name, run), stderr: run.stderr };
     },
   };
 }

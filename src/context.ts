@@ -29,6 +29,47 @@ export interface RuleInForce {
   readonly reason: string | null;
 }
 
+/**
+ * The rules in force for the scope; `none` when spec-guard reads no
+ * specification here, so none can be in force; `unavailable` when the rules
+ * could not be read.
+ */
+export type Rules = readonly RuleInForce[] | { readonly none: string } | { readonly unavailable: string };
+
+interface QueryDocument {
+  readonly specFiles?: unknown;
+  readonly results?: readonly { readonly rules?: readonly (RuleInForce & { readonly reason?: string | null; readonly inForce?: boolean })[] }[];
+}
+
+/**
+ * spec-guard's answer to `query --json`, read. It exits 2 both when no spec
+ * file matched its patterns - a repository that keeps none, or keeps them
+ * where it does not look - and when it could not read the specs it has; only
+ * the first prints a document, one with no spec file in it, so that is how
+ * the two are told apart. What it said on stderr is the reason for the second.
+ */
+export function readRules(answer: { readonly code: number; readonly document: unknown; readonly stderr: string }): Rules {
+  const document = (answer.document ?? {}) as QueryDocument;
+  if (answer.code !== 0) {
+    if (Array.isArray(document.specFiles) && document.specFiles.length === 0) {
+      return { none: 'no spec file matched its patterns ("specs" in its configuration, docs/**/*.md by default)' };
+    }
+    const said = (answer.stderr.trim().split('\n')[0] ?? '').replace(/^spec-guard:\s*/, '');
+    return { unavailable: said === '' ? `spec-guard exited ${answer.code}` : `spec-guard exited ${answer.code}: ${said}` };
+  }
+  const seen = new Set<string>();
+  const out: RuleInForce[] = [];
+  for (const result of document.results ?? []) {
+    for (const rule of result.rules ?? []) {
+      const key = `${rule.document}:${rule.line}`;
+      if (rule.inForce === false || seen.has(key)) continue;
+      seen.add(key);
+      out.push({ document: rule.document, line: rule.line, kind: rule.kind, description: rule.description, reason: rule.reason ?? null });
+    }
+  }
+  return out;
+}
+
 export interface RulingInForce {
   readonly id: string;
   readonly paths: readonly string[];
@@ -40,8 +81,8 @@ export interface ContextInput {
   readonly briefText: string;
   readonly dependencies: readonly BriefRow[];
   readonly cited: readonly CitedDocument[];
-  /** The rules in force for the scope, or why they could not be read. */
-  readonly rules: readonly RuleInForce[] | { readonly unavailable: string };
+  /** The rules in force for the scope, none because spec-guard reads no specification, or why they could not be read. */
+  readonly rules: Rules;
   readonly rulings: readonly RulingInForce[];
   readonly branch: string | null;
   readonly base: string | null;
@@ -62,9 +103,10 @@ function list(items: readonly string[], empty: string): string {
   return items.length === 0 ? `- ${empty}` : items.map((item) => `- \`${item}\``).join('\n');
 }
 
-function rulesSection(rules: ContextInput['rules']): string {
-  if (!Array.isArray(rules)) {
-    return `The rules spec-guard holds this code to could not be read: ${(rules as { unavailable: string }).unavailable}. Treat every ADR as binding until they can.`;
+function rulesSection(rules: Rules): string {
+  if ('none' in rules) return `spec-guard holds no rule over this scope: ${rules.none}.`;
+  if ('unavailable' in rules) {
+    return `The rules spec-guard holds this code to could not be read: ${rules.unavailable}. Treat every ADR as binding until they can.`;
   }
   if (rules.length === 0) return 'spec-guard holds no rule over this scope.';
   const byDocument = new Map<string, RuleInForce[]>();

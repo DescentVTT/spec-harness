@@ -30,7 +30,7 @@ person approves brief 012 ─▶ agent on branch brief/012-rotate-tokens
 
 ### `context [brief]`
 
-The brief in full - it is the contract - then what it implies: the files the round may write and must not change as the guard reads them, the rulings already signed, the briefs it depends on and whether they are done, the architecture rules spec-guard holds that code to, and the documents the brief links to, whole, until the packet reaches its budget (`context.budget`, 60,000 characters). Documents left out are named by path, not dropped.
+The brief in full - it is the contract - then what it implies: the files the round may write and must not change as the guard reads them, the rulings already signed, the briefs it depends on and whether they are done, the architecture rules spec-guard holds that code to, and the documents the brief links to, whole, until the packet reaches its budget (`context.budget`, 60,000 characters). Documents left out are named by path, not dropped. Rules spec-guard could not read are named as unread, with what it said, never as none; a repository where no spec file matches spec-guard's patterns has none. `--base` names the base the rulings are verified against.
 
 ### `guard <path...>` and the hooks
 

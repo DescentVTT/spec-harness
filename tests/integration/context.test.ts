@@ -87,11 +87,25 @@ describe('context', () => {
     expect(result.stdout).toContain('The rules spec-guard holds this code to could not be read: spec-guard is not installed here');
   });
 
-  it('says so when spec-guard has no specifications to read', async () => {
+  it('says spec-guard holds no rule when no spec file matches its patterns, rather than that it failed', async () => {
     const nodocs = repository({ [BRIEF_FILE]: brief({ affected: ['src/**'] }) });
-    expect((await cli(['context', '1'], nodocs.root)).stdout).toContain('could not be read: spec-guard could not read its specs');
+    const result = await cli(['context', '1'], nodocs.root);
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain(
+      '## Rules in force for this scope\n\nspec-guard holds no rule over this scope: no spec file matched its patterns ("specs" in its configuration, docs/**/*.md by default).\n',
+    );
+    expect(result.stdout).not.toContain('Treat every ADR as binding');
     const unscoped = repository({ [BRIEF_FILE]: brief() });
     expect((await cli(['context', '1'], unscoped.root)).stdout).toContain('spec-guard holds no rule over this scope.');
+  });
+
+  it('passes on what spec-guard said when it could not read its specs, and gives the rest of the packet', async () => {
+    const broken = repository({ [BRIEF_FILE]: brief({ affected: ['src/**'] }), 'package.json': JSON.stringify({ specGuard: { bogus: 1 } }), 'docs/adr/0001.md': ADR });
+    const result = await cli(['context', '1'], broken.root);
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain('The rules spec-guard holds this code to could not be read: spec-guard exited 2 without JSON: spec-guard: package.json: unknown option "bogus"');
+    expect(result.stdout).toContain('. Treat every ADR as binding until they can.');
+    expect(result.stdout).toContain('## The contract');
   });
 
   it('refuses to guess a brief when none is named', async () => {
