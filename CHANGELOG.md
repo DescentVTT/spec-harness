@@ -1,5 +1,62 @@
 # Changelog
 
+## 0.1.2
+
+A signed ruling now works from `init` onwards. An end-to-end check of 0.1.1
+from npm, in a repository made with `git init`, could not finish the round
+the README describes: `init` named no base and did not load the spec-brief
+plugin, so no ruling verified, and spec-brief's archive refused the file a
+person had allowed. After upgrading, run `npx spec-harness init --write`
+again: it adds what is missing and replaces the `npx` hooks and server 0.1
+wrote.
+
+### Fixed
+
+- `init` loads this package's plugin in spec-brief's configuration,
+  `"plugins": ["@descent-vtt/spec-harness/spec-brief-plugin"]`, in whichever
+  file spec-brief reads. Without it, spec-brief's archive, and so `audit`,
+  refused a protected file whatever ruling was signed. `doctor` says whether
+  spec-brief loads the plugin, and `audit` gives it as the reason for such a
+  refusal, where it passed on spec-brief's "record the departure in the
+  brief".
+- `init` names the base in `.spec-harness.json`: the remote's default branch
+  where git recorded one, otherwise `main`, `master` or the only branch when
+  `init` runs on it; otherwise it asks. git records no default branch for a
+  repository that was not cloned, so 0.1 wrote `{}` there, and no command
+  could verify a ruling. It adds the base to a configuration that names
+  none. `doctor` shows the base, where it came from, and whether the
+  allowed-signers file is on it.
+- `guard`, `context` and the hooks honour `--base`, which they ignored. The
+  MCP tools `check_path` and `start_round` take a `base` argument, as
+  `audit_round` does.
+- The plugin's MCP server and hooks, and those `init` writes, run `node`
+  with `${CLAUDE_PROJECT_DIR}/node_modules/@descent-vtt/spec-harness/bin/spec-harness.js`.
+  Claude Code starts a plugin's server in the plugin's directory, where
+  `npx --no-install spec-harness` found no spec-harness, and on Windows
+  starts a server without a shell, where `npx` cannot start at all. The
+  server is told the project with `--root`, and reads `CLAUDE_PROJECT_DIR`
+  when no root is named. Use the plugin or `init`'s hooks and server, not
+  both.
+- `context` says spec-guard holds no rule when no spec file matches its
+  patterns, rather than that it could not read its specs, and passes on what
+  spec-guard said when it could not.
+- `premises` reports the premise of the brief a round works on as
+  `premise-retired`, a note, as `audit` does, and no longer fails on the
+  round's own branch.
+- `init` says whether spec-graph's patterns reach the briefs, which its
+  defaults do not in `briefs/`, and merges into the configuration spec-graph
+  reads rather than shadowing `spec-graph.config.json` or a `"spec-graph"`
+  key in `package.json`.
+- A title written with an em dash after the id, as `spec-brief new` writes
+  it, no longer repeats the id in `list_rounds` and `context`.
+- The README's links to the ADRs work in `node_modules` and on npmjs.com.
+
+### Changed
+
+- The programmatic API exports `GUARD_HOOK`, the guard as a Claude Code
+  hook, in place of `HOOK_COMMAND`, and `mcpServer`, `PROJECT_DIR` and
+  `PROJECT_DIR_OR_HERE` for the server.
+
 ## 0.1.1
 
 The same code as 0.1.0, built by CI from its tag and published with a
