@@ -17,7 +17,19 @@ import { chmod, mkdir, readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
 import { CONFIG_FILE } from './config.js';
-import { chooseBase, GUARD_HOOK, mergeClaudeSettings, mergeMcp, mergeSpecBrief, mergeSpecGraph, PLUGIN, SPEC_BRIEF_CONFIGS } from './configure.js';
+import {
+  chooseBase,
+  describeGraph,
+  graphReadsBriefs,
+  GUARD_HOOK,
+  mergeClaudeSettings,
+  mergeMcp,
+  mergeSpecBrief,
+  mergeSpecGraph,
+  PLUGIN,
+  SPEC_BRIEF_CONFIGS,
+  SPEC_GRAPH_CONFIGS,
+} from './configure.js';
 import { readJsonObject as readJson, writeAtomic } from './fs.js';
 import { git, localBranches, remoteDefault } from './git.js';
 import { runSibling } from './siblings.js';
@@ -100,19 +112,28 @@ export async function plan(workspace: Workspace, options: Options): Promise<Step
     }
   }
 
-  // spec-graph: an archived brief is a record, not a retired decision.
-  const graphFile = join(root, '.spec-graph.json');
+  // spec-graph: an archived brief is a record, not a retired decision. Its
+  // configuration is the first of its files, then a key in package.json; a
+  // file written beside that key would shadow it.
   const graph = workspace.siblings.locate('spec-graph');
   if (graph.kind === 'outdated') steps.push({ file: '.spec-graph.json', action: 'advise', detail: graph.reason });
   if (graph.kind === 'found') {
-    const current = await readJson(graphFile);
     const archiveGlob = `${archive}/**`;
-    if (current === 'unreadable') {
-      steps.push({ file: '.spec-graph.json', action: 'advise', detail: 'cannot be read as JSON; add "historyPatterns": ["' + archiveGlob + '"] by hand' });
+    const graphName = SPEC_GRAPH_CONFIGS.find((name) => existsSync(join(root, name)));
+    const manifest = graphName === undefined ? await readJson(join(root, 'package.json')) : null;
+    if (manifest !== null && manifest !== 'unreadable' && 'spec-graph' in manifest) {
+      steps.push({ file: 'package.json', action: 'advise', detail: `spec-graph reads its configuration from the "spec-graph" key here, which init does not edit: add "${archiveGlob}" to its "historyPatterns" by hand` });
     } else {
-      const merged = mergeSpecGraph(current ?? {}, archiveGlob);
-      if (merged === null) steps.push({ file: '.spec-graph.json', action: 'keep', detail: `${archiveGlob} is already history` });
-      else steps.push({ file: '.spec-graph.json', action: current === null ? 'create' : 'update', detail: `read ${archiveGlob} as history, so a brief that depends on an archived one is not a stale premise`, apply: () => writeAtomic(graphFile, stringify(merged)) });
+      const file = graphName ?? '.spec-graph.json';
+      const current = await readJson(join(root, file));
+      if (current === 'unreadable') {
+        steps.push({ file, action: 'advise', detail: `cannot be read as JSON; add "historyPatterns": ["${archiveGlob}"] by hand` });
+      } else {
+        const merged = mergeSpecGraph(current ?? {}, archiveGlob);
+        const detail = describeGraph(archiveGlob, briefs, graphReadsBriefs(current ?? {}, briefs), merged !== null);
+        if (merged === null) steps.push({ file, action: 'keep', detail });
+        else steps.push({ file, action: current === null ? 'create' : 'update', detail, apply: () => writeAtomic(join(root, file), stringify(merged)) });
+      }
     }
   }
 

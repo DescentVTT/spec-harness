@@ -4,7 +4,9 @@ import {
   chooseBase,
   describeBase,
   describePlugin,
+  describeGraph,
   describeSigners,
+  graphReadsBriefs,
   GUARD_HOOK,
   loadsPlugin,
   mcpServer,
@@ -16,6 +18,7 @@ import {
   PROJECT_DIR,
   PROJECT_DIR_OR_HERE,
   SPEC_BRIEF_CONFIGS,
+  SPEC_GRAPH_CONFIGS,
 } from '../../src/configure.js';
 
 const SCRIPT = '${CLAUDE_PROJECT_DIR}/node_modules/@descent-vtt/spec-harness/bin/spec-harness.js';
@@ -252,5 +255,42 @@ describe('spec-graph\'s history', () => {
 
   it('changes nothing when the archive is already history', () => {
     expect(mergeSpecGraph({ historyPatterns: ['briefs/archive/**'] }, 'briefs/archive/**')).toBeNull();
+  });
+
+  it('looks for spec-graph\'s configuration where spec-graph does, in its order', () => {
+    expect(SPEC_GRAPH_CONFIGS).toEqual(['.spec-graph.json', 'spec-graph.config.json']);
+  });
+
+  it('knows whether spec-graph reads the briefs: by its defaults, only where they are under docs/ and the like', () => {
+    expect(graphReadsBriefs({}, 'briefs')).toBe(false);
+    for (const briefs of ['docs/briefs', 'doc/briefs', 'adr/briefs', 'rfcs/briefs', 'specs/briefs', 'docs/work/briefs']) expect(graphReadsBriefs({}, briefs), briefs).toBe(true);
+    expect(graphReadsBriefs({ patterns: [] }, 'docs/briefs')).toBe(true);
+    expect(graphReadsBriefs({ patterns: 'briefs/**/*.md' }, 'briefs')).toBe(false);
+  });
+
+  it('reads the patterns spec-graph is given as spec-graph does: the last to match decides, a backslash separates', () => {
+    expect(graphReadsBriefs({ patterns: ['docs/**/*.md', 'briefs/**/*.md'] }, 'briefs')).toBe(true);
+    expect(graphReadsBriefs({ patterns: ['docs/**/*.md', 3] }, 'docs/briefs')).toBe(true);
+    expect(graphReadsBriefs({ patterns: ['docs/**/*.md'] }, 'briefs')).toBe(false);
+    expect(graphReadsBriefs({ patterns: ['docs/**/*.md', '!docs/briefs/**'] }, 'docs/briefs')).toBe(false);
+    expect(graphReadsBriefs({ patterns: ['briefs\\*.md'] }, 'briefs')).toBe(true);
+    expect(graphReadsBriefs({ patterns: ['Briefs/**'] }, 'briefs')).toBe(false);
+    // A list spec-graph would refuse reads nothing.
+    expect(graphReadsBriefs({ patterns: ['briefs/**', 'docs/[a'] }, 'briefs')).toBe(false);
+  });
+
+  it('says what the history entry does, and when it does nothing yet', () => {
+    expect(describeGraph('docs/briefs/archive/**', 'docs/briefs', true, true)).toBe(
+      'read docs/briefs/archive/** as history: an archived brief is a record whatever its status says, so a live brief that depends on one is not a stale premise',
+    );
+    expect(describeGraph('docs/briefs/archive/**', 'docs/briefs', true, false)).toBe(
+      'docs/briefs/archive/** is history: an archived brief is a record whatever its status says, so a live brief that depends on one is not a stale premise',
+    );
+    expect(describeGraph('briefs/archive/**', 'briefs', false, true)).toBe(
+      'read briefs/archive/** as history, for when spec-graph reads the briefs; its patterns do not reach briefs/, so it checks none of them now: add "briefs/**/*.md" to its "patterns" if it should',
+    );
+    expect(describeGraph('briefs/archive/**', 'briefs', false, false)).toBe(
+      'briefs/archive/** is history, for when spec-graph reads the briefs; its patterns do not reach briefs/, so it checks none of them now: add "briefs/**/*.md" to its "patterns" if it should',
+    );
   });
 });

@@ -8,6 +8,8 @@
  * nothing to add.
  */
 
+import { parseGlobList } from './vendor/spec-core/pattern/index.js';
+
 type Json = Record<string, unknown>;
 
 function isObject(value: unknown): value is Json {
@@ -213,6 +215,36 @@ export function describeSigners(file: string, base: string | null, onBase: boole
   if (base === null) return `${file}, read from the base, which could not be resolved: no ruling can count`;
   if (onBase) return `${file} is on ${base}`;
   return `${file} is not on ${base}, so no ruling can count: commit it there, one line per person, "<email> namespaces="git" <public key>"`;
+}
+
+/** spec-graph's configuration files, in the order spec-graph reads them; then a "spec-graph" key in package.json. */
+export const SPEC_GRAPH_CONFIGS: readonly string[] = ['.spec-graph.json', 'spec-graph.config.json'];
+
+/**
+ * spec-graph's own patterns when its configuration names none, its
+ * DEFAULT_PATTERNS as of 0.9.0. They decide only what init says, never what
+ * it writes: `patterns` in the configuration replaces them, so writing the
+ * briefs into it would freeze spec-graph's defaults into the file.
+ */
+const SPEC_GRAPH_DEFAULTS: readonly string[] = ['docs/**/*.md', 'doc/**/*.md', 'adr/**/*.md', 'rfcs/**/*.md', 'specs/**/*.md', '*.md'];
+
+/** Whether spec-graph, configured as `config` says, reads the briefs in the directory `briefs`. */
+export function graphReadsBriefs(config: Json, briefs: string): boolean {
+  const configured = Array.isArray(config['patterns']) ? config['patterns'].filter((pattern): pattern is string => typeof pattern === 'string') : [];
+  const list = parseGlobList(configured.length > 0 ? configured : SPEC_GRAPH_DEFAULTS, { dialect: 'path', caseSensitive: true, backslash: 'separator' });
+  return list.ok && list.list.match(`${briefs}/001_brief.md`);
+}
+
+/**
+ * What the history entry does. spec-graph reads a brief whose status says
+ * `archived` as a record already; the entry makes one a record whatever word
+ * its status uses, or none - and it does anything only where spec-graph
+ * reads the briefs, which its defaults do not in `briefs/`.
+ */
+export function describeGraph(archiveGlob: string, briefs: string, reads: boolean, added: boolean): string {
+  const history = added ? `read ${archiveGlob} as history` : `${archiveGlob} is history`;
+  if (reads) return `${history}: an archived brief is a record whatever its status says, so a live brief that depends on one is not a stale premise`;
+  return `${history}, for when spec-graph reads the briefs; its patterns do not reach ${briefs}/, so it checks none of them now: add "${briefs}/**/*.md" to its "patterns" if it should`;
 }
 
 /** spec-graph's configuration with the archive read as history, or `null` when it already is. */
