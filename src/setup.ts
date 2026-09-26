@@ -17,7 +17,7 @@ import { chmod, mkdir, readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
 import { CONFIG_FILE } from './config.js';
-import { HOOK_COMMAND, mergeClaudeSettings, mergeMcp, mergeSpecGraph } from './configure.js';
+import { GUARD_HOOK, mergeClaudeSettings, mergeMcp, mergeSpecGraph } from './configure.js';
 import { writeAtomic } from './fs.js';
 import { git, remoteDefault } from './git.js';
 import { runSibling } from './siblings.js';
@@ -116,11 +116,17 @@ export async function plan(workspace: Workspace, options: Options): Promise<Step
   const settingsFile = join(root, '.claude', 'settings.json');
   const settings = await readJson(settingsFile);
   if (settings === 'unreadable') {
-    steps.push({ file: '.claude/settings.json', action: 'advise', detail: `cannot be read as JSON; add a PreToolUse and a PostToolUse hook running "${HOOK_COMMAND}" by hand` });
+    steps.push({ file: '.claude/settings.json', action: 'advise', detail: `cannot be read as JSON; add the guard as a PreToolUse and a PostToolUse hook by hand: ${JSON.stringify(GUARD_HOOK)}` });
   } else {
     const merged = mergeClaudeSettings(settings ?? {});
     if (merged === null) steps.push({ file: '.claude/settings.json', action: 'keep', detail: 'the guard hooks are installed' });
-    else steps.push({ file: '.claude/settings.json', action: settings === null ? 'create' : 'update', detail: 'a PreToolUse hook refuses writes to protected files; a PostToolUse hook warns about writes outside the scope', apply: () => writeAtomic(settingsFile, stringify(merged)) });
+    else
+      steps.push({
+        file: '.claude/settings.json',
+        action: settings === null ? 'create' : 'update',
+        detail: 'the guard hooks, run with node from the project\'s install: a PreToolUse hook refuses writes to protected files; a PostToolUse hook warns about writes outside the scope',
+        apply: () => writeAtomic(settingsFile, stringify(merged)),
+      });
   }
   const mcpFile = join(root, '.mcp.json');
   const mcp = await readJson(mcpFile);
@@ -129,7 +135,13 @@ export async function plan(workspace: Workspace, options: Options): Promise<Step
   } else {
     const merged = mergeMcp(mcp ?? {});
     if (merged === null) steps.push({ file: '.mcp.json', action: 'keep', detail: 'the spec-harness server is registered' });
-    else steps.push({ file: '.mcp.json', action: mcp === null ? 'create' : 'update', detail: 'the spec-harness MCP server: start_round, check_path, request_escalation, audit_round, list_rounds', apply: () => writeAtomic(mcpFile, stringify(merged)) });
+    else
+      steps.push({
+        file: '.mcp.json',
+        action: mcp === null ? 'create' : 'update',
+        detail: 'the spec-harness MCP server, run with node from the project\'s install: start_round, check_path, request_escalation, audit_round, list_rounds',
+        apply: () => writeAtomic(mcpFile, stringify(merged)),
+      });
   }
 
   // git's hook, only when asked: it is configuration outside the tree.

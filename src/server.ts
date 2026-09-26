@@ -233,7 +233,9 @@ export function prompts(): PromptDefinition[] {
 }
 
 export async function mcpCommand(options: Options, io: CliIO): Promise<number> {
-  const workspace = await openWorkspace(options, io);
+  // Claude Code starts a plugin's server in the plugin's directory, and names
+  // the project in CLAUDE_PROJECT_DIR; the server answers for the project.
+  const workspace = await openWorkspace({ ...options, root: options.root ?? (io.env['CLAUDE_PROJECT_DIR'] || undefined) }, io);
   const handle = createMcpServer({ name: 'spec-harness', version: version(), instructions: INSTRUCTIONS, tools: tools(workspace, io.env), prompts: prompts() });
   await serveLines(process.stdin, (line) => process.stdout.write(`${line}\n`), handle);
   return 0;

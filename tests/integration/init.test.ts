@@ -3,7 +3,7 @@ import { join } from 'node:path';
 
 import { afterAll, describe, expect, it } from 'vitest';
 
-import { HOOK_COMMAND } from '../../src/configure.js';
+import { GUARD_HOOK, mcpServer, PROJECT_DIR_OR_HERE } from '../../src/configure.js';
 import { cleanup, cli, install, installFake, parsed, repository, siblings, type Repository } from './helpers.js';
 
 afterAll(cleanup);
@@ -67,9 +67,9 @@ describe('init', () => {
     expect(existsSync(join(repo.root, '.spec-brief.json'))).toBe(true);
     expect(JSON.parse(repo.read('.spec-harness.json'))).toEqual({});
     const settings = JSON.parse(repo.read('.claude/settings.json'));
-    expect(settings.hooks.PreToolUse[0].hooks[0].command).toBe(HOOK_COMMAND);
-    expect(settings.hooks.PostToolUse[0].hooks[0].command).toBe(HOOK_COMMAND);
-    expect(JSON.parse(repo.read('.mcp.json'))).toEqual({ mcpServers: { 'spec-harness': { command: 'npx', args: ['--no-install', 'spec-harness', 'mcp'] } } });
+    expect(settings.hooks.PreToolUse[0].hooks[0]).toEqual(GUARD_HOOK);
+    expect(settings.hooks.PostToolUse[0].hooks[0]).toEqual(GUARD_HOOK);
+    expect(JSON.parse(repo.read('.mcp.json'))).toEqual({ mcpServers: { 'spec-harness': mcpServer(PROJECT_DIR_OR_HERE) } });
 
     const settled = snapshot(repo.root);
     const contents = ['.spec-brief.json', '.spec-harness.json', '.claude/settings.json', '.mcp.json'].map((file) => repo.read(file));
@@ -98,7 +98,7 @@ describe('init', () => {
     expect(settings.permissions).toEqual({ allow: ['Bash(ls)'] });
     expect(settings.hooks.PreToolUse).toHaveLength(2);
     expect(settings.hooks.PreToolUse[0]).toEqual(lint);
-    expect(settings.hooks.PreToolUse[1].hooks[0].command).toBe(HOOK_COMMAND);
+    expect(settings.hooks.PreToolUse[1].hooks[0]).toEqual(GUARD_HOOK);
     expect(JSON.parse(repo.read('.mcp.json')).mcpServers.other).toEqual({ command: 'x' });
     expect((await cli(['init'], repo.root)).stdout).toContain('keep    .claude/settings.json');
   });
@@ -107,7 +107,7 @@ describe('init', () => {
     const repo = repository({ '.claude/settings.json': '{ not json', '.mcp.json': '[]', '.spec-brief.json': '{', '.spec-graph.json': 'x' }, { tools: { ...siblings(), 'spec-graph': ['node', 'graph.js'] } });
     const result = await cli(['init', '--write'], repo.root);
     expect(result.code).toBe(0);
-    expect(result.stdout).toContain(`advise  .claude/settings.json\n        cannot be read as JSON; add a PreToolUse and a PostToolUse hook running "${HOOK_COMMAND}" by hand`);
+    expect(result.stdout).toContain(`advise  .claude/settings.json\n        cannot be read as JSON; add the guard as a PreToolUse and a PostToolUse hook by hand: ${JSON.stringify(GUARD_HOOK)}`);
     expect(result.stdout).toContain('advise  .mcp.json\n        cannot be read as JSON; add the spec-harness server by hand');
     expect(result.stdout).toContain('advise  .spec-graph.json\n        cannot be read as JSON; add "historyPatterns": ["briefs/archive/**"] by hand');
     expect(result.stdout).toContain('keep    .spec-brief.json\n        briefs in briefs/, the archive in briefs/archive/');
@@ -121,6 +121,22 @@ describe('init', () => {
     expect(result.stdout).toContain('create  .spec-graph.json\n        read old/** as history');
     expect(JSON.parse(repo.read('.spec-graph.json'))).toEqual({ historyPatterns: ['old/**'] });
     expect((await cli(['init'], repo.root)).stdout).toContain('keep    .spec-graph.json\n        old/** is already history');
+  });
+
+  it('replaces the npx hooks and server 0.1 installed, keeping everything else', async () => {
+    const legacy = { type: 'command', command: 'npx --no-install spec-harness hook claude', timeout: 60 };
+    const repo = repository({
+      '.claude/settings.json': JSON.stringify({ model: 'm', hooks: { PreToolUse: [{ matcher: 'Edit|Write|MultiEdit|NotebookEdit', hooks: [legacy] }], PostToolUse: [{ matcher: 'Edit|Write|MultiEdit|NotebookEdit', hooks: [legacy] }] } }),
+      '.mcp.json': JSON.stringify({ mcpServers: { other: { command: 'x' }, 'spec-harness': { command: 'npx', args: ['--no-install', 'spec-harness', 'mcp'] } } }),
+    });
+    const result = await cli(['init', '--write'], repo.root);
+    expect(result.stdout).toContain('update  .claude/settings.json\n        the guard hooks, run with node from the project\'s install');
+    expect(result.stdout).toContain('update  .mcp.json\n        the spec-harness MCP server, run with node from the project\'s install');
+    const settings = JSON.parse(repo.read('.claude/settings.json'));
+    expect(settings.model).toBe('m');
+    expect(settings.hooks.PreToolUse).toEqual([{ matcher: 'Edit|Write|MultiEdit|NotebookEdit', hooks: [GUARD_HOOK] }]);
+    expect(settings.hooks.PostToolUse).toEqual([{ matcher: 'Edit|Write|MultiEdit|NotebookEdit', hooks: [GUARD_HOOK] }]);
+    expect(JSON.parse(repo.read('.mcp.json'))).toEqual({ mcpServers: { other: { command: 'x' }, 'spec-harness': mcpServer(PROJECT_DIR_OR_HERE) } });
   });
 
   it('advises installing spec-brief when it is not there to ask', async () => {
