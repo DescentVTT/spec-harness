@@ -93,7 +93,7 @@ with code comes from the workflow.
    for the run to stage it, and approve it. The `npm` environment is created
    in the repository by that first run; a required reviewer, if a release
    should wait for one, goes on it.
-5. **Deprecate the placeholder** once 0.1.0 is installable:
+5. **Deprecate the placeholder** once a version with code is installable:
 
    ```bash
    npm deprecate @descent-vtt/spec-harness@0.0.0 "A placeholder without code; install 0.1.0 or later."

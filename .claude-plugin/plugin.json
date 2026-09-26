@@ -1,6 +1,6 @@
 {
   "name": "spec-harness",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Rounds of agent work under a brief: context, a guard on every write, escalations a person signs, an audit at the end. Needs @descent-vtt/spec-harness and @descent-vtt/spec-brief 0.2.0 or later installed in the project.",
   "author": {
     "name": "DescentVTT",
