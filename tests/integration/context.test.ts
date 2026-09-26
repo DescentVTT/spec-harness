@@ -1,0 +1,107 @@
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+
+import { brief, BRIEF_FILE, cleanup, cli, parsed, repository, SPEC_BRIEF, type Repository } from './helpers.js';
+
+afterAll(cleanup);
+
+const ADR = '---\nstatus: accepted\n---\n\n# ADR-0001: Sessions\n\nNo legacy gateway.\n\n<!-- @assert-absence target="src/auth" symbol="LegacyGateway" reason="the gateway is gone" -->\n';
+
+let repo: Repository;
+
+beforeAll(() => {
+  repo = repository({
+    [BRIEF_FILE]: brief({
+      affected: ['src/auth/**'],
+      protected: ['src/db/schema.ts'],
+      dependsOn: ['2', '3', '9'],
+      body: [
+        '## Context',
+        '',
+        'See [the design](../docs/design.md), [the ADR](../docs/adr/0001-sessions.md#decision), [a missing note](../docs/gone.md),',
+        '[the code](../src/auth/a.ts), [the directory](../src/auth/), [the site](https://example.com), [itself](001_rotate-tokens.md)',
+        'and [the design again](../docs/design.md).',
+        '',
+      ].join('\n'),
+    }),
+    'briefs/002_live.md': brief({ title: '002 - Still going', status: 'draft' }),
+    'briefs/archive/003_done.md': brief({ title: '003 - Done', status: 'archived' }),
+    'docs/design.md': '---\nstatus: draft\n---\n\n# The design\n\nTokens rotate.\n',
+    'docs/adr/0001-sessions.md': ADR,
+    'src/auth/a.ts': 'a;\n',
+    'src/db/schema.ts': 'table;\n',
+  });
+  repo.git('checkout', '-q', '-b', 'brief/001-rotate');
+});
+
+describe('context', () => {
+  it('gives the contract, the scope, the dependencies, the rules and the cited documents', async () => {
+    const result = await cli(['context'], repo.root);
+    expect(result.code).toBe(0);
+    const text = result.stdout;
+    expect(text.startsWith('# Round 001: Rotate tokens\n\nStatus active · branch `brief/001-rotate` · measured from `main`\n')).toBe(true);
+    expect(text).toContain(`\`${BRIEF_FILE}\`, in full:`);
+    expect(text).toContain('Rotate the session token on every privilege change.');
+    expect(text).toContain('May write:\n- `src/auth/**`\n');
+    expect(text).toContain('Must not change without a ruling:\n- `src/db/schema.ts`\n');
+    expect(text).toContain('Rulings in force:\n- none\n');
+    // spec-brief reports dependencies as the front matter spells them; 2 is brief 002.
+    expect(text).toContain('## Depends on\n\n- 002 002 - Still going: still draft\n- 003 003 - Done: archived, done\n- 9 (no such brief): still unknown\n');
+    expect(text).toContain('### docs/adr/0001-sessions.md\n\n- line 9: "LegacyGateway" must not appear in src/auth - the gateway is gone');
+    expect(text).toContain('### `docs/design.md` - The design (draft)\n\n````markdown\n---\nstatus: draft\n---\n\n# The design\n\nTokens rotate.\n````');
+    expect(text).toContain('### `docs/adr/0001-sessions.md` - ADR-0001: Sessions (accepted)');
+    expect(text).toContain('Cited but not found in the repository:\n- `docs/gone.md`\n');
+    expect(text).not.toContain('`src/auth/a.ts`\n\n````');
+    expect(text.endsWith('\n')).toBe(true);
+  });
+
+  it('reports what it included, left out and could not find, in JSON', async () => {
+    const result = await cli(['context', '--format', 'json'], repo.root);
+    expect(result.code).toBe(0);
+    const packet = parsed<{ command: string; brief: string; markdown: string; included: string[]; omitted: string[]; unresolved: string[] }>(result);
+    expect(packet).toMatchObject({
+      command: 'context',
+      brief: '001',
+      included: ['docs/design.md', 'docs/adr/0001-sessions.md'],
+      omitted: [],
+      // A link to code or a directory is not a document, and is not missing either.
+      unresolved: ['docs/gone.md'],
+    });
+  });
+
+  it('names a brief by its positional id, over the branch', async () => {
+    const result = await cli(['context', '2', '--format', 'json'], repo.root);
+    expect(parsed<{ brief: string }>(result).brief).toBe('002');
+  });
+
+  it('names the documents the budget leaves out', async () => {
+    const small = repository({ [BRIEF_FILE]: brief({ body: 'See [a](../docs/a.md).\n' }), 'docs/a.md': '# A\n\ntext\n' }, { context: { budget: 100 } });
+    const result = await cli(['context', '1', '--format', 'json'], small.root);
+    expect(parsed<{ included: string[]; omitted: string[] }>(result)).toMatchObject({ included: [], omitted: ['docs/a.md'] });
+    expect(parsed<{ markdown: string }>(result).markdown).toContain('Left out to stay within 100 characters');
+  });
+
+  it('says the rules could not be read when spec-guard is not there, rather than that there are none', async () => {
+    const bare = repository({ [BRIEF_FILE]: brief({ affected: ['src/**'] }) }, { tools: { 'spec-brief': ['node', SPEC_BRIEF] } });
+    const result = await cli(['context', '1'], bare.root);
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain('The rules spec-guard holds this code to could not be read: spec-guard is not installed here');
+  });
+
+  it('says so when spec-guard has no specifications to read', async () => {
+    const nodocs = repository({ [BRIEF_FILE]: brief({ affected: ['src/**'] }) });
+    expect((await cli(['context', '1'], nodocs.root)).stdout).toContain('could not be read: spec-guard could not read its specs');
+    const unscoped = repository({ [BRIEF_FILE]: brief() });
+    expect((await cli(['context', '1'], unscoped.root)).stdout).toContain('spec-guard holds no rule over this scope.');
+  });
+
+  it('refuses to guess a brief when none is named', async () => {
+    const result = await cli(['context'], repository({ [BRIEF_FILE]: brief() }).root);
+    expect(result.code).toBe(2);
+    expect(result.stderr).toBe('spec-harness: no brief is named: pass --brief <id>, set SPEC_BRIEF, or work on a branch named like brief/<id>-<topic>\n');
+  });
+
+  it('refuses a named brief spec-brief does not know', async () => {
+    const result = await cli(['context', '404'], repo.root);
+    expect(result).toMatchObject({ code: 2, stderr: 'spec-harness: the flag names brief 404, and spec-brief knows no such brief\n' });
+  });
+});

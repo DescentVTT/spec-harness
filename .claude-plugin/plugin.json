@@ -1,0 +1,17 @@
+{
+  "name": "spec-harness",
+  "version": "0.1.0",
+  "description": "Rounds of agent work under a brief: context, a guard on every write, escalations a person signs, an audit at the end. Needs @descent-vtt/spec-harness and @descent-vtt/spec-brief installed in the project.",
+  "author": {
+    "name": "DescentVTT",
+    "url": "https://github.com/DescentVTT"
+  },
+  "homepage": "https://github.com/DescentVTT/spec-harness",
+  "license": "MIT",
+  "keywords": [
+    "brief",
+    "guardrails",
+    "spec",
+    "agents"
+  ]
+}

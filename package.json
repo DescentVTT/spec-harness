@@ -1,0 +1,79 @@
+{
+  "name": "@descent-vtt/spec-harness",
+  "version": "0.1.0",
+  "description": "The agent-facing member of the spec-* tools: context for a round, a guard on every write, an audit when it ends, probes that prove a defect before it is filed, and rulings a person signs.",
+  "keywords": [
+    "agents",
+    "brief",
+    "claude-code",
+    "guardrails",
+    "harness",
+    "hooks",
+    "mcp",
+    "spec"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "spec-harness": "bin/spec-harness.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./spec-brief-plugin": {
+      "types": "./dist/plugin.d.ts",
+      "default": "./dist/plugin.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "CHANGELOG.md",
+    "LICENSE",
+    "README.md",
+    "bin",
+    "dist",
+    "skills",
+    "hooks",
+    ".claude-plugin",
+    ".mcp.json"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:mutation": "stryker run stryker.core.config.mjs",
+    "test:mutation:full": "stryker run",
+    "prepublishOnly": "npm run clean && npm run build"
+  },
+  "devDependencies": {
+    "@descent-vtt/spec-brief": "^0.1.0",
+    "@descent-vtt/spec-guard": "^0.11.0",
+    "@stryker-mutator/core": "^10.0.0",
+    "@stryker-mutator/vitest-runner": "^10.0.0",
+    "@types/node": "^22.20.4",
+    "@vitest/coverage-v8": "^4.1.11",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.11"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DescentVTT/spec-harness.git"
+  },
+  "bugs": {
+    "url": "https://github.com/DescentVTT/spec-harness/issues"
+  },
+  "homepage": "https://github.com/DescentVTT/spec-harness#readme"
+}

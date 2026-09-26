@@ -1,0 +1,16 @@
+{
+  "name": "spec-tools",
+  "owner": {
+    "name": "DescentVTT",
+    "url": "https://github.com/DescentVTT"
+  },
+  "description": "The spec-* tools for agents: briefs, guards, audits and rulings.",
+  "plugins": [
+    {
+      "name": "spec-harness",
+      "source": "./",
+      "description": "Rounds of agent work under a brief.",
+      "version": "0.1.0"
+    }
+  ]
+}

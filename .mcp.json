@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "spec-harness": {
+      "command": "npx",
+      "args": [
+        "--no-install",
+        "spec-harness",
+        "mcp"
+      ]
+    }
+  }
+}
