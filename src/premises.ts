@@ -11,9 +11,15 @@
  *
  * Goals are the audit's (`audit`), not this: a goal fails until its round is
  * done, and a build that failed for that would fail for every brief in flight.
+ * For the same reason the premise of the brief a round is working on - the
+ * one the flag, SPEC_BRIEF or the branch names - is reported as the audit
+ * reports it, retired as the round intends, and fails nothing: on the round's
+ * branch, a premise that no longer holds is the work being done.
  */
 
-import { isPremise } from './audit.js';
+import { isPremise, premiseFinding } from './audit.js';
+import { briefIdFromBranch } from './branch.js';
+import { findActive } from './briefs.js';
 import { createReader } from './reader.js';
 import { briefText } from './round.js';
 import type { Finding } from './types.js';
@@ -29,7 +35,11 @@ interface GuardResult {
 export async function premisesCommand(options: Options, io: CliIO): Promise<number> {
   const workspace = await openWorkspace(options, io);
   const reader = createReader();
-  const live = (await workspace.siblings.briefs()).filter((brief) => brief.phase === 'live');
+  const briefs = await workspace.siblings.briefs();
+  const live = briefs.filter((brief) => brief.phase === 'live');
+  const fromBranch = workspace.branch === null ? null : briefIdFromBranch(workspace.config.branches, workspace.branch);
+  const active = findActive(briefs, { flag: options.brief, environment: io.env['SPEC_BRIEF'], branch: fromBranch });
+  const round = active.kind === 'found' ? active.brief.file : null;
   if (live.length === 0) {
     io.stdout.write(options.format === 'json' ? json('premises', { ok: true, checked: 0, findings: [] }) : 'no live brief\n');
     return EXIT_OK;
@@ -55,21 +65,17 @@ export async function premisesCommand(options: Options, io: CliIO): Promise<numb
       if (!isPremise(reader.sectionsAt(text, line), workspace.config.assertions.premises)) continue;
       premises += 1;
       if (result.ok) continue;
-      findings.push({
-        rule: 'stale-premise',
-        severity: 'error',
-        message: `brief ${brief.id}'s premise no longer holds: ${result.description}: ${result.message}`,
-        hint: 'what the brief was written against has changed; archive the brief if its work is done, or rewrite its premise before a round is run on it',
-        file: brief.file,
-        line,
-      });
+      findings.push(premiseFinding(brief, { description: result.description, message: result.message, line }, brief.file === round));
     }
   }
+  const stale = findings.filter((finding) => finding.severity === 'error').length;
+  const retired = findings.length - stale;
   if (options.format === 'json') {
-    io.stdout.write(json('premises', { ok: findings.length === 0, briefs: live.length, premises, findings }));
+    io.stdout.write(json('premises', { ok: stale === 0, briefs: live.length, premises, findings }));
   } else {
-    for (const finding of findings) io.stdout.write(`error    ${finding.file}:${finding.line}  ${finding.message}\n         ${finding.hint}\n`);
-    io.stdout.write(`${premises} premise(s) in ${live.length} live brief(s), ${findings.length} no longer hold\n`);
+    for (const finding of findings) io.stdout.write(`${finding.severity.padEnd(8)} ${finding.file}:${finding.line}  ${finding.message}\n         ${finding.hint}\n`);
+    const intended = retired === 0 || active.kind !== 'found' ? '' : `, and ${retired} retired by the round on brief ${active.brief.id}, as it intends`;
+    io.stdout.write(`${premises} premise(s) in ${live.length} live brief(s), ${stale} no longer hold${intended}\n`);
   }
-  return findings.length > 0 ? EXIT_FAILED : EXIT_OK;
+  return stale > 0 ? EXIT_FAILED : EXIT_OK;
 }

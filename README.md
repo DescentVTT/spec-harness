@@ -84,7 +84,7 @@ signature: expected 401, got 200
 
 ### `premises`
 
-Is every live brief still about something true? It runs spec-guard over the live briefs' assertions and reports each premise - an assertion under a section in `assertions.premises` - that no longer holds as `stale-premise`: the defect was fixed another way, or the code the brief describes is gone, and an agent sent to fix it would fix nothing. Goals are left to `audit`, since a goal fails until its round is done. Run it in CI: exit 1 when a premise is stale, exit 2 when spec-guard is not there to ask.
+Is every live brief still about something true? It runs spec-guard over the live briefs' assertions and reports each premise - an assertion under a section in `assertions.premises` - that no longer holds as `stale-premise`: the defect was fixed another way, or the code the brief describes is gone, and an agent sent to fix it would fix nothing. Goals are left to `audit`, since a goal fails until its round is done. For the same reason, the premise of the brief a round is working on - the one `--brief`, `SPEC_BRIEF` or the branch names - is reported as `audit` reports it, `premise-retired`, a note that fails nothing: on the round's branch, a premise that no longer holds is the work being done. Run it in CI: exit 1 when a premise is stale, exit 2 when spec-guard is not there to ask.
 
 ### `mcp`
 
