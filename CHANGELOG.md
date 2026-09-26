@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- spec-core at 8840d36. Its Markdown scanner reads an image inside a link's
+  text, as CommonMark renders it, and lists it after the link it lies in:
+  `[![build](badge.svg)](actions)` gives both, where the image went unread
+  before. `context` takes the link around a badge as a document the brief
+  cites and never the image, which is a picture on the page, not a document,
+  and would otherwise show as a link that resolves to nothing.
+- The scanner makes a document's links, list items and directives mask the
+  first time they are read, and keeps them. The answers are the same.
+
 ## 0.1.3
 
 spec-brief's archive is a gate from `init` onwards. 0.1.2's `init` named the

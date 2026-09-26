@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest';
 import { pluginDrift, releaseOf } from '../scripts/release.js';
 import { ConfigError, parseConfig, SIBLINGS } from '../src/config.js';
 import { GUARD_HOOK, mcpServer, mergeClaudeSettings, mergeMcp, PROJECT_DIR, PROJECT_DIR_OR_HERE } from '../src/configure.js';
+import { scanMarkdown } from '../src/vendor/spec-core/markdown/index.js';
 import { MINIMUM_VERSIONS } from '../src/versions.js';
 
 /**
@@ -184,8 +185,9 @@ describe('the documents the package ships', () => {
     expect(documents.every(ships)).toBe(true);
     const dead: string[] = [];
     for (const document of documents) {
-      for (const match of text(document).matchAll(/\]\(([^)\s]+)\)/g)) {
-        const target = match[1] as string;
+      // Read as a renderer reads it: a link written out in a code span, as the
+      // changelog does to show one, is text there and never followed.
+      for (const { target } of scanMarkdown(text(document)).links) {
         if (/^(?:[a-z][a-z+.-]*:|#)/i.test(target)) continue;
         const path = posix.join(posix.dirname(document), target.split('#')[0] as string);
         if (!ships(path) || !existsSync(join(ROOT, path))) dead.push(`${document}: ${target}`);

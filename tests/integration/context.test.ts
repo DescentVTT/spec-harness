@@ -80,6 +80,18 @@ describe('context', () => {
     expect(parsed<{ markdown: string }>(result).markdown).toContain('Left out to stay within 100 characters');
   });
 
+  it('includes the document a badge links to, and not the badge', async () => {
+    // The image is missing on purpose: taken for a cited document, it would
+    // show as a link that resolves to nothing.
+    const badged = repository({ [BRIEF_FILE]: brief({ body: 'See [![b](img/x.png)](../docs/a.md).\n' }), 'docs/a.md': '# A\n\ntext\n' });
+    const result = await cli(['context', '1', '--format', 'json'], badged.root);
+    expect(result.code).toBe(0);
+    const packet = parsed<{ markdown: string; included: string[]; omitted: string[]; unresolved: string[] }>(result);
+    expect(packet).toMatchObject({ included: ['docs/a.md'], omitted: [], unresolved: [] });
+    expect(packet.markdown).toContain('### `docs/a.md` - A\n');
+    expect(packet.markdown).not.toContain('`briefs/img/x.png`');
+  });
+
   it('says the rules could not be read when spec-guard is not there, rather than that there are none', async () => {
     const bare = repository({ [BRIEF_FILE]: brief({ affected: ['src/**'] }) }, { tools: { 'spec-brief': ['node', SPEC_BRIEF] } });
     const result = await cli(['context', '1'], bare.root);
