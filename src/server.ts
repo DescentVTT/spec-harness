@@ -199,7 +199,7 @@ export function tools(workspace: Workspace, env: CliIO['env']): ToolDefinition[]
         const text = live
           .map((b) => `${[b.id, titleOf(b)].filter((part) => part !== null).join(' ')} - ${b.status ?? 'unknown'}, wave ${b.wave ?? '-'}, ${b.ready ? 'ready' : `waits on ${b.waitingOn.join(', ')}`}`)
           .join('\n');
-        return { text: text === '' ? 'No live brief.' : text, structured: { briefs: live.map((b) => ({ ...b })) } };
+        return { text: text === '' ? 'No live brief.' : text, structured: { briefs: live.map((b) => ({ ...b, title: titleOf(b) })) } };
       },
     },
   ];

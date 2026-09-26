@@ -22,6 +22,8 @@ import {
   describeGraph,
   graphReadsBriefs,
   GUARD_HOOK,
+  loadsPlugin,
+  measuresArchive,
   mergeClaudeSettings,
   mergeMcp,
   mergeSpecBrief,
@@ -52,6 +54,13 @@ function stringify(value: unknown): string {
 
 const PLUGIN_DETAIL = `load spec-harness's plugin, "${PLUGIN}": spec-brief's archive asks it whether a signed ruling allows a protected file, and refuses the file without it`;
 
+/** What init adds to spec-brief's configuration, said once for the plan. */
+function specBriefDetail(plugin: boolean, base: string | null): string {
+  const parts = plugin ? [PLUGIN_DETAIL] : [];
+  if (base !== null) parts.push(`measure the archive from ${base}, as spec-harness does: without a base, spec-brief's archive warns that the scope went unmeasured and checks no protected file`);
+  return parts.join('; ');
+}
+
 const PRE_COMMIT = `#!/bin/sh
 # spec-harness: refuse a commit that changes what the active brief protects.
 exec npx --no-install spec-harness hook git
@@ -60,6 +69,18 @@ exec npx --no-install spec-harness hook git
 export async function plan(workspace: Workspace, options: Options): Promise<Step[]> {
   const { root } = workspace;
   const steps: Step[] = [];
+
+  // The base rounds merge into, decided once: spec-harness verifies rulings
+  // against the allowed signers on it, and spec-brief's archive measures the
+  // round from it. A base a person wrote, in either file, is kept.
+  const harnessFile = join(root, CONFIG_FILE);
+  const harness = await readJson(harnessFile);
+  const namedBase = harness !== null && harness !== 'unreadable' && typeof harness['base'] === 'string' ? harness['base'] : null;
+  const choice =
+    harness === 'unreadable' || namedBase !== null
+      ? null
+      : chooseBase({ remoteDefault: await remoteDefault(root), branch: workspace.branch, branches: await localBranches(root) });
+  const base = namedBase ?? choice?.base ?? null;
 
   // spec-brief first: every other setting is derived from its directories.
   const briefConfig = SPEC_BRIEF_CONFIGS.find((name) => existsSync(join(root, name)));
@@ -82,11 +103,11 @@ export async function plan(workspace: Workspace, options: Options): Promise<Step
       steps.push({
         file: '.spec-brief.json',
         action: 'update',
-        detail: PLUGIN_DETAIL,
+        detail: specBriefDetail(true, base),
         apply: async () => {
           const written = await readJson(created);
           if (written === null || written === 'unreadable') throw new Error('spec-brief init wrote no configuration JSON can read');
-          const merged = mergeSpecBrief(written);
+          const merged = mergeSpecBrief(written, base);
           if (merged !== null) await writeAtomic(created, stringify(merged));
         },
       });
@@ -104,11 +125,18 @@ export async function plan(workspace: Workspace, options: Options): Promise<Step
     // spec-brief's archive learns that a signed ruling allows a protected file
     // only from this package's plugin (ADR-0006).
     if (config === 'unreadable' || config === null) {
-      steps.push({ file: briefConfig, action: 'advise', detail: `cannot be read as JSON; add "plugins": ["${PLUGIN}"] by hand` });
+      const measure = base === null ? '' : `, and "archiving": { "base": "${base}" }`;
+      steps.push({ file: briefConfig, action: 'advise', detail: `cannot be read as JSON; add "plugins": ["${PLUGIN}"]${measure} by hand` });
     } else {
-      const merged = mergeSpecBrief(config);
-      if (merged === null) steps.push({ file: briefConfig, action: 'keep', detail: "spec-harness's plugin is loaded" });
-      else steps.push({ file: briefConfig, action: 'update', detail: PLUGIN_DETAIL, apply: () => writeAtomic(file, stringify(merged)) });
+      const merged = mergeSpecBrief(config, base);
+      const measured = measuresArchive(config);
+      if (merged === null) {
+        const from = measured ? `, and the archive is measured from ${String((config['archiving'] as Json)['base'])}` : '';
+        steps.push({ file: briefConfig, action: 'keep', detail: `spec-harness's plugin is loaded${from}` });
+      } else {
+        const detail = specBriefDetail(!loadsPlugin(config), measured ? null : base);
+        steps.push({ file: briefConfig, action: 'update', detail, apply: () => writeAtomic(file, stringify(merged)) });
+      }
     }
   }
 
@@ -139,21 +167,15 @@ export async function plan(workspace: Workspace, options: Options): Promise<Step
 
   // spec-harness's own file, naming the base the rounds merge into: every
   // ruling is verified against the allowed signers on it.
-  const harnessFile = join(root, CONFIG_FILE);
-  const harness = await readJson(harnessFile);
   if (harness === 'unreadable') {
     steps.push({ file: CONFIG_FILE, action: 'advise', detail: 'cannot be read as JSON; name the base rounds merge into as "base" by hand' });
-  } else if (harness !== null && typeof harness['base'] === 'string') {
-    steps.push({ file: CONFIG_FILE, action: 'keep', detail: `rounds are measured from ${harness['base']}` });
+  } else if (namedBase !== null) {
+    steps.push({ file: CONFIG_FILE, action: 'keep', detail: `rounds are measured from ${namedBase}` });
+  } else if (base === null || choice === null) {
+    steps.push({ file: CONFIG_FILE, action: 'advise', detail: choice?.detail ?? 'name the base rounds merge into as "base"' });
   } else {
-    const choice = chooseBase({ remoteDefault: await remoteDefault(root), branch: workspace.branch, branches: await localBranches(root) });
-    const base = choice.base;
-    if (base === null) {
-      steps.push({ file: CONFIG_FILE, action: 'advise', detail: choice.detail });
-    } else {
-      const content: Json = { ...harness, base };
-      steps.push({ file: CONFIG_FILE, action: harness === null ? 'create' : 'update', detail: choice.detail, apply: () => writeAtomic(harnessFile, stringify(content)) });
-    }
+    const content: Json = { ...harness, base };
+    steps.push({ file: CONFIG_FILE, action: harness === null ? 'create' : 'update', detail: choice.detail, apply: () => writeAtomic(harnessFile, stringify(content)) });
   }
 
   // The agent's hook and server.
@@ -217,7 +239,7 @@ export async function plan(workspace: Workspace, options: Options): Promise<Step
     file: '.github/allowed_signers',
     action: 'advise',
     detail:
-      'rulings count only when signed by a key listed here on the base branch: one line per person, "<email> namespaces=\\"git\\" <public key>"; protect it, the ADRs and the tool configurations with CODEOWNERS',
+      'rulings count only when signed by a key listed here on the base branch: one line per person, <email> namespaces="git" <public key>; protect it, the ADRs and the tool configurations with CODEOWNERS',
   });
   return steps;
 }

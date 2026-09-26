@@ -12,6 +12,7 @@ import {
   mcpServer,
   mergeClaudeSettings,
   mergeMcp,
+  measuresArchive,
   mergeSpecBrief,
   mergeSpecGraph,
   PLUGIN,
@@ -167,6 +168,18 @@ describe('spec-brief\'s plugins', () => {
 
   it('changes nothing when the plugin is loaded', () => {
     expect(mergeSpecBrief({ plugins: [PLUGIN] })).toBeNull();
+    expect(mergeSpecBrief({ plugins: [PLUGIN] }, 'main')).toEqual({ plugins: [PLUGIN], archiving: { base: 'main' } });
+    expect(mergeSpecBrief({ plugins: [PLUGIN], archiving: { base: null, rewriteLinks: true } }, 'origin/main')).toEqual({
+      plugins: [PLUGIN],
+      archiving: { base: 'origin/main', rewriteLinks: true },
+    });
+    // A base a person wrote is theirs, whatever init would have named.
+    expect(mergeSpecBrief({ plugins: [PLUGIN], archiving: { base: 'develop' } }, 'main')).toBeNull();
+    expect(mergeSpecBrief({ archiving: { base: 'develop' } }, 'main')).toEqual({ archiving: { base: 'develop' }, plugins: [PLUGIN] });
+    expect(measuresArchive({ archiving: { base: 'main' } })).toBe(true);
+    expect(measuresArchive({ archiving: { base: null } })).toBe(false);
+    expect(measuresArchive({ archiving: 'main' })).toBe(false);
+    expect(measuresArchive({})).toBe(false);
     expect(mergeSpecBrief({ plugins: [{ module: PLUGIN }] })).toBeNull();
   });
 
@@ -236,7 +249,7 @@ describe('what doctor says of the base and the signers', () => {
   it('says whether the allowed signers are on the base, and what no ruling can do without them', () => {
     expect(describeSigners('.github/allowed_signers', 'main', true)).toBe('.github/allowed_signers is on main');
     expect(describeSigners('.github/allowed_signers', 'main', false)).toBe(
-      '.github/allowed_signers is not on main, so no ruling can count: commit it there, one line per person, "<email> namespaces="git" <public key>"',
+      '.github/allowed_signers is not on main, so no ruling can count: commit it there, one line per person: <email> namespaces="git" <public key>',
     );
     expect(describeSigners('signers', null, false)).toBe('signers, read from the base, which could not be resolved: no ruling can count');
     expect(describeSigners('signers', null, true)).toBe('signers, read from the base, which could not be resolved: no ruling can count');

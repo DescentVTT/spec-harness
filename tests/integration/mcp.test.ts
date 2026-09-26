@@ -112,6 +112,8 @@ describe('the tools', () => {
     const outcome = await tool('list_rounds').call({});
     expect(outcome.text).toBe('001 Rotate tokens - active, wave -, ready\n002 Next - active, wave -, waits on 1');
     expect((outcome.structured as { briefs: { id: string }[] }).briefs.map((b) => b.id)).toEqual(['001', '002']);
+    // The id is its own field, so the title does not say it again, here or in the text.
+    expect((outcome.structured as { briefs: { title: string | null }[] }).briefs.map((b) => b.title)).toEqual(['Rotate tokens', 'Next']);
     expect(await tool('list_rounds').call({ all: true })).toEqual({ text: 'Unknown argument "all"; this tool takes no arguments.', isError: true });
   });
 
