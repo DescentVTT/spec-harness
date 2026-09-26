@@ -1,17 +1,17 @@
-import { cpSync, existsSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { afterAll, describe, expect, it } from 'vitest';
 
 import { HOOK_COMMAND } from '../../src/setup.js';
-import { cleanup, cli, parsed, repository, ROOT, siblings, type Repository } from './helpers.js';
+import { cleanup, cli, install, installFake, parsed, repository, siblings, type Repository } from './helpers.js';
 
 afterAll(cleanup);
 
 /** A repository with spec-brief installed where `locate()` looks for it, and no configuration of its own. */
 function installed(): Repository {
   const repo = repository({ 'README.md': '# x\n' }, null);
-  cpSync(join(ROOT, 'node_modules', '@descent-vtt', 'spec-brief'), join(repo.root, 'node_modules', '@descent-vtt', 'spec-brief'), { recursive: true });
+  install(repo.root, 'spec-brief');
   return repo;
 }
 
@@ -127,6 +127,29 @@ describe('init', () => {
     const repo = repository({}, null);
     const result = await cli(['init'], repo.root);
     expect(result.stdout).toContain('advise  .spec-brief.json\n        spec-brief is not installed here: npm install --save-dev @descent-vtt/spec-brief');
+  });
+
+  it('advises upgrading a sibling older than this release runs, and runs nothing of it', async () => {
+    const repo = repository({}, null);
+    installFake(repo.root, 'spec-brief', JSON.stringify({ version: '0.1.0' }));
+    installFake(repo.root, 'spec-graph', JSON.stringify({ version: '0.8.0' }));
+    const result = await cli(['init', '--write', '--format', 'json'], repo.root);
+    expect(result.code).toBe(0);
+    const steps = parsed<{ steps: Step[] }>(result).steps;
+    expect(steps.filter((step) => step.file === '.spec-brief.json' || step.file === '.spec-graph.json')).toEqual([
+      {
+        file: '.spec-brief.json',
+        action: 'advise',
+        detail: 'spec-brief 0.1.0 is installed here; spec-harness needs 0.2.0 or later: npm install --save-dev @descent-vtt/spec-brief@latest',
+      },
+      {
+        file: '.spec-graph.json',
+        action: 'advise',
+        detail: 'spec-graph 0.8.0 is installed here; spec-harness needs 0.9.0 or later: npm install --save-dev @descent-vtt/spec-graph@latest',
+      },
+    ]);
+    expect(existsSync(join(repo.root, '.spec-brief.json'))).toBe(false);
+    expect(existsSync(join(repo.root, '.spec-graph.json'))).toBe(false);
   });
 
   it('names the remote\'s default branch as the base', async () => {

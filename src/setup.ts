@@ -120,7 +120,9 @@ export async function plan(workspace: Workspace, options: Options): Promise<Step
 
   // spec-graph: an archived brief is a record, not a retired decision.
   const graphFile = join(root, '.spec-graph.json');
-  if (workspace.siblings.locate('spec-graph').kind === 'found') {
+  const graph = workspace.siblings.locate('spec-graph');
+  if (graph.kind === 'outdated') steps.push({ file: '.spec-graph.json', action: 'advise', detail: graph.reason });
+  if (graph.kind === 'found') {
     const current = await readJson(graphFile);
     const archiveGlob = `${archive}/**`;
     if (current === 'unreadable') {

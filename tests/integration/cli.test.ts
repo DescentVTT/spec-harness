@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 
 import { HELP } from '../../src/cli.js';
-import { brief, BRIEF_FILE, cleanup, cli, parsed, repository, ROOT, SPEC_BRIEF, spawnBin, temp, write } from './helpers.js';
+import { brief, BRIEF_FILE, cleanup, cli, installFake, parsed, repository, ROOT, SPEC_BRIEF, spawnBin, temp, write } from './helpers.js';
 
 afterAll(cleanup);
 
@@ -79,20 +79,51 @@ describe('the siblings', () => {
     const pretty = await cli(['doctor'], repo.root);
     expect(pretty.code).toBe(0);
     expect(pretty.stdout).toContain('branch  brief/001-x\nbrief   001\n');
-    expect(pretty.stdout).toContain(`found   spec-brief  node ${SPEC_BRIEF}`);
-    expect(pretty.stdout).toContain('absent  spec-graph  spec-graph is not installed here: npm install --save-dev @descent-vtt/spec-graph, or name its command under "tools" in .spec-harness.json');
-    const json = parsed<{ root: string; branch: string; brief: string; siblings: { tool: string; state: string }[] }>(await cli(['doctor', '--format', 'json'], repo.root));
+    expect(pretty.stdout).toContain(`found     spec-brief  node ${SPEC_BRIEF} (named in .spec-harness.json; its version is not checked)`);
+    expect(pretty.stdout).toContain('absent    spec-graph  spec-graph is not installed here: npm install --save-dev @descent-vtt/spec-graph, or name its command under "tools" in .spec-harness.json');
+    const json = parsed<{ root: string; branch: string; brief: string; siblings: { tool: string; state: string; version: string | null; minimum: string }[] }>(
+      await cli(['doctor', '--format', 'json'], repo.root),
+    );
     expect(json.brief).toBe('001');
-    expect(json.siblings.map((s) => [s.tool, s.state])).toEqual([
-      ['spec-brief', 'found'],
-      ['spec-graph', 'absent'],
-      ['spec-guard', 'found'],
+    expect(json.siblings.map((s) => [s.tool, s.state, s.version, s.minimum])).toEqual([
+      ['spec-brief', 'found', null, '0.2.0'],
+      ['spec-graph', 'absent', null, '0.9.0'],
+      ['spec-guard', 'found', null, '0.12.0'],
     ]);
     const bare = repository({}, null);
     bare.git('checkout', '-q', '--detach');
     const none = await cli(['doctor'], bare.root);
     expect(none.code).toBe(1);
     expect(none.stdout).toContain('branch  (detached)\nbrief   (none named)\n');
+  });
+
+  it('reports a sibling older than this release runs as a problem, naming the minimum', async () => {
+    const repo = repository({}, null);
+    const bin = installFake(repo.root, 'spec-brief', JSON.stringify({ version: '0.2.1' }));
+    installFake(repo.root, 'spec-guard', JSON.stringify({ version: '0.11.0' }));
+    const pretty = await cli(['doctor'], repo.root);
+    expect(pretty.code).toBe(1);
+    expect(pretty.stdout).toContain(`found     spec-brief  ${process.execPath} ${bin} (0.2.1)`);
+    expect(pretty.stdout).toContain(
+      'outdated  spec-guard  spec-guard 0.11.0 is installed here; spec-harness needs 0.12.0 or later: npm install --save-dev @descent-vtt/spec-guard@latest',
+    );
+    const json = parsed<{ siblings: { tool: string; state: string; version: string | null; minimum: string }[] }>(await cli(['doctor', '--format', 'json'], repo.root));
+    expect(json.siblings.map((s) => [s.tool, s.state, s.version, s.minimum])).toEqual([
+      ['spec-brief', 'found', '0.2.1', '0.2.0'],
+      ['spec-graph', 'absent', null, '0.9.0'],
+      ['spec-guard', 'outdated', '0.11.0', '0.12.0'],
+    ]);
+  });
+
+  it('cannot be trusted with a spec-brief older than its minimum, which it does not run', async () => {
+    const repo = repository({}, null);
+    installFake(repo.root, 'spec-brief', JSON.stringify({ version: '0.1.0' }));
+    const refused = await cli(['guard', 'a.ts', '--brief', '1'], repo.root);
+    expect(refused.code).toBe(2);
+    expect(refused.stdout).toBe('');
+    expect(refused.stderr.trimEnd()).toBe(
+      'spec-harness: spec-brief 0.1.0 is installed here; spec-harness needs 0.2.0 or later: npm install --save-dev @descent-vtt/spec-brief@latest',
+    );
   });
 
   it('cannot be trusted without spec-brief, and says how to install it', async () => {

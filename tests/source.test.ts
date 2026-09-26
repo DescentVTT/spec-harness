@@ -5,8 +5,9 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
-import { ConfigError, parseConfig } from '../src/config.js';
+import { ConfigError, parseConfig, SIBLINGS } from '../src/config.js';
 import { HOOK_COMMAND, mergeMcp } from '../src/setup.js';
+import { MINIMUM_VERSIONS } from '../src/versions.js';
 
 /**
  * Claims the repository makes about itself, checked rather than trusted. This
@@ -37,9 +38,15 @@ describe('dependencies', () => {
   it('has no runtime dependency', () => {
     const pkg = json('package.json');
     expect(pkg['dependencies'] ?? {}).toEqual({});
-    expect(pkg['peerDependencies']).toBeUndefined();
     expect(pkg['optionalDependencies']).toBeUndefined();
     expect(pkg['bundleDependencies'] ?? pkg['bundledDependencies']).toBeUndefined();
+  });
+
+  it('asks npm for the siblings at the minimums the code holds them to, spec-brief alone required', () => {
+    const pkg = json('package.json');
+    expect(pkg['peerDependencies']).toEqual(Object.fromEntries(SIBLINGS.map((name) => [`@descent-vtt/${name}`, `>=${MINIMUM_VERSIONS[name]}`])));
+    // A missing spec-graph or spec-guard is reported, never required (ADR-0002).
+    expect(pkg['peerDependenciesMeta']).toEqual({ '@descent-vtt/spec-graph': { optional: true }, '@descent-vtt/spec-guard': { optional: true } });
   });
 
   it('imports nothing but its own modules and Node\'s', () => {
@@ -155,6 +162,11 @@ describe('the plugin', () => {
 });
 
 describe('the README', () => {
+  it('states the minimum version of each sibling where it says what to install', () => {
+    const install = text('README.md').split('## A round')[0] as string;
+    for (const name of SIBLINGS) expect(install, name).toContain(`${name} ${MINIMUM_VERSIONS[name]}`);
+  });
+
   /** The keys parseConfig accepts, read from its own refusals so that a key added there is a key checked here. */
   function keysAt(raw: (key: string) => unknown): string[] {
     try {

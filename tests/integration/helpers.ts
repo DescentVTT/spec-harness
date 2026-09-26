@@ -5,7 +5,7 @@
  */
 
 import { execFileSync, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -13,6 +13,8 @@ import { fileURLToPath } from 'node:url';
 import { afterAll } from 'vitest';
 
 import { run, type CliIO } from '../../src/cli.js';
+import type { SiblingName } from '../../src/config.js';
+import { meets, MINIMUM_VERSIONS, parseVersion, type Version } from '../../src/versions.js';
 
 export const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 export const BIN = join(ROOT, 'bin', 'spec-harness.js');
@@ -150,6 +152,38 @@ export function repository(files: Readonly<Record<string, string>> = {}, config:
   for (const [path, content] of Object.entries(files)) repo.write(path, content);
   repo.commit('base');
   return repo;
+}
+
+/**
+ * This repository's copy of a sibling, installed into `root` where `locate()`
+ * looks for it. While the devDependency is older than the minimum this release
+ * runs - the sibling's next release waits on npm - the copy declares the
+ * minimum, so that it is found and run rather than reported outdated. What the
+ * tests run it for, such as `spec-brief init`, is not what changed between
+ * the two.
+ */
+export function install(root: string, name: 'spec-brief' | 'spec-guard'): void {
+  const target = join(root, 'node_modules', '@descent-vtt', name);
+  cpSync(join(ROOT, 'node_modules', '@descent-vtt', name), target, { recursive: true });
+  const file = join(target, 'package.json');
+  const manifest = JSON.parse(readFileSync(file, 'utf8')) as { version: string };
+  const minimum = MINIMUM_VERSIONS[name];
+  if (!meets(parseVersion(manifest.version) as Version, parseVersion(minimum) as Version)) {
+    writeFileSync(file, JSON.stringify({ ...manifest, version: minimum }, null, 2));
+  }
+}
+
+/**
+ * A sibling installed into `root` that is only its manifest and a script that
+ * exits 0: `package.json` holds `manifest` as given, or nothing when it is
+ * `null`, for measuring how an installed version is read.
+ */
+export function installFake(root: string, name: SiblingName, manifest: string | null): string {
+  const directory = join(root, 'node_modules', '@descent-vtt', name);
+  mkdirSync(join(directory, 'bin'), { recursive: true });
+  writeFileSync(join(directory, 'bin', `${name}.js`), '');
+  if (manifest !== null) writeFileSync(join(directory, 'package.json'), manifest);
+  return join(directory, 'bin', `${name}.js`);
 }
 
 /** The `tools` entry naming this repository's copies of spec-brief and spec-guard. */
