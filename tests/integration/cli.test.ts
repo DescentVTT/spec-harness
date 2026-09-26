@@ -82,7 +82,7 @@ describe('the siblings', () => {
     const mergeBase = repo.git('rev-parse', 'HEAD').slice(0, 12);
     expect(pretty.stdout).toContain(`\nbase    main (.spec-harness.json), merge base ${mergeBase}\n`);
     expect(pretty.stdout).toContain(
-      '\nsigners .github/allowed_signers is not on main, so no ruling can count: commit it there, one line per person, "<email> namespaces="git" <public key>"\n',
+      '\nsigners .github/allowed_signers is not on main, so no ruling can count: commit it there, one line per person: <email> namespaces="git" <public key>\n',
     );
     expect(pretty.stdout).toContain('\nplugin  spec-brief has no configuration at the root, so it loads no plugin');
     expect(pretty.stdout).toContain(`found     spec-brief  node ${SPEC_BRIEF} (named in .spec-harness.json; its version is not checked)`);

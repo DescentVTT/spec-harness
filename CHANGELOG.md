@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.1.3
+
+spec-brief's archive is a gate from `init` onwards. 0.1.2's `init` named the
+base in `.spec-harness.json` and left spec-brief's `archiving.base` at
+`null`, and without a base spec-brief's archive checks no protected file: a
+plain `spec-brief archive` warned that the scope went unmeasured and passed,
+where `--base main` refused the file or waived it by a signed ruling. Found
+by the end-to-end run of 0.1.2 from npm.
+
+### Fixed
+
+- `init` sets spec-brief's `archiving.base` to the base it names, beside the
+  plugin, and keeps a base a person wrote. Running it again on a 0.1.2 setup
+  adds the base.
+- `list_rounds` leaves the id off each brief's structured `title`, as its
+  text already did.
+- `doctor` and `init` spell the allowed-signers line the same way.
+
 ## 0.1.2
 
 A signed ruling now works from `init` onwards. An end-to-end check of 0.1.1

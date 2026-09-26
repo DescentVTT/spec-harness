@@ -127,15 +127,32 @@ export function loadsPlugin(config: Json): boolean {
   return Array.isArray(plugins) && plugins.some((entry) => entry === PLUGIN || (isObject(entry) && entry['module'] === PLUGIN));
 }
 
+/** Whether spec-brief's configuration names the base its archive measures a round from. */
+export function measuresArchive(config: Json): boolean {
+  const archiving = config['archiving'];
+  return isObject(archiving) && typeof archiving['base'] === 'string';
+}
+
 /**
- * spec-brief's configuration with the plugin loaded, or `null` when it is.
- * spec-brief's archive refuses a round that changed a protected file, and
- * learns that a signed ruling allows it only by asking the plugin (ADR-0006).
+ * spec-brief's configuration with the plugin loaded and the archive measured
+ * from `base`, or `null` when both already hold. spec-brief's archive
+ * refuses a round that changed a protected file, and learns that a signed
+ * ruling allows it only by asking the plugin (ADR-0006). It checks the file at
+ * all only when it knows the base: without one it warns that the scope went
+ * unmeasured and passes, so the gate is open until a base is named. A base a
+ * person wrote is kept.
  */
-export function mergeSpecBrief(current: Json): Json | null {
-  if (loadsPlugin(current)) return null;
+export function mergeSpecBrief(current: Json, base: string | null = null): Json | null {
+  const plugin = loadsPlugin(current);
+  const measure = base !== null && !measuresArchive(current);
+  if (plugin && !measure) return null;
   const plugins: unknown[] = Array.isArray(current['plugins']) ? current['plugins'] : [];
-  return { ...current, plugins: [...plugins, PLUGIN] };
+  const archiving: Json = isObject(current['archiving']) ? current['archiving'] : {};
+  return {
+    ...current,
+    ...(plugin ? {} : { plugins: [...plugins, PLUGIN] }),
+    ...(measure ? { archiving: { ...archiving, base } } : {}),
+  };
 }
 
 /** Whether spec-brief loads the plugin, as its configuration at the root says. */
@@ -215,7 +232,7 @@ export function describeBase(base: { readonly ref: string; readonly source: Base
 export function describeSigners(file: string, base: string | null, onBase: boolean): string {
   if (base === null) return `${file}, read from the base, which could not be resolved: no ruling can count`;
   if (onBase) return `${file} is on ${base}`;
-  return `${file} is not on ${base}, so no ruling can count: commit it there, one line per person, "<email> namespaces="git" <public key>"`;
+  return `${file} is not on ${base}, so no ruling can count: commit it there, one line per person: <email> namespaces="git" <public key>`;
 }
 
 /** spec-graph's configuration files, in the order spec-graph reads them; then a "spec-graph" key in package.json. */
