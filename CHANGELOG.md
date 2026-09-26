@@ -1,6 +1,19 @@
 # Changelog
 
-## Unreleased
+## 0.1.0
+
+The first release of spec-harness, the agent-facing member of the spec-*
+tools: what an agent needs to start a round of work under a brief a person
+approved, a guard on every write, escalations a person rules on and signs, an
+audit when the round ends, and probes that prove a defect before it is filed.
+It calls no model and has no runtime dependencies. It needs spec-brief 0.2.0
+or later, and uses spec-guard 0.12.0 and spec-graph 0.9.0 or later when they
+are installed; an older one is reported with its minimum and never run.
+
+This version was staged on npm by CI from its tag, with provenance, and
+released by a maintainer with a second factor. 0.0.0 on npm is a placeholder
+without code, published by hand to claim the name, and is deprecated
+([ADR-0011](docs/adr/0011-releases-are-staged-by-ci.md)).
 
 ### Added
 
@@ -20,6 +33,9 @@
 - `premises`: every live brief's premises run through spec-guard, and one
   that no longer holds reported as `stale-premise`, exit 1, for CI.
 - `init`: the family configured to agree; a plan until `--write`.
+- `doctor`: which siblings are installed, at which versions, and which brief
+  is named. The minimums are `peerDependencies` too: spec-brief required,
+  spec-graph and spec-guard optional.
 - `mcp`: start_round, check_path, request_escalation, audit_round and
   list_rounds, with the workflow prompts, over both MCP protocol eras.
 - Skills for Claude Code and other Agent Skills readers: draft-brief,
