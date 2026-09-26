@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.5
+
+A packaging fix: the tarball no longer carries spec-core's internal README.
+Nothing a command, hook or tool does has changed.
+
+### Fixed
+
+- **The package ships one README, its own.** `files` named `README.md`,
+  which npm reads as a name at any depth, so the tarball carried spec-core's
+  vendored README beside the licence it ships; the entry is `/README.md`.
+
 ## 0.1.4
 
 spec-core at 8840d36. Its Markdown scanner now reads an image inside a

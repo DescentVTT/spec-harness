@@ -180,9 +180,13 @@ describe('the release', () => {
 describe('the documents the package ships', () => {
   it('link only to files it ships, or by absolute URL, so that a link works in node_modules and on npmjs.com', () => {
     const files = json('package.json')['files'] as string[];
-    const ships = (path: string): boolean => files.some((entry) => path === entry || path.startsWith(`${entry}/`));
+    // `/README.md` is the root's README: npm reads a name with no slash at any
+    // depth, and `README.md` packed spec-core's vendored README beside it.
+    const ships = (path: string): boolean => files.some((entry) => path === entry.replace(/^\//, '') || path.startsWith(`${entry}/`));
     const documents = ['README.md', 'CHANGELOG.md', ...[...walk('skills')].filter((path) => path.endsWith('.md'))];
     expect(documents.every(ships)).toBe(true);
+    expect(files).toContain('/README.md');
+    expect(ships('src/vendor/spec-core/README.md')).toBe(false);
     const dead: string[] = [];
     for (const document of documents) {
       // Read as a renderer reads it: a link written out in a code span, as the
