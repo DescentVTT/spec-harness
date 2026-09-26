@@ -17,9 +17,9 @@ import { chmod, mkdir, readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
 import { CONFIG_FILE } from './config.js';
-import { GUARD_HOOK, mergeClaudeSettings, mergeMcp, mergeSpecBrief, mergeSpecGraph, PLUGIN, SPEC_BRIEF_CONFIGS } from './configure.js';
+import { chooseBase, GUARD_HOOK, mergeClaudeSettings, mergeMcp, mergeSpecBrief, mergeSpecGraph, PLUGIN, SPEC_BRIEF_CONFIGS } from './configure.js';
 import { readJsonObject as readJson, writeAtomic } from './fs.js';
-import { git, remoteDefault } from './git.js';
+import { git, localBranches, remoteDefault } from './git.js';
 import { runSibling } from './siblings.js';
 import { EXIT_ERROR, EXIT_OK, json, openWorkspace, type CliIO, type Options, type Workspace } from './workspace.js';
 
@@ -116,14 +116,23 @@ export async function plan(workspace: Workspace, options: Options): Promise<Step
     }
   }
 
-  // spec-harness's own file, naming the base the rounds merge into.
+  // spec-harness's own file, naming the base the rounds merge into: every
+  // ruling is verified against the allowed signers on it.
   const harnessFile = join(root, CONFIG_FILE);
-  if (!existsSync(harnessFile)) {
-    const base = await remoteDefault(root);
-    const content: Json = base === null ? {} : { base };
-    steps.push({ file: CONFIG_FILE, action: 'create', detail: base === null ? 'the defaults' : `rounds are measured from ${base}`, apply: () => writeAtomic(harnessFile, stringify(content)) });
+  const harness = await readJson(harnessFile);
+  if (harness === 'unreadable') {
+    steps.push({ file: CONFIG_FILE, action: 'advise', detail: 'cannot be read as JSON; name the base rounds merge into as "base" by hand' });
+  } else if (harness !== null && typeof harness['base'] === 'string') {
+    steps.push({ file: CONFIG_FILE, action: 'keep', detail: `rounds are measured from ${harness['base']}` });
   } else {
-    steps.push({ file: CONFIG_FILE, action: 'keep', detail: 'already configured' });
+    const choice = chooseBase({ remoteDefault: await remoteDefault(root), branch: workspace.branch, branches: await localBranches(root) });
+    const base = choice.base;
+    if (base === null) {
+      steps.push({ file: CONFIG_FILE, action: 'advise', detail: choice.detail });
+    } else {
+      const content: Json = { ...harness, base };
+      steps.push({ file: CONFIG_FILE, action: harness === null ? 'create' : 'update', detail: choice.detail, apply: () => writeAtomic(harnessFile, stringify(content)) });
+    }
   }
 
   // The agent's hook and server.

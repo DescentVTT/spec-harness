@@ -92,11 +92,17 @@ Is every live brief still about something true? It runs spec-guard over the live
 
 ### `init`
 
-Configures the family to agree: spec-brief's directories, and this package's plugin in spec-brief's `plugins` - `"@descent-vtt/spec-harness/spec-brief-plugin"` - through which spec-brief's archive accepts a protected file a signed ruling allows; spec-graph reading the archive as history (so a brief depending on an archived one is not a stale premise), `.spec-harness.json` with the base branch, the Claude Code hooks, the MCP server, and with `--git-hook` a pre-commit hook. It prints the plan, merges into files that exist, and changes nothing without `--write`.
+Configures the family to agree. It prints the plan, merges into files that exist, keeping what is there, and changes nothing without `--write`:
+
+- **spec-brief**: `spec-brief init` when there is no configuration, then this package's plugin in its `plugins`, `"@descent-vtt/spec-harness/spec-brief-plugin"`. spec-brief's archive asks the plugin whether a signed ruling allows a protected file, and refuses the file without it.
+- **spec-graph**, when it is installed: the archive read as history, so a brief depending on an archived one is not a stale premise.
+- **`.spec-harness.json`**, naming the base rounds are measured from and the allowed signers are read on: the remote's default branch where git recorded one, as a clone does; otherwise the branch `init` runs on when it is `main` or `master`, or the only branch, since a repository made with `git init` and pushed to a remote records no default. When it cannot tell, it says so and writes none: set `"base"` yourself.
+- **Claude Code**: the guard hooks in `.claude/settings.json` and the MCP server in `.mcp.json`, each run with `node` from the project's `node_modules`. These are the ones the [plugin](#as-a-claude-code-plugin) brings: use one or the other. The `npx` entries 0.1 wrote are replaced.
+- With `--git-hook`, a pre-commit hook.
 
 ### `doctor`
 
-Which sibling tools are installed, at which versions, and how each is run, the repository root, the branch, the brief the flag, `SPEC_BRIEF` or the branch names, and whether spec-brief loads this package's plugin. A sibling older than this release needs is `outdated`, with the minimum and the command that installs a newer one, and exit 1. A command named under `tools` is run as named, and its version is not checked. The first thing to run when a hook refuses something unexpectedly.
+Which sibling tools are installed, at which versions, and how each is run, the repository root, the branch, and the brief the flag, `SPEC_BRIEF` or the branch names. Then what a signed ruling needs to count: the base, and whether `--base`, `.spec-harness.json` or the remote named it; whether the allowed-signers file is on that base; and whether spec-brief loads this package's plugin. A sibling older than this release needs is `outdated`, with the minimum and the command that installs a newer one, and exit 1. A command named under `tools` is run as named, and its version is not checked. The first thing to run when a hook refuses something unexpectedly.
 
 ## As a Claude Code plugin
 
@@ -117,7 +123,7 @@ The plugin's hooks and server are the ones `init` writes into `.claude/settings.
 | --- | --- | --- |
 | `branches` | `brief/{id}`, `brief-{id}`, `*/brief/{id}`, `*/brief-{id}` | Branch names that carry the active brief's id. |
 | `outOfScope` | `"warn"` | A write outside `affectedFiles`: `warn`, `ask` or `deny`. |
-| `base` | the remote's default branch | What rounds are measured from, and where allowed signers are read. |
+| `base` | the remote's default branch | What rounds are measured from, and where allowed signers are read. `init` names it, since a repository that was not cloned has no default branch recorded. |
 | `rulings.section` | `"Rulings"` | The brief section holding the rulings table. |
 | `rulings.allowedSigners` | `".github/allowed_signers"` | The allowed-signers file, read from the base branch. |
 | `dependencies.manifests` | the list above | Manifest names whose added dependencies the audit reports. |

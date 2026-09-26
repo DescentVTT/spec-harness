@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  chooseBase,
+  describeBase,
   describePlugin,
+  describeSigners,
   GUARD_HOOK,
   loadsPlugin,
   mcpServer,
@@ -177,6 +180,63 @@ describe('spec-brief\'s plugins', () => {
     expect(describePlugin({ kind: 'unconfigured' })).toBe(
       "spec-brief has no configuration at the root, so it loads no plugin: spec-harness init --write writes one that loads spec-harness's",
     );
+  });
+});
+
+describe('the base init names', () => {
+  const unrecorded = 'no remote records a default branch (refs/remotes/origin/HEAD)';
+
+  it('is the remote\'s default branch, wherever git recorded one', () => {
+    expect(chooseBase({ remoteDefault: 'origin/trunk', branch: 'brief/001-x', branches: ['brief/001-x', 'main'] })).toEqual({
+      base: 'origin/trunk',
+      detail: "rounds are measured from origin/trunk, the remote's default branch",
+    });
+  });
+
+  it('is main or master when init runs on it and no remote records a default', () => {
+    for (const branch of ['main', 'master']) {
+      expect(chooseBase({ remoteDefault: null, branch, branches: [branch, 'brief/001-x'] })).toEqual({
+        base: branch,
+        detail: `rounds are measured from ${branch}, the branch init runs on: ${unrecorded}; change "base" if rounds merge into another`,
+      });
+    }
+  });
+
+  it('is the only branch, born or not', () => {
+    const only = (branch: string) => `rounds are measured from ${branch}, the only branch: ${unrecorded}; change "base" if rounds merge into another`;
+    expect(chooseBase({ remoteDefault: null, branch: 'trunk', branches: ['trunk'] })).toEqual({ base: 'trunk', detail: only('trunk') });
+    expect(chooseBase({ remoteDefault: null, branch: 'trunk', branches: [] })).toEqual({ base: 'trunk', detail: only('trunk') });
+  });
+
+  it('is left to the person otherwise, with how to name it', () => {
+    const advice = 'set "base" to the branch rounds merge into, or run git remote set-head origin --auto and init again';
+    expect(chooseBase({ remoteDefault: null, branch: 'brief/001-x', branches: ['brief/001-x', 'main'] })).toEqual({
+      base: null,
+      detail: `no base can be told: ${unrecorded}, and brief/001-x is not main, master or the only branch; ${advice}`,
+    });
+    const detached = { base: null, detail: `no base can be told: ${unrecorded}, and HEAD is detached; ${advice}` };
+    expect(chooseBase({ remoteDefault: null, branch: null, branches: ['main'] })).toEqual(detached);
+    expect(chooseBase({ remoteDefault: null, branch: null, branches: [] })).toEqual(detached);
+  });
+});
+
+describe('what doctor says of the base and the signers', () => {
+  const sha = '0123456789abcdef0123456789abcdef01234567';
+
+  it('names the base, where it came from and the merge base', () => {
+    expect(describeBase({ ref: 'main', source: 'config', mergeBase: sha })).toBe('main (.spec-harness.json), merge base 0123456789ab');
+    expect(describeBase({ ref: 'origin/main', source: 'remote', mergeBase: sha })).toBe("origin/main (the remote's default branch), merge base 0123456789ab");
+    expect(describeBase({ ref: 'dev', source: 'flag', mergeBase: sha })).toBe('dev (--base), merge base 0123456789ab');
+    expect(describeBase({ reason: '"x" names no commit' })).toBe('none: "x" names no commit');
+  });
+
+  it('says whether the allowed signers are on the base, and what no ruling can do without them', () => {
+    expect(describeSigners('.github/allowed_signers', 'main', true)).toBe('.github/allowed_signers is on main');
+    expect(describeSigners('.github/allowed_signers', 'main', false)).toBe(
+      '.github/allowed_signers is not on main, so no ruling can count: commit it there, one line per person, "<email> namespaces="git" <public key>"',
+    );
+    expect(describeSigners('signers', null, false)).toBe('signers, read from the base, which could not be resolved: no ruling can count');
+    expect(describeSigners('signers', null, true)).toBe('signers, read from the base, which could not be resolved: no ruling can count');
   });
 });
 

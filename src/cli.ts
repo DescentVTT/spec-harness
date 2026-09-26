@@ -10,13 +10,13 @@
 
 import { auditCommand, contextCommand, escalateCommand, probeCommand, ruleCommand, rulingsCommand } from './commands.js';
 import { ConfigError, SIBLINGS } from './config.js';
-import { describePlugin } from './configure.js';
-import { stagedChanges } from './git.js';
+import { describeBase, describePlugin, describeSigners } from './configure.js';
+import { show, stagedChanges } from './git.js';
 import type { Decision } from './guard.js';
 import { claudeResponse, gitResponse, parseClaudeHook } from './hooks.js';
 import { premisesCommand } from './premises.js';
 import { createReader } from './reader.js';
-import { checkPaths, specBriefPlugin } from './round.js';
+import { checkPaths, resolveBase, specBriefPlugin } from './round.js';
 import { mcpCommand } from './server.js';
 import { initCommand } from './setup.js';
 import { SiblingError } from './siblings.js';
@@ -200,6 +200,12 @@ async function doctorCommand(options: Options, io: CliIO): Promise<number> {
     return { ...row, version: sibling.version, detail };
   });
   const named = namedId(workspace, options, io.env);
+  // A ruling counts only by a signature checked against the allowed signers
+  // on the base, and only once spec-brief's archive asks the plugin about it.
+  const base = await resolveBase(workspace, options.base);
+  const signersFile = workspace.config.rulings.allowedSigners;
+  const onBase = base.kind === 'resolved' ? (await show(base.sha, signersFile, workspace.root)) !== null : null;
+  const signers = describeSigners(signersFile, base.kind === 'resolved' ? base.ref : null, onBase === true);
   const plugin = await specBriefPlugin(workspace.root);
   if (options.format === 'json') {
     io.stdout.write(
@@ -207,12 +213,25 @@ async function doctorCommand(options: Options, io: CliIO): Promise<number> {
         root: workspace.root,
         branch: workspace.branch,
         brief: named,
+        base: base.kind === 'resolved' ? { ref: base.ref, source: base.source, mergeBase: base.mergeBase } : { unresolved: base.reason },
+        allowedSigners: { file: signersFile, onBase, detail: signers },
         plugin: { state: plugin.kind, file: 'file' in plugin ? plugin.file : null, detail: describePlugin(plugin) },
         siblings: rows,
       }),
     );
   } else {
-    io.stdout.write(`root    ${workspace.root}\nbranch  ${workspace.branch ?? '(detached)'}\nbrief   ${named ?? '(none named)'}\nplugin  ${describePlugin(plugin)}\n\n`);
+    io.stdout.write(
+      [
+        `root    ${workspace.root}`,
+        `branch  ${workspace.branch ?? '(detached)'}`,
+        `brief   ${named ?? '(none named)'}`,
+        `base    ${describeBase(base.kind === 'resolved' ? base : { reason: base.reason })}`,
+        `signers ${signers}`,
+        `plugin  ${describePlugin(plugin)}`,
+        '',
+        '',
+      ].join('\n'),
+    );
     for (const row of rows) io.stdout.write(`${row.state.padEnd(8)}  ${row.tool.padEnd(10)}  ${row.detail}\n`);
   }
   // An outdated sibling is a problem to fix, where a missing optional one is
