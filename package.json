@@ -89,5 +89,8 @@
   "bugs": {
     "url": "https://github.com/DescentVTT/spec-harness/issues"
   },
-  "homepage": "https://github.com/DescentVTT/spec-harness#readme"
+  "homepage": "https://github.com/DescentVTT/spec-harness#readme",
+  "overrides": {
+    "qs": "^6.16.0"
+  }
 }
