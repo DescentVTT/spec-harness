@@ -18,7 +18,7 @@ describe('a version', () => {
   });
 
   it('accepts build metadata and ignores it, as precedence does', () => {
-    expect(parseVersion('1.2.3+build.7')).toEqual({ major: 1, minor: 2, patch: 3, prerelease: false });
+    expect(parseVersion('1.2.3+build.77')).toEqual({ major: 1, minor: 2, patch: 3, prerelease: false });
     expect(parseVersion('1.2.3-rc.1+sha-5114f85')).toEqual({ major: 1, minor: 2, patch: 3, prerelease: true });
   });
 
@@ -54,17 +54,19 @@ describe('a version', () => {
 });
 
 describe('meeting a minimum', () => {
-  const minimum = version('0.12.0');
+  // Parsed inside each test, never while the suite is collected: a mutant that
+  // breaks parsing must fail a test, not the collection, which counts no test.
+  const minimum = (): Version => version('0.12.0');
 
   it('is met by the minimum itself and by anything later, at any part', () => {
     for (const text of ['0.12.0', '0.12.1', '0.13.0', '1.0.0', '1.0.0-rc.1', '0.12.1-rc.1', '0.13.0-alpha', '2.3.4+build']) {
-      expect(meets(version(text), minimum), text).toBe(true);
+      expect(meets(version(text), minimum()), text).toBe(true);
     }
   });
 
   it('is not met by anything earlier, even with a later part below the one that differs', () => {
     for (const text of ['0.11.0', '0.11.9', '0.9.99', '0.0.12', '0.1.20']) {
-      expect(meets(version(text), minimum), text).toBe(false);
+      expect(meets(version(text), minimum()), text).toBe(false);
     }
     expect(meets(version('0.99.99'), version('1.0.0'))).toBe(false);
     expect(meets(version('1.0.0'), version('0.99.99'))).toBe(true);
@@ -73,8 +75,8 @@ describe('meeting a minimum', () => {
   });
 
   it('is not met by a prerelease of the minimum, which comes before it', () => {
-    expect(meets(version('0.12.0-rc.1'), minimum)).toBe(false);
-    expect(meets(version('0.12.0+build'), minimum)).toBe(true);
+    expect(meets(version('0.12.0-rc.1'), minimum())).toBe(false);
+    expect(meets(version('0.12.0+build'), minimum())).toBe(true);
   });
 });
 
