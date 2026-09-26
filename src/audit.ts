@@ -81,6 +81,38 @@ export function isPremise(sections: string | null | readonly string[], premises:
 }
 
 /**
+ * A live brief's premise that no longer holds, as `premises` reports it. On
+ * the brief a round is working on - the one the flag, SPEC_BRIEF or the
+ * branch names - that is what the round set out to do, and it is reported as
+ * the audit reports it; on any other, what the brief was written against has
+ * changed under it.
+ */
+export function premiseFinding(
+  brief: Pick<BriefRow, 'id' | 'file'>,
+  outcome: { readonly description: string; readonly message: string; readonly line: number },
+  active: boolean,
+): Finding {
+  if (active) {
+    return finding(
+      'premise-retired',
+      'note',
+      `brief ${brief.id}'s premise no longer holds, as the round on it intends: ${outcome.description}`,
+      'nothing to do: this is the round that changes it, and audit measures it',
+      brief.file,
+      outcome.line,
+    );
+  }
+  return finding(
+    'stale-premise',
+    'error',
+    `brief ${brief.id}'s premise no longer holds: ${outcome.description}: ${outcome.message}`,
+    'what the brief was written against has changed; archive the brief if its work is done, or rewrite its premise before a round is run on it',
+    brief.file,
+    outcome.line,
+  );
+}
+
+/**
  * The next step for a reason the archive gives. A protected file a verified
  * ruling covers is refused only because the archive did not learn of the
  * ruling, and recording a departure in the brief would not fix that.

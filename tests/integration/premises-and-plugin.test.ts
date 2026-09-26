@@ -109,6 +109,38 @@ describe('premises', () => {
     expect(report.findings[0]).toMatchObject({ rule: 'stale-premise', file: 'briefs/001_remove.md', line: 20 });
   });
 
+  it('reports the premise of the brief a round works on as retired, as audit does, and fails only on the others', async () => {
+    const root = repository();
+    write(root, 'briefs/001_remove.md', BRIEF);
+    write(root, 'briefs/002_other.md', BRIEF.replace('# 001 - Remove the legacy call', '# 002 - Another'));
+    write(root, 'src/a.ts', 'modernCall();\n');
+    git(root, 'add', '-A');
+    git(root, 'commit', '-qm', 'start');
+    git(root, 'checkout', '-qb', 'brief/001-remove');
+    const branch = io(root);
+    expect(await premisesCommand(parseOptions(['premises']), branch)).toBe(1);
+    expect(branch.out.join('')).toContain('note     briefs/001_remove.md:20  brief 001\'s premise no longer holds, as the round on it intends: ');
+    expect(branch.out.join('')).toContain('error    briefs/002_other.md:20  brief 002\'s premise no longer holds: ');
+    expect(branch.out.join('')).toContain('2 premise(s) in 2 live brief(s), 1 no longer hold, and 1 retired by the round on brief 001, as it intends\n');
+
+    git(root, 'rm', '-q', 'briefs/002_other.md');
+    git(root, 'commit', '-qm', 'one brief');
+    const json = io(root);
+    expect(await premisesCommand(parseOptions(['premises', '--format', 'json']), json)).toBe(0);
+    const report = JSON.parse(json.out.join('')) as { ok: boolean; findings: { rule: string; severity: string; line: number }[] };
+    expect(report.ok).toBe(true);
+    expect(report.findings).toEqual([expect.objectContaining({ rule: 'premise-retired', severity: 'note', line: 20 })]);
+
+    // On main no round is named, and the premise is stale; the flag names one.
+    git(root, 'checkout', '-q', 'main');
+    git(root, 'rm', '-q', 'briefs/002_other.md');
+    git(root, 'commit', '-qm', 'one brief on main');
+    expect(await premisesCommand(parseOptions(['premises']), io(root))).toBe(1);
+    const flagged = io(root);
+    expect(await premisesCommand(parseOptions(['premises', '--brief', '1']), flagged)).toBe(0);
+    expect(flagged.out.join('')).toContain('1 premise(s) in 1 live brief(s), 0 no longer hold, and 1 retired by the round on brief 001, as it intends\n');
+  });
+
   it('cannot be trusted without spec-guard, and says so', async () => {
     const root = repository();
     write(root, '.spec-harness.json', `${JSON.stringify({ tools: { 'spec-brief': ['node', BIN('spec-brief')] } })}\n`);

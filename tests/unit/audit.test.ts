@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { audit, isPremise, type AssertionOutcome, type AuditInput } from '../../src/audit.js';
+import { audit, isPremise, premiseFinding, type AssertionOutcome, type AuditInput } from '../../src/audit.js';
 import { DEFAULT_CONFIG } from '../../src/config.js';
 import type { DependencyChange } from '../../src/manifests.js';
 import { row } from './helpers.js';
@@ -268,6 +268,33 @@ describe('dependencies', () => {
       },
     ]);
     expect(counts).toEqual({ error: 0, warning: 0, note: 2 });
+  });
+});
+
+describe('a premise that premises finds no longer holds', () => {
+  const brief = { id: '012', file: FILE };
+  const outcome = { description: '"legacyCall" in src', message: 'expected at least 1, found 0', line: 20 };
+
+  it('is stale on a brief no round is working on, and fails the run', () => {
+    expect(premiseFinding(brief, outcome, false)).toEqual({
+      rule: 'stale-premise',
+      severity: 'error',
+      message: 'brief 012\'s premise no longer holds: "legacyCall" in src: expected at least 1, found 0',
+      hint: 'what the brief was written against has changed; archive the brief if its work is done, or rewrite its premise before a round is run on it',
+      file: FILE,
+      line: 20,
+    });
+  });
+
+  it('is retired on the brief the round is working on, as the audit reports it', () => {
+    expect(premiseFinding(brief, outcome, true)).toEqual({
+      rule: 'premise-retired',
+      severity: 'note',
+      message: 'brief 012\'s premise no longer holds, as the round on it intends: "legacyCall" in src',
+      hint: 'nothing to do: this is the round that changes it, and audit measures it',
+      file: FILE,
+      line: 20,
+    });
   });
 });
 
