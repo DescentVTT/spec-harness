@@ -98,12 +98,14 @@ Which sibling tools are installed, at which versions, and how each is run, the r
 
 ## As a Claude Code plugin
 
-The repository is a plugin and a one-plugin marketplace: the four skills (`draft-brief`, `split-goal`, `run-round`, `close-round`), the hooks and the MCP server. It calls the `spec-harness` installed in your project.
+The repository is a plugin and a one-plugin marketplace: the four skills (`draft-brief`, `split-goal`, `run-round`, `close-round`), the hooks and the MCP server. The hooks and the server run the `spec-harness` installed in your project, `node ${CLAUDE_PROJECT_DIR}/node_modules/@descent-vtt/spec-harness/bin/spec-harness.js`, so install it there first; the server is told the project with `--root`, since Claude Code starts a plugin's server in the plugin's own directory.
 
 ```text
 /plugin marketplace add DescentVTT/spec-harness
 /plugin install spec-harness@spec-tools
 ```
+
+The plugin's hooks and server are the ones `init` writes into `.claude/settings.json` and `.mcp.json`: use one or the other. With both, every write is guarded twice and the server is registered twice, so with the plugin, leave those two files out of what `init` writes, or take its `spec-harness` entries out of them.
 
 ## Configuration
 

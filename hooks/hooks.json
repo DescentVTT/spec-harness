@@ -6,7 +6,12 @@
         "hooks": [
           {
             "type": "command",
-            "command": "npx --no-install spec-harness hook claude",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PROJECT_DIR}/node_modules/@descent-vtt/spec-harness/bin/spec-harness.js",
+              "hook",
+              "claude"
+            ],
             "timeout": 60
           }
         ]
@@ -18,7 +23,12 @@
         "hooks": [
           {
             "type": "command",
-            "command": "npx --no-install spec-harness hook claude",
+            "command": "node",
+            "args": [
+              "${CLAUDE_PROJECT_DIR}/node_modules/@descent-vtt/spec-harness/bin/spec-harness.js",
+              "hook",
+              "claude"
+            ],
             "timeout": 60
           }
         ]

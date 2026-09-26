@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 
 import { pluginDrift, releaseOf } from '../scripts/release.js';
 import { ConfigError, parseConfig, SIBLINGS } from '../src/config.js';
-import { HOOK_COMMAND, mergeMcp } from '../src/configure.js';
+import { GUARD_HOOK, mcpServer, mergeClaudeSettings, mergeMcp, PROJECT_DIR, PROJECT_DIR_OR_HERE } from '../src/configure.js';
 import { MINIMUM_VERSIONS } from '../src/versions.js';
 
 /**
@@ -146,19 +146,21 @@ describe('the plugin', () => {
     expect(marketplace.plugins[0]).toMatchObject({ name: 'spec-harness', source: './', version });
   });
 
-  it('runs exactly the hook command init installs, before and after every writing tool', () => {
-    const hooks = json('hooks/hooks.json') as { hooks: Record<string, { matcher: string; hooks: { type: string; command: string }[] }[]> };
+  it('runs exactly the hooks init installs, before and after every writing tool', () => {
+    const hooks = json('hooks/hooks.json') as { hooks: Record<string, { matcher: string; hooks: Record<string, unknown>[] }[]> };
+    expect(hooks).toEqual(mergeClaudeSettings({}));
     expect(Object.keys(hooks.hooks).sort()).toEqual(['PostToolUse', 'PreToolUse']);
     for (const groups of Object.values(hooks.hooks)) {
       expect(groups).toHaveLength(1);
       expect(groups[0]?.matcher).toBe('Edit|Write|MultiEdit|NotebookEdit');
-      expect(groups[0]?.hooks.map((hook) => [hook.type, hook.command])).toEqual([['command', HOOK_COMMAND]]);
+      expect(groups[0]?.hooks).toEqual([GUARD_HOOK]);
     }
   });
 
-  it('registers the MCP server as init does', () => {
-    expect(json('.mcp.json')).toEqual(mergeMcp({}));
-    expect(Object.keys((json('.mcp.json') as { mcpServers: object }).mcpServers)).toEqual(['spec-harness']);
+  it('registers the MCP server as init does, naming the project as a plugin names it', () => {
+    expect(json('.mcp.json')).toEqual({ mcpServers: { 'spec-harness': mcpServer(PROJECT_DIR) } });
+    // A project's own .mcp.json needs a default where the plugin's does not; nothing else differs.
+    expect(JSON.stringify(mergeMcp({})).split(PROJECT_DIR_OR_HERE).join(PROJECT_DIR)).toBe(JSON.stringify(json('.mcp.json')));
   });
 });
 
