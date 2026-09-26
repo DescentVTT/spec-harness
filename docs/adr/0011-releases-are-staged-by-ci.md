@@ -70,6 +70,18 @@ carries provenance. Publishing 0.1.0 itself by hand would ask users to trust
 a workstation's `dist/` for the one version that has no attestation, and a
 publish token would outlive its one use.
 
+*Amended 2026-09-26.* That is what happened anyway: minutes after the
+placeholder, an `npm publish` run in a checkout of this repository published
+0.1.0 from a workstation, built from a commit no branch holds, with no
+attestation. Its `dist/` matched CI's in behaviour - one expression written
+two ways - but nothing proved it, and CI's staging of the tag then failed,
+since npm never takes a version twice. 0.1.1 is the same code from CI, and
+0.1.0 is deprecated in its favour. Nothing had stopped the mistake: `files`
+and the registry settings both allow a person with a second factor to
+publish. So `prepublishOnly` now refuses outside GitHub Actions, where
+nothing runs it - the release stages a tarball, and a tarball's scripts are
+not run.
+
 **Each sibling has a minimum version**, below which the harness does not run
 it:
 
@@ -109,8 +121,8 @@ version was not checked.
 - The changelog and plugin-manifest checks also run in the test suite, so the
   pull request that bumps the version fails without its notes, before anyone
   tags it.
-- 0.0.0 has no code and no provenance, and is deprecated. Every later version
-  has provenance.
+- 0.0.0 has no code and no provenance, and is deprecated. 0.1.0 has code and
+  no provenance, and is deprecated. Every later version has provenance.
 - Raising a minimum changes `MINIMUM_VERSIONS` and `peerDependencies`
   together, and a repository with the older sibling must upgrade it: the
   changelog says so under the version that raises it.

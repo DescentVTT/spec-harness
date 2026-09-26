@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.1
+
+The same code as 0.1.0, built by CI from its tag and published with a
+provenance attestation. 0.1.0 was published from a workstation by mistake, an
+`npm publish` run in a checkout, so it has none; it is deprecated in favour
+of this one, and nothing else changed between them.
+
+- `npm publish` in a checkout now refuses to run outside GitHub Actions.
+  CI never runs it: it stages a tarball it packed, with scripts off.
+
 ## 0.1.0
 
 The first release of spec-harness, the agent-facing member of the spec-*
