@@ -1,4 +1,4 @@
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { afterAll, describe, expect, it } from 'vitest';
@@ -8,7 +8,7 @@ import { loadConfig, readText, realSpelling, repositoryPath, stateDirectory, wri
 import { blameLine, changes, GitError, mergeBase, revision, show, stagedChanges, workTreeRoot } from '../../src/git.js';
 import { runCommand, withWorktree } from '../../src/sandbox.js';
 import { createSiblings, locate, runSibling, SiblingError } from '../../src/siblings.js';
-import { cleanup, ignoresCase, repository, ROOT, temp } from './helpers.js';
+import { cleanup, ignoresCase, install, installFake, repository, ROOT, temp } from './helpers.js';
 
 afterAll(cleanup);
 
@@ -148,17 +148,58 @@ describe('the sandbox', () => {
 describe('finding the siblings', () => {
   it('finds a sibling where the repository installed it, and runs it with this Node', () => {
     const root = temp();
-    cpSync(join(ROOT, 'node_modules', '@descent-vtt', 'spec-brief'), join(root, 'node_modules', '@descent-vtt', 'spec-brief'), { recursive: true });
-    expect(locate('spec-brief', root, DEFAULT_CONFIG)).toEqual({
+    install(root, 'spec-brief');
+    const found = locate('spec-brief', root, DEFAULT_CONFIG);
+    expect(found).toMatchObject({
       kind: 'found',
       command: [process.execPath, join(root, 'node_modules', '@descent-vtt', 'spec-brief', 'bin', 'spec-brief.js')],
     });
+    expect(found.kind === 'found' ? found.version : null).toBe(JSON.parse(readFileSync(join(root, 'node_modules', '@descent-vtt', 'spec-brief', 'package.json'), 'utf8')).version);
     expect(locate('spec-guard', root, DEFAULT_CONFIG).kind).toBe('absent');
   });
 
-  it('prefers the configured command to an installed one', () => {
+  it('reads the installed version, and runs a sibling at its minimum or later', () => {
+    const root = temp();
+    const bin = installFake(root, 'spec-guard', JSON.stringify({ name: '@descent-vtt/spec-guard', version: '0.12.0' }));
+    expect(locate('spec-guard', root, DEFAULT_CONFIG)).toEqual({ kind: 'found', command: [process.execPath, bin], version: '0.12.0' });
+    installFake(root, 'spec-graph', JSON.stringify({ version: '1.0.0-rc.1' }));
+    expect(locate('spec-graph', root, DEFAULT_CONFIG)).toMatchObject({ kind: 'found', version: '1.0.0-rc.1' });
+  });
+
+  it('never runs a sibling older than its minimum, and names the minimum', () => {
+    const root = temp();
+    installFake(root, 'spec-guard', JSON.stringify({ version: '0.11.0' }));
+    const reason = 'spec-guard 0.11.0 is installed here; spec-harness needs 0.12.0 or later: npm install --save-dev @descent-vtt/spec-guard@latest';
+    expect(locate('spec-guard', root, DEFAULT_CONFIG)).toEqual({ kind: 'outdated', version: '0.11.0', reason });
+  });
+
+  it('counts a version it cannot read as outdated: no package.json, not JSON, or no version in it', () => {
+    for (const manifest of [null, '{ "version": ', 'null', '{}', '{ "version": 12 }', '{ "version": "next" }']) {
+      const root = temp();
+      installFake(root, 'spec-brief', manifest);
+      const sibling = locate('spec-brief', root, DEFAULT_CONFIG);
+      expect(sibling.kind, String(manifest)).toBe('outdated');
+      expect(sibling.kind === 'outdated' ? sibling.reason : '', String(manifest)).toContain('spec-harness needs 0.2.0 or later');
+    }
+  });
+
+  it('prefers the configured command to an installed one, and leaves its version to the configuration', () => {
     const config = { ...DEFAULT_CONFIG, tools: { ...DEFAULT_CONFIG.tools, 'spec-brief': ['node', 'x.js'] } };
-    expect(locate('spec-brief', ROOT, config)).toEqual({ kind: 'found', command: ['node', 'x.js'] });
+    expect(locate('spec-brief', ROOT, config)).toEqual({ kind: 'found', command: ['node', 'x.js'], version: null });
+    const root = temp();
+    installFake(root, 'spec-brief', JSON.stringify({ version: '0.1.0' }));
+    expect(locate('spec-brief', root, config)).toEqual({ kind: 'found', command: ['node', 'x.js'], version: null });
+  });
+
+  it('answers an outdated sibling as it answers an absent one, with the reason', async () => {
+    const root = temp();
+    installFake(root, 'spec-brief', JSON.stringify({ version: '0.1.0' }));
+    installFake(root, 'spec-guard', JSON.stringify({ version: '0.11.0' }));
+    const siblings = createSiblings(root, DEFAULT_CONFIG);
+    expect(await siblings.json('spec-guard', ['query'])).toEqual({
+      absent: 'spec-guard 0.11.0 is installed here; spec-harness needs 0.12.0 or later: npm install --save-dev @descent-vtt/spec-guard@latest',
+    });
+    await expect(siblings.briefs()).rejects.toThrow('spec-brief 0.1.0 is installed here; spec-harness needs 0.2.0 or later');
   });
 
   it('runs "node" as this Node, and passes the exit code through', async () => {

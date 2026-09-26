@@ -19,6 +19,7 @@ import { checkPaths } from './round.js';
 import { mcpCommand } from './server.js';
 import { initCommand } from './setup.js';
 import { SiblingError } from './siblings.js';
+import { MINIMUM_VERSIONS } from './versions.js';
 import {
   activeBrief,
   describeActive,
@@ -64,7 +65,8 @@ Commands:
                       applies it; --git-hook adds a pre-commit hook.
   mcp                 Serve start_round, check_path, request_escalation, audit_round,
                       list_rounds and the workflow prompts over MCP on stdio.
-  doctor              Which siblings are installed, and which brief is named.
+  doctor              Which siblings are installed, at which versions, and which
+                      brief is named. Exit 1 when one is older than this release needs.
 
 Options:
   --brief <id>        The brief the round works on. Otherwise SPEC_BRIEF, then the branch.
@@ -187,25 +189,27 @@ async function hookCommand(options: Options, io: CliIO): Promise<number> {
 
 async function doctorCommand(options: Options, io: CliIO): Promise<number> {
   const workspace = await openWorkspace(options, io);
-  const rows: { tool: string; state: string; detail: string }[] = [];
-  let missing = 0;
-  for (const name of SIBLINGS) {
+  const rows = SIBLINGS.map((name) => {
     const sibling = workspace.siblings.locate(name);
-    if (sibling.kind === 'absent') {
-      missing += 1;
-      rows.push({ tool: name, state: 'absent', detail: sibling.reason });
-      continue;
-    }
-    rows.push({ tool: name, state: 'found', detail: sibling.command.join(' ') });
-  }
+    const row = { tool: name, state: sibling.kind, minimum: MINIMUM_VERSIONS[name] };
+    if (sibling.kind === 'absent') return { ...row, version: null, detail: sibling.reason };
+    if (sibling.kind === 'outdated') return { ...row, version: sibling.version, detail: sibling.reason };
+    const command = sibling.command.join(' ');
+    const detail = sibling.version === null ? `${command} (named in .spec-harness.json; its version is not checked)` : `${command} (${sibling.version})`;
+    return { ...row, version: sibling.version, detail };
+  });
   const named = namedId(workspace, options, io.env);
   if (options.format === 'json') {
     io.stdout.write(json('doctor', { root: workspace.root, branch: workspace.branch, brief: named, siblings: rows }));
   } else {
     io.stdout.write(`root    ${workspace.root}\nbranch  ${workspace.branch ?? '(detached)'}\nbrief   ${named ?? '(none named)'}\n\n`);
-    for (const row of rows) io.stdout.write(`${row.state === 'found' ? 'found ' : 'absent'}  ${row.tool.padEnd(10)}  ${row.detail}\n`);
+    for (const row of rows) io.stdout.write(`${row.state.padEnd(8)}  ${row.tool.padEnd(10)}  ${row.detail}\n`);
   }
-  return missing === SIBLINGS.length ? EXIT_FAILED : EXIT_OK;
+  // An outdated sibling is a problem to fix, where a missing optional one is
+  // a choice; with none installed, the harness can check nothing.
+  const outdated = rows.some((row) => row.state === 'outdated');
+  const usable = rows.some((row) => row.state === 'found');
+  return outdated || !usable ? EXIT_FAILED : EXIT_OK;
 }
 
 /* ---------------------------------------------------------------- dispatch */

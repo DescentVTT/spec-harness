@@ -10,7 +10,7 @@ npx spec-harness init            # the plan: what it would configure, and why
 npx spec-harness init --write    # apply it
 ```
 
-`spec-brief` is required: the brief is the contract, and spec-brief is its reader. `spec-guard` and `spec-graph` are used when they are installed, and their absence is reported, never assumed clean.
+spec-brief 0.2.0 or later is required: the brief is the contract, spec-brief is its reader, and 0.2.0 is the first whose archive asks this package's plugin about signed rulings. spec-guard 0.12.0 and spec-graph 0.9.0 or later are used when they are installed, and their absence is reported, never assumed clean. A sibling installed below its minimum is never run: `doctor` and every command that needed it name the minimum ([ADR-0011](docs/adr/0011-releases-are-staged-by-ci.md)).
 
 ## A round
 
@@ -94,7 +94,7 @@ Configures the family to agree: spec-brief's directories, spec-graph reading the
 
 ### `doctor`
 
-Which sibling tools are installed and how each is run, the repository root, the branch, and the brief the flag, `SPEC_BRIEF` or the branch names. The first thing to run when a hook refuses something unexpectedly.
+Which sibling tools are installed, at which versions, and how each is run, the repository root, the branch, and the brief the flag, `SPEC_BRIEF` or the branch names. A sibling older than this release needs is `outdated`, with the minimum and the command that installs a newer one, and exit 1. A command named under `tools` is run as named, and its version is not checked. The first thing to run when a hook refuses something unexpectedly.
 
 ## As a Claude Code plugin
 

@@ -43,6 +43,7 @@ npm run test:mutation   # the core sweep: pure modules against tests/unit
 | `rulings.ts`, `probe.ts`, `junit.ts` | Escalations and rulings; probes and their verdicts; JUnit reports. |
 | `reader.ts` | Documents through spec-core's Markdown scanner. |
 | `round.ts` | The operations the CLI and the server share: facts gathered, decisions delegated. |
+| `versions.ts` | The oldest release of each sibling this one runs, and an installed version against it. |
 | `git.ts`, `fs.ts`, `siblings.ts`, `sandbox.ts` | The edges. |
 | `cli.ts`, `commands.ts`, `setup.ts`, `server.ts` | The command line, `init`, and the MCP server. |
 

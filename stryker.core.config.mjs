@@ -37,6 +37,7 @@ export default {
     'src/probe.ts',
     'src/reader.ts',
     'src/rulings.ts',
+    'src/versions.ts',
     ...Object.keys(PURE_RANGES),
   ],
   timeoutMS: 3000,
