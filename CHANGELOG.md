@@ -23,7 +23,7 @@ are installed; an older one is reported with its minimum and never run.
 This version was staged on npm by CI from its tag, with provenance, and
 released by a maintainer with a second factor. 0.0.0 on npm is a placeholder
 without code, published by hand to claim the name, and is deprecated
-([ADR-0011](docs/adr/0011-releases-are-staged-by-ci.md)).
+([ADR-0011](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0011-releases-are-staged-by-ci.md)).
 
 ### Added
 

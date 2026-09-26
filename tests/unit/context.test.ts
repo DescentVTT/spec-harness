@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { readRules, renderContext, type CitedDocument, type ContextInput } from '../../src/context.js';
+import { readRules, renderContext, titleOf, type CitedDocument, type ContextInput } from '../../src/context.js';
 import { row } from './helpers.js';
 
 const BRIEF_TEXT = '---\nstatus: active\n---\n\n# 012 - Rotate tokens\n\n## Intent\n\nRotate them.\n\n\n';
@@ -62,6 +62,17 @@ describe('the header', () => {
     expect(title('012', '013 - Another brief')).toBe('# Round 012: 013 - Another brief');
     expect(title('012', 'Rotate tokens - part 2')).toBe('# Round 012: Rotate tokens - part 2');
     expect(title('012', '012-Rotate')).toBe('# Round 012: 012-Rotate');
+    // spec-brief new writes an em dash; an en dash and a colon are read the same way.
+    expect(title('012', '012 \u2014 Rotate tokens')).toBe('# Round 012: Rotate tokens');
+    expect(title('012', '012 \u2013 Rotate tokens')).toBe('# Round 012: Rotate tokens');
+    expect(title('012', '012: Rotate tokens')).toBe('# Round 012: Rotate tokens');
+    expect(title('012', '013 \u2014 Another brief')).toBe('# Round 012: 013 \u2014 Another brief');
+    expect(title('012', 'ADR-012: Tokens')).toBe('# Round 012: ADR-012: Tokens');
+    expect(title('012', '012:Rotate')).toBe('# Round 012: 012:Rotate');
+    expect(title('012', '012 \u2014Rotate')).toBe('# Round 012: 012 \u2014Rotate');
+    expect(title('012', '012 : Rotate')).toBe('# Round 012: 012 : Rotate');
+    expect(titleOf({ id: '012', title: null })).toBeNull();
+    expect(titleOf({ id: '012', title: '012 \u2014 Rotate tokens' })).toBe('Rotate tokens');
     // Only at the start: an id later in the title is part of it.
     expect(title('012', 'Part 012 - the rest')).toBe('# Round 012: Part 012 - the rest');
   });
@@ -130,7 +141,8 @@ describe('dependencies', () => {
       row({ id: '009', title: 'Nine', status: null }),
     ];
     const text = section(renderContext(input({ dependencies })).markdown, 'Depends on');
-    expect(text).toBe('## Depends on\n\n- 007 007 - Tokens: archived, done\n- 008: still draft\n- 009 Nine: still live\n\n');
+    // Each title without the id it repeats, as the round's own.
+    expect(text).toBe('## Depends on\n\n- 007 Tokens: archived, done\n- 008: still draft\n- 009 Nine: still live\n\n');
   });
 
   it('says nothing is waited on when nothing is', () => {

@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
@@ -173,6 +173,25 @@ describe('the release', () => {
 
   it('carries the package version in both plugin manifests', () => {
     expect(pluginDrift(version, json('.claude-plugin/plugin.json'), json('.claude-plugin/marketplace.json'))).toBeNull();
+  });
+});
+
+describe('the documents the package ships', () => {
+  it('link only to files it ships, or by absolute URL, so that a link works in node_modules and on npmjs.com', () => {
+    const files = json('package.json')['files'] as string[];
+    const ships = (path: string): boolean => files.some((entry) => path === entry || path.startsWith(`${entry}/`));
+    const documents = ['README.md', 'CHANGELOG.md', ...[...walk('skills')].filter((path) => path.endsWith('.md'))];
+    expect(documents.every(ships)).toBe(true);
+    const dead: string[] = [];
+    for (const document of documents) {
+      for (const match of text(document).matchAll(/\]\(([^)\s]+)\)/g)) {
+        const target = match[1] as string;
+        if (/^(?:[a-z][a-z+.-]*:|#)/i.test(target)) continue;
+        const path = posix.join(posix.dirname(document), target.split('#')[0] as string);
+        if (!ships(path) || !existsSync(join(ROOT, path))) dead.push(`${document}: ${target}`);
+      }
+    }
+    expect(dead).toEqual([]);
   });
 });
 

@@ -45,7 +45,7 @@ describe('context', () => {
     expect(text).toContain('Must not change without a ruling:\n- `src/db/schema.ts`\n');
     expect(text).toContain('Rulings in force:\n- none\n');
     // spec-brief reports dependencies as the front matter spells them; 2 is brief 002.
-    expect(text).toContain('## Depends on\n\n- 002 002 - Still going: still draft\n- 003 003 - Done: archived, done\n- 9 (no such brief): still unknown\n');
+    expect(text).toContain('## Depends on\n\n- 002 Still going: still draft\n- 003 Done: archived, done\n- 9 (no such brief): still unknown\n');
     expect(text).toContain('### docs/adr/0001-sessions.md\n\n- line 9: "LegacyGateway" must not appear in src/auth - the gateway is gone');
     expect(text).toContain('### `docs/design.md` - The design (draft)\n\n````markdown\n---\nstatus: draft\n---\n\n# The design\n\nTokens rotate.\n````');
     expect(text).toContain('### `docs/adr/0001-sessions.md` - ADR-0001: Sessions (accepted)');
