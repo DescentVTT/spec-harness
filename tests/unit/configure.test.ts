@@ -1,6 +1,19 @@
 import { describe, expect, it } from 'vitest';
 
-import { GUARD_HOOK, mcpServer, mergeClaudeSettings, mergeMcp, mergeSpecGraph, PROJECT_DIR, PROJECT_DIR_OR_HERE } from '../../src/configure.js';
+import {
+  describePlugin,
+  GUARD_HOOK,
+  loadsPlugin,
+  mcpServer,
+  mergeClaudeSettings,
+  mergeMcp,
+  mergeSpecBrief,
+  mergeSpecGraph,
+  PLUGIN,
+  PROJECT_DIR,
+  PROJECT_DIR_OR_HERE,
+  SPEC_BRIEF_CONFIGS,
+} from '../../src/configure.js';
 
 const SCRIPT = '${CLAUDE_PROJECT_DIR}/node_modules/@descent-vtt/spec-harness/bin/spec-harness.js';
 const HOOK = { type: 'command', command: 'node', args: [SCRIPT, 'hook', 'claude'], timeout: 60 };
@@ -121,6 +134,49 @@ describe('the MCP server registration', () => {
     const merged = mergeMcp({ mcpServers: { 'spec-harness': { type: 'stdio', command: 'npx', args: ['--no-install', 'spec-harness', 'mcp'], env: { A: '1' } } } });
     expect(merged).toEqual({ mcpServers: { 'spec-harness': { type: 'stdio', env: { A: '1' }, ...mcpServer(PROJECT_DIR_OR_HERE) } } });
     expect(mergeMcp(merged ?? {})).toBeNull();
+  });
+});
+
+describe('spec-brief\'s plugins', () => {
+  it('names the plugin by the subpath this package exports, and spec-brief\'s files in its order', () => {
+    expect(PLUGIN).toBe('@descent-vtt/spec-harness/spec-brief-plugin');
+    expect(SPEC_BRIEF_CONFIGS).toEqual(['.spec-brief.json', 'spec-brief.json']);
+  });
+
+  it('reads the plugin as loaded by name or as a module with options, and only so', () => {
+    expect(loadsPlugin({ plugins: [PLUGIN] })).toBe(true);
+    expect(loadsPlugin({ plugins: ['./tools/x.mjs', { module: PLUGIN, options: {} }] })).toBe(true);
+    expect(loadsPlugin({})).toBe(false);
+    expect(loadsPlugin({ plugins: PLUGIN })).toBe(false);
+    expect(loadsPlugin({ plugins: ['@descent-vtt/spec-harness', { module: '@descent-vtt/spec-harness' }, null, { name: PLUGIN }] })).toBe(false);
+  });
+
+  it('loads the plugin after those already there, keeping every other setting', () => {
+    expect(mergeSpecBrief({})).toEqual({ plugins: [PLUGIN] });
+    const current = { briefs: 'docs/briefs', plugins: ['./tools/x.mjs'], archiving: { base: null } };
+    expect(mergeSpecBrief(current)).toEqual({ briefs: 'docs/briefs', plugins: ['./tools/x.mjs', PLUGIN], archiving: { base: null } });
+    expect(current.plugins).toEqual(['./tools/x.mjs']);
+    expect(mergeSpecBrief({ plugins: 'x' })).toEqual({ plugins: [PLUGIN] });
+  });
+
+  it('changes nothing when the plugin is loaded', () => {
+    expect(mergeSpecBrief({ plugins: [PLUGIN] })).toBeNull();
+    expect(mergeSpecBrief({ plugins: [{ module: PLUGIN }] })).toBeNull();
+  });
+
+  it('says whether the plugin is loaded, and what to do when it is not', () => {
+    expect(describePlugin({ kind: 'loaded', file: '.spec-brief.json' })).toBe(
+      "spec-brief loads spec-harness's plugin (.spec-brief.json): its archive accepts a protected file a signed ruling allows",
+    );
+    expect(describePlugin({ kind: 'not-loaded', file: 'spec-brief.json' })).toBe(
+      'spec-brief does not load spec-harness\'s plugin, so its archive refuses a protected file whatever ruling is signed: add "@descent-vtt/spec-harness/spec-brief-plugin" to "plugins" in spec-brief.json, or run spec-harness init --write',
+    );
+    expect(describePlugin({ kind: 'unreadable', file: '.spec-brief.json' })).toBe(
+      ".spec-brief.json cannot be read as JSON, so whether spec-brief loads spec-harness's plugin is unknown",
+    );
+    expect(describePlugin({ kind: 'unconfigured' })).toBe(
+      "spec-brief has no configuration at the root, so it loads no plugin: spec-harness init --write writes one that loads spec-harness's",
+    );
   });
 });
 

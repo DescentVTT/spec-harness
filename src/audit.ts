@@ -20,6 +20,8 @@
  * A part that could not be measured is a finding, never a silence.
  */
 
+import { PLUGIN } from './configure.js';
+import { rulingFor, type VerifiedRuling } from './guard.js';
 import type { DependencyChange } from './manifests.js';
 import { sameSection } from './reader.js';
 import type { BriefRow, Finding, Severity } from './types.js';
@@ -35,16 +37,25 @@ export interface AssertionOutcome {
   readonly enclosing?: readonly string[] | undefined;
 }
 
+/** A reason spec-brief's archive gives; a `protected-file` refusal names its `path`. */
+export interface ArchiveReason extends Finding {
+  readonly path?: string | undefined;
+}
+
 export interface AuditInput {
   readonly brief: BriefRow;
   /** Why the round's changes could not be measured, when they could not. */
   readonly unmeasured: string | null;
   readonly dependencies: { readonly changes: readonly DependencyChange[]; readonly unread: readonly string[] };
-  readonly archive: { readonly blocking: readonly Finding[]; readonly warnings: readonly Finding[] } | { readonly unavailable: string };
+  readonly archive: { readonly blocking: readonly ArchiveReason[]; readonly warnings: readonly ArchiveReason[] } | { readonly unavailable: string };
   readonly assertions: readonly AssertionOutcome[] | { readonly unavailable: string };
   /** Section names whose assertions are premises. Compared without case, emphasis, a leading number or a trailing colon. */
   readonly premiseSections: readonly string[];
   readonly unverifiedRulings: readonly { readonly id: string; readonly reason: string }[];
+  /** The rulings whose signatures verify, which a protected file the archive refuses may be covered by. */
+  readonly verifiedRulings: readonly VerifiedRuling[];
+  /** Whether spec-brief's configuration loads this package's plugin, through which its archive learns of them. */
+  readonly pluginLoaded: boolean;
 }
 
 export interface AuditReport {
@@ -69,6 +80,20 @@ export function isPremise(sections: string | null | readonly string[], premises:
   return list.some((section) => premises.some((premise) => sameSection(section, premise)));
 }
 
+/**
+ * The next step for a reason the archive gives. A protected file a verified
+ * ruling covers is refused only because the archive did not learn of the
+ * ruling, and recording a departure in the brief would not fix that.
+ */
+function archiveHint(reason: ArchiveReason, input: AuditInput): string {
+  const ruling = reason.rule === 'protected-file' && reason.path !== undefined ? rulingFor(input.verifiedRulings, reason.path) : undefined;
+  if (ruling === undefined) return reason.hint;
+  const allowed = `ruling ${ruling.id}, signed by ${ruling.signer}, allows it`;
+  return input.pluginLoaded
+    ? `${allowed}, and the archive still refused it: check that spec-brief loads the spec-harness installed here and measures from the same base (spec-harness doctor)`
+    : `${allowed}, but spec-brief does not load spec-harness's plugin, which is how its archive learns of signed rulings: add "${PLUGIN}" to "plugins" in its configuration, or run spec-harness init --write`;
+}
+
 export function audit(input: AuditInput): AuditReport {
   const { brief } = input;
   const out: Finding[] = [];
@@ -89,7 +114,7 @@ export function audit(input: AuditInput): AuditReport {
     out.push(finding('archive-unchecked', 'warning', `what the archive would say is unknown: ${input.archive.unavailable}`, 'install spec-brief, or fix what stopped it', brief.file));
   } else {
     for (const reason of [...input.archive.blocking, ...input.archive.warnings]) {
-      out.push(finding(`archive/${reason.rule}`, reason.severity, reason.message, reason.hint, reason.file, reason.line));
+      out.push(finding(`archive/${reason.rule}`, reason.severity, reason.message, archiveHint(reason, input), reason.file, reason.line));
     }
   }
 

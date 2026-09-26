@@ -8,7 +8,7 @@ import type { EscalationRequest } from '../../src/rulings.js';
 import { tools } from '../../src/server.js';
 import type { Finding } from '../../src/types.js';
 import { openWorkspace, parseOptions } from '../../src/workspace.js';
-import { brief, BRIEF_FILE, cleanup, cli, commitSigned, hasSshKeygen, parsed, repository, signingKey, temp, type Repository } from './helpers.js';
+import { brief, BRIEF_FILE, cleanup, cli, commitSigned, hasSshKeygen, installHarness, parsed, repository, signingKey, temp, type Repository } from './helpers.js';
 
 afterAll(cleanup);
 
@@ -284,6 +284,29 @@ describe.skipIf(!hasSshKeygen())('a ruling is a row whose commit a person signed
     );
     expect((await tool('start_round')?.call({}))?.text).toContain('Rulings in force:\n- none\n');
     expect((await tool('start_round')?.call({ base: 'main' }))?.text).toContain('Rulings in force:\n- R-001-1, signed by t@example.com: `src/db/schema.ts`\n');
+  });
+
+  it('says why the archive refuses a file a signed ruling allows, until spec-brief loads the plugin, which waives it', async () => {
+    const other = round({ '.github/allowed_signers': signers });
+    installHarness(other.root);
+    await cli(['escalate', '--path', 'src/db/schema.ts', '--reason', 'r'], other.root);
+    await cli(['rule', 'E-001-1', '--allow', '--note', 'One column.'], other.root);
+    commitSigned(other, key, 'ruling R-001-1: allow');
+    other.write('src/db/schema.ts', 'table;\ncolumn;\n');
+    other.commit('round 001: a column');
+
+    const audit = async () => parsed<{ findings: Finding[] }>(await cli(['audit', '--format', 'json'], other.root)).findings;
+    const refused = (await audit()).filter((f) => f.rule === 'archive/protected-file');
+    expect(refused).toHaveLength(1);
+    expect(refused[0]?.hint).toContain('ruling R-001-1, signed by t@example.com, allows it, but spec-brief does not load spec-harness\'s plugin');
+    expect((await cli(['doctor'], other.root)).stdout).toContain('\nplugin  spec-brief has no configuration at the root, so it loads no plugin');
+
+    other.write('.spec-brief.json', `${JSON.stringify({ plugins: ['@descent-vtt/spec-harness/spec-brief-plugin'] })}\n`);
+    other.commit('spec-brief: load the spec-harness plugin');
+    const findings = await audit();
+    expect(findings.filter((f) => f.severity === 'error')).toEqual([]);
+    expect(findings.map((f) => f.rule)).toContain('archive/waived');
+    expect((await cli(['doctor'], other.root)).stdout).toContain("\nplugin  spec-brief loads spec-harness's plugin (.spec-brief.json)");
   });
 
   it('says a ruling cannot count with no base to read the signers from', async () => {

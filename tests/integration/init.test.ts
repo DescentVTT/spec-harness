@@ -3,7 +3,7 @@ import { join } from 'node:path';
 
 import { afterAll, describe, expect, it } from 'vitest';
 
-import { GUARD_HOOK, mcpServer, PROJECT_DIR_OR_HERE } from '../../src/configure.js';
+import { GUARD_HOOK, mcpServer, PLUGIN, PROJECT_DIR_OR_HERE } from '../../src/configure.js';
 import { cleanup, cli, install, installFake, parsed, repository, siblings, type Repository } from './helpers.js';
 
 afterAll(cleanup);
@@ -43,6 +43,9 @@ describe('init', () => {
     const result = await cli(['init'], repo.root);
     expect(result.code).toBe(0);
     expect(result.stdout).toContain('run     .spec-brief.json\n        spec-brief init');
+    expect(result.stdout).toContain(
+      `update  .spec-brief.json\n        load spec-harness's plugin, "${PLUGIN}": spec-brief's archive asks it whether a signed ruling allows a protected file, and refuses the file without it\n`,
+    );
     expect(result.stdout).toContain('create  .spec-harness.json\n        the defaults');
     expect(result.stdout).toContain('create  .claude/settings.json');
     expect(result.stdout).toContain('create  .mcp.json');
@@ -59,12 +62,16 @@ describe('init', () => {
     expect(steps.written).toBe(true);
     expect(steps.steps.map((s) => [s.file, s.action])).toEqual([
       ['.spec-brief.json', 'run'],
+      ['.spec-brief.json', 'update'],
       ['.spec-harness.json', 'create'],
       ['.claude/settings.json', 'create'],
       ['.mcp.json', 'create'],
       ['.github/allowed_signers', 'advise'],
     ]);
-    expect(existsSync(join(repo.root, '.spec-brief.json'))).toBe(true);
+    const briefConfig = JSON.parse(repo.read('.spec-brief.json'));
+    expect(briefConfig.plugins).toEqual([PLUGIN]);
+    // Everything spec-brief init spelled out is still there.
+    expect(briefConfig).toMatchObject({ briefs: 'briefs', archive: 'briefs/archive' });
     expect(JSON.parse(repo.read('.spec-harness.json'))).toEqual({});
     const settings = JSON.parse(repo.read('.claude/settings.json'));
     expect(settings.hooks.PreToolUse[0].hooks[0]).toEqual(GUARD_HOOK);
@@ -76,6 +83,7 @@ describe('init', () => {
     const second = await cli(['init', '--write'], repo.root);
     expect(second.code).toBe(0);
     expect(second.stdout).toContain('keep    .spec-brief.json\n        briefs in briefs/, the archive in briefs/archive/');
+    expect(second.stdout).toContain("keep    .spec-brief.json\n        spec-harness's plugin is loaded\n");
     expect(second.stdout).toContain('keep    .claude/settings.json\n        the guard hooks are installed');
     expect(second.stdout).toContain('keep    .mcp.json\n        the spec-harness server is registered');
     expect(second.stdout).not.toContain('Nothing was changed');
@@ -93,6 +101,8 @@ describe('init', () => {
     const result = await cli(['init', '--write'], repo.root);
     expect(result.code).toBe(0);
     expect(result.stdout).toContain('keep    .spec-brief.json\n        briefs in docs/briefs/, the archive in docs/briefs/archive/');
+    expect(result.stdout).toContain("update  .spec-brief.json\n        load spec-harness's plugin");
+    expect(JSON.parse(repo.read('.spec-brief.json'))).toEqual({ briefs: 'docs/briefs', plugins: [PLUGIN] });
     expect(result.stdout).toContain('keep    .spec-harness.json\n        already configured');
     const settings = JSON.parse(repo.read('.claude/settings.json'));
     expect(settings.permissions).toEqual({ allow: ['Bash(ls)'] });
@@ -111,8 +121,21 @@ describe('init', () => {
     expect(result.stdout).toContain('advise  .mcp.json\n        cannot be read as JSON; add the spec-harness server by hand');
     expect(result.stdout).toContain('advise  .spec-graph.json\n        cannot be read as JSON; add "historyPatterns": ["briefs/archive/**"] by hand');
     expect(result.stdout).toContain('keep    .spec-brief.json\n        briefs in briefs/, the archive in briefs/archive/');
+    expect(result.stdout).toContain(`advise  .spec-brief.json\n        cannot be read as JSON; add "plugins": ["${PLUGIN}"] by hand`);
+    expect(repo.read('.spec-brief.json')).toBe('{');
     expect(repo.read('.claude/settings.json')).toBe('{ not json');
     expect(repo.read('.mcp.json')).toBe('[]');
+  });
+
+  it('loads the plugin in spec-brief.json when that is the configuration spec-brief reads', async () => {
+    const repo = repository({ 'spec-brief.json': JSON.stringify({ plugins: [{ module: './x.mjs' }] }) });
+    const result = await cli(['init', '--write', '--format', 'json'], repo.root);
+    expect(parsed<{ steps: Step[] }>(result).steps.filter((step) => step.file.endsWith('spec-brief.json')).map((step) => [step.file, step.action])).toEqual([
+      ['spec-brief.json', 'keep'],
+      ['spec-brief.json', 'update'],
+    ]);
+    expect(JSON.parse(repo.read('spec-brief.json'))).toEqual({ plugins: [{ module: './x.mjs' }, PLUGIN] });
+    expect(existsSync(join(repo.root, '.spec-brief.json'))).toBe(false);
   });
 
   it('tells spec-graph that the archive is history, when spec-graph is there', async () => {

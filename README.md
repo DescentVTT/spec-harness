@@ -57,6 +57,8 @@ git commit -S -m "ruling R-012-1: allow" -- briefs/012_rotate-tokens.md
 
 A ruling is a row in the brief's `## Rulings` table. It **counts** when the commit that last changed the row is signed by a key the **base branch's** `.github/allowed_signers` lists. An agent can write a row and compute any hash; it cannot produce the person's signature, and an edit to the row moves it to a commit that must be signed again ([ADR-0006](docs/adr/0006-a-ruling-is-a-signed-commit.md)). Use a FIDO2 key (`ed25519-sk`) where the agent runs as you: its signature needs a touch no process can supply.
 
+spec-brief's archive refuses a round that changed a protected file, and learns that a signed ruling allows it only from this package's plugin: `init` adds `"plugins": ["@descent-vtt/spec-harness/spec-brief-plugin"]` to spec-brief's configuration. Without it, the archive refuses the file whatever was signed; `doctor` says whether spec-brief loads the plugin, and `audit` names it as the reason for such a refusal.
+
 ### `audit [brief]`
 
 One report: what spec-brief's archive would refuse or warn about, run with `--dry-run`; the brief's own assertions through spec-guard - a goal that fails, or a premise (under a heading such as *The Defect, Measured*) that still holds after the round meant to change it; rulings whose signatures do not verify; and every dependency the round added to `package.json`, `Cargo.toml`, `go.mod`, `pyproject.toml`, `requirements*.txt`, NuGet project files or a `Gemfile`. A part that could not be measured is a finding, never a silence.
@@ -90,11 +92,11 @@ Is every live brief still about something true? It runs spec-guard over the live
 
 ### `init`
 
-Configures the family to agree: spec-brief's directories, spec-graph reading the archive as history (so a brief depending on an archived one is not a stale premise), `.spec-harness.json` with the base branch, the Claude Code hooks, the MCP server, and with `--git-hook` a pre-commit hook. It prints the plan, merges into files that exist, and changes nothing without `--write`.
+Configures the family to agree: spec-brief's directories, and this package's plugin in spec-brief's `plugins` - `"@descent-vtt/spec-harness/spec-brief-plugin"` - through which spec-brief's archive accepts a protected file a signed ruling allows; spec-graph reading the archive as history (so a brief depending on an archived one is not a stale premise), `.spec-harness.json` with the base branch, the Claude Code hooks, the MCP server, and with `--git-hook` a pre-commit hook. It prints the plan, merges into files that exist, and changes nothing without `--write`.
 
 ### `doctor`
 
-Which sibling tools are installed, at which versions, and how each is run, the repository root, the branch, and the brief the flag, `SPEC_BRIEF` or the branch names. A sibling older than this release needs is `outdated`, with the minimum and the command that installs a newer one, and exit 1. A command named under `tools` is run as named, and its version is not checked. The first thing to run when a hook refuses something unexpectedly.
+Which sibling tools are installed, at which versions, and how each is run, the repository root, the branch, the brief the flag, `SPEC_BRIEF` or the branch names, and whether spec-brief loads this package's plugin. A sibling older than this release needs is `outdated`, with the minimum and the command that installs a newer one, and exit 1. A command named under `tools` is run as named, and its version is not checked. The first thing to run when a hook refuses something unexpectedly.
 
 ## As a Claude Code plugin
 

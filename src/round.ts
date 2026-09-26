@@ -10,11 +10,12 @@ import { existsSync } from 'node:fs';
 import { readdir, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { audit, type AssertionOutcome, type AuditReport } from './audit.js';
+import { audit, type ArchiveReason, type AssertionOutcome, type AuditReport } from './audit.js';
 import { sameId } from './branch.js';
+import { loadsPlugin, SPEC_BRIEF_CONFIGS, type PluginState } from './configure.js';
 import { renderContext, type CitedDocument, type ContextPacket, type RuleInForce } from './context.js';
 import type { DocumentReader } from './document.js';
-import { readText, repositoryPath, stateDirectory, writeAtomic } from './fs.js';
+import { readJsonObject, readText, repositoryPath, stateDirectory, writeAtomic } from './fs.js';
 import { blameLine, changes, mergeBase, remoteDefault, revision, show, verifyCommit } from './git.js';
 import { decide, type Decision, type VerifiedRuling } from './guard.js';
 import { diffManifest, ecosystemOf, manifestMatcher, type DependencyChange } from './manifests.js';
@@ -264,13 +265,22 @@ async function dependencyChanges(workspace: Workspace, base: Base): Promise<{ ch
   return { changes: out, unread };
 }
 
-async function archiveReasons(workspace: Workspace, brief: BriefRow, base: Base): Promise<{ blocking: Finding[]; warnings: Finding[] } | { unavailable: string }> {
+/** Whether spec-brief loads this package's plugin, as its configuration at the root says. */
+export async function specBriefPlugin(root: string): Promise<PluginState> {
+  const file = SPEC_BRIEF_CONFIGS.find((name) => existsSync(join(root, name)));
+  if (file === undefined) return { kind: 'unconfigured' };
+  const config = await readJsonObject(join(root, file));
+  if (config === null || config === 'unreadable') return { kind: 'unreadable', file };
+  return { kind: loadsPlugin(config) ? 'loaded' : 'not-loaded', file };
+}
+
+async function archiveReasons(workspace: Workspace, brief: BriefRow, base: Base): Promise<{ blocking: ArchiveReason[]; warnings: ArchiveReason[] } | { unavailable: string }> {
   const args = ['archive', brief.id, '--dry-run', '--format', 'json', '--no-color'];
   if (base.kind === 'resolved') args.push('--base', base.ref);
   const answer = await workspace.siblings.json('spec-brief', args);
   if ('absent' in answer) return { unavailable: answer.absent };
   if (answer.code === 2) return { unavailable: 'spec-brief could not plan the archive' };
-  const plan = (answer.document as { plan?: { blocking?: Finding[]; warnings?: Finding[] } }).plan;
+  const plan = (answer.document as { plan?: { blocking?: ArchiveReason[]; warnings?: ArchiveReason[] } }).plan;
   return { blocking: plan?.blocking ?? [], warnings: plan?.warnings ?? [] };
 }
 
@@ -297,11 +307,12 @@ export interface AuditResult {
 export async function runAudit(workspace: Workspace, brief: BriefRow, reader: DocumentReader, baseFlag: string | undefined): Promise<AuditResult> {
   const base = await resolveBase(workspace, baseFlag);
   const text = await briefText(workspace, brief);
-  const [dependencies, archive, assertions, rulings] = await Promise.all([
+  const [dependencies, archive, assertions, rulings, plugin] = await Promise.all([
     dependencyChanges(workspace, base),
     archiveReasons(workspace, brief, base),
     briefAssertions(workspace, brief, text, reader),
     checkRulings(workspace, brief, text, reader, base),
+    specBriefPlugin(workspace.root),
   ]);
   const unmeasured =
     base.kind === 'unresolved' ? base.reason : base.mergeBase === base.head ? `${base.ref} and HEAD are the same commit: there is nothing to measure` : null;
@@ -313,6 +324,8 @@ export async function runAudit(workspace: Workspace, brief: BriefRow, reader: Do
     assertions,
     premiseSections: workspace.config.assertions.premises,
     unverifiedRulings: rulings.unverified,
+    verifiedRulings: rulings.verified,
+    pluginLoaded: plugin.kind === 'loaded',
   });
   return {
     brief,

@@ -8,7 +8,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { afterAll } from 'vitest';
 
@@ -156,6 +156,22 @@ export function repository(files: Readonly<Record<string, string>> = {}, config:
 /** This repository's copy of a sibling, installed into `root` where `locate()` looks for it. */
 export function install(root: string, name: 'spec-brief' | 'spec-guard'): void {
   cpSync(join(ROOT, 'node_modules', '@descent-vtt', name), join(root, 'node_modules', '@descent-vtt', name), { recursive: true });
+}
+
+/**
+ * This checkout, installed into `root` where a project's configurations look
+ * for it: a launcher for its built command line, and its spec-brief plugin
+ * under the subpath the package exports, which spec-brief imports from there.
+ */
+export function installHarness(root: string): void {
+  if (!existsSync(join(ROOT, 'dist', 'plugin.js'))) throw new Error('dist/plugin.js is missing: run "npm run build" before the suite');
+  const directory = join(root, 'node_modules', '@descent-vtt', 'spec-harness');
+  const url = (path: string): string => JSON.stringify(pathToFileURL(join(ROOT, path)).href);
+  mkdirSync(join(directory, 'bin'), { recursive: true });
+  const manifest = { name: '@descent-vtt/spec-harness', type: 'module', exports: { './spec-brief-plugin': './plugin.js', './package.json': './package.json' } };
+  writeFileSync(join(directory, 'package.json'), `${JSON.stringify(manifest)}\n`);
+  writeFileSync(join(directory, 'bin', 'spec-harness.js'), `await import(${url('bin/spec-harness.js')});\n`);
+  writeFileSync(join(directory, 'plugin.js'), `export { default, waive } from ${url('dist/plugin.js')};\n`);
 }
 
 /**

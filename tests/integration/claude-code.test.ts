@@ -9,12 +9,11 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { mergeClaudeSettings, mergeMcp } from '../../src/configure.js';
-import { brief, BRIEF_FILE, cleanup, repository, ROOT, temp, write, type Repository } from './helpers.js';
+import { brief, BRIEF_FILE, cleanup, installHarness, repository, ROOT, temp, type Repository } from './helpers.js';
 
 afterAll(cleanup);
 
@@ -29,11 +28,8 @@ beforeAll(() => {
   if (!existsSync(join(ROOT, 'dist', 'cli.js'))) throw new Error('dist/cli.js is missing: run "npm run build" before the suite');
   repo = repository({ [BRIEF_FILE]: brief({ affected: ['src/auth/**'], protected: ['src/db/**'] }), 'src/db/schema.ts': 'table;\n' });
   repo.git('checkout', '-q', '-b', 'brief/001-rotate');
-  // The project's install of this package, where the configurations point: a
-  // launcher for this checkout's command line.
-  const installed = 'node_modules/@descent-vtt/spec-harness';
-  write(repo.root, `${installed}/package.json`, `${JSON.stringify({ name: '@descent-vtt/spec-harness', type: 'module' })}\n`);
-  write(repo.root, `${installed}/bin/spec-harness.js`, `await import(${JSON.stringify(pathToFileURL(join(ROOT, 'bin', 'spec-harness.js')).href)});\n`);
+  // The project's install of this package, where the configurations point.
+  installHarness(repo.root);
 });
 
 /** A command as Claude Code runs it: its placeholders substituted, `node` found on PATH. */

@@ -111,6 +111,48 @@ export function mergeMcp(current: Json): Json | null {
   return { ...current, mcpServers: { ...servers, 'spec-harness': { ...(existing as Json | undefined), ...mcpServer(PROJECT_DIR_OR_HERE) } } };
 }
 
+/** The spec-brief plugin this package ships, as spec-brief's `plugins` names it. */
+export const PLUGIN = '@descent-vtt/spec-harness/spec-brief-plugin';
+
+/** spec-brief's configuration files, in the order spec-brief looks for them in a directory. */
+export const SPEC_BRIEF_CONFIGS: readonly string[] = ['.spec-brief.json', 'spec-brief.json'];
+
+/** Whether spec-brief's configuration loads the plugin, by name or as `{ module, options }`. */
+export function loadsPlugin(config: Json): boolean {
+  const plugins = config['plugins'];
+  return Array.isArray(plugins) && plugins.some((entry) => entry === PLUGIN || (isObject(entry) && entry['module'] === PLUGIN));
+}
+
+/**
+ * spec-brief's configuration with the plugin loaded, or `null` when it is.
+ * spec-brief's archive refuses a round that changed a protected file, and
+ * learns that a signed ruling allows it only by asking the plugin (ADR-0006).
+ */
+export function mergeSpecBrief(current: Json): Json | null {
+  if (loadsPlugin(current)) return null;
+  const plugins: unknown[] = Array.isArray(current['plugins']) ? current['plugins'] : [];
+  return { ...current, plugins: [...plugins, PLUGIN] };
+}
+
+/** Whether spec-brief loads the plugin, as its configuration at the root says. */
+export type PluginState =
+  | { readonly kind: 'loaded' | 'not-loaded' | 'unreadable'; readonly file: string }
+  | { readonly kind: 'unconfigured' };
+
+/** What a person reads about the plugin, and what to do when it is not loaded. */
+export function describePlugin(state: PluginState): string {
+  switch (state.kind) {
+    case 'loaded':
+      return `spec-brief loads spec-harness's plugin (${state.file}): its archive accepts a protected file a signed ruling allows`;
+    case 'not-loaded':
+      return `spec-brief does not load spec-harness's plugin, so its archive refuses a protected file whatever ruling is signed: add "${PLUGIN}" to "plugins" in ${state.file}, or run spec-harness init --write`;
+    case 'unreadable':
+      return `${state.file} cannot be read as JSON, so whether spec-brief loads spec-harness's plugin is unknown`;
+    case 'unconfigured':
+      return "spec-brief has no configuration at the root, so it loads no plugin: spec-harness init --write writes one that loads spec-harness's";
+  }
+}
+
 /** spec-graph's configuration with the archive read as history, or `null` when it already is. */
 export function mergeSpecGraph(current: Json, archiveGlob: string): Json | null {
   const history = Array.isArray(current['historyPatterns']) ? (current['historyPatterns'] as unknown[]).filter((p): p is string => typeof p === 'string') : [];

@@ -10,12 +10,13 @@
 
 import { auditCommand, contextCommand, escalateCommand, probeCommand, ruleCommand, rulingsCommand } from './commands.js';
 import { ConfigError, SIBLINGS } from './config.js';
+import { describePlugin } from './configure.js';
 import { stagedChanges } from './git.js';
 import type { Decision } from './guard.js';
 import { claudeResponse, gitResponse, parseClaudeHook } from './hooks.js';
 import { premisesCommand } from './premises.js';
 import { createReader } from './reader.js';
-import { checkPaths } from './round.js';
+import { checkPaths, specBriefPlugin } from './round.js';
 import { mcpCommand } from './server.js';
 import { initCommand } from './setup.js';
 import { SiblingError } from './siblings.js';
@@ -199,10 +200,19 @@ async function doctorCommand(options: Options, io: CliIO): Promise<number> {
     return { ...row, version: sibling.version, detail };
   });
   const named = namedId(workspace, options, io.env);
+  const plugin = await specBriefPlugin(workspace.root);
   if (options.format === 'json') {
-    io.stdout.write(json('doctor', { root: workspace.root, branch: workspace.branch, brief: named, siblings: rows }));
+    io.stdout.write(
+      json('doctor', {
+        root: workspace.root,
+        branch: workspace.branch,
+        brief: named,
+        plugin: { state: plugin.kind, file: 'file' in plugin ? plugin.file : null, detail: describePlugin(plugin) },
+        siblings: rows,
+      }),
+    );
   } else {
-    io.stdout.write(`root    ${workspace.root}\nbranch  ${workspace.branch ?? '(detached)'}\nbrief   ${named ?? '(none named)'}\n\n`);
+    io.stdout.write(`root    ${workspace.root}\nbranch  ${workspace.branch ?? '(detached)'}\nbrief   ${named ?? '(none named)'}\nplugin  ${describePlugin(plugin)}\n\n`);
     for (const row of rows) io.stdout.write(`${row.state.padEnd(8)}  ${row.tool.padEnd(10)}  ${row.detail}\n`);
   }
   // An outdated sibling is a problem to fix, where a missing optional one is

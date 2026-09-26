@@ -76,6 +76,17 @@ export async function writeAtomic(file: string, content: string): Promise<void> 
   await rename(temporary, file);
 }
 
+/** A JSON object from a file: `null` when there is no file, `'unreadable'` when it holds anything else. */
+export async function readJsonObject(file: string): Promise<Record<string, unknown> | null | 'unreadable'> {
+  if (!existsSync(file)) return null;
+  try {
+    const value = JSON.parse(await readFile(file, 'utf8')) as unknown;
+    return typeof value === 'object' && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : 'unreadable';
+  } catch {
+    return 'unreadable';
+  }
+}
+
 export async function readText(file: string): Promise<string | null> {
   try {
     return await readFile(file, 'utf8');
