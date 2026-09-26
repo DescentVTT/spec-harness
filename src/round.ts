@@ -13,7 +13,7 @@ import { join } from 'node:path';
 import { audit, type ArchiveReason, type AssertionOutcome, type AuditReport } from './audit.js';
 import { sameId } from './branch.js';
 import { loadsPlugin, SPEC_BRIEF_CONFIGS, type BaseSource, type PluginState } from './configure.js';
-import { renderContext, type CitedDocument, type ContextPacket, type RuleInForce } from './context.js';
+import { readRules, renderContext, type CitedDocument, type ContextPacket, type Rules } from './context.js';
 import type { DocumentReader } from './document.js';
 import { readJsonObject, readText, repositoryPath, stateDirectory, writeAtomic } from './fs.js';
 import { blameLine, changes, mergeBase, remoteDefault, revision, show, verifyCommit } from './git.js';
@@ -32,6 +32,7 @@ import {
 import type { BriefRow, Finding } from './types.js';
 import { compileGlob } from './vendor/spec-core/pattern/index.js';
 import { dirname, isRelativeReference, resolveInside, splitReference } from './vendor/spec-core/path/index.js';
+import { SiblingError } from './siblings.js';
 import { UsageError, type Workspace } from './workspace.js';
 
 /* -------------------------------------------------------------------- base */
@@ -160,24 +161,18 @@ function scopeBases(patterns: readonly string[]): string[] {
   return [...bases].sort();
 }
 
-async function rulesFor(workspace: Workspace, brief: BriefRow): Promise<readonly RuleInForce[] | { unavailable: string }> {
+async function rulesFor(workspace: Workspace, brief: BriefRow): Promise<Rules> {
   const paths = scopeBases(brief.affectedFiles);
   if (paths.length === 0) return [];
-  const answer = await workspace.siblings.json('spec-guard', ['query', ...paths, '--json']);
-  if ('absent' in answer) return { unavailable: answer.absent };
-  if (answer.code === 2) return { unavailable: 'spec-guard could not read its specs' };
-  const document = answer.document as { results?: { rules?: { document: string; line: number; kind: string; description: string; reason?: string | null; inForce?: boolean }[] }[] };
-  const seen = new Set<string>();
-  const out: RuleInForce[] = [];
-  for (const result of document.results ?? []) {
-    for (const rule of result.rules ?? []) {
-      const key = `${rule.document}:${rule.line}`;
-      if (rule.inForce === false || seen.has(key)) continue;
-      seen.add(key);
-      out.push({ document: rule.document, line: rule.line, kind: rule.kind, description: rule.description, reason: rule.reason ?? null });
-    }
+  try {
+    const answer = await workspace.siblings.json('spec-guard', ['query', ...paths, '--json']);
+    return 'absent' in answer ? { unavailable: answer.absent } : readRules(answer);
+  } catch (error) {
+    // spec-guard printed no JSON: what it said instead is the reason, and
+    // the rest of the packet stands without the rules.
+    if (error instanceof SiblingError) return { unavailable: error.message };
+    throw error;
   }
-  return out;
 }
 
 async function citedDocuments(workspace: Workspace, brief: BriefRow, text: string, reader: DocumentReader): Promise<CitedDocument[]> {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { renderContext, type CitedDocument, type ContextInput } from '../../src/context.js';
+import { readRules, renderContext, type CitedDocument, type ContextInput } from '../../src/context.js';
 import { row } from './helpers.js';
 
 const BRIEF_TEXT = '---\nstatus: active\n---\n\n# 012 - Rotate tokens\n\n## Intent\n\nRotate them.\n\n\n';
@@ -170,6 +170,36 @@ describe('the rules in force', () => {
       'The rules spec-guard holds this code to could not be read: spec-guard is not installed here. Treat every ADR as binding until they can.',
     );
     expect(unavailable).not.toContain('holds no rule');
+    const none = section(renderContext(input({ rules: { none: 'no spec file matched its patterns' } })).markdown, 'Rules in force for this scope');
+    expect(none).toBe('## Rules in force for this scope\n\nspec-guard holds no rule over this scope: no spec file matched its patterns.\n\n');
+  });
+
+  it('reads spec-guard\'s query, the rules in force once each', () => {
+    const rule = (document: string, line: number, extra: Record<string, unknown> = {}) => ({ document, line, kind: 'assert-absence', description: `d${line}`, ...extra });
+    const document = {
+      specFiles: ['docs/adr/0001.md'],
+      results: [
+        { path: 'src/auth', rules: [rule('docs/adr/0001.md', 5, { reason: 'gone' }), rule('docs/adr/0001.md', 9, { inForce: false })] },
+        { path: 'src/db', rules: [rule('docs/adr/0001.md', 5, { reason: 'gone' }), rule('docs/adr/0002.md', 5, { inForce: true, reason: null })] },
+        { path: 'src/none' },
+      ],
+    };
+    expect(readRules({ code: 0, document, stderr: '' })).toEqual([
+      { document: 'docs/adr/0001.md', line: 5, kind: 'assert-absence', description: 'd5', reason: 'gone' },
+      { document: 'docs/adr/0002.md', line: 5, kind: 'assert-absence', description: 'd5', reason: null },
+    ]);
+    expect(readRules({ code: 0, document: {}, stderr: '' })).toEqual([]);
+    expect(readRules({ code: 0, document: null, stderr: '' })).toEqual([]);
+  });
+
+  it('tells a repository whose patterns match no spec from specs that could not be read', () => {
+    const none = { none: 'no spec file matched its patterns ("specs" in its configuration, docs/**/*.md by default)' };
+    expect(readRules({ code: 2, document: { specFiles: [], results: [{ path: 'src', rules: [] }] }, stderr: '' })).toEqual(none);
+    expect(readRules({ code: 2, document: { specFiles: ['docs/a.md'] }, stderr: 'spec-guard: docs/a.md: a directive cannot be read\nmore\n' })).toEqual({
+      unavailable: 'spec-guard exited 2: docs/a.md: a directive cannot be read',
+    });
+    expect(readRules({ code: 2, document: {}, stderr: '  \n' })).toEqual({ unavailable: 'spec-guard exited 2' });
+    expect(readRules({ code: -1, document: { specFiles: 'none' }, stderr: 'killed' })).toEqual({ unavailable: 'spec-guard exited -1: killed' });
   });
 
   it('tells the agent how the round works: guard, escalate, dispositions, audit', () => {
