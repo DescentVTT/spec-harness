@@ -63,8 +63,11 @@ describe('the tools', () => {
     expect(await tool('check_path').call({ paths: [] })).toEqual({ text: '"paths" must be a non-empty array of strings.', isError: true });
     expect(await tool('check_path').call({ paths: 'a.ts' })).toEqual({ text: '"paths" must be a non-empty array of strings.', isError: true });
     expect(await tool('check_path').call({ paths: [1] })).toEqual({ text: '"paths" must be a non-empty array of strings.', isError: true });
-    expect(await tool('check_path').call({ paths: ['a'], path: 'b' })).toEqual({ text: 'Unknown argument "path"; this tool takes paths and brief.', isError: true });
+    expect(await tool('check_path').call({ paths: ['a'], path: 'b' })).toEqual({ text: 'Unknown argument "path"; this tool takes paths, brief and base.', isError: true });
     expect(await tool('check_path').call({ paths: ['a'], brief: 1 })).toEqual({ text: '"brief" must be a string.', isError: true });
+    expect(await tool('check_path').call({ paths: ['a'], base: 1 })).toEqual({ text: '"base" must be a string.', isError: true });
+    expect(await tool('start_round').call({ base: ['main'] })).toEqual({ text: '"base" must be a string.', isError: true });
+    expect(await tool('start_round').call({ at: 'main' })).toEqual({ text: 'Unknown argument "at"; this tool takes brief and base.', isError: true });
     expect(await tool('check_path').call({ paths: ['a'], brief: '404' })).toEqual({ text: 'the flag names brief 404, and spec-brief knows no such brief', isError: true });
     expect(await tool('start_round').call({ brief: '3' })).toEqual({ text: 'the flag names brief 003, which is archived; a closed round writes nothing', isError: true });
   });

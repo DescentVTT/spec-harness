@@ -95,7 +95,7 @@ async function decisionsFor(
   const active = await activeBrief(workspace, options, io.env);
   const { brief, note, problem } = describeActive(active);
   if (problem !== null) return { decisions: [], problem };
-  const decisions = await checkPaths(workspace, brief, note, given, cwd, reader);
+  const decisions = await checkPaths(workspace, brief, note, given, cwd, reader, options.base);
   return { decisions, problem: null };
 }
 

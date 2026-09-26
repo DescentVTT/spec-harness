@@ -116,7 +116,7 @@ export async function briefText(workspace: Workspace, brief: BriefRow): Promise<
   return text;
 }
 
-/** Decides paths against the brief, with its verified rulings. */
+/** Decides paths against the brief, with the rulings verified against the base `baseFlag` names, or the configured one. */
 export async function checkPaths(
   workspace: Workspace,
   brief: BriefRow | null,
@@ -124,6 +124,7 @@ export async function checkPaths(
   given: readonly string[],
   cwd: string,
   reader: DocumentReader,
+  baseFlag: string | undefined,
 ): Promise<Decision[]> {
   let rulings: readonly VerifiedRuling[] = [];
   const resolved = given.map((path) => ({ given: path, path: repositoryPath(path, workspace.root, cwd) }));
@@ -134,7 +135,7 @@ export async function checkPaths(
       decide({ path, given: g, brief, noBrief, rulings: [], outOfScope: workspace.config.outOfScope }),
     );
     if (first.some((decision) => decision.reason === 'protected')) {
-      const base = await resolveBase(workspace, undefined);
+      const base = await resolveBase(workspace, baseFlag);
       rulings = (await checkRulings(workspace, brief, await briefText(workspace, brief), reader, base)).verified;
     } else {
       return first;
@@ -207,9 +208,10 @@ export async function buildContext(
   brief: BriefRow,
   briefs: readonly BriefRow[],
   reader: DocumentReader,
+  baseFlag: string | undefined,
 ): Promise<ContextPacket> {
   const text = await briefText(workspace, brief);
-  const base = await resolveBase(workspace, undefined);
+  const base = await resolveBase(workspace, baseFlag);
   const [rules, cited, rulings] = await Promise.all([
     rulesFor(workspace, brief),
     citedDocuments(workspace, brief, text, reader),

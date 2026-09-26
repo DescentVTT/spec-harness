@@ -66,7 +66,7 @@ function printFindings(io: CliIO, findings: readonly Finding[]): void {
 export async function contextCommand(options: Options, io: CliIO): Promise<number> {
   const workspace = await openWorkspace(options, io);
   const { brief, briefs } = await targetBrief(workspace, options, io, options.positionals[0]);
-  const packet = await buildContext(workspace, brief, briefs, reader);
+  const packet = await buildContext(workspace, brief, briefs, reader, options.base);
   if (options.format === 'json') {
     io.stdout.write(json('context', { brief: brief.id, markdown: packet.markdown, included: packet.included, omitted: packet.omitted, unresolved: packet.unresolved }));
   } else {

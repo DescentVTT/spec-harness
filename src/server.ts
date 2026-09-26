@@ -36,6 +36,17 @@ export const INSTRUCTIONS =
   'For the architecture rules themselves, spec-guard\'s own server answers get_architectural_rules.';
 
 const briefProperty = { type: 'string', description: 'The brief id. Omit to use the brief the branch or SPEC_BRIEF names.' };
+const baseProperty = {
+  type: 'string',
+  description: 'The branch the round is measured from, whose allowed signers a ruling is verified against. Omit to use the configured base.',
+};
+
+/** The `base` argument, or the tool error for one that is not a string. */
+function baseOf(args: JsonObject): { base: string | undefined } | ToolOutcome {
+  const base = args['base'];
+  if (base !== undefined && typeof base !== 'string') return toolError('"base" must be a string.');
+  return { base };
+}
 
 async function round(workspace: Workspace, env: CliIO['env'], id: unknown): Promise<{ brief: BriefRow; briefs: BriefRow[] } | ToolOutcome> {
   if (id !== undefined && typeof id !== 'string') return toolError('"brief" must be a string.');
@@ -57,15 +68,17 @@ export function tools(workspace: Workspace, env: CliIO['env']): ToolDefinition[]
         title: 'Start a round',
         description:
           'Everything needed to start the round: the brief in full, the files it may write and must not change, signed rulings, the briefs it depends on, the architecture rules in force for its scope, and the documents it cites.',
-        inputSchema: { type: 'object', properties: { brief: briefProperty }, additionalProperties: false },
+        inputSchema: { type: 'object', properties: { brief: briefProperty, base: baseProperty }, additionalProperties: false },
         annotations: readOnly,
       },
       async call(args: JsonObject): Promise<ToolOutcome> {
-        const unknown = unknownArguments(args, ['brief']);
+        const unknown = unknownArguments(args, ['brief', 'base']);
         if (unknown) return unknown;
+        const base = baseOf(args);
+        if ('text' in base) return base;
         const found = await round(workspace, env, args['brief']);
         if ('text' in found) return found;
-        const packet = await buildContext(workspace, found.brief, found.briefs, reader);
+        const packet = await buildContext(workspace, found.brief, found.briefs, reader, base.base);
         return { text: packet.markdown, structured: { brief: found.brief.id, included: [...packet.included], omitted: [...packet.omitted], unresolved: [...packet.unresolved] } };
       },
     },
@@ -77,22 +90,28 @@ export function tools(workspace: Workspace, env: CliIO['env']): ToolDefinition[]
           'For each path: allowed (in scope, or covered by a signed ruling), outside the scope, or refused (protected by the brief). Works for files that do not exist yet.',
         inputSchema: {
           type: 'object',
-          properties: { paths: { type: 'array', items: { type: 'string' }, description: 'Paths relative to the project root, or absolute inside it.' }, brief: briefProperty },
+          properties: {
+            paths: { type: 'array', items: { type: 'string' }, description: 'Paths relative to the project root, or absolute inside it.' },
+            brief: briefProperty,
+            base: baseProperty,
+          },
           required: ['paths'],
           additionalProperties: false,
         },
         annotations: readOnly,
       },
       async call(args: JsonObject): Promise<ToolOutcome> {
-        const unknown = unknownArguments(args, ['paths', 'brief']);
+        const unknown = unknownArguments(args, ['paths', 'brief', 'base']);
         if (unknown) return unknown;
         const paths = args['paths'];
         if (!Array.isArray(paths) || !paths.every((p) => typeof p === 'string') || paths.length === 0) {
           return toolError('"paths" must be a non-empty array of strings.');
         }
+        const base = baseOf(args);
+        if ('text' in base) return base;
         const found = await round(workspace, env, args['brief']);
         if ('text' in found) return found;
-        const decisions = await checkPaths(workspace, found.brief, undefined, paths as string[], workspace.root, reader);
+        const decisions = await checkPaths(workspace, found.brief, undefined, paths as string[], workspace.root, reader, base.base);
         const text = decisions.map((d) => `${d.verdict}: ${d.message}${d.verdict === 'allow' ? '' : `. Next: ${d.hint}`}`).join('\n');
         return { text, structured: { decisions: decisions.map((d) => ({ ...d })) } };
       },
@@ -145,17 +164,17 @@ export function tools(workspace: Workspace, env: CliIO['env']): ToolDefinition[]
         title: 'Audit the round',
         description:
           'Did the round stay inside the lines: what the archive would refuse (open boxes, protected files, files outside the scope), the brief\'s own assertions, unverified rulings, and every dependency added.',
-        inputSchema: { type: 'object', properties: { brief: briefProperty, base: { type: 'string', description: 'The branch the round is measured from.' } }, additionalProperties: false },
+        inputSchema: { type: 'object', properties: { brief: briefProperty, base: baseProperty }, additionalProperties: false },
         annotations: readOnly,
       },
       async call(args: JsonObject): Promise<ToolOutcome> {
         const unknown = unknownArguments(args, ['brief', 'base']);
         if (unknown) return unknown;
-        const base = args['base'];
-        if (base !== undefined && typeof base !== 'string') return toolError('"base" must be a string.');
+        const base = baseOf(args);
+        if ('text' in base) return base;
         const found = await round(workspace, env, args['brief']);
         if ('text' in found) return found;
-        const result = await runAudit(workspace, found.brief, reader, base);
+        const result = await runAudit(workspace, found.brief, reader, base.base);
         const { counts, findings } = result.report;
         const text =
           findings.length === 0
