@@ -42,7 +42,8 @@
     "skills",
     "hooks",
     ".claude-plugin",
-    ".mcp.json"
+    ".mcp.json",
+    "src/vendor/spec-core/LICENSE"
   ],
   "publishConfig": {
     "access": "public"

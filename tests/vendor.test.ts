@@ -56,10 +56,10 @@ describe('the vendored spec-core', () => {
     }
   });
 
-  it('holds no module the manifest does not list, beside its README and the manifest', () => {
+  it('holds no module the manifest does not list, beside its README, the manifest and the licence', () => {
     const entries = readdirSync(VENDOR).sort();
     const directories = entries.filter((name) => statSync(join(VENDOR, name)).isDirectory());
     expect(directories).toEqual(Object.keys(manifest.modules).sort());
-    expect(entries.filter((name) => !directories.includes(name))).toEqual(['README.md', 'VENDOR.json']);
+    expect(entries.filter((name) => !directories.includes(name))).toEqual(['LICENSE', 'README.md', 'VENDOR.json']);
   });
 });

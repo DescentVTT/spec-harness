@@ -25,3 +25,6 @@
 - Skills for Claude Code and other Agent Skills readers: draft-brief,
   split-goal, run-round, close-round; the repository is also a Claude Code
   plugin marketplace.
+- spec-core at cbe2223, vendored with its licence, which the package ships.
+  A scope that writes `**` inside a name (`docs/**.md`) is refused with the
+  two ways to say what was meant, as spec-brief and spec-guard refuse it.
