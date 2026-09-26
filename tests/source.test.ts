@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
-import { pluginDrift } from '../scripts/release.js';
+import { pluginDrift, releaseOf } from '../scripts/release.js';
 import { ConfigError, parseConfig, SIBLINGS } from '../src/config.js';
 import { HOOK_COMMAND, mergeMcp } from '../src/setup.js';
 import { MINIMUM_VERSIONS } from '../src/versions.js';
@@ -164,6 +164,10 @@ describe('the plugin', () => {
 
 describe('the release', () => {
   const version = json('package.json')['version'] as string;
+
+  it('has notes in the changelog for the version package.json names, so the version cannot be tagged without them', () => {
+    expect(releaseOf(`v${version}`, version, text('CHANGELOG.md'))).toMatchObject({ version });
+  });
 
   it('carries the package version in both plugin manifests', () => {
     expect(pluginDrift(version, json('.claude-plugin/plugin.json'), json('.claude-plugin/marketplace.json'))).toBeNull();
