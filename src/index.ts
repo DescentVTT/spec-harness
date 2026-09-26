@@ -29,5 +29,5 @@ export { createReader } from './reader.js';
 export { addRulingRow, nextId, pathsOf, readRulings, renderMemo, renderRow } from './rulings.js';
 export type { EscalationOption, EscalationRequest, RulingRow, TableView } from './rulings.js';
 export { buildContext, checkPaths, checkRulings, raiseEscalation, recordRuling, resolveBase, runAudit } from './round.js';
-export { mergeClaudeSettings, mergeMcp, mergeSpecGraph, HOOK_COMMAND } from './setup.js';
+export { mergeClaudeSettings, mergeMcp, mergeSpecGraph, HOOK_COMMAND } from './configure.js';
 export type { BriefRow, FileChange, Finding, Severity } from './types.js';

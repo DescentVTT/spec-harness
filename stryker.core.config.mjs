@@ -5,19 +5,16 @@
  * plugin, git, fs, siblings, sandbox - read the disk, git or a sibling, so
  * the unit suite cannot reach them; the full sweep measures them.
  *
- * `setup.ts` and `workspace.ts` are edges holding pure functions - the three
- * merges `init` applies and the option parser - so only those functions'
- * lines are mutated. tests/source.test.ts holds each range to the function it
- * names, so an edit that moves one fails a test rather than the sweep.
+ * `workspace.ts` is an edge holding a pure function, the option parser, so
+ * only that function's lines are mutated. tests/source.test.ts holds the
+ * range to the function it names, so an edit that moves it fails a test
+ * rather than the sweep.
  *
  * @type {import('@stryker-mutator/api/core').PartialStrykerOptions}
  */
 import base from './stryker.config.mjs';
 
 export const PURE_RANGES = {
-  'src/setup.ts:54-67': 'mergeClaudeSettings',
-  'src/setup.ts:70-74': 'mergeMcp',
-  'src/setup.ts:77-81': 'mergeSpecGraph',
   'src/workspace.ts:74-136': 'parseOptions',
 };
 
@@ -29,6 +26,7 @@ export default {
     'src/branch.ts',
     'src/briefs.ts',
     'src/config.ts',
+    'src/configure.ts',
     'src/context.ts',
     'src/guard.ts',
     'src/hooks.ts',
