@@ -12,7 +12,7 @@ import { join } from 'node:path';
 
 import { audit, type ArchiveReason, type AssertionOutcome, type AuditReport } from './audit.js';
 import { sameId } from './branch.js';
-import { loadsPlugin, SPEC_BRIEF_CONFIGS, type PluginState } from './configure.js';
+import { loadsPlugin, SPEC_BRIEF_CONFIGS, type BaseSource, type PluginState } from './configure.js';
 import { renderContext, type CitedDocument, type ContextPacket, type RuleInForce } from './context.js';
 import type { DocumentReader } from './document.js';
 import { readJsonObject, readText, repositoryPath, stateDirectory, writeAtomic } from './fs.js';
@@ -37,11 +37,12 @@ import { UsageError, type Workspace } from './workspace.js';
 /* -------------------------------------------------------------------- base */
 
 export type Base =
-  | { readonly kind: 'resolved'; readonly ref: string; readonly sha: string; readonly mergeBase: string; readonly head: string }
+  | { readonly kind: 'resolved'; readonly ref: string; readonly source: BaseSource; readonly sha: string; readonly mergeBase: string; readonly head: string }
   | { readonly kind: 'unresolved'; readonly reason: string };
 
 /** What the round is measured from: the flag, the configuration, then the remote's default branch. */
 export async function resolveBase(workspace: Workspace, flag: string | undefined): Promise<Base> {
+  const source: BaseSource = flag !== undefined ? 'flag' : workspace.config.base !== null ? 'config' : 'remote';
   const ref = flag ?? workspace.config.base ?? (await remoteDefault(workspace.root));
   if (ref === null) {
     return { kind: 'unresolved', reason: 'no base is named and the remote has no default branch; pass --base <ref> or set "base"' };
@@ -51,7 +52,7 @@ export async function resolveBase(workspace: Workspace, flag: string | undefined
   if (sha === null || head === null) return { kind: 'unresolved', reason: `"${ref}" names no commit` };
   const common = await mergeBase(sha, head, workspace.root);
   if (common === null) return { kind: 'unresolved', reason: `"${ref}" and HEAD share no history` };
-  return { kind: 'resolved', ref, sha, mergeBase: common, head };
+  return { kind: 'resolved', ref, source, sha, mergeBase: common, head };
 }
 
 /* ----------------------------------------------------------------- rulings */

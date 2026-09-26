@@ -1,10 +1,11 @@
+import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { afterAll, describe, expect, it } from 'vitest';
 
 import { GUARD_HOOK, mcpServer, PLUGIN, PROJECT_DIR_OR_HERE } from '../../src/configure.js';
-import { cleanup, cli, install, installFake, parsed, repository, siblings, type Repository } from './helpers.js';
+import { cleanup, cli, install, installFake, parsed, repository, siblings, temp, type Repository } from './helpers.js';
 
 afterAll(cleanup);
 
@@ -46,7 +47,9 @@ describe('init', () => {
     expect(result.stdout).toContain(
       `update  .spec-brief.json\n        load spec-harness's plugin, "${PLUGIN}": spec-brief's archive asks it whether a signed ruling allows a protected file, and refuses the file without it\n`,
     );
-    expect(result.stdout).toContain('create  .spec-harness.json\n        the defaults');
+    expect(result.stdout).toContain(
+      'create  .spec-harness.json\n        rounds are measured from main, the branch init runs on: no remote records a default branch (refs/remotes/origin/HEAD); change "base" if rounds merge into another\n',
+    );
     expect(result.stdout).toContain('create  .claude/settings.json');
     expect(result.stdout).toContain('create  .mcp.json');
     expect(result.stdout).toContain('advise  .github/allowed_signers');
@@ -72,7 +75,7 @@ describe('init', () => {
     expect(briefConfig.plugins).toEqual([PLUGIN]);
     // Everything spec-brief init spelled out is still there.
     expect(briefConfig).toMatchObject({ briefs: 'briefs', archive: 'briefs/archive' });
-    expect(JSON.parse(repo.read('.spec-harness.json'))).toEqual({});
+    expect(JSON.parse(repo.read('.spec-harness.json'))).toEqual({ base: 'main' });
     const settings = JSON.parse(repo.read('.claude/settings.json'));
     expect(settings.hooks.PreToolUse[0].hooks[0]).toEqual(GUARD_HOOK);
     expect(settings.hooks.PostToolUse[0].hooks[0]).toEqual(GUARD_HOOK);
@@ -103,7 +106,7 @@ describe('init', () => {
     expect(result.stdout).toContain('keep    .spec-brief.json\n        briefs in docs/briefs/, the archive in docs/briefs/archive/');
     expect(result.stdout).toContain("update  .spec-brief.json\n        load spec-harness's plugin");
     expect(JSON.parse(repo.read('.spec-brief.json'))).toEqual({ briefs: 'docs/briefs', plugins: [PLUGIN] });
-    expect(result.stdout).toContain('keep    .spec-harness.json\n        already configured');
+    expect(result.stdout).toContain('keep    .spec-harness.json\n        rounds are measured from main\n');
     const settings = JSON.parse(repo.read('.claude/settings.json'));
     expect(settings.permissions).toEqual({ allow: ['Bash(ls)'] });
     expect(settings.hooks.PreToolUse).toHaveLength(2);
@@ -198,6 +201,45 @@ describe('init', () => {
     const result = await cli(['init', '--write'], repo.root);
     expect(result.stdout).toContain('create  .spec-harness.json\n        rounds are measured from origin/trunk');
     expect(JSON.parse(repo.read('.spec-harness.json'))).toEqual({ base: 'origin/trunk' });
+  });
+
+  it('names main when a remote was added and pushed to, which records no default branch', async () => {
+    const remote = temp();
+    execFileSync('git', ['init', '-q', '--bare', remote]);
+    const repo = repository({}, null);
+    repo.git('remote', 'add', 'origin', remote);
+    repo.git('push', '-q', '-u', 'origin', 'main');
+    repo.git('fetch', '-q', 'origin');
+    expect(() => repo.git('rev-parse', '--verify', '--quiet', 'refs/remotes/origin/HEAD')).toThrow();
+    const result = await cli(['init', '--write'], repo.root);
+    expect(result.stdout).toContain('create  .spec-harness.json\n        rounds are measured from main, the branch init runs on');
+    expect(JSON.parse(repo.read('.spec-harness.json'))).toEqual({ base: 'main' });
+  });
+
+  it('names the only branch, whatever it is called', async () => {
+    const repo = repository({}, null);
+    repo.git('branch', '-m', 'main', 'trunk');
+    const result = await cli(['init', '--write'], repo.root);
+    expect(result.stdout).toContain('create  .spec-harness.json\n        rounds are measured from trunk, the only branch');
+    expect(JSON.parse(repo.read('.spec-harness.json'))).toEqual({ base: 'trunk' });
+  });
+
+  it('asks the person for the base when it cannot tell one, and writes nothing for it', async () => {
+    const repo = repository({}, null);
+    repo.git('checkout', '-q', '-b', 'brief/001-x');
+    const result = await cli(['init', '--write'], repo.root);
+    expect(result.stdout).toContain(
+      'advise  .spec-harness.json\n        no base can be told: no remote records a default branch (refs/remotes/origin/HEAD), and brief/001-x is not main, master or the only branch; set "base" to the branch rounds merge into, or run git remote set-head origin --auto and init again\n',
+    );
+    expect(existsSync(join(repo.root, '.spec-harness.json'))).toBe(false);
+  });
+
+  it('adds the base to a configuration that names none, keeping the rest', async () => {
+    const repo = repository({ '.spec-brief.json': '{}' }, null);
+    repo.write('.spec-harness.json', '{ "outOfScope": "ask", "base": null }\n');
+    const result = await cli(['init', '--write'], repo.root);
+    expect(result.stdout).toContain('update  .spec-harness.json\n        rounds are measured from main, the branch init runs on');
+    expect(JSON.parse(repo.read('.spec-harness.json'))).toEqual({ outOfScope: 'ask', base: 'main' });
   });
 
   it('adds git\'s pre-commit hook only when asked, and never over one that exists', async () => {

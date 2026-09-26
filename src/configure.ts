@@ -1,9 +1,11 @@
 /**
- * What `init` writes into each tool's configuration.
+ * What `init` writes into each tool's configuration, and what `doctor` says
+ * of the result.
  *
- * Pure: `setup.ts` reads the files and asks git, and writes what these
- * return, so the core sweep holds these to the unit suite. Each merge keeps
- * what a person wrote and returns `null` when there is nothing to add.
+ * Pure: `setup.ts` and the command line read the files and ask git, and
+ * write what these return, so the core sweep holds these to the unit suite.
+ * Each merge keeps what a person wrote and returns `null` when there is
+ * nothing to add.
  */
 
 type Json = Record<string, unknown>;
@@ -151,6 +153,66 @@ export function describePlugin(state: PluginState): string {
     case 'unconfigured':
       return "spec-brief has no configuration at the root, so it loads no plugin: spec-harness init --write writes one that loads spec-harness's";
   }
+}
+
+/** What git says that tells a base apart. */
+export interface BaseFacts {
+  /** The remote's default branch as a local ref, such as `origin/main`, or `null`. */
+  readonly remoteDefault: string | null;
+  /** The branch checked out, or `null` on a detached head. */
+  readonly branch: string | null;
+  /** Every local branch. */
+  readonly branches: readonly string[];
+}
+
+/** The base `init` names, and why; `base` is `null` when none can be told. */
+export interface BaseChoice {
+  readonly base: string | null;
+  readonly detail: string;
+}
+
+/**
+ * The base `init` writes into `.spec-harness.json`. Every ruling is verified
+ * against the allowed signers on it, so it is named rather than left to be
+ * found. The remote's default branch comes first, but git records it only
+ * where it cloned: a repository made with `git init` and pushed to a remote
+ * has none. There the branch init runs on is the base when it is `main` or
+ * `master`, or the only branch; otherwise the person names it.
+ */
+export function chooseBase(facts: BaseFacts): BaseChoice {
+  const { remoteDefault, branch } = facts;
+  if (remoteDefault !== null) return { base: remoteDefault, detail: `rounds are measured from ${remoteDefault}, the remote's default branch` };
+  const unrecorded = 'no remote records a default branch (refs/remotes/origin/HEAD)';
+  if (branch !== null) {
+    const conventional = branch === 'main' || branch === 'master';
+    if (conventional || facts.branches.every((name) => name === branch)) {
+      const which = conventional ? 'the branch init runs on' : 'the only branch';
+      return { base: branch, detail: `rounds are measured from ${branch}, ${which}: ${unrecorded}; change "base" if rounds merge into another` };
+    }
+  }
+  const where = branch === null ? 'HEAD is detached' : `${branch} is not main, master or the only branch`;
+  return {
+    base: null,
+    detail: `no base can be told: ${unrecorded}, and ${where}; set "base" to the branch rounds merge into, or run git remote set-head origin --auto and init again`,
+  };
+}
+
+/** Where a base came from: `--base`, the configuration, or the remote. */
+export type BaseSource = 'flag' | 'config' | 'remote';
+
+const SOURCES: Readonly<Record<BaseSource, string>> = { flag: '--base', config: '.spec-harness.json', remote: "the remote's default branch" };
+
+/** The base a command resolved, and how; or why there is none. */
+export function describeBase(base: { readonly ref: string; readonly source: BaseSource; readonly mergeBase: string } | { readonly reason: string }): string {
+  if ('reason' in base) return `none: ${base.reason}`;
+  return `${base.ref} (${SOURCES[base.source]}), merge base ${base.mergeBase.slice(0, 12)}`;
+}
+
+/** Whether the allowed-signers file is on the base, where every ruling's signature is checked against it. */
+export function describeSigners(file: string, base: string | null, onBase: boolean): string {
+  if (base === null) return `${file}, read from the base, which could not be resolved: no ruling can count`;
+  if (onBase) return `${file} is on ${base}`;
+  return `${file} is not on ${base}, so no ruling can count: commit it there, one line per person, "<email> namespaces="git" <public key>"`;
 }
 
 /** spec-graph's configuration with the archive read as history, or `null` when it already is. */

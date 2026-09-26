@@ -65,6 +65,12 @@ export async function remoteDefault(cwd: string): Promise<string | null> {
   return value(['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD'], cwd);
 }
 
+/** Every local branch, by its short name. */
+export async function localBranches(cwd: string): Promise<string[]> {
+  const listed = await value(['for-each-ref', '--format=%(refname:short)', 'refs/heads/'], cwd);
+  return listed === null || listed === '' ? [] : listed.split('\n').map((name) => name.trim());
+}
+
 export async function revision(ref: string, cwd: string): Promise<string | null> {
   return value(['rev-parse', '--verify', '--quiet', `${ref}^{commit}`], cwd);
 }

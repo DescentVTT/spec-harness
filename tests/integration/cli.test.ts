@@ -79,12 +79,27 @@ describe('the siblings', () => {
     const pretty = await cli(['doctor'], repo.root);
     expect(pretty.code).toBe(0);
     expect(pretty.stdout).toContain('branch  brief/001-x\nbrief   001\n');
+    const mergeBase = repo.git('rev-parse', 'HEAD').slice(0, 12);
+    expect(pretty.stdout).toContain(`\nbase    main (.spec-harness.json), merge base ${mergeBase}\n`);
+    expect(pretty.stdout).toContain(
+      '\nsigners .github/allowed_signers is not on main, so no ruling can count: commit it there, one line per person, "<email> namespaces="git" <public key>"\n',
+    );
+    expect(pretty.stdout).toContain('\nplugin  spec-brief has no configuration at the root, so it loads no plugin');
     expect(pretty.stdout).toContain(`found     spec-brief  node ${SPEC_BRIEF} (named in .spec-harness.json; its version is not checked)`);
     expect(pretty.stdout).toContain('absent    spec-graph  spec-graph is not installed here: npm install --save-dev @descent-vtt/spec-graph, or name its command under "tools" in .spec-harness.json');
-    const json = parsed<{ root: string; branch: string; brief: string; siblings: { tool: string; state: string; version: string | null; minimum: string }[] }>(
-      await cli(['doctor', '--format', 'json'], repo.root),
-    );
+    const json = parsed<{
+      root: string;
+      branch: string;
+      brief: string;
+      base: unknown;
+      allowedSigners: unknown;
+      plugin: unknown;
+      siblings: { tool: string; state: string; version: string | null; minimum: string }[];
+    }>(await cli(['doctor', '--format', 'json'], repo.root));
     expect(json.brief).toBe('001');
+    expect(json.base).toEqual({ ref: 'main', source: 'config', mergeBase: repo.git('rev-parse', 'HEAD') });
+    expect(json.allowedSigners).toMatchObject({ file: '.github/allowed_signers', onBase: false });
+    expect(json.plugin).toMatchObject({ state: 'unconfigured', file: null });
     expect(json.siblings.map((s) => [s.tool, s.state, s.version, s.minimum])).toEqual([
       ['spec-brief', 'found', null, '0.2.0'],
       ['spec-graph', 'absent', null, '0.9.0'],
@@ -95,6 +110,15 @@ describe('the siblings', () => {
     const none = await cli(['doctor'], bare.root);
     expect(none.code).toBe(1);
     expect(none.stdout).toContain('branch  (detached)\nbrief   (none named)\n');
+    expect(none.stdout).toContain(
+      '\nbase    none: no base is named and the remote has no default branch; pass --base <ref> or set "base"\nsigners .github/allowed_signers, read from the base, which could not be resolved: no ruling can count\n',
+    );
+    bare.write('.github/allowed_signers', 'x\n');
+    bare.write('.spec-brief.json', '{ "plugins": [] }');
+    bare.commit('signers');
+    const based = await cli(['doctor', '--base', 'HEAD'], bare.root);
+    expect(based.stdout).toContain(`\nbase    HEAD (--base), merge base ${bare.git('rev-parse', 'HEAD').slice(0, 12)}\nsigners .github/allowed_signers is on HEAD\n`);
+    expect(based.stdout).toContain('\nplugin  spec-brief does not load spec-harness\'s plugin');
   });
 
   it('reports a sibling older than this release runs as a problem, naming the minimum', async () => {
