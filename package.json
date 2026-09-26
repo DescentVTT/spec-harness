@@ -59,7 +59,6 @@
     "test:mutation:full": "stryker run",
     "prepublishOnly": "npm run clean && npm run build"
   },
-  "dependencies": {},
   "peerDependencies": {
     "@descent-vtt/spec-brief": ">=0.2.0",
     "@descent-vtt/spec-graph": ">=0.9.0",
@@ -74,8 +73,8 @@
     }
   },
   "devDependencies": {
-    "@descent-vtt/spec-brief": "^0.1.0",
-    "@descent-vtt/spec-guard": "^0.11.0",
+    "@descent-vtt/spec-brief": "^0.2.0",
+    "@descent-vtt/spec-guard": "^0.12.0",
     "@stryker-mutator/core": "^10.0.0",
     "@stryker-mutator/vitest-runner": "^10.0.0",
     "@types/node": "^22.20.4",

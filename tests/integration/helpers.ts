@@ -14,7 +14,6 @@ import { afterAll } from 'vitest';
 
 import { run, type CliIO } from '../../src/cli.js';
 import type { SiblingName } from '../../src/config.js';
-import { meets, MINIMUM_VERSIONS, parseVersion, type Version } from '../../src/versions.js';
 
 export const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 export const BIN = join(ROOT, 'bin', 'spec-harness.js');
@@ -154,23 +153,9 @@ export function repository(files: Readonly<Record<string, string>> = {}, config:
   return repo;
 }
 
-/**
- * This repository's copy of a sibling, installed into `root` where `locate()`
- * looks for it. While the devDependency is older than the minimum this release
- * runs - the sibling's next release waits on npm - the copy declares the
- * minimum, so that it is found and run rather than reported outdated. What the
- * tests run it for, such as `spec-brief init`, is not what changed between
- * the two.
- */
+/** This repository's copy of a sibling, installed into `root` where `locate()` looks for it. */
 export function install(root: string, name: 'spec-brief' | 'spec-guard'): void {
-  const target = join(root, 'node_modules', '@descent-vtt', name);
-  cpSync(join(ROOT, 'node_modules', '@descent-vtt', name), target, { recursive: true });
-  const file = join(target, 'package.json');
-  const manifest = JSON.parse(readFileSync(file, 'utf8')) as { version: string };
-  const minimum = MINIMUM_VERSIONS[name];
-  if (!meets(parseVersion(manifest.version) as Version, parseVersion(minimum) as Version)) {
-    writeFileSync(file, JSON.stringify({ ...manifest, version: minimum }, null, 2));
-  }
+  cpSync(join(ROOT, 'node_modules', '@descent-vtt', name), join(root, 'node_modules', '@descent-vtt', name), { recursive: true });
 }
 
 /**
