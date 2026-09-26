@@ -238,7 +238,11 @@ describe('init', () => {
     repo.git('remote', 'add', 'origin', remote);
     repo.git('push', '-q', '-u', 'origin', 'main');
     repo.git('fetch', '-q', 'origin');
+    // git 2.48 and later record the remote's HEAD when they fetch; earlier
+    // releases, and a push alone, leave none. The repository is left as those do.
+    repo.git('update-ref', '--no-deref', '-d', 'refs/remotes/origin/HEAD');
     expect(() => repo.git('rev-parse', '--verify', '--quiet', 'refs/remotes/origin/HEAD')).toThrow();
+    expect(repo.git('rev-parse', '--verify', '--quiet', 'refs/remotes/origin/main')).toBe(repo.git('rev-parse', 'HEAD'));
     const result = await cli(['init', '--write'], repo.root);
     expect(result.stdout).toContain('create  .spec-harness.json\n        rounds are measured from main, the branch init runs on');
     expect(JSON.parse(repo.read('.spec-harness.json'))).toEqual({ base: 'main' });
