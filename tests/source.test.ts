@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
+import { pluginDrift } from '../scripts/release.js';
 import { ConfigError, parseConfig, SIBLINGS } from '../src/config.js';
 import { HOOK_COMMAND, mergeMcp } from '../src/setup.js';
 import { MINIMUM_VERSIONS } from '../src/versions.js';
@@ -158,6 +159,14 @@ describe('the plugin', () => {
   it('registers the MCP server as init does', () => {
     expect(json('.mcp.json')).toEqual(mergeMcp({}));
     expect(Object.keys((json('.mcp.json') as { mcpServers: object }).mcpServers)).toEqual(['spec-harness']);
+  });
+});
+
+describe('the release', () => {
+  const version = json('package.json')['version'] as string;
+
+  it('carries the package version in both plugin manifests', () => {
+    expect(pluginDrift(version, json('.claude-plugin/plugin.json'), json('.claude-plugin/marketplace.json'))).toBeNull();
   });
 });
 
