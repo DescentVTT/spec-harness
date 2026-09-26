@@ -123,6 +123,7 @@ describe('init', () => {
     expect(result.stdout).toContain(`advise  .claude/settings.json\n        cannot be read as JSON; add the guard as a PreToolUse and a PostToolUse hook by hand: ${JSON.stringify(GUARD_HOOK)}`);
     expect(result.stdout).toContain('advise  .mcp.json\n        cannot be read as JSON; add the spec-harness server by hand');
     expect(result.stdout).toContain('advise  .spec-graph.json\n        cannot be read as JSON; add "historyPatterns": ["briefs/archive/**"] by hand');
+    expect(repo.read('.spec-graph.json')).toBe('x');
     expect(result.stdout).toContain('keep    .spec-brief.json\n        briefs in briefs/, the archive in briefs/archive/');
     expect(result.stdout).toContain(`advise  .spec-brief.json\n        cannot be read as JSON; add "plugins": ["${PLUGIN}"] by hand`);
     expect(repo.read('.spec-brief.json')).toBe('{');
@@ -141,12 +142,39 @@ describe('init', () => {
     expect(existsSync(join(repo.root, '.spec-brief.json'))).toBe(false);
   });
 
-  it('tells spec-graph that the archive is history, when spec-graph is there', async () => {
-    const repo = repository({ '.spec-brief.json': JSON.stringify({ briefs: 'b', archive: 'old' }) }, { tools: { ...siblings(), 'spec-graph': ['node', 'graph.js'] } });
+  it('tells spec-graph that the archive is history, and says it reads no brief where its patterns miss them', async () => {
+    const graph = { tools: { ...siblings(), 'spec-graph': ['node', 'graph.js'] } };
+    const repo = repository({ '.spec-brief.json': JSON.stringify({ briefs: 'b', archive: 'old' }) }, graph);
     const result = await cli(['init', '--write'], repo.root);
-    expect(result.stdout).toContain('create  .spec-graph.json\n        read old/** as history');
+    expect(result.stdout).toContain(
+      'create  .spec-graph.json\n        read old/** as history, for when spec-graph reads the briefs; its patterns do not reach b/, so it checks none of them now: add "b/**/*.md" to its "patterns" if it should\n',
+    );
     expect(JSON.parse(repo.read('.spec-graph.json'))).toEqual({ historyPatterns: ['old/**'] });
-    expect((await cli(['init'], repo.root)).stdout).toContain('keep    .spec-graph.json\n        old/** is already history');
+    expect((await cli(['init'], repo.root)).stdout).toContain('keep    .spec-graph.json\n        old/** is history, for when spec-graph reads the briefs');
+
+    const read = repository({ '.spec-brief.json': JSON.stringify({ briefs: 'docs/briefs' }) }, graph);
+    expect((await cli(['init'], read.root)).stdout).toContain(
+      'create  .spec-graph.json\n        read docs/briefs/archive/** as history: an archived brief is a record whatever its status says, so a live brief that depends on one is not a stale premise\n',
+    );
+  });
+
+  it('merges into the configuration spec-graph reads, and never shadows the key in package.json', async () => {
+    const graph = { tools: { ...siblings(), 'spec-graph': ['node', 'graph.js'] } };
+    const named = repository({ 'spec-graph.config.json': JSON.stringify({ patterns: ['briefs/**/*.md'] }) }, graph);
+    const result = await cli(['init', '--write'], named.root);
+    expect(result.stdout).toContain('update  spec-graph.config.json\n        read briefs/archive/** as history: an archived brief is a record');
+    expect(JSON.parse(named.read('spec-graph.config.json'))).toEqual({ patterns: ['briefs/**/*.md'], historyPatterns: ['briefs/archive/**'] });
+    expect(existsSync(join(named.root, '.spec-graph.json'))).toBe(false);
+
+    const keyed = repository({ 'package.json': JSON.stringify({ name: 'x', 'spec-graph': { patterns: ['docs/**/*.md'] } }) }, graph);
+    const advised = await cli(['init', '--write'], keyed.root);
+    expect(advised.stdout).toContain(
+      'advise  package.json\n        spec-graph reads its configuration from the "spec-graph" key here, which init does not edit: add "briefs/archive/**" to its "historyPatterns" by hand\n',
+    );
+    expect(existsSync(join(keyed.root, '.spec-graph.json'))).toBe(false);
+    // A package.json without the key is spec-graph's defaults, and gets a file.
+    const plain = repository({ 'package.json': JSON.stringify({ name: 'x' }) }, graph);
+    expect((await cli(['init'], plain.root)).stdout).toContain('create  .spec-graph.json\n');
   });
 
   it('replaces the npx hooks and server 0.1 installed, keeping everything else', async () => {
