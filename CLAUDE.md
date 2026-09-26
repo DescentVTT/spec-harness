@@ -45,6 +45,7 @@ npm run test:mutation   # the core sweep: pure modules against tests/unit
 | `round.ts` | The operations the CLI and the server share: facts gathered, decisions delegated. |
 | `versions.ts` | The oldest release of each sibling this one runs, and an installed version against it. |
 | `git.ts`, `fs.ts`, `siblings.ts`, `sandbox.ts` | The edges. |
+| `configure.ts` | What `init` writes into each tool's configuration. |
 | `cli.ts`, `commands.ts`, `setup.ts`, `server.ts` | The command line, `init`, and the MCP server. |
 
 ## Prose

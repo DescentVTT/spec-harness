@@ -3,7 +3,7 @@ import { join } from 'node:path';
 
 import { afterAll, describe, expect, it } from 'vitest';
 
-import { HOOK_COMMAND } from '../../src/setup.js';
+import { HOOK_COMMAND } from '../../src/configure.js';
 import { cleanup, cli, install, installFake, parsed, repository, siblings, type Repository } from './helpers.js';
 
 afterAll(cleanup);

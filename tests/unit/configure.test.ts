@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { HOOK_COMMAND, mergeClaudeSettings, mergeMcp, mergeSpecGraph } from '../../src/setup.js';
+import { HOOK_COMMAND, mergeClaudeSettings, mergeMcp, mergeSpecGraph } from '../../src/configure.js';
 
 const GUARD = { matcher: 'Edit|Write|MultiEdit|NotebookEdit', hooks: [{ type: 'command', command: HOOK_COMMAND, timeout: 60 }] };
 

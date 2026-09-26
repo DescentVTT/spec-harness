@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 
 import { pluginDrift, releaseOf } from '../scripts/release.js';
 import { ConfigError, parseConfig, SIBLINGS } from '../src/config.js';
-import { HOOK_COMMAND, mergeMcp } from '../src/setup.js';
+import { HOOK_COMMAND, mergeMcp } from '../src/configure.js';
 import { MINIMUM_VERSIONS } from '../src/versions.js';
 
 /**
@@ -214,7 +214,7 @@ describe('the core mutation sweep', () => {
     // Read as text: the configuration is a module Stryker loads, not one this suite type-checks.
     const config = text('stryker.core.config.mjs');
     const ranges = [...config.matchAll(/'(src\/[a-z]+\.ts:\d+-\d+)': '([A-Za-z]+)'/g)].map((match) => [match[1] as string, match[2] as string] as const);
-    expect(ranges.map(([, name]) => name).sort()).toEqual(['mergeClaudeSettings', 'mergeMcp', 'mergeSpecGraph', 'parseOptions']);
+    expect(ranges.map(([, name]) => name).sort()).toEqual(['parseOptions']);
     expect(config).toContain('...Object.keys(PURE_RANGES)');
     for (const [range, name] of ranges) {
       const match = /^(src\/[a-z]+\.ts):(\d+)-(\d+)$/.exec(range);
