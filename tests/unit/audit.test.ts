@@ -16,6 +16,8 @@ function input(overrides: Partial<AuditInput> = {}): AuditInput {
     assertions: [],
     premiseSections: DEFAULT_CONFIG.assertions.premises,
     unverifiedRulings: [],
+    verifiedRulings: [],
+    pluginLoaded: true,
     ...overrides,
   };
 }
@@ -101,6 +103,49 @@ describe('the archive', () => {
       { rule: 'archive/out-of-scope', severity: 'warning', message: 'outside.txt', hint: 'widen', file: FILE },
     ]);
     expect(report.counts).toEqual({ error: 1, warning: 1, note: 0 });
+  });
+
+  const refused = (path: string | undefined, rule = 'protected-file') => ({
+    rule,
+    severity: 'error' as const,
+    message: `the round changed ${path ?? 'files'}, which this brief protects`,
+    hint: 'revert the change, or record the departure in the brief before archiving it',
+    file: FILE,
+    line: 7,
+    ...(path === undefined ? {} : { path }),
+  });
+  const signed = [
+    { id: 'R-012-1', paths: ['src/db/**'], signer: 'person@example.com' },
+    { id: 'R-012-2', paths: ['src/api.ts'], signer: 'other@example.com' },
+  ];
+
+  it('says a protected file a verified ruling covers is refused because spec-brief does not load the plugin', () => {
+    const { findings } = audit(input({ archive: { blocking: [refused('src/db/schema.ts'), refused('src/api.ts')], warnings: [] }, verifiedRulings: signed, pluginLoaded: false }));
+    const loadIt = 'but spec-brief does not load spec-harness\'s plugin, which is how its archive learns of signed rulings: add "@descent-vtt/spec-harness/spec-brief-plugin" to "plugins" in its configuration, or run spec-harness init --write';
+    expect(findings).toEqual([
+      { rule: 'archive/protected-file', severity: 'error', message: 'the round changed src/db/schema.ts, which this brief protects', hint: `ruling R-012-1, signed by person@example.com, allows it, ${loadIt}`, file: FILE, line: 7 },
+      { rule: 'archive/protected-file', severity: 'error', message: 'the round changed src/api.ts, which this brief protects', hint: `ruling R-012-2, signed by other@example.com, allows it, ${loadIt}`, file: FILE, line: 7 },
+    ]);
+  });
+
+  it('says where to look when spec-brief loads the plugin and refuses the file all the same', () => {
+    const { findings } = audit(input({ archive: { blocking: [refused('src/db/schema.ts')], warnings: [] }, verifiedRulings: signed, pluginLoaded: true }));
+    expect(findings[0]?.hint).toBe(
+      'ruling R-012-1, signed by person@example.com, allows it, and the archive still refused it: check that spec-brief loads the spec-harness installed here and measures from the same base (spec-harness doctor)',
+    );
+  });
+
+  it('keeps spec-brief\'s own hint where no verified ruling covers the file, or the reason is another', () => {
+    const hint = 'revert the change, or record the departure in the brief before archiving it';
+    const { findings } = audit(
+      input({
+        archive: { blocking: [refused('src/other.ts'), refused(undefined), refused('src/db/schema.ts', 'open-task')], warnings: [refused('src/db/x.ts', 'out-of-scope')] },
+        verifiedRulings: signed,
+        pluginLoaded: false,
+      }),
+    );
+    expect(findings.map((f) => f.hint)).toEqual([hint, hint, hint, hint]);
+    expect(audit(input({ archive: { blocking: [refused('src/db/schema.ts')], warnings: [] }, pluginLoaded: false })).findings[0]?.hint).toBe(hint);
   });
 });
 

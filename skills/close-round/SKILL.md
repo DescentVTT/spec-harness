@@ -33,6 +33,10 @@ the brief next to the one that measured it.
 npx spec-brief archive <id> --dry-run --base <branch>
 ```
 
+A protected file a signed ruling allows is accepted only when spec-brief loads
+spec-harness's plugin; if the dry run refuses one, `npx spec-harness doctor`
+says whether it does, and `init` adds it.
+
 Show the person the audit, the dry run and a short summary of what the round
 did and did not do. Archiving is theirs: they run `spec-brief archive <id>`
 and commit the result. Do not archive a brief yourself.

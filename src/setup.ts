@@ -17,8 +17,8 @@ import { chmod, mkdir, readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
 import { CONFIG_FILE } from './config.js';
-import { GUARD_HOOK, mergeClaudeSettings, mergeMcp, mergeSpecGraph } from './configure.js';
-import { writeAtomic } from './fs.js';
+import { GUARD_HOOK, mergeClaudeSettings, mergeMcp, mergeSpecBrief, mergeSpecGraph, PLUGIN, SPEC_BRIEF_CONFIGS } from './configure.js';
+import { readJsonObject as readJson, writeAtomic } from './fs.js';
 import { git, remoteDefault } from './git.js';
 import { runSibling } from './siblings.js';
 import { EXIT_ERROR, EXIT_OK, json, openWorkspace, type CliIO, type Options, type Workspace } from './workspace.js';
@@ -34,19 +34,11 @@ export interface Step {
 
 type Json = Record<string, unknown>;
 
-async function readJson(file: string): Promise<Json | null | 'unreadable'> {
-  if (!existsSync(file)) return null;
-  try {
-    const value = JSON.parse(await readFile(file, 'utf8')) as unknown;
-    return typeof value === 'object' && value !== null && !Array.isArray(value) ? (value as Json) : 'unreadable';
-  } catch {
-    return 'unreadable';
-  }
-}
-
 function stringify(value: unknown): string {
   return `${JSON.stringify(value, null, 2)}\n`;
 }
+
+const PLUGIN_DETAIL = `load spec-harness's plugin, "${PLUGIN}": spec-brief's archive asks it whether a signed ruling allows a protected file, and refuses the file without it`;
 
 const PRE_COMMIT = `#!/bin/sh
 # spec-harness: refuse a commit that changes what the active brief protects.
@@ -58,13 +50,14 @@ export async function plan(workspace: Workspace, options: Options): Promise<Step
   const steps: Step[] = [];
 
   // spec-brief first: every other setting is derived from its directories.
-  const briefConfigFile = ['.spec-brief.json', 'spec-brief.json'].map((name) => join(root, name)).find((file) => existsSync(file));
+  const briefConfig = SPEC_BRIEF_CONFIGS.find((name) => existsSync(join(root, name)));
   const brief = workspace.siblings.locate('spec-brief');
   let briefs = 'briefs';
   let archive = 'briefs/archive';
-  if (briefConfigFile === undefined) {
+  if (briefConfig === undefined) {
     if (brief.kind === 'found') {
       const command = brief.command;
+      const created = join(root, '.spec-brief.json');
       steps.push({
         file: '.spec-brief.json',
         action: 'run',
@@ -74,16 +67,37 @@ export async function plan(workspace: Workspace, options: Options): Promise<Step
           if (run.code !== 0) throw new Error(`spec-brief init failed: ${run.stderr.trim()}`);
         },
       });
+      steps.push({
+        file: '.spec-brief.json',
+        action: 'update',
+        detail: PLUGIN_DETAIL,
+        apply: async () => {
+          const written = await readJson(created);
+          if (written === null || written === 'unreadable') throw new Error('spec-brief init wrote no configuration JSON can read');
+          const merged = mergeSpecBrief(written);
+          if (merged !== null) await writeAtomic(created, stringify(merged));
+        },
+      });
     } else {
       steps.push({ file: '.spec-brief.json', action: 'advise', detail: brief.reason });
     }
   } else {
-    const config = await readJson(briefConfigFile);
+    const file = join(root, briefConfig);
+    const config = await readJson(file);
     if (config !== null && config !== 'unreadable') {
       if (typeof config['briefs'] === 'string') briefs = config['briefs'];
       archive = typeof config['archive'] === 'string' ? config['archive'] : `${briefs}/archive`;
     }
-    steps.push({ file: briefConfigFile.slice(root.length + 1), action: 'keep', detail: `briefs in ${briefs}/, the archive in ${archive}/` });
+    steps.push({ file: briefConfig, action: 'keep', detail: `briefs in ${briefs}/, the archive in ${archive}/` });
+    // spec-brief's archive learns that a signed ruling allows a protected file
+    // only from this package's plugin (ADR-0006).
+    if (config === 'unreadable' || config === null) {
+      steps.push({ file: briefConfig, action: 'advise', detail: `cannot be read as JSON; add "plugins": ["${PLUGIN}"] by hand` });
+    } else {
+      const merged = mergeSpecBrief(config);
+      if (merged === null) steps.push({ file: briefConfig, action: 'keep', detail: "spec-harness's plugin is loaded" });
+      else steps.push({ file: briefConfig, action: 'update', detail: PLUGIN_DETAIL, apply: () => writeAtomic(file, stringify(merged)) });
+    }
   }
 
   // spec-graph: an archived brief is a record, not a retired decision.

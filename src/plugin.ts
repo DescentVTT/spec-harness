@@ -6,7 +6,8 @@
  * (ADR-0006), the refusal is lifted - but spec-brief does not read signatures,
  * and should not: the tool that defines a format ships the check for it
  * (spec-brief ADR-0007). So the check ships here, and spec-brief asks it
- * through its plugin `waive` hook:
+ * through its plugin `waive` hook, once its configuration loads the plugin,
+ * as `spec-harness init` writes it:
  *
  * ```json
  * { "plugins": ["@descent-vtt/spec-harness/spec-brief-plugin"] }
@@ -18,12 +19,11 @@
 
 import { loadConfig } from './fs.js';
 import { commonDirectory, currentBranch } from './git.js';
-import type { VerifiedRuling } from './guard.js';
+import { rulingFor } from './guard.js';
 import { createReader } from './reader.js';
 import { checkRulings, resolveBase } from './round.js';
 import { createSiblings } from './siblings.js';
 import type { BriefRow } from './types.js';
-import { parseGlob } from './vendor/spec-core/pattern/index.js';
 import type { Workspace } from './workspace.js';
 
 export interface WaiveContext {
@@ -39,13 +39,6 @@ export interface Waiver {
   readonly rule: string;
   readonly path: string;
   readonly reason: string;
-}
-
-function covers(ruling: VerifiedRuling, path: string): boolean {
-  return ruling.paths.some((pattern) => {
-    const parsed = parseGlob(pattern, { dialect: 'path', caseSensitive: true, literal: 'either' });
-    return parsed.ok && parsed.glob.match(path);
-  });
 }
 
 /** Paths a finding names, in either of the shapes spec-brief reports them. */
@@ -85,7 +78,7 @@ export async function waive(context: WaiveContext): Promise<Waiver[]> {
   const { verified } = await checkRulings(workspace, brief, context.brief.text, createReader(), base);
   const waivers: Waiver[] = [];
   for (const path of protectedPaths) {
-    const ruling = verified.find((candidate) => covers(candidate, path));
+    const ruling = rulingFor(verified, path);
     if (ruling !== undefined) {
       waivers.push({ rule: 'protected-file', path, reason: `ruling ${ruling.id}, signed by ${ruling.signer}, allows it` });
     }

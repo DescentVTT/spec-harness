@@ -71,6 +71,11 @@ function matching(patterns: readonly string[], path: string): { matched: string[
   return { matched, unreadable };
 }
 
+/** The first verified ruling whose paths cover `path`, read as the guard reads a scope. */
+export function rulingFor(rulings: readonly VerifiedRuling[], path: string): VerifiedRuling | undefined {
+  return rulings.find((candidate) => matching(candidate.paths, path).matched.length > 0);
+}
+
 const ESCALATE =
   'if the round cannot be done without it, stop and ask for a ruling: spec-harness escalate --path <file> --reason <why>, or the request_escalation tool';
 
@@ -122,7 +127,7 @@ export function decide(input: GuardInput): Decision {
     };
   }
   if (protectedHits.matched.length > 0) {
-    const ruling = input.rulings.find((candidate) => matching(candidate.paths, path).matched.length > 0);
+    const ruling = rulingFor(input.rulings, path);
     if (ruling !== undefined) {
       return {
         path,
