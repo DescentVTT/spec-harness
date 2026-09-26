@@ -186,6 +186,15 @@ describe('citations', () => {
       { target: 'https://example.com/x', line: 3 },
     ]);
   });
+
+  it('reads the link around a badge, and not the image inside its text', () => {
+    // spec-core lists the image after the link it lies in; the image is a
+    // picture on the page, not a document the brief cites.
+    expect(reader.citations('[![b](img/x.png)](../docs/a.md) and [![c][badge]](../docs/c.md)\n\n[badge]: img/y.svg\n')).toEqual([
+      { target: '../docs/a.md', line: 1 },
+      { target: '../docs/c.md', line: 1 },
+    ]);
+  });
 });
 
 describe('title and status', () => {
