@@ -10,7 +10,7 @@ npx spec-harness init            # the plan: what it would configure, and why
 npx spec-harness init --write    # apply it
 ```
 
-spec-brief 0.2.0 or later is required: the brief is the contract, spec-brief is its reader, and 0.2.0 is the first whose archive asks this package's plugin about signed rulings. spec-guard 0.12.0 and spec-graph 0.9.0 or later are used when they are installed, and their absence is reported, never assumed clean. A sibling installed below its minimum is never run: `doctor` and every command that needed it name the minimum ([ADR-0011](docs/adr/0011-releases-are-staged-by-ci.md)).
+spec-brief 0.2.0 or later is required: the brief is the contract, spec-brief is its reader, and 0.2.0 is the first whose archive asks this package's plugin about signed rulings. spec-guard 0.12.0 and spec-graph 0.9.0 or later are used when they are installed, and their absence is reported, never assumed clean. A sibling installed below its minimum is never run: `doctor` and every command that needed it name the minimum ([ADR-0011](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0011-releases-are-staged-by-ci.md)).
 
 ## A round
 
@@ -36,9 +36,9 @@ The brief in full - it is the contract - then what it implies: the files the rou
 
 May the round write this? A path the brief protects is **refused** unless a signed ruling allows it; a path in `affectedFiles` is allowed; anything else is **outside the scope** - a warning by default, or a question to the person, or a refusal (`outOfScope`: `warn`, `ask`, `deny`). Paths are compared as the filesystem spells them, links resolved and case corrected, so `SRC/db/schema.ts` does not walk past a protection on `src/db/schema.ts` on Windows.
 
-`spec-harness hook claude` answers Claude Code's PreToolUse and PostToolUse hooks: a refusal before the write, with the reason and the next step; a warning after a write outside the scope. It never answers `allow`, which would skip the person's own permission prompt. `spec-harness hook git` is a pre-commit hook for any agent or none. A guard is a guardrail - an agent that writes through a shell passes it - so the audit and spec-brief's archive are the gates ([ADR-0005](docs/adr/0005-a-guard-is-a-guardrail.md)).
+`spec-harness hook claude` answers Claude Code's PreToolUse and PostToolUse hooks: a refusal before the write, with the reason and the next step; a warning after a write outside the scope. It never answers `allow`, which would skip the person's own permission prompt. `spec-harness hook git` is a pre-commit hook for any agent or none. A guard is a guardrail - an agent that writes through a shell passes it - so the audit and spec-brief's archive are the gates ([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
 
-**Which brief?** `--brief <id>`, then `SPEC_BRIEF`, then the branch name (`brief/{id}`, `brief-{id}`, `*/brief/{id}`, `*/brief-{id}`). Never guessed ([ADR-0004](docs/adr/0004-the-active-brief-is-named-not-guessed.md)).
+**Which brief?** `--brief <id>`, then `SPEC_BRIEF`, then the branch name (`brief/{id}`, `brief-{id}`, `*/brief/{id}`, `*/brief-{id}`). Never guessed ([ADR-0004](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0004-the-active-brief-is-named-not-guessed.md)).
 
 ### `escalate`, `rule`, `rulings`
 
@@ -55,7 +55,7 @@ npx spec-harness rule E-012-1 --allow --note "Add rotated_at only."
 git commit -S -m "ruling R-012-1: allow" -- briefs/012_rotate-tokens.md
 ```
 
-A ruling is a row in the brief's `## Rulings` table. It **counts** when the commit that last changed the row is signed by a key the **base branch's** `.github/allowed_signers` lists. An agent can write a row and compute any hash; it cannot produce the person's signature, and an edit to the row moves it to a commit that must be signed again ([ADR-0006](docs/adr/0006-a-ruling-is-a-signed-commit.md)). Use a FIDO2 key (`ed25519-sk`) where the agent runs as you: its signature needs a touch no process can supply.
+A ruling is a row in the brief's `## Rulings` table. It **counts** when the commit that last changed the row is signed by a key the **base branch's** `.github/allowed_signers` lists. An agent can write a row and compute any hash; it cannot produce the person's signature, and an edit to the row moves it to a commit that must be signed again ([ADR-0006](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0006-a-ruling-is-a-signed-commit.md)). Use a FIDO2 key (`ed25519-sk`) where the agent runs as you: its signature needs a touch no process can supply.
 
 spec-brief's archive refuses a round that changed a protected file, and learns that a signed ruling allows it only from this package's plugin: `init` adds `"plugins": ["@descent-vtt/spec-harness/spec-brief-plugin"]` to spec-brief's configuration. Without it, the archive refuses the file whatever was signed; `doctor` says whether spec-brief loads the plugin, and `audit` names it as the reason for such a refusal.
 
@@ -80,7 +80,7 @@ signature: expected 401, got 200
 ```
 ````
 
-`probe --at base` runs it in a temporary worktree at the base commit: every run must fail **for the declared reason** - the `signature` in the output, or a JUnit `test` failing - or the verdict is `vacuous` (no defect), `flaky` or `invalid`. `probe --at head` must be green: `fixed`. The evidence table it prints names the hash of the probe it measured with ([ADR-0007](docs/adr/0007-probes-declare-their-failure.md)).
+`probe --at base` runs it in a temporary worktree at the base commit: every run must fail **for the declared reason** - the `signature` in the output, or a JUnit `test` failing - or the verdict is `vacuous` (no defect), `flaky` or `invalid`. `probe --at head` must be green: `fixed`. The evidence table it prints names the hash of the probe it measured with ([ADR-0007](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0007-probes-declare-their-failure.md)).
 
 ### `premises`
 
@@ -136,7 +136,7 @@ The plugin's hooks and server are the ones `init` writes into `.claude/settings.
 
 ## Design
 
-The decisions and what they cost are in [`docs/adr/`](docs/adr/README.md); what the whole family shares is [spec-core's ADR-0005](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0005-the-family-contract.md).
+The decisions and what they cost are in [`docs/adr/`](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/README.md); what the whole family shares is [spec-core's ADR-0005](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0005-the-family-contract.md).
 
 ## License
 

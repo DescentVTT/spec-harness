@@ -121,13 +121,14 @@ function rulesSection(rules: Rules): string {
 }
 
 /**
- * A brief's title without the id it repeats, `012 - Rotate tokens` read as
- * `Rotate tokens`. Only the brief's own id is taken off: `Fix - the login
- * bug` is a title, not an id and a title.
+ * A brief's title without the id it repeats: `012 - Rotate tokens` read as
+ * `Rotate tokens`, and the same with an en or an em dash, which `spec-brief
+ * new` writes, or with a colon after the id. Only the brief's own id is taken
+ * off: `Fix - the login bug` is a title, not an id and a title.
  */
-function titleOf(brief: BriefRow): string | null {
+export function titleOf(brief: Pick<BriefRow, 'id' | 'title'>): string | null {
   if (brief.title === null) return null;
-  return brief.title.replace(/^\s*(\S+)\s+-\s+/, (whole, first: string) => (sameId(first, brief.id) ? '' : whole));
+  return brief.title.replace(/^\s*([^\s:]+)(?:\s+[-\u2013\u2014]|:)\s+/, (whole, first: string) => (sameId(first, brief.id) ? '' : whole));
 }
 
 /** Renders the packet, filling the budget with cited documents in the order the brief cites them. */
@@ -170,7 +171,8 @@ export function renderContext(input: ContextInput): ContextPacket {
 
   const waiting = input.dependencies.map((dependency) => {
     const state = dependency.phase === 'archived' ? 'archived, done' : `still ${dependency.status ?? 'live'}`;
-    return `- ${dependency.id}${dependency.title === null ? '' : ` ${dependency.title}`}: ${state}`;
+    const named = titleOf(dependency);
+    return `- ${dependency.id}${named === null ? '' : ` ${named}`}: ${state}`;
   });
   const dependencies = ['## Depends on', '', waiting.length === 0 ? '- nothing' : waiting.join('\n'), ''].join('\n');
 

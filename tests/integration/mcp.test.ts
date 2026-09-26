@@ -110,7 +110,7 @@ describe('the tools', () => {
 
   it('list_rounds lists the live briefs and what each waits on', async () => {
     const outcome = await tool('list_rounds').call({});
-    expect(outcome.text).toBe('001 001 - Rotate tokens - active, wave -, ready\n002 002 - Next - active, wave -, waits on 1');
+    expect(outcome.text).toBe('001 Rotate tokens - active, wave -, ready\n002 Next - active, wave -, waits on 1');
     expect((outcome.structured as { briefs: { id: string }[] }).briefs.map((b) => b.id)).toEqual(['001', '002']);
     expect(await tool('list_rounds').call({ all: true })).toEqual({ text: 'Unknown argument "all"; this tool takes no arguments.', isError: true });
   });

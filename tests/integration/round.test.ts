@@ -47,7 +47,8 @@ describe.skipIf(!hasSshKeygen())('a round from init to the archive (needs ssh-ke
     expect(JSON.parse(repo.read('.spec-brief.json')).plugins).toEqual(['@descent-vtt/spec-harness/spec-brief-plugin']);
     const person = signingKey(temp());
     repo.write('.github/allowed_signers', person.signers);
-    repo.write(BRIEF_FILE, brief({ affected: ['src/auth/**'], protected: ['src/db/schema.ts'] }));
+    // The heading as spec-brief new writes it, with an em dash after the id.
+    repo.write(BRIEF_FILE, brief({ affected: ['src/auth/**'], protected: ['src/db/schema.ts'], title: '001 \u2014 Rotate tokens' }));
     repo.commit('spec tools, and brief 001');
     repo.git('push', '-q', 'origin', 'main');
     const doctor = await cli(['doctor'], repo.root);
@@ -58,6 +59,7 @@ describe.skipIf(!hasSshKeygen())('a round from init to the archive (needs ssh-ke
     repo.git('checkout', '-q', '-b', 'brief/001-rotate-tokens');
     repo.write('src/auth/token.ts', 'token;\nrotate;\n');
     repo.commit('round 001: rotate tokens');
+    expect((await cli(['context'], repo.root)).stdout.startsWith('# Round 001: Rotate tokens\n')).toBe(true);
     expect((await cli(['guard', 'src/db/schema.ts'], repo.root)).code).toBe(1);
     expect((await cli(['escalate', '--path', 'src/db/schema.ts', '--reason', 'Rotation needs a column.'], repo.root)).code).toBe(1);
     expect((await cli(['rule', 'E-001-1', '--allow', '--note', 'One column.'], repo.root)).code).toBe(0);

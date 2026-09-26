@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 
 import { findActive } from './briefs.js';
 import { briefIdFromBranch } from './branch.js';
+import { titleOf } from './context.js';
 import { createReader } from './reader.js';
 import { buildContext, checkPaths, raiseEscalation, runAudit } from './round.js';
 import type { BriefRow } from './types.js';
@@ -196,7 +197,7 @@ export function tools(workspace: Workspace, env: CliIO['env']): ToolDefinition[]
         if (unknown) return unknown;
         const live = (await workspace.siblings.briefs()).filter((brief) => brief.phase === 'live');
         const text = live
-          .map((b) => `${b.id} ${b.title ?? ''} - ${b.status ?? 'unknown'}, wave ${b.wave ?? '-'}, ${b.ready ? 'ready' : `waits on ${b.waitingOn.join(', ')}`}`)
+          .map((b) => `${[b.id, titleOf(b)].filter((part) => part !== null).join(' ')} - ${b.status ?? 'unknown'}, wave ${b.wave ?? '-'}, ${b.ready ? 'ready' : `waits on ${b.waitingOn.join(', ')}`}`)
           .join('\n');
         return { text: text === '' ? 'No live brief.' : text, structured: { briefs: live.map((b) => ({ ...b })) } };
       },
