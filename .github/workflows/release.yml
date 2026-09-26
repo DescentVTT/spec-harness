@@ -1,0 +1,189 @@
+name: Release
+
+# Stages a version on npm from a version tag through npm's trusted publishing:
+# the registry trusts this workflow by its OIDC identity, no token exists to
+# leak, and every version carries provenance naming the commit and the run that
+# built it. The reasons are in docs/adr/0011-releases-are-staged-by-ci.md; the
+# steps for a maintainer, and the one-time setup on npmjs.com, in CONTRIBUTING.md.
+#
+# A tag stages the version rather than publishing it. `npm stage publish` puts
+# it in a queue on npmjs.com, installable by nobody, and `npm stage approve`,
+# which takes a person's second factor, releases it. A trusted publisher
+# configured after 2026-09-03 permits staging by default and a direct publish
+# only where the package opts in, and staging keeps a person with 2FA as the
+# last step, as spec-brief, spec-graph and spec-guard do.
+on:
+  push:
+    tags: ['v*']
+  # A rehearsal from main of the version package.json names: every job but the
+  # GitHub release, and `npm stage publish --dry-run` in place of the upload.
+  # The token exchange with npm is the one step it cannot try.
+  workflow_dispatch:
+
+# Never two releases at once, and never one cancelled halfway.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # The whole matrix, on the commit being published: CI on main cancels a run
+  # when a newer push arrives, so a tagged commit may never have finished one.
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  pack:
+    needs: ci
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      dist-tag: ${{ steps.release.outputs.dist-tag }}
+      tarball: ${{ steps.pack.outputs.tarball }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          # All of history, to check the commit is on main.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Check the commit is on main
+        run: |
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main || {
+            echo "::error::$GITHUB_SHA is not on main; release from a commit main has"
+            exit 1
+          }
+
+      - name: Check the tag against the version, the changelog and the plugin
+        id: release
+        run: |
+          tag="$GITHUB_REF_NAME"
+          # A rehearsal has no tag; it checks the one the version would have.
+          if [ "$GITHUB_EVENT_NAME" != push ]; then tag="v$(node -p 'require("./package.json").version')"; fi
+          node scripts/release.ts "$tag" release-notes.md
+
+      - run: npm ci
+
+      - name: Build and pack
+        id: pack
+        run: |
+          npm run clean
+          npm run build
+          tarball=$(npm pack --json | node -p 'JSON.parse(require("fs").readFileSync(0, "utf8"))[0].filename')
+          echo "tarball=$tarball" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release
+          path: |
+            ${{ steps.pack.outputs.tarball }}
+            release-notes.md
+          if-no-files-found: error
+
+  publish:
+    needs: pack
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Named in the trusted publisher on npmjs.com. Protection rules, such as a
+    # required reviewer, go on this environment in the repository's settings.
+    environment:
+      name: npm
+      url: https://www.npmjs.com/package/@descent-vtt/spec-harness/v/${{ needs.pack.outputs.version }}
+    permissions:
+      contents: read
+      id-token: write
+    # Nothing is checked out, installed or built here. The one job that can
+    # publish runs no code but npm's, and stages the tarball the job above
+    # built and CI tested, byte for byte.
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: '24'
+          registry-url: https://registry.npmjs.org
+
+      # The npm bundled with Node 24 is not reliably new enough to stage, and
+      # when it is not the failure reads as an authentication error. Pinned
+      # inside 11.x: 12 is newer, which is not the same as proven.
+      - name: An npm new enough to stage
+        run: |
+          npm install -g 'npm@^11.15.0'
+          installed="$(npm --version)"
+          required=11.15.0
+          if [ "$(printf '%s\n%s\n' "$required" "$installed" | sort -V | head -1)" != "$required" ]; then
+            echo "::error::npm $installed is older than $required, which npm stage publish needs"
+            exit 1
+          fi
+          echo "npm $installed on node $(node --version)"
+
+      - name: Stage with provenance
+        env:
+          VERSION: ${{ needs.pack.outputs.version }}
+          TARBALL: ${{ needs.pack.outputs.tarball }}
+          DIST_TAG: ${{ needs.pack.outputs.dist-tag }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
+            npm stage publish "./$TARBALL" --tag "$DIST_TAG" --provenance --access public --ignore-scripts
+          elif [ -n "$(npm view "@descent-vtt/spec-harness@$VERSION" version 2>/dev/null)" ]; then
+            # npm refuses even a dry run over a published version, which would
+            # say nothing about this workflow.
+            echo "::notice::$VERSION is on npm already; the rehearsal stopped short of the upload"
+          else
+            npm stage publish "./$TARBALL" --tag "$DIST_TAG" --provenance=false --access public --ignore-scripts --dry-run
+          fi
+
+      - name: Say that it is staged, and how to release it
+        if: github.event_name == 'push'
+        env:
+          VERSION: ${{ needs.pack.outputs.version }}
+        run: |
+          {
+            echo '### Staged, not published'
+            echo
+            echo "@descent-vtt/spec-harness@$VERSION is queued on npmjs.com and installable by nobody."
+            echo 'To release it, with 2FA:'
+            echo
+            echo '```'
+            echo 'npm stage list @descent-vtt/spec-harness'
+            echo 'npm stage view <stage-id>'
+            echo 'npm stage approve <stage-id>'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  github-release:
+    needs: [pack, publish]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release
+
+      - name: Create the GitHub release, with the tarball npm has
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.pack.outputs.version }}
+          DIST_TAG: ${{ needs.pack.outputs.dist-tag }}
+          TARBALL: ${{ needs.pack.outputs.tarball }}
+        run: |
+          flags=()
+          if [ "$DIST_TAG" = next ]; then flags+=(--prerelease); fi
+          gh release create "$GITHUB_REF_NAME" "$TARBALL" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "spec-harness $VERSION" \
+            --notes-file release-notes.md \
+            --verify-tag \
+            "${flags[@]}"
