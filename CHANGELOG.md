@@ -1,6 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.1.4
+
+spec-core at 8840d36. Its Markdown scanner now reads an image inside a
+link's text, so a badge wrapped in a link gives two links, and makes the
+parts of a scan a command may never ask for only when one asks. What the
+commands print is unchanged: `context` includes the document a badge links
+to, and never the badge.
 
 ### Changed
 
