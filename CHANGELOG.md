@@ -21,9 +21,10 @@ wrote.
   brief".
 - `init` names the base in `.spec-harness.json`: the remote's default branch
   where git recorded one, otherwise `main`, `master` or the only branch when
-  `init` runs on it; otherwise it asks. git records no default branch for a
-  repository that was not cloned, so 0.1 wrote `{}` there, and no command
-  could verify a ruling. It adds the base to a configuration that names
+  `init` runs on it; otherwise it asks. git records a remote's default
+  branch when it clones, and before 2.48 not on a fetch, so a repository
+  made with `git init` and pushed to a remote often has none. 0.1 wrote `{}`
+  there, and no command could verify a ruling. It adds the base to a configuration that names
   none. `doctor` shows the base, where it came from, and whether the
   allowed-signers file is on it.
 - `guard`, `context` and the hooks honour `--base`, which they ignored. The

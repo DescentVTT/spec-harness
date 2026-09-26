@@ -39,6 +39,9 @@ describe.skipIf(!hasSshKeygen())('a round from init to the archive (needs ssh-ke
     execFileSync('git', ['init', '-q', '--bare', remote]);
     repo.git('remote', 'add', 'origin', remote);
     repo.git('push', '-q', '-u', 'origin', 'main');
+    // As git before 2.48 leaves a repository it did not clone, whatever the
+    // installed git does on a fetch.
+    repo.git('update-ref', '--no-deref', '-d', 'refs/remotes/origin/HEAD');
 
     // init, and the person's allowed signers, on main.
     const init = await cli(['init', '--write'], repo.root);

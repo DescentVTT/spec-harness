@@ -176,10 +176,11 @@ export interface BaseChoice {
 /**
  * The base `init` writes into `.spec-harness.json`. Every ruling is verified
  * against the allowed signers on it, so it is named rather than left to be
- * found. The remote's default branch comes first, but git records it only
- * where it cloned: a repository made with `git init` and pushed to a remote
- * has none. There the branch init runs on is the base when it is `main` or
- * `master`, or the only branch; otherwise the person names it.
+ * found. The remote's default branch comes first, but git records it when
+ * it clones, and before 2.48 not on a fetch: a repository made with `git
+ * init` and pushed to a remote often has none. There the branch init runs on
+ * is the base when it is `main` or `master`, or the only branch; otherwise
+ * the person names it.
  */
 export function chooseBase(facts: BaseFacts): BaseChoice {
   const { remoteDefault, branch } = facts;
