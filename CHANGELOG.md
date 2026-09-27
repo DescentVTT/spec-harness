@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### Changed
+
+- spec-core at 65ef842. Its Markdown scanner reads link reference
+  definitions as CommonMark does, and `context` includes the documents a
+  brief cites by that reading:
+  - A definition cannot interrupt a paragraph. `[r]: r.md` on the line under
+    a paragraph's text, a block quote's lazy continuation line included, is
+    that text, so `[r]` in the brief no longer cites `r.md`; a blank line
+    above the definition has it read. A definition after a blank line or a
+    heading, and one under such a definition, is read as before.
+  - A label holds no unescaped bracket. `[[r]: r.md](z.md)` is a link to
+    `z.md`, and cites it, where it was a definition and cited nothing. A
+    label with an escaped bracket, `[a\]b]: x.md`, is now read.
+  - A second bracket holding a bracket is no label, and the first is read
+    as a shortcut: with `[r]` defined, `[r][a[b]c]` cites `r`'s destination,
+    where it cited nothing.
+
 ### Fixed
 
 - `context` says when a cited document's front matter opens on its first
