@@ -4,10 +4,23 @@
 
 The Claude Code plugin and `init` no longer install the guard twice by
 accident, and the Claude Code release the hooks need is stated: 2.1.139 or
-later, the first that runs a hook's `args`.
+later, the first that runs a hook's `args`. spec-core is at 119345e: a link
+inside a link's text now counts only the inner link as a document the brief
+cites.
 
 ### Changed
 
+- spec-core at 119345e. Its Markdown scanner reads a link inside a link's
+  text as CommonMark does: the inner link is the link, and the brackets
+  around it and the destination after them are text. `context` now takes
+  `[a [b](inner.md) c](outer.md)` as citing `inner.md` alone, where it
+  included `outer.md` and never `inner.md`. A badge wrapped in a link still
+  cites the link and never the image.
+- A brief's pattern that writes `**` inside a name is still one the guard
+  cannot read, and what it says of it now builds the advice from the pattern
+  written: `docs/**.md` is told `docs/**/*.md` for any depth or `docs/*.md`
+  for one level, and `src/a**` `src/a*/**` or `src/a*`, where every such
+  pattern was told `docs/**/*.md` or `*.md`.
 - `init` writes neither the guard hooks nor the server while Claude Code's
   spec-harness plugin is on. Claude Code runs a plugin's hooks beside the
   same hooks in settings, so with both every write was guarded twice and the

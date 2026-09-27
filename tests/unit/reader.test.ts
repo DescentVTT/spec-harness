@@ -195,6 +195,13 @@ describe('citations', () => {
       { target: '../docs/c.md', line: 1 },
     ]);
   });
+
+  it('reads a link inside a link\'s text as the one link, and not the brackets around it', () => {
+    // CommonMark lets no link hold another: the inner link is the link, and
+    // the outer brackets and destination are text on the page, so the brief
+    // cites the inner document only.
+    expect(reader.citations('[a [b](inner.md) c](outer.md)\n')).toEqual([{ target: 'inner.md', line: 1 }]);
+  });
 });
 
 describe('title and status', () => {
