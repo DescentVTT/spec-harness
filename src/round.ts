@@ -12,7 +12,17 @@ import { join } from 'node:path';
 
 import { audit, type ArchiveReason, type AssertionOutcome, type AuditReport } from './audit.js';
 import { sameId } from './branch.js';
-import { loadsPlugin, SPEC_BRIEF_CONFIGS, type BaseSource, type PluginState } from './configure.js';
+import {
+  enabledPlugin,
+  holdsGuard,
+  loadsPlugin,
+  registersServer,
+  SPEC_BRIEF_CONFIGS,
+  type BaseSource,
+  type ClaudeCodeWiring,
+  type ClaudeSettings,
+  type PluginState,
+} from './configure.js';
 import { readRules, renderContext, type CitedDocument, type ContextPacket, type Rules } from './context.js';
 import type { DocumentReader } from './document.js';
 import { readJsonObject, readText, repositoryPath, stateDirectory, writeAtomic } from './fs.js';
@@ -33,7 +43,7 @@ import type { BriefRow, Finding } from './types.js';
 import { compileGlob } from './vendor/spec-core/pattern/index.js';
 import { dirname, isRelativeReference, resolveInside, splitReference } from './vendor/spec-core/path/index.js';
 import { SiblingError } from './siblings.js';
-import { UsageError, type Workspace } from './workspace.js';
+import { UsageError, type CliIO, type Workspace } from './workspace.js';
 
 /* -------------------------------------------------------------------- base */
 
@@ -268,6 +278,40 @@ export async function specBriefPlugin(root: string): Promise<PluginState> {
   const config = await readJsonObject(join(root, file));
   if (config === null || config === 'unreadable') return { kind: 'unreadable', file };
   return { kind: loadsPlugin(config) ? 'loaded' : 'not-loaded', file };
+}
+
+/**
+ * Claude Code's settings files that can turn a plugin on or hold a hook,
+ * lowest precedence first: the user's, the project's, and the person's own
+ * for the project. The user's is in `CLAUDE_CONFIG_DIR` when that is set,
+ * otherwise in `.claude` under the home directory Claude Code uses,
+ * `USERPROFILE` on Windows and `HOME` elsewhere; with neither it is not read.
+ * Managed settings and `--settings` are not files a project can see.
+ */
+export function claudeSettingsFiles(root: string, env: CliIO['env'], platform: NodeJS.Platform = process.platform): { file: string; path: string }[] {
+  const home = (platform === 'win32' ? env['USERPROFILE'] : env['HOME']) || undefined;
+  const configDir = env['CLAUDE_CONFIG_DIR'] || (home === undefined ? undefined : join(home, '.claude'));
+  const user = configDir === undefined ? null : join(configDir, 'settings.json');
+  return [
+    ...(user === null ? [] : [{ file: user, path: user }]),
+    { file: '.claude/settings.json', path: join(root, '.claude', 'settings.json') },
+    { file: '.claude/settings.local.json', path: join(root, '.claude', 'settings.local.json') },
+  ];
+}
+
+/** The settings files Claude Code reads here, as read; one that is missing or cannot be read as JSON holds nothing. */
+export async function claudeSettings(root: string, env: CliIO['env']): Promise<ClaudeSettings[]> {
+  return Promise.all(claudeSettingsFiles(root, env).map(async ({ file, path }) => ({ file, settings: await readJsonObject(path) })));
+}
+
+/** Whether the plugin, init's entries, both or neither wire Claude Code to the harness here. */
+export async function claudeCodeWiring(root: string, env: CliIO['env']): Promise<ClaudeCodeWiring> {
+  const sources = await claudeSettings(root, env);
+  return {
+    plugin: enabledPlugin(sources),
+    hooks: sources.filter(({ settings }) => holdsGuard(settings)).map(({ file }) => file),
+    server: registersServer(await readJsonObject(join(root, '.mcp.json'))),
+  };
 }
 
 async function archiveReasons(workspace: Workspace, brief: BriefRow, base: Base): Promise<{ blocking: ArchiveReason[]; warnings: ArchiveReason[] } | { unavailable: string }> {

@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 
 import { HELP } from '../../src/cli.js';
+import { mergeClaudeSettings, mergeMcp } from '../../src/configure.js';
 import { brief, BRIEF_FILE, cleanup, cli, installFake, parsed, repository, ROOT, SPEC_BRIEF, spawnBin, temp, write } from './helpers.js';
 
 afterAll(cleanup);
@@ -85,6 +86,9 @@ describe('the siblings', () => {
       '\nsigners .github/allowed_signers is not on main, so no ruling can count: commit it there, one line per person: <email> namespaces="git" <public key>\n',
     );
     expect(pretty.stdout).toContain('\nplugin  spec-brief has no configuration at the root, so it loads no plugin');
+    expect(pretty.stdout).toContain(
+      '\nclaude  neither the spec-harness plugin nor the hooks init writes, so Claude Code guards no write: run spec-harness init --write, or install the plugin\n',
+    );
     expect(pretty.stdout).toContain(`found     spec-brief  node ${SPEC_BRIEF} (named in .spec-harness.json; its version is not checked)`);
     expect(pretty.stdout).toContain('absent    spec-graph  spec-graph is not installed here: npm install --save-dev @descent-vtt/spec-graph, or name its command under "tools" in .spec-harness.json');
     const json = parsed<{
@@ -94,12 +98,14 @@ describe('the siblings', () => {
       base: unknown;
       allowedSigners: unknown;
       plugin: unknown;
+      claudeCode: unknown;
       siblings: { tool: string; state: string; version: string | null; minimum: string }[];
     }>(await cli(['doctor', '--format', 'json'], repo.root));
     expect(json.brief).toBe('001');
     expect(json.base).toEqual({ ref: 'main', source: 'config', mergeBase: repo.git('rev-parse', 'HEAD') });
     expect(json.allowedSigners).toMatchObject({ file: '.github/allowed_signers', onBase: false });
     expect(json.plugin).toMatchObject({ state: 'unconfigured', file: null });
+    expect(json.claudeCode).toMatchObject({ state: 'none', plugin: null, hooks: [], server: false });
     expect(json.siblings.map((s) => [s.tool, s.state, s.version, s.minimum])).toEqual([
       ['spec-brief', 'found', null, '0.2.0'],
       ['spec-graph', 'absent', null, '0.9.0'],
@@ -119,6 +125,40 @@ describe('the siblings', () => {
     const based = await cli(['doctor', '--base', 'HEAD'], bare.root);
     expect(based.stdout).toContain(`\nbase    HEAD (--base), merge base ${bare.git('rev-parse', 'HEAD').slice(0, 12)}\nsigners .github/allowed_signers is on HEAD\n`);
     expect(based.stdout).toContain('\nplugin  spec-brief does not load spec-harness\'s plugin');
+  });
+
+  it('reports the Claude Code plugin beside init\'s hooks and server as a double install, with exit 1 (ADR-0012)', async () => {
+    const local = JSON.stringify({ enabledPlugins: { 'spec-harness@spec-tools': true } });
+    const repo = repository({
+      '.claude/settings.json': JSON.stringify(mergeClaudeSettings({})),
+      '.claude/settings.local.json': local,
+      '.mcp.json': JSON.stringify(mergeMcp({})),
+    });
+    const pretty = await cli(['doctor'], repo.root);
+    expect(pretty.code).toBe(1);
+    expect(pretty.stdout).toContain(
+      "\nclaude  the spec-harness plugin is on (spec-harness@spec-tools in .claude/settings.local.json), beside the guard hooks in .claude/settings.json, the server in .mcp.json: every write is guarded twice and the server is registered twice. Keep one: take spec-harness's entries out of those files, or turn the plugin off for this project with claude plugin disable spec-harness@spec-tools --scope local\n",
+    );
+    expect(parsed<{ claudeCode: unknown }>(await cli(['doctor', '--format', 'json'], repo.root)).claudeCode).toMatchObject({
+      state: 'both',
+      plugin: { id: 'spec-harness@spec-tools', file: '.claude/settings.local.json' },
+      hooks: ['.claude/settings.json'],
+      server: true,
+    });
+    // Turned off for the project, the plugin leaves init's entries alone, and doctor passes.
+    repo.write('.claude/settings.local.json', JSON.stringify({ enabledPlugins: { 'spec-harness@spec-tools': false } }));
+    const settled = await cli(['doctor'], repo.root);
+    expect(settled.code).toBe(0);
+    expect(settled.stdout).toContain("\nclaude  init's entries: the guard hooks in .claude/settings.json, the server in .mcp.json\n");
+  });
+
+  it('reports the plugin alone, turned on in the user\'s settings, as the guard, with exit 0', async () => {
+    const user = temp();
+    write(user, 'settings.json', JSON.stringify({ enabledPlugins: { 'spec-harness@spec-tools': true } }));
+    const repo = repository({ '.claude/settings.json': JSON.stringify({ permissions: {} }) });
+    const result = await cli(['doctor'], repo.root, { env: { CLAUDE_CONFIG_DIR: user } });
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain(`\nclaude  the spec-harness plugin is on (spec-harness@spec-tools in ${join(user, 'settings.json')}) and brings the guard hooks and the server\n`);
   });
 
   it('reports a sibling older than this release runs as a problem, naming the minimum', async () => {

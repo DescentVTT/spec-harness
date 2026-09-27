@@ -3,11 +3,15 @@ import { describe, expect, it } from 'vitest';
 import {
   chooseBase,
   describeBase,
+  describeClaudeCode,
   describePlugin,
   describeGraph,
   describeSigners,
+  describeSkipped,
+  enabledPlugin,
   graphReadsBriefs,
   GUARD_HOOK,
+  holdsGuard,
   loadsPlugin,
   mcpServer,
   mergeClaudeSettings,
@@ -18,8 +22,10 @@ import {
   PLUGIN,
   PROJECT_DIR,
   PROJECT_DIR_OR_HERE,
+  registersServer,
   SPEC_BRIEF_CONFIGS,
   SPEC_GRAPH_CONFIGS,
+  wiringState,
 } from '../../src/configure.js';
 
 const SCRIPT = '${CLAUDE_PROJECT_DIR}/node_modules/@descent-vtt/spec-harness/bin/spec-harness.js';
@@ -141,6 +147,137 @@ describe('the MCP server registration', () => {
     const merged = mergeMcp({ mcpServers: { 'spec-harness': { type: 'stdio', command: 'npx', args: ['--no-install', 'spec-harness', 'mcp'], env: { A: '1' } } } });
     expect(merged).toEqual({ mcpServers: { 'spec-harness': { type: 'stdio', env: { A: '1' }, ...mcpServer(PROJECT_DIR_OR_HERE) } } });
     expect(mergeMcp(merged ?? {})).toBeNull();
+  });
+});
+
+describe('the Claude Code plugin beside init\'s entries (ADR-0012)', () => {
+  const USER = '/home/p/.claude/settings.json';
+  const on = (file: string, plugins: Record<string, unknown>) => ({ file, settings: { enabledPlugins: plugins } });
+
+  it('finds the guard hooks in settings, as this release or 0.1 wrote them, in either event', () => {
+    expect(holdsGuard({ hooks: { PreToolUse: [GUARD] } })).toBe(true);
+    expect(holdsGuard({ hooks: { PostToolUse: [{ matcher: 'Write', hooks: [{ type: 'command', command: 'x' }, HOOK] }] } })).toBe(true);
+    expect(holdsGuard({ hooks: { PostToolUse: [{ hooks: [{ type: 'command', command: LEGACY }] }] } })).toBe(true);
+    expect(holdsGuard({ hooks: { PreToolUse: [{ matcher: 'Write', hooks: [{ type: 'command', command: 'npm run lint' }] }, GUARD] } })).toBe(true);
+  });
+
+  it('finds no guard in a hook that only resembles it, under another event, or in hooks of the wrong shape', () => {
+    const similar = [
+      { type: 'command', command: 'npx spec-harness hook claude' },
+      { type: 'command', command: 'node', args: HOOK.args.slice(0, 2) },
+      { type: 'command', command: `${LEGACY} --x` },
+    ];
+    expect(holdsGuard({ hooks: { PreToolUse: [{ hooks: similar }], PostToolUse: [{ hooks: similar }] } })).toBe(false);
+    expect(holdsGuard({ hooks: { Stop: [GUARD], SessionStart: [GUARD] } })).toBe(false);
+    expect(holdsGuard({ hooks: { PreToolUse: 'x', PostToolUse: [null, { hooks: 'y' }] } })).toBe(false);
+    expect(holdsGuard({ hooks: null })).toBe(false);
+    expect(holdsGuard({})).toBe(false);
+    // A file that is missing, or that JSON cannot read, holds nothing.
+    expect(holdsGuard(null)).toBe(false);
+    expect(holdsGuard('unreadable')).toBe(false);
+  });
+
+  it('finds the server in .mcp.json under its name, however it is run', () => {
+    expect(registersServer(mergeMcp({}) ?? {})).toBe(true);
+    expect(registersServer({ mcpServers: { 'spec-harness': { command: 'npx', args: ['--no-install', 'spec-harness', 'mcp'] } } })).toBe(true);
+    expect(registersServer({ mcpServers: { 'spec-harness': null } })).toBe(true);
+    expect(registersServer({ mcpServers: { other: { command: 'node', args: ['spec-harness.js', 'mcp'] } } })).toBe(false);
+    expect(registersServer({ mcpServers: 'spec-harness' })).toBe(false);
+    expect(registersServer({ 'spec-harness': {} })).toBe(false);
+    expect(registersServer(null)).toBe(false);
+    expect(registersServer('unreadable')).toBe(false);
+  });
+
+  it('reads the plugin as on when a settings file enables it, from any marketplace that names it spec-harness', () => {
+    expect(enabledPlugin([on(USER, { 'spec-harness@spec-tools': true })])).toEqual({ id: 'spec-harness@spec-tools', file: USER });
+    expect(enabledPlugin([on('.claude/settings.json', { 'spec-harness@team': true })])).toEqual({ id: 'spec-harness@team', file: '.claude/settings.json' });
+  });
+
+  it('lets the later file decide an id, as Claude Code does: user, then project, then local', () => {
+    const user = on(USER, { 'spec-harness@spec-tools': true });
+    expect(enabledPlugin([user, on('.claude/settings.local.json', { 'spec-harness@spec-tools': false })])).toBeNull();
+    expect(enabledPlugin([on(USER, { 'spec-harness@spec-tools': false }), on('.claude/settings.json', { 'spec-harness@spec-tools': true })])).toEqual({
+      id: 'spec-harness@spec-tools',
+      file: '.claude/settings.json',
+    });
+    // A file that does not name the id leaves the earlier file's answer.
+    expect(enabledPlugin([user, on('.claude/settings.json', { 'other@spec-tools': false }), { file: '.claude/settings.local.json', settings: {} }])).toEqual({
+      id: 'spec-harness@spec-tools',
+      file: USER,
+    });
+    // Two marketplaces' plugins are two plugins: turning one off leaves the other on.
+    expect(enabledPlugin([on(USER, { 'spec-harness@a': true }), on('.claude/settings.local.json', { 'spec-harness@b': false })])).toEqual({ id: 'spec-harness@a', file: USER });
+  });
+
+  it('reads no other plugin as this one, and a value that is not true or false as deciding nothing', () => {
+    const others = { 'spec-harness-extra@spec-tools': true, 'other@spec-tools': true, 'spec-harness': true, 'spec-harness@': true, 'x@spec-harness@y': true, 'spec-harness@a@b': true };
+    expect(enabledPlugin([on(USER, others)])).toBeNull();
+    expect(enabledPlugin([on(USER, { 'spec-harness@spec-tools': 'true' })])).toBeNull();
+    expect(enabledPlugin([on(USER, { 'spec-harness@spec-tools': true }), on('.claude/settings.local.json', { 'spec-harness@spec-tools': 'false' })])).toEqual({
+      id: 'spec-harness@spec-tools',
+      file: USER,
+    });
+    expect(enabledPlugin([{ file: USER, settings: { enabledPlugins: ['spec-harness@spec-tools'] } }, { file: USER, settings: { enabledPlugins: null } }])).toBeNull();
+    expect(enabledPlugin([])).toBeNull();
+    // A file that is missing, or that JSON cannot read, turns nothing on or off.
+    expect(enabledPlugin([{ file: USER, settings: null }, { file: '.claude/settings.json', settings: 'unreadable' }])).toBeNull();
+    expect(enabledPlugin([on(USER, { 'spec-harness@spec-tools': true }), { file: '.claude/settings.local.json', settings: 'unreadable' }])).toEqual({
+      id: 'spec-harness@spec-tools',
+      file: USER,
+    });
+  });
+
+  it('says why init writes no hook or server while the plugin is on, and how to have init\'s instead', () => {
+    const plugin = { id: 'spec-harness@spec-tools', file: USER };
+    const off = 'turn the plugin off for this project with claude plugin disable spec-harness@spec-tools --scope local';
+    expect(describeSkipped(plugin, 'hooks', false)).toBe(
+      `the spec-harness plugin is on (spec-harness@spec-tools in ${USER}) and brings the guard hooks, so init writes none: with both, every write is guarded twice. To have them here instead, for every clone of the repository, ${off} and run init again`,
+    );
+    expect(describeSkipped(plugin, 'server', false)).toBe(
+      `the spec-harness plugin is on (spec-harness@spec-tools in ${USER}) and brings the server, so init registers none: with both, the server is registered twice. To have it here instead, for every clone of the repository, ${off} and run init again`,
+    );
+  });
+
+  it('says that a file holding init\'s entry beside the plugin is a double install, and how to keep one', () => {
+    const plugin = { id: 'spec-harness@team', file: '.claude/settings.json' };
+    const off = 'turn the plugin off for this project with claude plugin disable spec-harness@team --scope local';
+    expect(describeSkipped(plugin, 'hooks', true)).toBe(
+      `the spec-harness plugin is on (spec-harness@team in .claude/settings.json) and brings the guard hooks this file holds as well, so every write is guarded twice: take spec-harness's hooks out of this file, or ${off}`,
+    );
+    expect(describeSkipped(plugin, 'server', true)).toBe(
+      `the spec-harness plugin is on (spec-harness@team in .claude/settings.json) and brings the server this file holds as well, so the server is registered twice: take the spec-harness server out of this file, or ${off}`,
+    );
+  });
+
+  it('tells the plugin, init\'s entries, both and neither apart, either of init\'s entries counting', () => {
+    const plugin = { id: 'spec-harness@spec-tools', file: USER };
+    expect(wiringState({ plugin: null, hooks: [], server: false })).toBe('none');
+    expect(wiringState({ plugin: null, hooks: ['.claude/settings.json'], server: false })).toBe('init');
+    expect(wiringState({ plugin: null, hooks: [], server: true })).toBe('init');
+    expect(wiringState({ plugin, hooks: [], server: false })).toBe('plugin');
+    expect(wiringState({ plugin, hooks: ['.claude/settings.local.json'], server: false })).toBe('both');
+    expect(wiringState({ plugin, hooks: [], server: true })).toBe('both');
+  });
+
+  it('says in doctor what wires Claude Code, and what doubles', () => {
+    const plugin = { id: 'spec-harness@spec-tools', file: USER };
+    const off = 'turn the plugin off for this project with claude plugin disable spec-harness@spec-tools --scope local';
+    const on = `the spec-harness plugin is on (spec-harness@spec-tools in ${USER})`;
+    expect(describeClaudeCode({ plugin: null, hooks: [], server: false })).toBe(
+      'neither the spec-harness plugin nor the hooks init writes, so Claude Code guards no write: run spec-harness init --write, or install the plugin',
+    );
+    expect(describeClaudeCode({ plugin: null, hooks: ['.claude/settings.json'], server: true })).toBe("init's entries: the guard hooks in .claude/settings.json, the server in .mcp.json");
+    expect(describeClaudeCode({ plugin: null, hooks: [], server: true })).toBe("init's entries: the server in .mcp.json");
+    expect(describeClaudeCode({ plugin, hooks: [], server: false })).toBe(`${on} and brings the guard hooks and the server`);
+    expect(describeClaudeCode({ plugin, hooks: ['.claude/settings.json', '.claude/settings.local.json'], server: true })).toBe(
+      `${on}, beside the guard hooks in .claude/settings.json, the guard hooks in .claude/settings.local.json, the server in .mcp.json: every write is guarded twice and the server is registered twice. Keep one: take spec-harness's entries out of those files, or ${off}`,
+    );
+    expect(describeClaudeCode({ plugin, hooks: ['.claude/settings.json'], server: false })).toBe(
+      `${on}, beside the guard hooks in .claude/settings.json: every write is guarded twice. Keep one: take spec-harness's entries out of those files, or ${off}`,
+    );
+    expect(describeClaudeCode({ plugin, hooks: [], server: true })).toBe(
+      `${on}, beside the server in .mcp.json: the server is registered twice. Keep one: take spec-harness's entries out of those files, or ${off}`,
+    );
   });
 });
 

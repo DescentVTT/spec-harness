@@ -1,5 +1,29 @@
 # Changelog
 
+## Unreleased
+
+The Claude Code plugin and `init` no longer install the guard twice by
+accident.
+
+### Changed
+
+- `init` writes neither the guard hooks nor the server while Claude Code's
+  spec-harness plugin is on. Claude Code runs a plugin's hooks beside the
+  same hooks in settings, so with both every write was guarded twice and the
+  server registered twice. `init` reads `enabledPlugins` from the user's, the
+  project's and the local Claude Code settings as Claude Code merges them,
+  plans `.claude/settings.json` and `.mcp.json` as `skip`, and says how to
+  have its entries instead: `claude plugin disable spec-harness@spec-tools
+  --scope local`, then `init` again. Where the plugin is on and a file
+  already holds its entry, it says so and changes nothing.
+
+### Added
+
+- `doctor` says how Claude Code runs the guard - the plugin and the settings
+  file that turns it on, `init`'s hooks and server, both, or neither - on a
+  `claude` line, and as `claudeCode` in JSON. Both is a double install and
+  exits 1, with how to keep one.
+
 ## 0.1.5
 
 A packaging fix: the tarball no longer carries spec-core's internal README.
