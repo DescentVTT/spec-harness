@@ -33,6 +33,16 @@
   closed, exits 129, as a shell reports a process SIGHUP ended, where it
   exited 143, SIGTERM's code. The code is 128 and the signal's number for
   each signal the sandbox handles: SIGINT 130 and SIGTERM 143, as before.
+- An interrupted `probe` no longer prunes the repository's other
+  worktrees. After removing its own worktree the sandbox ran `git worktree
+  prune`, which forgets every worktree git has lost track of - one on a
+  drive that is not mounted, or another tool's - and it did the same at the
+  end of a probe whose command had deleted its worktree's `.git` file. It
+  now deletes the worktree's directory and runs `git worktree remove
+  --force` on that path, which forgets that worktree and no other. The
+  reasoning is in
+  [ADR-0003](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0003-state-outside-the-work-tree.md)'s
+  amendment.
 
 ## 0.2.0
 

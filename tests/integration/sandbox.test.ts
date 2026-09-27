@@ -292,17 +292,77 @@ describe('a worktree, whatever ends its job', () => {
     });
   });
 
-  it('is removed, and forgotten by git, when its job broke it so that git will not remove it', async () => {
-    // A job may leave its worktree in any state. Without its .git file, git
-    // refuses to remove it, and says so.
+  // A job may leave its worktree in any state. Without its .git file, git
+  // refuses to remove it, and says so; without its directory, git removes
+  // what it holds of it.
+  it.each([
+    { broken: 'its .git file', remove: (directory: string) => rmSync(join(directory, '.git')) },
+    { broken: 'its directory', remove: (directory: string) => rmSync(directory, { recursive: true, force: true }) },
+  ])('is removed, and forgotten by git, when its job deleted $broken', async ({ remove }) => {
     const { withWorktree, handlers } = await freshSandbox();
     const repo = repository({ 'a.txt': 'a\n' });
     await withWorktree(repo.root, 'HEAD', async (directory) => {
-      rmSync(join(directory, '.git'));
+      remove(directory);
       only(handlers('exit'), 'exit')(0);
       expect(existsSync(directory)).toBe(false);
       expect(worktrees(repo)).toHaveLength(1);
     });
+  });
+
+  it('is the only worktree an interrupt or exit removes: the person\'s own are left alone, even one git has lost', async () => {
+    // `git worktree prune` would forget every worktree git has lost track
+    // of: one on a drive that is not mounted, or another tool's.
+    for (const event of ['SIGINT', 'exit'] as const) {
+      const { withWorktree, handlers } = await freshSandbox();
+      const repo = repository({ 'a.txt': 'a\n' });
+      const kept = join(temp(), 'kept');
+      const lost = join(temp(), 'lost');
+      repo.git('worktree', 'add', '-q', '--detach', kept, 'HEAD');
+      repo.git('worktree', 'add', '-q', '--detach', lost, 'HEAD');
+      rmSync(lost, { recursive: true, force: true });
+      await withWorktree(repo.root, 'HEAD', async (directory) => {
+        rmSync(join(directory, '.git'));
+        if (event === 'exit') only(handlers('exit'), 'exit')(0);
+        else await interrupt(only(handlers(event), event), event);
+        expect(existsSync(directory), event).toBe(false);
+      });
+      expect(worktrees(repo), event).toHaveLength(3);
+      expect(existsSync(join(kept, 'a.txt')), event).toBe(true);
+    }
+  });
+
+  it('is removed and forgotten alone when its job ends having broken it: the person\'s worktree git has lost stays', async () => {
+    const { withWorktree } = await freshSandbox();
+    const repo = repository({ 'a.txt': 'a\n' });
+    const lost = join(temp(), 'lost');
+    repo.git('worktree', 'add', '-q', '--detach', lost, 'HEAD');
+    rmSync(lost, { recursive: true, force: true });
+    let seen = '';
+    await withWorktree(repo.root, 'HEAD', async (directory) => {
+      seen = directory;
+      rmSync(join(directory, '.git'));
+    });
+    expect(existsSync(seen)).toBe(false);
+    expect(worktrees(repo)).toHaveLength(2);
+  });
+
+  it('is not touched again once its job is done, even when another worktree is given its path', async () => {
+    // A name in the temporary directory is free again once this one is
+    // removed, and another run of the harness can be given it.
+    const { withWorktree, handlers } = await freshSandbox();
+    const repo = repository({ 'a.txt': 'a\n' });
+    let seen = '';
+    await withWorktree(repo.root, 'HEAD', async (directory) => {
+      seen = directory;
+    });
+    repo.git('worktree', 'add', '-q', '--detach', seen, 'HEAD');
+    try {
+      only(handlers('exit'), 'exit')(0);
+      expect(existsSync(join(seen, 'a.txt'))).toBe(true);
+      expect(worktrees(repo)).toHaveLength(2);
+    } finally {
+      rmSync(seen, { recursive: true, force: true });
+    }
   });
 
   it('is watched by one set of handlers, however many worktrees the process makes', async () => {

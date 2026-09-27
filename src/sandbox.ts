@@ -89,23 +89,18 @@ function discard(directory: string): void {
 function sweep(): void {
   for (const child of running) stop(child);
   for (const [directory, repository] of live) {
-    // The forced remove is the tidy way out. Deleting the directory and
-    // pruning, below, end in the same place without it, so a mutant that
-    // drops it or breaks its arguments is equivalent.
+    // Deleted first, as at the end of a job, so that git forgets it however
+    // the job left it (`removeWorktree` says why).
+    discard(directory);
     try {
       execFileSync('git', ['worktree', 'remove', '--force', directory], { cwd: repository, stdio: 'ignore', windowsHide: true });
     } catch {
-      // Removed below regardless; `git worktree prune` then forgets it.
-    }
-    discard(directory);
-    try {
-      execFileSync('git', ['worktree', 'prune'], { cwd: repository, stdio: 'ignore', windowsHide: true });
-    } catch {
-      // Nothing more can be done from an exit handler.
+      // Git holds nothing of it any more, or cannot be run; nothing more can
+      // be done from an exit handler.
     }
   }
-  // A signal handler ends in an exit, which sweeps again over directories
-  // already gone, so a mutant that keeps them changes nothing.
+  // A signal handler ends in an exit, which sweeps again over worktrees
+  // already gone and forgotten, so a mutant that keeps them changes nothing.
   live.clear();
 }
 
@@ -148,8 +143,8 @@ export async function withWorktree<T>(repository: string, revision: string, work
     await addWorktree(directory, revision, repository);
     return await work(directory);
   } finally {
+    discard(directory);
     await removeWorktree(directory, repository);
-    rmSync(directory, { recursive: true, force: true });
     live.delete(directory);
   }
 }

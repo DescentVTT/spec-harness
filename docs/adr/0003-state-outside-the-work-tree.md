@@ -48,6 +48,19 @@ interrupted process exits as a shell reports a process the signal ended, 128
 and the signal's number: 130 on SIGINT, 143 on SIGTERM, and 129 on SIGHUP,
 which exited 143, SIGTERM's code.
 
+A worktree is removed, and forgotten by git, alone. Its directory is deleted
+first, and `git worktree remove --force` is then run on its path. Measured
+with git 2.55.0: git refuses to remove a worktree whose directory is there
+without its `.git` file ("validation failed"), and removes its record of one
+whose directory is gone - that worktree's entry under the repository's
+`worktrees/` and nothing else, found by the path it was added at, through an
+8.3 short name or a directory junction as well. The integration suite holds
+both cases on every platform CI runs. `git worktree prune`, which the
+sandbox ran after each removal at an interrupt and whenever one failed at
+the end of a job, forgets every worktree git has lost track of: one of the
+person's on a drive that is not mounted, or another tool's. It is no longer
+run, and the sandbox touches `worktrees/` only through git.
+
 ## Consequences
 
 `git worktree add` is the one git write in the family, bounded to a directory
