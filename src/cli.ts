@@ -10,13 +10,13 @@
 
 import { auditCommand, contextCommand, escalateCommand, probeCommand, ruleCommand, rulingsCommand } from './commands.js';
 import { ConfigError, SIBLINGS } from './config.js';
-import { describeBase, describePlugin, describeSigners } from './configure.js';
+import { describeBase, describeClaudeCode, describePlugin, describeSigners, wiringState } from './configure.js';
 import { show, stagedChanges } from './git.js';
 import type { Decision } from './guard.js';
 import { claudeResponse, gitResponse, parseClaudeHook } from './hooks.js';
 import { premisesCommand } from './premises.js';
 import { createReader } from './reader.js';
-import { checkPaths, resolveBase, specBriefPlugin } from './round.js';
+import { checkPaths, claudeCodeWiring, resolveBase, specBriefPlugin } from './round.js';
 import { mcpCommand } from './server.js';
 import { initCommand } from './setup.js';
 import { SiblingError } from './siblings.js';
@@ -66,8 +66,9 @@ Commands:
                       applies it; --git-hook adds a pre-commit hook.
   mcp                 Serve start_round, check_path, request_escalation, audit_round,
                       list_rounds and the workflow prompts over MCP on stdio.
-  doctor              Which siblings are installed, at which versions, and which
-                      brief is named. Exit 1 when one is older than this release needs.
+  doctor              Which siblings are installed, at which versions, which brief is
+                      named, and how Claude Code runs the guard. Exit 1 when a sibling
+                      is older than this release needs, or the guard is installed twice.
 
 Options:
   --brief <id>        The brief the round works on. Otherwise SPEC_BRIEF, then the branch.
@@ -207,6 +208,10 @@ async function doctorCommand(options: Options, io: CliIO): Promise<number> {
   const onBase = base.kind === 'resolved' ? (await show(base.sha, signersFile, workspace.root)) !== null : null;
   const signers = describeSigners(signersFile, base.kind === 'resolved' ? base.ref : null, onBase === true);
   const plugin = await specBriefPlugin(workspace.root);
+  // The plugin and init's entries both on: Claude Code runs every guard twice
+  // and registers the server twice (ADR-0012).
+  const wiring = await claudeCodeWiring(workspace.root, io.env);
+  const claude = wiringState(wiring);
   if (options.format === 'json') {
     io.stdout.write(
       json('doctor', {
@@ -216,6 +221,7 @@ async function doctorCommand(options: Options, io: CliIO): Promise<number> {
         base: base.kind === 'resolved' ? { ref: base.ref, source: base.source, mergeBase: base.mergeBase } : { unresolved: base.reason },
         allowedSigners: { file: signersFile, onBase, detail: signers },
         plugin: { state: plugin.kind, file: 'file' in plugin ? plugin.file : null, detail: describePlugin(plugin) },
+        claudeCode: { state: claude, ...wiring, detail: describeClaudeCode(wiring) },
         siblings: rows,
       }),
     );
@@ -228,6 +234,7 @@ async function doctorCommand(options: Options, io: CliIO): Promise<number> {
         `base    ${describeBase(base.kind === 'resolved' ? base : { reason: base.reason })}`,
         `signers ${signers}`,
         `plugin  ${describePlugin(plugin)}`,
+        `claude  ${describeClaudeCode(wiring)}`,
         '',
         '',
       ].join('\n'),
@@ -235,10 +242,11 @@ async function doctorCommand(options: Options, io: CliIO): Promise<number> {
     for (const row of rows) io.stdout.write(`${row.state.padEnd(8)}  ${row.tool.padEnd(10)}  ${row.detail}\n`);
   }
   // An outdated sibling is a problem to fix, where a missing optional one is
-  // a choice; with none installed, the harness can check nothing.
+  // a choice; with none installed, the harness can check nothing. A double
+  // install is a problem too, where no Claude Code wiring at all is a choice.
   const outdated = rows.some((row) => row.state === 'outdated');
   const usable = rows.some((row) => row.state === 'found');
-  return outdated || !usable ? EXIT_FAILED : EXIT_OK;
+  return outdated || !usable || claude === 'both' ? EXIT_FAILED : EXIT_OK;
 }
 
 /* ---------------------------------------------------------------- dispatch */

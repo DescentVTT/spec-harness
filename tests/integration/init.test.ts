@@ -4,8 +4,9 @@ import { join } from 'node:path';
 
 import { afterAll, describe, expect, it } from 'vitest';
 
-import { GUARD_HOOK, mcpServer, PLUGIN, PROJECT_DIR_OR_HERE } from '../../src/configure.js';
-import { cleanup, cli, install, installFake, parsed, repository, siblings, temp, type Repository } from './helpers.js';
+import { GUARD_HOOK, mcpServer, mergeMcp, PLUGIN, PROJECT_DIR_OR_HERE } from '../../src/configure.js';
+import { claudeSettingsFiles } from '../../src/round.js';
+import { cleanup, cli, install, installFake, parsed, repository, siblings, temp, write, type Repository } from './helpers.js';
 
 afterAll(cleanup);
 
@@ -300,9 +301,116 @@ describe('init', () => {
     expect(repo.read('.githooks/pre-commit')).toContain('spec-harness hook git');
   });
 
+  it('writes no hook and no server while the Claude Code plugin is on, and says how to have them instead', async () => {
+    const user = temp();
+    write(user, 'settings.json', JSON.stringify({ enabledPlugins: { 'spec-harness@spec-tools': true } }));
+    const env = { CLAUDE_CONFIG_DIR: user };
+    const repo = installed();
+    const result = await cli(['init', '--write', '--format', 'json'], repo.root, { env });
+    expect(result.code).toBe(0);
+    const settingsFile = join(user, 'settings.json');
+    const off = 'turn the plugin off for this project with claude plugin disable spec-harness@spec-tools --scope local and run init again';
+    expect(parsed<{ steps: Step[] }>(result).steps.filter((step) => step.file === '.claude/settings.json' || step.file === '.mcp.json')).toEqual([
+      {
+        file: '.claude/settings.json',
+        action: 'skip',
+        detail: `the spec-harness plugin is on (spec-harness@spec-tools in ${settingsFile}) and brings the guard hooks, so init writes none: with both, every write is guarded twice. To have them here instead, for every clone of the repository, ${off}`,
+      },
+      {
+        file: '.mcp.json',
+        action: 'skip',
+        detail: `the spec-harness plugin is on (spec-harness@spec-tools in ${settingsFile}) and brings the server, so init registers none: with both, the server is registered twice. To have it here instead, for every clone of the repository, ${off}`,
+      },
+    ]);
+    expect(existsSync(join(repo.root, '.claude'))).toBe(false);
+    expect(existsSync(join(repo.root, '.mcp.json'))).toBe(false);
+    // The rest of the family is configured as before.
+    expect(JSON.parse(repo.read('.spec-harness.json'))).toEqual({ base: 'main' });
+    expect(JSON.parse(repo.read('.spec-brief.json')).plugins).toEqual([PLUGIN]);
+    // Nothing is advised by hand for a file the plugin makes unnecessary.
+    const unreadable = repository({ '.claude/settings.json': '{ not json' });
+    expect((await cli(['init'], unreadable.root, { env })).stdout).toContain('skip    .claude/settings.json\n        the spec-harness plugin is on');
+    // A repository that turns the plugin on in its own settings, beside other entries, keeps both files as they are.
+    const settings = JSON.stringify({ enabledPlugins: { 'spec-harness@spec-tools': true }, permissions: { allow: ['Bash(ls)'] } });
+    const servers = JSON.stringify({ mcpServers: { other: { command: 'x' } } });
+    const committed = repository({ '.claude/settings.json': settings, '.mcp.json': servers });
+    const plan = await cli(['init', '--write', '--format', 'json'], committed.root);
+    expect(parsed<{ steps: Step[] }>(plan).steps.filter((step) => step.file === '.claude/settings.json' || step.file === '.mcp.json').map((step) => step.action)).toEqual([
+      'skip',
+      'skip',
+    ]);
+    expect(committed.read('.claude/settings.json')).toBe(settings);
+    expect(committed.read('.mcp.json')).toBe(servers);
+  });
+
+  it('reports init\'s entries beside the plugin as a double install, and changes neither file', async () => {
+    const legacy = { type: 'command', command: 'npx --no-install spec-harness hook claude', timeout: 60 };
+    const settings = JSON.stringify({ enabledPlugins: { 'spec-harness@team': true }, hooks: { PostToolUse: [{ matcher: 'Write', hooks: [legacy] }] } });
+    const mcp = JSON.stringify(mergeMcp({}));
+    const repo = repository({ '.claude/settings.json': settings, '.mcp.json': mcp });
+    const result = await cli(['init', '--write'], repo.root);
+    expect(result.code).toBe(0);
+    const off = 'turn the plugin off for this project with claude plugin disable spec-harness@team --scope local';
+    expect(result.stdout).toContain(
+      `advise  .claude/settings.json\n        the spec-harness plugin is on (spec-harness@team in .claude/settings.json) and brings the guard hooks this file holds as well, so every write is guarded twice: take spec-harness's hooks out of this file, or ${off}\n`,
+    );
+    expect(result.stdout).toContain(
+      `advise  .mcp.json\n        the spec-harness plugin is on (spec-harness@team in .claude/settings.json) and brings the server this file holds as well, so the server is registered twice: take the spec-harness server out of this file, or ${off}\n`,
+    );
+    // 0.1's hook stays as it was: init neither upgrades nor removes an entry the plugin doubles.
+    expect(repo.read('.claude/settings.json')).toBe(settings);
+    expect(repo.read('.mcp.json')).toBe(mcp);
+  });
+
+  it('writes the hooks and the server once the plugin is off for the project, whatever the user\'s settings say', async () => {
+    const user = temp();
+    write(user, 'settings.json', JSON.stringify({ enabledPlugins: { 'spec-harness@spec-tools': true } }));
+    const repo = repository({ '.claude/settings.local.json': JSON.stringify({ enabledPlugins: { 'spec-harness@spec-tools': false } }) });
+    const result = await cli(['init', '--write'], repo.root, { env: { CLAUDE_CONFIG_DIR: user } });
+    expect(result.stdout).toContain('create  .claude/settings.json\n        the guard hooks');
+    expect(result.stdout).toContain('create  .mcp.json\n        the spec-harness MCP server');
+    expect(JSON.parse(repo.read('.claude/settings.json')).hooks.PreToolUse[0].hooks[0]).toEqual(GUARD_HOOK);
+    expect(JSON.parse(repo.read('.mcp.json'))).toEqual({ mcpServers: { 'spec-harness': mcpServer(PROJECT_DIR_OR_HERE) } });
+  });
+
+  it('reads the user\'s settings under the home directory, unless CLAUDE_CONFIG_DIR names another place', async () => {
+    const home = temp();
+    write(home, '.claude/settings.json', JSON.stringify({ enabledPlugins: { 'spec-harness@spec-tools': true } }));
+    const repo = repository({});
+    // HOME on macOS and Linux, USERPROFILE on Windows: both name the same place here.
+    const fromHome = await cli(['init'], repo.root, { env: { HOME: home, USERPROFILE: home } });
+    expect(fromHome.stdout).toContain(`skip    .claude/settings.json\n        the spec-harness plugin is on (spec-harness@spec-tools in ${join(home, '.claude', 'settings.json')})`);
+    const elsewhere = await cli(['init'], repo.root, { env: { HOME: home, USERPROFILE: home, CLAUDE_CONFIG_DIR: temp() } });
+    expect(elsewhere.stdout).toContain('create  .claude/settings.json\n');
+  });
+
   it('stops with exit 2 when a step it applies fails', async () => {
     const repo = repository({}, { tools: { 'spec-brief': ['node', '-e', 'process.stderr.write("init refused"); process.exit(1)'] } });
     const result = await cli(['init', '--write'], repo.root);
     expect(result).toMatchObject({ code: 2, stderr: 'spec-harness: .spec-brief.json: spec-brief init failed: init refused\n' });
+  });
+});
+
+describe('the Claude Code settings init and doctor read', () => {
+  const project = (root: string) => [
+    { file: '.claude/settings.json', path: join(root, '.claude', 'settings.json') },
+    { file: '.claude/settings.local.json', path: join(root, '.claude', 'settings.local.json') },
+  ];
+
+  it('are the user\'s under the home directory Claude Code uses, then the project\'s and the local ones', () => {
+    const env = { HOME: join('h', 'posix'), USERPROFILE: join('h', 'windows') };
+    const user = (home: string) => ({ file: join(home, '.claude', 'settings.json'), path: join(home, '.claude', 'settings.json') });
+    expect(claudeSettingsFiles('r', env, 'win32')).toEqual([user(join('h', 'windows')), ...project('r')]);
+    expect(claudeSettingsFiles('r', env, 'linux')).toEqual([user(join('h', 'posix')), ...project('r')]);
+    expect(claudeSettingsFiles('r', env, 'darwin')).toEqual([user(join('h', 'posix')), ...project('r')]);
+  });
+
+  it('put CLAUDE_CONFIG_DIR before the home directory, and leave the user\'s out when neither is named', () => {
+    const settings = join('c', 'settings.json');
+    expect(claudeSettingsFiles('r', { CLAUDE_CONFIG_DIR: 'c', HOME: 'h' }, 'linux')).toEqual([{ file: settings, path: settings }, ...project('r')]);
+    expect(claudeSettingsFiles('r', { CLAUDE_CONFIG_DIR: '', HOME: 'h' }, 'linux')[0]?.path).toBe(join('h', '.claude', 'settings.json'));
+    expect(claudeSettingsFiles('r', { HOME: '' }, 'linux')).toEqual(project('r'));
+    expect(claudeSettingsFiles('r', { HOME: 'h' }, 'win32')).toEqual(project('r'));
+    expect(claudeSettingsFiles('r', {}, 'linux')).toEqual(project('r'));
   });
 });

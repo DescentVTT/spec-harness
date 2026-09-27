@@ -115,6 +115,120 @@ export function mergeMcp(current: Json): Json | null {
   return { ...current, mcpServers: { ...servers, 'spec-harness': { ...(existing as Json | undefined), ...mcpServer(PROJECT_DIR_OR_HERE) } } };
 }
 
+/** A key of a file read as JSON; a file that is missing, or is not a JSON object, holds nothing. */
+function field(file: unknown, key: string): unknown {
+  return isObject(file) ? file[key] : undefined;
+}
+
+/** Whether Claude Code settings hold the guard hooks, as this release or 0.1 wrote them. */
+export function holdsGuard(settings: unknown): boolean {
+  const hooks = field(settings, 'hooks');
+  if (!isObject(hooks)) return false;
+  return GUARDED_EVENTS.some((event) => {
+    const groups = hooks[event];
+    return Array.isArray(groups) && groups.some((group) => hooksOf(group).some((hook) => isGuard(hook) || isLegacyGuard(hook)));
+  });
+}
+
+/** Whether a project's `.mcp.json` registers a server under the harness's name, however it runs it. */
+export function registersServer(mcp: unknown): boolean {
+  const servers = field(mcp, 'mcpServers');
+  return isObject(servers) && 'spec-harness' in servers;
+}
+
+/** A Claude Code settings file, named as a person finds it, and what reading it gave: an object, or nothing usable. */
+export interface ClaudeSettings {
+  readonly file: string;
+  readonly settings: unknown;
+}
+
+/** The plugin's id in `enabledPlugins`, and the settings file that turns it on. */
+export interface EnabledPlugin {
+  readonly id: string;
+  readonly file: string;
+}
+
+/** `enabledPlugins` keys a plugin `<name>@<marketplace>`; this repository's marketplace lists the plugin as `spec-harness`. */
+const PLUGIN_ID = /^spec-harness@[^@]+$/;
+
+/**
+ * Whether Claude Code runs this package's plugin, from its settings files
+ * given lowest precedence first: user, project, local. Claude Code merges
+ * `enabledPlugins` key by key, so for each id the last file that sets it to
+ * `true` or `false` decides. A plugin named `spec-harness` counts from any
+ * marketplace, since another can list this repository. `null` when no file
+ * turns it on.
+ */
+export function enabledPlugin(sources: readonly ClaudeSettings[]): EnabledPlugin | null {
+  const decided = new Map<string, EnabledPlugin | null>();
+  for (const { file, settings } of sources) {
+    const plugins = field(settings, 'enabledPlugins');
+    if (!isObject(plugins)) continue;
+    for (const [id, on] of Object.entries(plugins)) {
+      if (PLUGIN_ID.test(id) && typeof on === 'boolean') decided.set(id, on ? { id, file } : null);
+    }
+  }
+  return [...decided.values()].find((entry) => entry !== null) ?? null;
+}
+
+/** Where the plugin is on, as a person would look it up. */
+function isOn(plugin: EnabledPlugin): string {
+  return `the spec-harness plugin is on (${plugin.id} in ${plugin.file})`;
+}
+
+/** How to have init's entries in place of the plugin's, for this project alone. */
+function turnOff(plugin: EnabledPlugin): string {
+  return `turn the plugin off for this project with claude plugin disable ${plugin.id} --scope local`;
+}
+
+const PARTS = {
+  hooks: { brings: 'the guard hooks', twice: 'every write is guarded twice', skipped: 'init writes none', entry: "spec-harness's hooks", them: 'them' },
+  server: { brings: 'the server', twice: 'the server is registered twice', skipped: 'init registers none', entry: 'the spec-harness server', them: 'it' },
+} as const;
+
+/**
+ * What init says of a Claude Code file it leaves alone because the plugin is
+ * on and brings the same `part`. A file that holds init's entry already is a
+ * double install for the person to settle: init removes nothing, since the
+ * file is the repository's and a clone without the plugin relies on it.
+ */
+export function describeSkipped(plugin: EnabledPlugin, part: 'hooks' | 'server', present: boolean): string {
+  const words = PARTS[part];
+  if (present) return `${isOn(plugin)} and brings ${words.brings} this file holds as well, so ${words.twice}: take ${words.entry} out of this file, or ${turnOff(plugin)}`;
+  return `${isOn(plugin)} and brings ${words.brings}, so ${words.skipped}: with both, ${words.twice}. To have ${words.them} here instead, for every clone of the repository, ${turnOff(plugin)} and run init again`;
+}
+
+/** How Claude Code is wired to the harness: the plugin, init's entries, both or neither. */
+export interface ClaudeCodeWiring {
+  readonly plugin: EnabledPlugin | null;
+  /** The settings files that hold the guard hooks. */
+  readonly hooks: readonly string[];
+  /** Whether `.mcp.json` registers the server. */
+  readonly server: boolean;
+}
+
+export type WiringState = 'plugin' | 'init' | 'both' | 'none';
+
+/** Which of the four the wiring is. `both` is a double install, and doctor fails it; either of init's entries counts. */
+export function wiringState(wiring: ClaudeCodeWiring): WiringState {
+  const init = wiring.hooks.length > 0 || wiring.server;
+  if (wiring.plugin === null) return init ? 'init' : 'none';
+  return init ? 'both' : 'plugin';
+}
+
+/** What `doctor` says of the wiring, and what to do when it is doubled or missing. */
+export function describeClaudeCode(wiring: ClaudeCodeWiring): string {
+  const { plugin } = wiring;
+  const entries = [...wiring.hooks.map((file) => `the guard hooks in ${file}`), ...(wiring.server ? ['the server in .mcp.json'] : [])].join(', ');
+  if (plugin === null) {
+    if (entries === '') return 'neither the spec-harness plugin nor the hooks init writes, so Claude Code guards no write: run spec-harness init --write, or install the plugin';
+    return `init's entries: ${entries}`;
+  }
+  if (entries === '') return `${isOn(plugin)} and brings the guard hooks and the server`;
+  const twice = [...(wiring.hooks.length > 0 ? [PARTS.hooks.twice] : []), ...(wiring.server ? [PARTS.server.twice] : [])].join(' and ');
+  return `${isOn(plugin)}, beside ${entries}: ${twice}. Keep one: take spec-harness's entries out of those files, or ${turnOff(plugin)}`;
+}
+
 /** The spec-brief plugin this package ships, as spec-brief's `plugins` names it. */
 export const PLUGIN = '@descent-vtt/spec-harness/spec-brief-plugin';
 

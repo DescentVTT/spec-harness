@@ -20,8 +20,11 @@ import { CONFIG_FILE } from './config.js';
 import {
   chooseBase,
   describeGraph,
+  describeSkipped,
+  enabledPlugin,
   graphReadsBriefs,
   GUARD_HOOK,
+  holdsGuard,
   loadsPlugin,
   measuresArchive,
   mergeClaudeSettings,
@@ -29,15 +32,18 @@ import {
   mergeSpecBrief,
   mergeSpecGraph,
   PLUGIN,
+  registersServer,
   SPEC_BRIEF_CONFIGS,
   SPEC_GRAPH_CONFIGS,
 } from './configure.js';
 import { readJsonObject as readJson, writeAtomic } from './fs.js';
 import { git, localBranches, remoteDefault } from './git.js';
+import { claudeSettings } from './round.js';
 import { runSibling } from './siblings.js';
 import { EXIT_ERROR, EXIT_OK, json, openWorkspace, type CliIO, type Options, type Workspace } from './workspace.js';
 
-export type Action = 'create' | 'update' | 'keep' | 'run' | 'advise';
+/** `skip`: a file init would write, left alone because Claude Code's plugin brings what init would add. */
+export type Action = 'create' | 'update' | 'keep' | 'skip' | 'run' | 'advise';
 
 export interface Step {
   readonly file: string;
@@ -66,7 +72,7 @@ const PRE_COMMIT = `#!/bin/sh
 exec npx --no-install spec-harness hook git
 `;
 
-export async function plan(workspace: Workspace, options: Options): Promise<Step[]> {
+export async function plan(workspace: Workspace, options: Options, env: CliIO['env']): Promise<Step[]> {
   const { root } = workspace;
   const steps: Step[] = [];
 
@@ -178,10 +184,16 @@ export async function plan(workspace: Workspace, options: Options): Promise<Step
     steps.push({ file: CONFIG_FILE, action: harness === null ? 'create' : 'update', detail: choice.detail, apply: () => writeAtomic(harnessFile, stringify(content)) });
   }
 
-  // The agent's hook and server.
+  // The agent's hooks and server, unless the plugin brings them: Claude Code
+  // runs a plugin's hook beside the same hook in settings, so both would
+  // guard every write twice (ADR-0012).
+  const plugin = enabledPlugin(await claudeSettings(root, env));
   const settingsFile = join(root, '.claude', 'settings.json');
   const settings = await readJson(settingsFile);
-  if (settings === 'unreadable') {
+  if (plugin !== null) {
+    const present = holdsGuard(settings);
+    steps.push({ file: '.claude/settings.json', action: present ? 'advise' : 'skip', detail: describeSkipped(plugin, 'hooks', present) });
+  } else if (settings === 'unreadable') {
     steps.push({ file: '.claude/settings.json', action: 'advise', detail: `cannot be read as JSON; add the guard as a PreToolUse and a PostToolUse hook by hand: ${JSON.stringify(GUARD_HOOK)}` });
   } else {
     const merged = mergeClaudeSettings(settings ?? {});
@@ -196,7 +208,10 @@ export async function plan(workspace: Workspace, options: Options): Promise<Step
   }
   const mcpFile = join(root, '.mcp.json');
   const mcp = await readJson(mcpFile);
-  if (mcp === 'unreadable') {
+  if (plugin !== null) {
+    const present = registersServer(mcp);
+    steps.push({ file: '.mcp.json', action: present ? 'advise' : 'skip', detail: describeSkipped(plugin, 'server', present) });
+  } else if (mcp === 'unreadable') {
     steps.push({ file: '.mcp.json', action: 'advise', detail: 'cannot be read as JSON; add the spec-harness server by hand' });
   } else {
     const merged = mergeMcp(mcp ?? {});
@@ -246,7 +261,7 @@ export async function plan(workspace: Workspace, options: Options): Promise<Step
 
 export async function initCommand(options: Options, io: CliIO): Promise<number> {
   const workspace = await openWorkspace(options, io);
-  const steps = await plan(workspace, options);
+  const steps = await plan(workspace, options, io.env);
   if (options.write) {
     for (const step of steps) {
       if (step.apply !== undefined) {
