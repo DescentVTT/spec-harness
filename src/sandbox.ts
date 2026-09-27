@@ -12,7 +12,7 @@
 
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { constants, tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { addWorktree, removeWorktree } from './git.js';
@@ -111,9 +111,10 @@ function sweep(): void {
 
 /**
  * Stops every running command with its tree, waits a bounded time for them to
- * let go of their output, removes the worktrees, and exits. The commands lead
- * process groups of their own on Linux and macOS, so the terminal's signal
- * never reached them.
+ * let go of their output, removes the worktrees, and exits as a shell reports
+ * a process the signal ended: 128 and the signal's number, the same on every
+ * platform Node runs on. The commands lead process groups of their own on
+ * Linux and macOS, so the terminal's signal never reached them.
  */
 async function interrupted(signal: NodeJS.Signals): Promise<void> {
   ending = true;
@@ -124,7 +125,7 @@ async function interrupted(signal: NodeJS.Signals): Promise<void> {
     new Promise((resolve) => setTimeout(resolve, SETTLE_MS)),
   ]);
   sweep();
-  process.exit(signal === 'SIGINT' ? 130 : 143);
+  process.exit(128 + constants.signals[signal]);
 }
 
 function install(): void {

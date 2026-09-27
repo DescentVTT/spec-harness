@@ -29,6 +29,10 @@
   reasoning is in
   [ADR-0003](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0003-state-outside-the-work-tree.md)'s
   amendment.
+- A run ended by SIGHUP while it held a worktree, as when its terminal is
+  closed, exits 129, as a shell reports a process SIGHUP ended, where it
+  exited 143, SIGTERM's code. The code is 128 and the signal's number for
+  each signal the sandbox handles: SIGINT 130 and SIGTERM 143, as before.
 
 ## 0.2.0
 

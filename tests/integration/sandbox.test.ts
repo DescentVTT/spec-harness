@@ -262,22 +262,24 @@ function removed(directory: string): boolean {
   }
 }
 
+// How the process exits on each signal: 128 and the signal's number, as a
+// shell reports a process that signal ended.
+const EXIT_CODES = [
+  { signal: 'SIGHUP', number: 1, code: 129 },
+  { signal: 'SIGINT', number: 2, code: 130 },
+  { signal: 'SIGTERM', number: 15, code: 143 },
+] as const;
+
 describe('a worktree, whatever ends its job', () => {
-  it('is removed when the process is interrupted mid-job, and the process exits as interrupted', async () => {
+  it.each(EXIT_CODES)('is removed when the process is interrupted mid-job by $signal, and the process exits $code', async ({ signal, number, code }) => {
+    expect(code).toBe(128 + number);
     const { withWorktree, handlers } = await freshSandbox();
     const repo = repository({ 'a.txt': 'a\n' });
-    const codes: number[] = [];
-    for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
-      await withWorktree(repo.root, 'HEAD', async (directory) => {
-        codes.push((await interrupt(only(handlers(signal), signal), signal)).code);
-        expect(existsSync(directory), signal).toBe(false);
-        expect(worktrees(repo), signal).toHaveLength(1);
-      });
-    }
-    // 128 and the signal's number, as a shell reports a process a signal
-    // ended: SIGINT 2, SIGTERM 15.
-    expect(codes.slice(0, 2)).toEqual([130, 143]);
-    expect(codes).toHaveLength(3);
+    await withWorktree(repo.root, 'HEAD', async (directory) => {
+      expect((await interrupt(only(handlers(signal), signal), signal)).code).toBe(code);
+      expect(existsSync(directory)).toBe(false);
+      expect(worktrees(repo)).toHaveLength(1);
+    });
   });
 
   it('is removed when the process exits mid-job', async () => {

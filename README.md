@@ -134,7 +134,7 @@ The plugin's hooks and server are the ones `init` writes into `.claude/settings.
 | `probes.runs`, `probes.timeout` | `2`, `600` | Runs per probe, and seconds per run. |
 | `tools` | found in `node_modules` | A sibling's command by name: `{ "spec-brief": ["node", "path/to/spec-brief.js"] }`. |
 
-**Exit codes:** `0` clean, `1` refused, found something, or waiting on a person, `2` the answer cannot be trusted.
+**Exit codes:** `0` clean, `1` refused, found something, or waiting on a person, `2` the answer cannot be trusted. A `probe` interrupted while it runs exits as a shell reports a process the signal ended: `130` on SIGINT (Ctrl+C), `143` on SIGTERM, `129` on SIGHUP.
 
 ## Design
 

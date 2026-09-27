@@ -43,7 +43,10 @@ process exits mid-job its handler can only work synchronously: it stops the
 commands the same way and cannot wait for them to end. On Windows a command
 just stopped lets go of its directory a moment after `taskkill` returns, so a
 worktree's directory that cannot be deleted yet is tried again, for up to
-three seconds, and then reported rather than waited on further.
+three seconds, and then reported rather than waited on further. An
+interrupted process exits as a shell reports a process the signal ended, 128
+and the signal's number: 130 on SIGINT, 143 on SIGTERM, and 129 on SIGHUP,
+which exited 143, SIGTERM's code.
 
 ## Consequences
 
