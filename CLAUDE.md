@@ -33,6 +33,12 @@ npm run build
 npm run test:mutation   # the core sweep: pure modules against tests/unit
 ```
 
+Both mutation sweeps run in GitHub Actions. The core sweep is a job in
+`ci.yml`, on every change, and its `break` is the gate. The full sweep,
+`npm run test:mutation:full`, every module against the whole suite, is
+`mutation.yml`: weekly and on request, gating nothing until a hosted run has
+been measured ([ADR-0010](docs/adr/0010-toolchain-and-verification.md)).
+
 ## Layout
 
 | Module | Responsibility |
