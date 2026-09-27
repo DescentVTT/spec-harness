@@ -1,4 +1,5 @@
-import { existsSync, rmSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
@@ -9,8 +10,9 @@ import { cleanup, repository, temp, type Repository } from './helpers.js';
 /**
  * What the sandbox promises beyond a job that ends on its own, which
  * edges.test.ts covers: a worktree removed when the process is interrupted or
- * exits mid-job (ADR-0003), and a probe's command run as CI runs it, its
- * output bounded, stopped whole at its timeout (ADR-0007).
+ * exits mid-job, and every command still running in it stopped first, with
+ * everything it started (ADR-0003); and a probe's command run as CI runs it,
+ * its output bounded, stopped whole at its timeout (ADR-0007).
  */
 
 afterAll(cleanup);
@@ -19,16 +21,28 @@ const EVENTS = ['exit', 'SIGINT', 'SIGTERM', 'SIGHUP'] as const;
 type ProcessEvent = (typeof EVENTS)[number];
 type Handler = (...args: unknown[]) => void;
 
-// The process as the emitter it is, whose listeners any event name reads.
+// The process as the emitter it is, whose listeners any event name reads. The
+// tests call its raw listeners: one installed with `once` then removes itself
+// as it runs, as it does when the event is emitted.
 const emitter: NodeJS.EventEmitter = process;
 const snapshots: Map<ProcessEvent, Function[]>[] = [];
+// Processes the tests' commands started, stopped after each test whatever it
+// left running: a test that fails leaves them behind otherwise.
+const strays: number[] = [];
 
 afterEach(() => {
+  for (const pid of strays.splice(0)) {
+    try {
+      process.kill(pid, 'SIGKILL');
+    } catch {
+      // Already gone, as it is when the test passed.
+    }
+  }
   // The handlers a test's module installed stay on this worker's process
   // otherwise, and a real signal would find them.
   for (const before of snapshots.splice(0)) {
     for (const event of EVENTS) {
-      for (const listener of emitter.listeners(event)) {
+      for (const listener of emitter.rawListeners(event)) {
         if (!(before.get(event) ?? []).includes(listener)) emitter.removeListener(event, listener as Handler);
       }
     }
@@ -36,19 +50,21 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+type Sandbox = typeof import('../../src/sandbox.js');
+
 /**
  * The sandbox as a process loads it, with the handlers it has installed on
  * the process so far. The module installs them once, the first time it makes
- * a worktree, so each test loads a copy of its own: one an earlier test or
- * file loaded would already have.
+ * a worktree or runs a command, so each test loads a copy of its own: one an
+ * earlier test or file loaded would already have.
  */
-async function freshSandbox(): Promise<{ withWorktree: typeof import('../../src/sandbox.js').withWorktree; handlers: (event: ProcessEvent) => Handler[] }> {
+async function freshSandbox(): Promise<{ withWorktree: Sandbox['withWorktree']; runCommand: Sandbox['runCommand']; handlers: (event: ProcessEvent) => Handler[] }> {
   vi.resetModules();
-  const before = new Map(EVENTS.map((event) => [event, emitter.listeners(event)] as const));
+  const before = new Map(EVENTS.map((event) => [event, emitter.rawListeners(event)] as const));
   snapshots.push(before);
-  const { withWorktree } = await import('../../src/sandbox.js');
-  const handlers = (event: ProcessEvent): Handler[] => emitter.listeners(event).filter((listener) => !(before.get(event) ?? []).includes(listener)) as Handler[];
-  return { withWorktree, handlers };
+  const { withWorktree, runCommand: run } = await import('../../src/sandbox.js');
+  const handlers = (event: ProcessEvent): Handler[] => emitter.rawListeners(event).filter((listener) => !(before.get(event) ?? []).includes(listener)) as Handler[];
+  return { withWorktree, runCommand: run, handlers };
 }
 
 function only(handlers: Handler[], event: ProcessEvent): Handler {
@@ -60,22 +76,208 @@ function worktrees(repo: Repository): string[] {
   return repo.git('worktree', 'list', '--porcelain').split('\n').filter((line) => line.startsWith('worktree '));
 }
 
+interface Exit {
+  readonly code: number;
+  /** When the process would have exited, by `Date.now()`. */
+  readonly at: number;
+}
+
+/** Stubs `process.exit`, and answers the first exit the process makes. */
+function stubExit(): Promise<Exit> {
+  return new Promise((resolve) => {
+    vi.spyOn(process, 'exit').mockImplementation(((code?: number) => resolve({ code: code ?? 0, at: Date.now() })) as () => never);
+  });
+}
+
+function within<T>(promise: Promise<T>, seconds: number, what: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const late = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`no ${what} within ${seconds}s`)), seconds * 1000);
+  });
+  return Promise.race([promise, late]).finally(() => clearTimeout(timer));
+}
+
+/** Calls an installed signal handler as the signal would, and answers how the process exits. */
+async function interrupt(handler: Handler, signal: NodeJS.Signals): Promise<Exit> {
+  const exited = stubExit();
+  const returned = Promise.resolve(handler(signal));
+  return within(Promise.race([exited, returned.then(() => exited)]), 60, `exit after ${signal}`);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Whether a process is running: signal 0 asks without sending anything. */
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function until(done: () => boolean, what: string, seconds: number): Promise<void> {
+  const deadline = Date.now() + seconds * 1000;
+  while (!done()) {
+    if (Date.now() > deadline) throw new Error(`still waiting for ${what} after ${seconds}s`);
+    await sleep(50);
+  }
+}
+
+/**
+ * A command line running a script of the test's own, which is handed `file`
+ * to write process ids to. A script, rather than `node -e`, because cmd.exe
+ * and sh quote a line inside a line differently. Every process the scripts
+ * start ends on its own after ten minutes, so none that a stopped test run
+ * left behind runs on.
+ */
+function script(name: string, lines: readonly string[], file: string): string {
+  const path = join(temp(), name);
+  writeFileSync(path, `${lines.join('\n')}\n`);
+  return `node "${path}" "${file}"`;
+}
+
+// Written whole under another name and then renamed, so a test never reads
+// half of it.
+const WRITE_IDS = "const { renameSync, writeFileSync } = require('node:fs'); const write = (ids) => { writeFileSync(`${process.argv[2]}.part`, ids.join(' ')); renameSync(`${process.argv[2]}.part`, process.argv[2]); };";
+
+/**
+ * A command whose child starts a grandchild that ignores SIGTERM, and writes
+ * the grandchild's id and its own. On Windows the grandchild is detached from
+ * its parent's job object, which would otherwise end it with its parent:
+ * only taskkill following the tree stops it. On Linux and macOS it stays in
+ * the command's process group, which is what is signalled.
+ */
+function tree(file: string): string {
+  return script(
+    'tree.cjs',
+    [
+      WRITE_IDS,
+      "const { spawn } = require('node:child_process');",
+      "const grandchild = spawn(process.execPath, ['-e', \"process.on('SIGTERM', () => {}); setTimeout(() => {}, 600000)\"], { stdio: 'inherit', detached: process.platform === 'win32', windowsHide: true });",
+      'write([grandchild.pid, process.pid]);',
+      'setTimeout(() => {}, 600000);',
+    ],
+    file,
+  );
+}
+
+/**
+ * A command that leaves behind a process holding its output and ends: the
+ * holder, in a process group of its own and with its parent gone, is out of
+ * reach of both the group signal and taskkill's tree. It writes the holder's
+ * id and its own.
+ */
+function escaped(file: string): string {
+  return script(
+    'escaped.cjs',
+    [
+      WRITE_IDS,
+      "const { spawn } = require('node:child_process');",
+      "const holder = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 600000)'], { stdio: 'inherit', detached: true, windowsHide: true });",
+      'holder.unref();',
+      'write([holder.pid, process.pid]);',
+    ],
+    file,
+  );
+}
+
+/** The ids a command's script wrote to `file`, once it has; each is stopped after the test. */
+async function ids(file: string): Promise<number[]> {
+  let found: number[] = [];
+  await until(
+    () => {
+      if (!existsSync(file)) return false;
+      found = readFileSync(file, 'utf8').split(' ').map(Number);
+      return true;
+    },
+    `the ids in ${file}`,
+    120,
+  );
+  strays.push(...found);
+  return found;
+}
+
+/**
+ * The directory of a worktree whose job never ends, as a job does not when
+ * its process exits or is interrupted. Its own removal at the end would run
+ * only because the test stubs the exit, and on Windows it would find the
+ * directory still being released by the commands just stopped.
+ */
+function midJob(withWorktree: Sandbox['withWorktree'], repo: Repository): Promise<string> {
+  return new Promise((resolve, reject) => {
+    withWorktree(repo.root, 'HEAD', (directory) => {
+      resolve(directory);
+      return new Promise<never>(() => undefined);
+    }).catch(reject);
+  });
+}
+
+/** A command that has left a process holding its output behind and ended; the holder's id. */
+async function holding(run: Sandbox['runCommand']): Promise<number> {
+  const file = join(temp(), 'ids');
+  void run(escaped(file), temp(), 600);
+  const [holder = 0, command = 0] = await ids(file);
+  await until(() => !alive(command), 'the command to end', 60);
+  return holder;
+}
+
+/**
+ * Keeps `directory` from being deleted for `ms` after this answers, from a
+ * process of its own, and answers what lets go of it sooner. On Windows the
+ * process runs in the directory, which cannot be deleted while in use, as in
+ * the moment a stopped command takes to end. Elsewhere a directory in use can
+ * be, so the process holds one inside it that its owner may not write, and
+ * lets go by making it writable.
+ */
+async function pin(directory: string, ms: number): Promise<() => Promise<void>> {
+  const locked = process.platform === 'win32' ? '' : join(directory, 'locked');
+  if (locked !== '') {
+    mkdirSync(locked);
+    writeFileSync(join(locked, 'kept'), '');
+    chmodSync(locked, 0o500);
+  }
+  const file = join(temp(), 'ids');
+  const path = join(temp(), 'pin.cjs');
+  const release = "setTimeout(() => { if (process.argv[4] !== '') require('node:fs').chmodSync(process.argv[4], 0o700); }, Number(process.argv[3]));";
+  writeFileSync(path, [WRITE_IDS, 'write([process.pid]);', release, ''].join('\n'));
+  spawn(process.execPath, [path, file, String(ms), locked], { cwd: directory, stdio: 'ignore', windowsHide: true });
+  const [pid = 0] = await ids(file);
+  return async () => {
+    process.kill(pid, 'SIGKILL');
+    await until(() => !alive(pid), 'the pinning process to end', 30);
+    if (locked !== '') chmodSync(locked, 0o700);
+    await until(() => removed(directory), `${directory} to be removed`, 30);
+  };
+}
+
+function removed(directory: string): boolean {
+  try {
+    rmSync(directory, { recursive: true, force: true });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 describe('a worktree, whatever ends its job', () => {
   it('is removed when the process is interrupted mid-job, and the process exits as interrupted', async () => {
     const { withWorktree, handlers } = await freshSandbox();
     const repo = repository({ 'a.txt': 'a\n' });
-    const exit = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as () => never);
+    const codes: number[] = [];
     for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
       await withWorktree(repo.root, 'HEAD', async (directory) => {
-        only(handlers(signal), signal)(signal);
+        codes.push((await interrupt(only(handlers(signal), signal), signal)).code);
         expect(existsSync(directory), signal).toBe(false);
         expect(worktrees(repo), signal).toHaveLength(1);
       });
     }
     // 128 and the signal's number, as a shell reports a process a signal
     // ended: SIGINT 2, SIGTERM 15.
-    expect(exit.mock.calls.slice(0, 2)).toEqual([[130], [143]]);
-    expect(exit).toHaveBeenCalledTimes(3);
+    expect(codes.slice(0, 2)).toEqual([130, 143]);
+    expect(codes).toHaveLength(3);
   });
 
   it('is removed when the process exits mid-job', async () => {
@@ -108,6 +310,18 @@ describe('a worktree, whatever ends its job', () => {
     for (const event of EVENTS) expect(handlers(event), event).toHaveLength(1);
   });
 
+  it('is still watched while an interrupt waits, so a second signal cannot end the process with it in place', async () => {
+    // Node ends a process on a signal nothing listens for, before any 'exit'
+    // handler runs, so a second Ctrl+C would leave the worktree behind.
+    const { withWorktree, handlers } = await freshSandbox();
+    const repo = repository({ 'a.txt': 'a\n' });
+    await withWorktree(repo.root, 'HEAD', async () => {
+      const exited = interrupt(only(handlers('SIGINT'), 'SIGINT'), 'SIGINT');
+      for (const event of EVENTS) expect(handlers(event), event).toHaveLength(1);
+      await exited;
+    });
+  });
+
   it('once its job is done, leaves the repository alone at exit, even a worktree git has lost', async () => {
     // A worktree on a drive that is not mounted is, to git, one to prune; it
     // is the person's to prune, not the harness's.
@@ -119,6 +333,117 @@ describe('a worktree, whatever ends its job', () => {
     await withWorktree(repo.root, 'HEAD', async () => 1);
     only(handlers('exit'), 'exit')(0);
     expect(worktrees(repo)).toHaveLength(2);
+  });
+});
+
+describe('a command still running when the process is interrupted or exits', () => {
+  // On Linux and macOS a command leads a session of its own, for the timeout,
+  // so the terminal's Ctrl+C never reaches it: left alone it would run on in a
+  // worktree removed from under it.
+  it('is stopped with everything it started, then its worktree is removed', async () => {
+    const { withWorktree, runCommand: run, handlers } = await freshSandbox();
+    const repo = repository({ 'a.txt': 'a\n' });
+    const file = join(temp(), 'ids');
+    const directory = await midJob(withWorktree, repo);
+    void run(tree(file), directory, 600);
+    const [grandchild = 0] = await ids(file);
+    expect((await interrupt(only(handlers('SIGINT'), 'SIGINT'), 'SIGINT')).code).toBe(130);
+    // Stopped already; a process whose parent has gone can take a moment to
+    // be collected by the system, and answers to its id until then.
+    await until(() => !alive(grandchild), 'the grandchild to be gone', 30);
+    expect(existsSync(directory)).toBe(false);
+    expect(worktrees(repo)).toHaveLength(1);
+  });
+
+  it('is stopped with everything it started when the process exits mid-job, then its worktree is removed', async () => {
+    const { withWorktree, runCommand: run, handlers } = await freshSandbox();
+    const repo = repository({ 'a.txt': 'a\n' });
+    const file = join(temp(), 'ids');
+    const directory = await midJob(withWorktree, repo);
+    void run(tree(file), directory, 600);
+    const [grandchild = 0] = await ids(file);
+    only(handlers('exit'), 'exit')(0);
+    await until(() => !alive(grandchild), 'the grandchild to be gone', 30);
+    expect(existsSync(directory)).toBe(false);
+    expect(worktrees(repo)).toHaveLength(1);
+  });
+
+  it('never answers once the process is interrupted, so its job cannot carry on in the worktree being removed', async () => {
+    const { withWorktree, runCommand: run, handlers } = await freshSandbox();
+    const repo = repository({ 'a.txt': 'a\n' });
+    const file = join(temp(), 'ids');
+    const answered = vi.fn();
+    void run(tree(file), await midJob(withWorktree, repo), 600).then(answered);
+    await ids(file);
+    await interrupt(only(handlers('SIGINT'), 'SIGINT'), 'SIGINT');
+    await sleep(100);
+    expect(answered).not.toHaveBeenCalled();
+  });
+
+  it('is waited for by an interrupt until everything holding its output has let go', async () => {
+    const { runCommand: run, handlers } = await freshSandbox();
+    const holder = await holding(run);
+    const exited = stubExit();
+    let exit: Exit | null = null;
+    void exited.then((value) => {
+      exit = value;
+    });
+    only(handlers('SIGINT'), 'SIGINT')('SIGINT');
+    await sleep(300);
+    expect(exit, 'an exit while the output is still held').toBeNull();
+    const released = Date.now();
+    process.kill(holder, 'SIGKILL');
+    const { code, at } = await within(exited, 60, 'exit');
+    expect(code).toBe(130);
+    expect(at - released).toBeLessThan(1_000);
+  });
+
+  it('is not waited for past a bound, when something it started left the tree and holds its output', async () => {
+    const { runCommand: run, handlers } = await freshSandbox();
+    await holding(run);
+    const interrupted = Date.now();
+    const { code, at } = await interrupt(only(handlers('SIGINT'), 'SIGINT'), 'SIGINT');
+    expect(code).toBe(130);
+    expect(at - interrupted).toBeLessThan(15_000);
+  });
+
+  it('is removed at exit once whatever keeps it from being deleted lets go, as a command just stopped does on Windows', async () => {
+    const { withWorktree, handlers } = await freshSandbox();
+    const repo = repository({ 'a.txt': 'a\n' });
+    const directory = await midJob(withWorktree, repo);
+    await pin(directory, 500);
+    only(handlers('exit'), 'exit')(0);
+    expect(existsSync(directory)).toBe(false);
+    expect(worktrees(repo)).toHaveLength(1);
+  });
+
+  // As root on Linux and macOS nothing keeps a directory from being deleted.
+  it.skipIf(process.getuid?.() === 0)('is given up at exit once a bound has passed, when its directory cannot be deleted, rather than keep the process from ending', async () => {
+    const { withWorktree, handlers } = await freshSandbox();
+    const repo = repository({ 'a.txt': 'a\n' });
+    const directory = await midJob(withWorktree, repo);
+    const release = await pin(directory, 600_000);
+    try {
+      const started = Date.now();
+      expect(() => only(handlers('exit'), 'exit')(0)).toThrow();
+      expect(Date.now() - started).toBeLessThan(15_000);
+    } finally {
+      await release();
+    }
+  });
+
+  it('once ended, is neither stopped nor waited for again, so an interrupt with nothing running ends at once', async () => {
+    // The id of a command that has ended can be given to another process.
+    const { runCommand: run, handlers } = await freshSandbox();
+    expect((await run('node -e "1"', temp(), 30)).exitCode).toBe(0);
+    const exited = stubExit();
+    let exit: Exit | null = null;
+    void exited.then((value) => {
+      exit = value;
+    });
+    only(handlers('SIGINT'), 'SIGINT')('SIGINT');
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(exit).toMatchObject({ code: 130 });
   });
 });
 

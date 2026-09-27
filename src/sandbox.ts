@@ -10,7 +10,7 @@
  * discarded by discarding its worktree, never by resetting theirs.
  */
 
-import { execFileSync, spawn } from 'node:child_process';
+import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -18,15 +18,76 @@ import { join } from 'node:path';
 import { addWorktree, removeWorktree } from './git.js';
 
 const live = new Map<string, string>();
+const running = new Set<ChildProcess>();
 let installed = false;
+/** Set once the process is interrupted: from then on a command's end is never answered. */
+let ending = false;
 
 /**
- * Removes every live worktree synchronously: the only kind of work an exit handler may do.
+ * How long the sandbox waits for the commands it stopped to let go of their
+ * output and their directory. They were stopped forced, so this is only the
+ * time the system takes to end them; whatever still holds either after it has
+ * left the tree, and no wait would end it.
+ */
+const SETTLE_MS = 3_000;
+
+/**
+ * Stops a command with everything it started, forced: SIGKILL to its process
+ * group on Linux and macOS, taskkill over its tree on Windows.
  *
  * `windowsHide` here and below only keeps a console window from opening on
  * Windows, which nothing reads, so its mutants are equivalent.
  */
+function stop(child: ChildProcess): void {
+  // No pid means the spawn failed and nothing runs. Past the tick it failed
+  // in, the kill below throws on the missing id and the fallback finds no
+  // process, so the mutant that lets it through is equivalent; within that
+  // tick nothing here stops a command.
+  if (child.pid === undefined) return;
+  try {
+    // False already on Linux and macOS, so the mutants that make it false
+    // are equivalent there. On Windows the tests fail without taskkill:
+    // stopping the shell alone leaves node holding the output.
+    if (process.platform === 'win32') execFileSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
+    else process.kill(-child.pid, 'SIGKILL');
+  } catch {
+    // Reached when the group or the tree is already gone, and the command's
+    // shell with it, as when the command left something holding its output;
+    // and on Windows when taskkill cannot be run, where stopping the shell is
+    // what is left. No test takes that second path.
+    child.kill('SIGKILL');
+  }
+}
+
+/**
+ * Deletes a worktree's directory, trying again for up to `SETTLE_MS` while
+ * something holds it. On Windows a command just stopped lets go of its
+ * directory a moment after taskkill returns, and an exit handler, which runs
+ * synchronously, has no other way to wait; elsewhere a directory in use is
+ * deleted all the same.
+ */
+function discard(directory: string): void {
+  const deadline = Date.now() + SETTLE_MS;
+  for (;;) {
+    try {
+      rmSync(directory, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      // `>=` would differ only in the millisecond the deadline falls on, so
+      // that mutant is equivalent.
+      if (Date.now() > deadline) throw error;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
+    }
+  }
+}
+
+/**
+ * Stops every command still running, then removes every live worktree:
+ * synchronously, the only kind of work an exit handler may do, so at exit
+ * nothing waits for the commands to end but `discard`'s retries.
+ */
 function sweep(): void {
+  for (const child of running) stop(child);
   for (const [directory, repository] of live) {
     // The forced remove is the tidy way out. Deleting the directory and
     // pruning, below, end in the same place without it, so a mutant that
@@ -36,7 +97,7 @@ function sweep(): void {
     } catch {
       // Removed below regardless; `git worktree prune` then forgets it.
     }
-    rmSync(directory, { recursive: true, force: true });
+    discard(directory);
     try {
       execFileSync('git', ['worktree', 'prune'], { cwd: repository, stdio: 'ignore', windowsHide: true });
     } catch {
@@ -48,16 +109,33 @@ function sweep(): void {
   live.clear();
 }
 
+/**
+ * Stops every running command with its tree, waits a bounded time for them to
+ * let go of their output, removes the worktrees, and exits. The commands lead
+ * process groups of their own on Linux and macOS, so the terminal's signal
+ * never reached them.
+ */
+async function interrupted(signal: NodeJS.Signals): Promise<void> {
+  ending = true;
+  const stopping = [...running];
+  for (const child of stopping) stop(child);
+  await Promise.race([
+    Promise.all(stopping.map((child) => new Promise((resolve) => child.once('close', resolve)))),
+    new Promise((resolve) => setTimeout(resolve, SETTLE_MS)),
+  ]);
+  sweep();
+  process.exit(signal === 'SIGINT' ? 130 : 143);
+}
+
 function install(): void {
   if (installed) return;
   installed = true;
   process.once('exit', sweep);
-  for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
-    process.once(signal, () => {
-      sweep();
-      process.exit(signal === 'SIGINT' ? 130 : 143);
-    });
-  }
+  // `on`, not `once`: a second signal while the first waits would otherwise
+  // meet Node's default, which ends the process before any 'exit' handler
+  // runs, with the worktrees still in place. It runs the same steps again,
+  // and the first to finish exits.
+  for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) process.on(signal, interrupted);
 }
 
 /** Runs `work` in a detached worktree of `repository` at `revision`, and removes the worktree after. */
@@ -83,7 +161,9 @@ export interface CommandRun {
 
 /**
  * Runs a command line in a directory, output and errors interleaved, stopped
- * with everything it started when it outlives `timeoutSeconds`.
+ * with everything it started when it outlives `timeoutSeconds` or the process
+ * is interrupted or exits. Once the process is interrupted it never answers:
+ * the job waiting on it would otherwise carry on in a worktree being removed.
  *
  * Through the shell, on purpose: a probe's command is a line from the
  * repository's own brief - `npm test -- x` - which the person approved with
@@ -91,6 +171,7 @@ export interface CommandRun {
  * outside the repository reaches it.
  */
 export function runCommand(line: string, cwd: string, timeoutSeconds: number): Promise<CommandRun> {
+  install();
   return new Promise((resolve) => {
     // Elsewhere the command leads a process group of its own, so the timeout
     // can stop the group. Windows has none to signal, and taskkill follows
@@ -99,6 +180,7 @@ export function runCommand(line: string, cwd: string, timeoutSeconds: number): P
     // the mutants that make it true are equivalent there, as are
     // `windowsHide`'s.
     const child = spawn(line, { cwd, shell: true, windowsHide: true, detached: process.platform !== 'win32', env: { ...process.env, CI: '1' } });
+    running.add(child);
     let output = '';
     const keep = (chunk: Buffer): void => {
       // Enough to find a signature in; a runaway log is not kept whole.
@@ -111,21 +193,7 @@ export function runCommand(line: string, cwd: string, timeoutSeconds: number): P
     let stopped = false;
     const timer = setTimeout(() => {
       stopped = true;
-      // No pid means the spawn failed, and its error cleared this timer long
-      // before it could fire: the guard only narrows the type, and the
-      // mutant that lets it through is equivalent.
-      if (child.pid === undefined) return;
-      try {
-        // False already on Linux and macOS, so the mutants that make it false
-        // are equivalent there. On Windows the timeout tests fail without
-        // taskkill: stopping the shell alone leaves node holding the output.
-        if (process.platform === 'win32') execFileSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
-        else process.kill(-child.pid, 'SIGKILL');
-      } catch {
-        // Reached when the group or the tree is gone while something outside
-        // it holds the output open; no test arranges that on every platform.
-        child.kill('SIGKILL');
-      }
+      stop(child);
     }, timeoutSeconds * 1000);
     child.on('error', (error) => {
       // 'close' follows the error of a spawn that failed, and clears the
@@ -135,7 +203,8 @@ export function runCommand(line: string, cwd: string, timeoutSeconds: number): P
     });
     child.on('close', (code) => {
       clearTimeout(timer);
-      resolve({ exitCode: stopped ? null : (code ?? 1), output });
+      running.delete(child);
+      if (!ending) resolve({ exitCode: stopped ? null : (code ?? 1), output });
     });
   });
 }

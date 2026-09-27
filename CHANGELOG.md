@@ -18,6 +18,17 @@
   `buildContext` by hand adds it. The reasoning is in
   [ADR-0001](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0001-the-harness-decides-the-agent-writes.md)'s
   amendment.
+- An interrupted `probe` stops the commands it started before it removes
+  their worktree. On Linux and macOS a probe's command runs in a process
+  group of its own, so Ctrl+C never reached it: it ran on in a worktree
+  removed from under it, and on Windows, where a running command holds its
+  directory, the worktree could not be removed. On SIGINT, SIGTERM or SIGHUP,
+  and when the process exits mid-probe, every running command is now stopped
+  with everything it started, as its timeout stops it, and an interrupt waits
+  up to three seconds for them to end before it removes the worktree. The
+  reasoning is in
+  [ADR-0003](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0003-state-outside-the-work-tree.md)'s
+  amendment.
 
 ## 0.2.0
 
