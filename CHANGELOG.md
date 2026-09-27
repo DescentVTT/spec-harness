@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- `context` says when a cited document's front matter opens on its first
+  line and is never closed, where it showed the document as one without a
+  status. spec-core's scanner reads such a block as no front matter, so the
+  status its author wrote was never read. The packet now names the document
+  under "Front matter opened on line 1 and never closed, so the status was
+  not read; close the block with `---` on a line of its own", still includes
+  it, and exits 0. `context --format json` and `start_round`'s structured
+  result list such documents as `unclosedFrontMatter`, a field added beside
+  `unresolved`, so no `schemaVersion` moves. In the programmatic API a
+  cited document may carry `unclosedFrontMatter`, a context packet lists
+  them, and a reader's `titleAndStatus` returns it: a reader written for
+  `buildContext` by hand adds it. The reasoning is in
+  [ADR-0001](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0001-the-harness-decides-the-agent-writes.md)'s
+  amendment.
+
 ## 0.2.0
 
 The Claude Code plugin and `init` no longer install the guard twice by
