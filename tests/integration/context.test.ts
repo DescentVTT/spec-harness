@@ -130,4 +130,25 @@ describe('context', () => {
     const result = await cli(['context', '404'], repo.root);
     expect(result).toMatchObject({ code: 2, stderr: 'spec-harness: the flag names brief 404, and spec-brief knows no such brief\n' });
   });
+
+  it('says a cited document\'s front matter is never closed, so its status was not read, and still exits 0', async () => {
+    // The design's `---` is a thematic break under its title, not front matter.
+    const unclosed = repository({
+      [BRIEF_FILE]: brief({ body: 'See [the ADR](../docs/adr/0003-tokens.md) and [the design](../docs/design.md).\n' }),
+      'docs/adr/0003-tokens.md': '---\nstatus: accepted\n\n# ADR-0003: Tokens\n\nRotate them.\n',
+      'docs/design.md': '# The design\n\n---\n\nTokens rotate.\n',
+    });
+    const result = await cli(['context', '1', '--format', 'json'], unclosed.root);
+    expect(result.code).toBe(0);
+    const packet = parsed<{ markdown: string; included: string[]; unclosedFrontMatter: string[] }>(result);
+    expect(packet).toMatchObject({ included: ['docs/adr/0003-tokens.md', 'docs/design.md'], unclosedFrontMatter: ['docs/adr/0003-tokens.md'] });
+    expect(packet.markdown).toContain('### `docs/adr/0003-tokens.md` - ADR-0003: Tokens\n');
+    expect(packet.markdown.endsWith(
+      'Front matter opened on line 1 and never closed, so the status was not read; close the block with `---` on a line of its own:\n- `docs/adr/0003-tokens.md`\n',
+    )).toBe(true);
+    unclosed.write('docs/adr/0003-tokens.md', '---\nstatus: accepted\n---\n\n# ADR-0003: Tokens\n\nRotate them.\n');
+    const closed = parsed<{ markdown: string; unclosedFrontMatter: string[] }>(await cli(['context', '1', '--format', 'json'], unclosed.root));
+    expect(closed.unclosedFrontMatter).toEqual([]);
+    expect(closed.markdown).toContain('### `docs/adr/0003-tokens.md` - ADR-0003: Tokens (accepted)\n');
+  });
 });

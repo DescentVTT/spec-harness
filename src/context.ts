@@ -7,7 +7,9 @@
  * on, the rules spec-guard holds the scope's code to, and the documents the
  * brief cites. The cited documents are the one part that can be large, so
  * they fill what the budget leaves, in the order the brief cites them, and
- * the rest are named rather than dropped silently.
+ * the rest are named rather than dropped silently. So is a document whose
+ * front matter is never closed, whose status cannot be read, rather than
+ * shown as one without a status.
  */
 
 import { sameId } from './branch.js';
@@ -19,6 +21,8 @@ export interface CitedDocument {
   readonly status: string | null;
   /** `null` when the link does not resolve to a readable file. */
   readonly text: string | null;
+  /** YAML front matter opened on line 1 and never closed, so no status was read from it. */
+  readonly unclosedFrontMatter?: boolean | undefined;
 }
 
 export interface RuleInForce {
@@ -97,6 +101,8 @@ export interface ContextPacket {
   readonly omitted: readonly string[];
   /** Links in the brief that resolve to nothing. */
   readonly unresolved: readonly string[];
+  /** Cited documents whose front matter opens on line 1 and is never closed, so no status was read from them. */
+  readonly unclosedFrontMatter: readonly string[];
 }
 
 function list(items: readonly string[], empty: string): string {
@@ -192,6 +198,7 @@ export function renderContext(input: ContextInput): ContextPacket {
   const included: string[] = [];
   const omitted: string[] = [];
   const unresolved: string[] = [];
+  const unclosed: string[] = [];
   const documents: string[] = [];
   let used = fixed.length;
   for (const cited of input.cited) {
@@ -199,6 +206,9 @@ export function renderContext(input: ContextInput): ContextPacket {
       unresolved.push(cited.path);
       continue;
     }
+    // Named whether or not the budget leaves room for it: the status is
+    // unread either way, and the fix is the same.
+    if (cited.unclosedFrontMatter === true) unclosed.push(cited.path);
     const heading = `### \`${cited.path}\`${cited.title === null ? '' : ` - ${cited.title}`}${cited.status === null ? '' : ` (${cited.status})`}`;
     const block = [heading, '', '````markdown', cited.text.trimEnd(), '````', ''].join('\n');
     if (used + block.length > input.budget) {
@@ -212,10 +222,15 @@ export function renderContext(input: ContextInput): ContextPacket {
   const citedSection = ['## Documents the brief cites', ''];
   if (documents.length === 0 && omitted.length === 0 && unresolved.length === 0) citedSection.push('None.', '');
   citedSection.push(...documents);
+  // Each list below is shown only with an entry in it, so the text `list`
+  // gives an empty one is never read, and its mutants are equivalent.
   if (omitted.length > 0) {
     citedSection.push(`Left out to stay within ${input.budget} characters; read them when the work reaches them:`, list(omitted, ''), '');
   }
   if (unresolved.length > 0) citedSection.push('Cited but not found in the repository:', list(unresolved, ''), '');
+  if (unclosed.length > 0) {
+    citedSection.push('Front matter opened on line 1 and never closed, so the status was not read; close the block with `---` on a line of its own:', list(unclosed, ''), '');
+  }
 
-  return { markdown: `${fixed}\n${citedSection.join('\n').trimEnd()}\n`, included, omitted, unresolved };
+  return { markdown: `${fixed}\n${citedSection.join('\n').trimEnd()}\n`, included, omitted, unresolved, unclosedFrontMatter: unclosed };
 }

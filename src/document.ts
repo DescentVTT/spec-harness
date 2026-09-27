@@ -30,5 +30,10 @@ export interface DocumentReader {
   sectionsAt(text: string, line: number): string[];
   sectionTables(text: string, section: string): SectionTables;
   citations(text: string): Citation[];
-  titleAndStatus(text: string): { readonly title: string | null; readonly status: string | null };
+  /**
+   * The first level-one heading, and the front matter's status. YAML front
+   * matter opened on line 1 and never closed is `unclosedFrontMatter`: none
+   * of it is read, so a status its author wrote there reads as none.
+   */
+  titleAndStatus(text: string): { readonly title: string | null; readonly status: string | null; readonly unclosedFrontMatter: boolean };
 }

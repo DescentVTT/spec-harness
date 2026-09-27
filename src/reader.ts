@@ -98,14 +98,16 @@ export function createReader(): DocumentReader {
         .map((link) => ({ target: link.target, line: link.line }));
     },
 
-    titleAndStatus(text: string): { title: string | null; status: string | null } {
+    titleAndStatus(text: string): { title: string | null; status: string | null; unclosedFrontMatter: boolean } {
       const scanned = scan(text);
       const title = scanned.headings.find((heading) => heading.level === 1)?.text ?? null;
       const front = readFrontMatter(text);
       let status: string | null = null;
       const entry = front?.entries.find((candidate) => candidate.name === 'status');
       if (entry !== undefined && entry.value.kind === 'scalar') status = entry.value.scalar.text || null;
-      return { title, status };
+      // TOML front matter gives no status, closed or not, so closing it would
+      // change nothing the context packet shows; only YAML's is worth saying.
+      return { title, status, unclosedFrontMatter: scanned.unclosedFrontMatter?.kind === 'yaml' };
     },
   };
 }

@@ -80,7 +80,16 @@ export function tools(workspace: Workspace, env: CliIO['env']): ToolDefinition[]
         const found = await round(workspace, env, args['brief']);
         if ('text' in found) return found;
         const packet = await buildContext(workspace, found.brief, found.briefs, reader, base.base);
-        return { text: packet.markdown, structured: { brief: found.brief.id, included: [...packet.included], omitted: [...packet.omitted], unresolved: [...packet.unresolved] } };
+        return {
+          text: packet.markdown,
+          structured: {
+            brief: found.brief.id,
+            included: [...packet.included],
+            omitted: [...packet.omitted],
+            unresolved: [...packet.unresolved],
+            unclosedFrontMatter: [...packet.unclosedFrontMatter],
+          },
+        };
       },
     },
     {
