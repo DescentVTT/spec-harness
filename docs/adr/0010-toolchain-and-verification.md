@@ -31,3 +31,13 @@ harness's own modules alone: a vendored file given it no longer has the hash
 stopped at its initial test run on exactly that. Its `break` stays `null`
 until a hosted run has been measured, then sits below that measurement and
 moves only up.
+
+The first hosted full sweep, on 3b04262 (run 36316697866), measured **90.74%
+over 6,466 mutants** in 69 minutes: 5,809 killed, 58 timed out, 483 survived,
+116 without coverage. Losing every timeout kill would leave 89.84%, so the
+full sweep's `break` is 89. It sits below the core sweep's 97 because it also
+mutates the modules the core sweep leaves out, and the lowest scores are
+theirs: `sandbox.ts` 33.33, 43 of its mutants reached by no test on Linux,
+`plugin.ts` 62.22, `server.ts` 70.65, `git.ts` 77.63 and `round.ts` 79.95.
+Those, the 116 mutants no test reaches and the 483 survivors are where the
+number moves up from.

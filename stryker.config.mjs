@@ -32,8 +32,8 @@ export default {
   clearTextReporter: { allowColor: false, maxTestsToLog: 0, reportScoreTable: true },
   timeoutMS: 20000,
   dryRunTimeoutMinutes: 30,
-  // The full sweep gates nothing until a hosted run has been measured; the
-  // break then sits below that measurement and moves only up (ADR-0010). The
-  // core sweep's gate is in its own file.
-  thresholds: { high: 95, low: 90, break: null },
+  // The first hosted full sweep read 90.74% over 6,466 mutants (ADR-0010);
+  // losing its 58 timeout kills would leave 89.84%. The break sits under that
+  // worst case and moves only up. The core sweep's gate is in its own file.
+  thresholds: { high: 95, low: 90, break: 89 },
 };
