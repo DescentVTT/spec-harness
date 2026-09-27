@@ -1,0 +1,71 @@
+name: Mutation
+
+# The full sweep, recorded in docs/adr/0010-toolchain-and-verification.md.
+#
+# The core sweep mutates the pure modules and holds them to the unit suite. It
+# is a job in ci.yml, on every change, and its `break` in
+# stryker.core.config.mjs is the gate.
+#
+# The full sweep mutates the edges as well - the command line, init, the
+# server, git and the siblings - against the whole suite. Its tests spawn git
+# and the sibling tools for every mutant they reach, so it is slower by an
+# order of magnitude: it runs weekly and on request, and gates nothing until a
+# hosted run has been measured.
+on:
+  schedule:
+    # An hour after spec-guard's and two after spec-brief's and spec-graph's,
+    # which start at 03:00 on the same account's runners.
+    - cron: '0 5 * * 1'
+  workflow_dispatch:
+    inputs:
+      full:
+        description: Run the full sweep
+        type: boolean
+        default: true
+
+# A dispatch supersedes an earlier dispatch on the same ref; nothing supersedes
+# the schedule's run, so the event is part of the key.
+concurrency:
+  group: mutation-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+# Nothing here writes to the repository.
+permissions:
+  contents: read
+
+jobs:
+  full:
+    name: mutation (full)
+    if: github.event_name == 'schedule' || inputs.full
+    runs-on: ubuntu-latest
+    # Stryker writes its report only when the sweep ends, so a sweep cut short
+    # measures nothing; a hosted job may run for six hours.
+    timeout-minutes: 350
+    steps:
+      # Pinned to commits, with the tag beside each, as in ci.yml.
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: '24'
+          cache: npm
+
+      - run: npm ci
+
+      # A few integration tests spawn bin/spec-harness.js, which runs dist/.
+      # Stryker copies dist/ into its sandbox, and the initial test run fails
+      # without it.
+      - name: Build
+        run: npm run build
+
+      - name: Full mutation sweep
+        run: npm run test:mutation:full
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: mutation-full
+          path: reports/mutation/
+          if-no-files-found: ignore

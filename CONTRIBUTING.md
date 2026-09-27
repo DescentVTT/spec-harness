@@ -12,7 +12,9 @@ npm test          # vitest: the unit suite and the integration suite
 Node 22 or later. There are no runtime dependencies. The working agreements
 and the module layout are in [`CLAUDE.md`](CLAUDE.md); the decisions and what
 they cost are in [`docs/adr/`](docs/adr/README.md). Mutation testing runs in
-GitHub Actions, not on a workstation: the core sweep is a CI job.
+GitHub Actions, not on a workstation: the core sweep is a CI job on every
+change, and the full sweep runs weekly and on request (Actions, Mutation,
+Run workflow).
 
 `src/vendor/spec-core/` is spec-core's, copied by its `scripts/vendor.mjs` and
 verified by hash. It is never edited here.

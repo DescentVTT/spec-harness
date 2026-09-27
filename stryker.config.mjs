@@ -2,26 +2,38 @@
 /**
  * Mutation testing: the full sweep, edges included, against the whole suite.
  * It spawns git and the sibling tools for every mutant it reaches, so it runs
- * weekly rather than per change; the core sweep gates changes.
+ * weekly and on request (.github/workflows/mutation.yml) rather than per
+ * change; the core sweep gates changes.
  *
  * @type {import('@stryker-mutator/api/core').PartialStrykerOptions}
  */
 export default {
   packageManager: 'npm',
   testRunner: 'vitest',
-  vitest: { configFile: 'vitest.config.ts', related: false },
+  // The whole suite but tests/source.test.ts, which reads the repository as it
+  // is on disk, and the sandbox is not; vitest.mutation.config.ts says why.
+  vitest: { configFile: 'vitest.mutation.config.ts', related: false },
   coverageAnalysis: 'perTest',
   // The vendored spec-core copies are measured in spec-core (its ADR-0001).
   mutate: ['src/**/*.ts', '!src/vendor/**', '!src/index.ts', '!src/types.ts'],
   // A file that does not exist turns off Stryker's tsconfig rewrite, which
   // calls an API the native TypeScript 7 compiler does not have.
   tsconfigFile: 'tsconfig.stryker-noop.json',
-  disableTypeChecks: 'src/**/*.ts',
+  // Stryker writes "// @ts-nocheck" atop every file this matches, since a
+  // mutant can be a type error. The harness's own modules need it. A vendored
+  // file must not get it: it would lose the hash tests/vendor.test.ts holds it
+  // to, and the full sweep's initial run would fail, as spec-brief's first
+  // hosted one did. The glob is spec-graph's. The core sweep inherits it; its
+  // unit suite has no vendor test, so the old glob never failed there.
+  disableTypeChecks: 'src/{*.ts,!(vendor)/**/*.ts}',
   reporters: ['html', 'json', 'clear-text', 'progress'],
   htmlReporter: { fileName: 'reports/mutation/index.html' },
   jsonReporter: { fileName: 'reports/mutation/mutation.json' },
   clearTextReporter: { allowColor: false, maxTestsToLog: 0, reportScoreTable: true },
   timeoutMS: 20000,
   dryRunTimeoutMinutes: 30,
+  // The full sweep gates nothing until a hosted run has been measured; the
+  // break then sits below that measurement and moves only up (ADR-0010). The
+  // core sweep's gate is in its own file.
   thresholds: { high: 95, low: 90, break: null },
 };
