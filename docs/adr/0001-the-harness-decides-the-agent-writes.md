@@ -33,6 +33,17 @@ The agent's host runs the agent. The workflow - how to draft a brief, split a
 goal, run a round, close it - is text the agent reads (skills and MCP
 prompts), with a size budget a test holds (ADR-0009).
 
+*Amended 2026-09-28.* The context names what it could not read in a cited
+document, as it names what the budget left out. Front matter opened on the
+first line and never closed is no front matter to spec-core's scanner, which
+reports it as `unclosedFrontMatter` (spec-core ADR-0004), so the status its
+author wrote was never read and the packet showed a document without one: a
+superseded ADR looked like one with no status at all. The packet now names
+such a document, says its status was not read, and gives the fix, closing the
+block with `---`; the document is still included, and the note fails
+nothing. Only YAML front matter is named. TOML front matter gives no status
+closed or not, so closing it would change nothing the packet shows.
+
 ## Consequences
 
 Every command gives the same answer for the same repository. What the plan
