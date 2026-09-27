@@ -205,7 +205,7 @@ async function citedDocuments(workspace: Workspace, brief: BriefRow, text: strin
     if (!document && existsSync(join(workspace.root, path))) continue;
     const content = document ? await readText(join(workspace.root, path)) : null;
     const meta = content === null ? { title: null, status: null } : reader.titleAndStatus(content);
-    out.push({ path, title: meta.title, status: meta.status, text: content });
+    out.push({ path, ...meta, text: content });
   }
   return out;
 }

@@ -206,16 +206,38 @@ describe('citations', () => {
 
 describe('title and status', () => {
   it('reads the first level-one heading and the front matter\'s status', () => {
-    expect(reader.titleAndStatus('---\nstatus: accepted\n---\n\n## Not the title\n\n# The Title\n\n# Second\n')).toEqual({ title: 'The Title', status: 'accepted' });
-    expect(reader.titleAndStatus('---\nstatus: "superseded"\n---\n\nSetext\n======\n')).toEqual({ title: 'Setext', status: 'superseded' });
+    expect(reader.titleAndStatus('---\nstatus: accepted\n---\n\n## Not the title\n\n# The Title\n\n# Second\n')).toEqual({ title: 'The Title', status: 'accepted', unclosedFrontMatter: false });
+    expect(reader.titleAndStatus('---\nstatus: "superseded"\n---\n\nSetext\n======\n')).toEqual({ title: 'Setext', status: 'superseded', unclosedFrontMatter: false });
   });
 
   it('reads nothing that is not there, or not a word', () => {
-    expect(reader.titleAndStatus('no heading\n')).toEqual({ title: null, status: null });
-    expect(reader.titleAndStatus('---\nstatus:\n---\n# T\n')).toEqual({ title: 'T', status: null });
-    expect(reader.titleAndStatus('---\nstatus: [a, b]\n---\n')).toEqual({ title: null, status: null });
-    expect(reader.titleAndStatus('---\ntitle: x\n---\n')).toEqual({ title: null, status: null });
-    expect(reader.titleAndStatus('```\n# In code\n```\n')).toEqual({ title: null, status: null });
+    expect(reader.titleAndStatus('no heading\n')).toEqual({ title: null, status: null, unclosedFrontMatter: false });
+    expect(reader.titleAndStatus('---\nstatus:\n---\n# T\n')).toEqual({ title: 'T', status: null, unclosedFrontMatter: false });
+    expect(reader.titleAndStatus('---\nstatus: [a, b]\n---\n')).toEqual({ title: null, status: null, unclosedFrontMatter: false });
+    expect(reader.titleAndStatus('---\ntitle: x\n---\n')).toEqual({ title: null, status: null, unclosedFrontMatter: false });
+    expect(reader.titleAndStatus('```\n# In code\n```\n')).toEqual({ title: null, status: null, unclosedFrontMatter: false });
+  });
+
+  it('says when front matter opened on line 1 is never closed, which gives no status, and still reads the title', () => {
+    // spec-core reads the opening line as a thematic break and the rest as
+    // Markdown, so the author's status is text, and the document would read
+    // as one that has none.
+    expect(reader.titleAndStatus('---\nstatus: accepted\n\n# ADR-0003: Tokens\n\nRotate them.\n')).toEqual({ title: 'ADR-0003: Tokens', status: null, unclosedFrontMatter: true });
+    expect(reader.titleAndStatus('---\nstatus: accepted\n')).toEqual({ title: null, status: null, unclosedFrontMatter: true });
+    expect(reader.titleAndStatus('---  \r\nstatus: accepted\r\n\r\n# T\r\n').unclosedFrontMatter).toBe(true);
+  });
+
+  it('says nothing of front matter that closes, of none, or of a thematic break after the first line', () => {
+    const unclosed = (text: string): boolean => reader.titleAndStatus(text).unclosedFrontMatter;
+    expect(unclosed('---\nstatus: accepted\n---\n\n# T\n\nText.\n\n---\n\nMore.\n')).toBe(false);
+    expect(unclosed('---\nstatus: accepted\n...\n\n# T\n')).toBe(false);
+    expect(unclosed('# T\n\nText.\n\n---\n\nMore.\n')).toBe(false);
+    expect(unclosed('\n---\nstatus: accepted\n\n# T\n')).toBe(false);
+    expect(unclosed('----\nstatus: accepted\n\n# T\n')).toBe(false);
+    expect(unclosed('')).toBe(false);
+    // TOML front matter gives no status even when it closes, so closing it
+    // would show no status either.
+    expect(unclosed('+++\nstatus = "accepted"\n\n# T\n')).toBe(false);
   });
 });
 

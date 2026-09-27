@@ -20,8 +20,8 @@ function input(overrides: Partial<ContextInput> = {}): ContextInput {
   };
 }
 
-function doc(path: string, text: string | null, title: string | null = null, status: string | null = null): CitedDocument {
-  return { path, title, status, text };
+function doc(path: string, text: string | null, title: string | null = null, status: string | null = null, unclosedFrontMatter = false): CitedDocument {
+  return { path, title, status, text, unclosedFrontMatter };
 }
 
 /** The characters one cited document takes in the packet. */
@@ -237,6 +237,7 @@ describe('the cited documents and the budget', () => {
     expect(packet.included).toEqual(['docs/b.md', 'docs/a.md']);
     expect(packet.omitted).toEqual([]);
     expect(packet.unresolved).toEqual([]);
+    expect(packet.unclosedFrontMatter).toEqual([]);
     expect(section(packet.markdown, 'Documents the brief cites')).toBe(
       '## Documents the brief cites\n\n### `docs/b.md` - B (accepted)\n\n````markdown\n# B\n\nbody b\n````\n\n### `docs/a.md`\n\n````markdown\nbody a\n````\n',
     );
@@ -245,7 +246,7 @@ describe('the cited documents and the budget', () => {
   it('says None when the brief cites nothing', () => {
     const packet = renderContext(input());
     expect(packet.markdown.endsWith('## Documents the brief cites\n\nNone.\n')).toBe(true);
-    expect(packet).toMatchObject({ included: [], omitted: [], unresolved: [] });
+    expect(packet).toMatchObject({ included: [], omitted: [], unresolved: [], unclosedFrontMatter: [] });
   });
 
   it('fills the budget exactly, and names a document that would pass it', () => {
@@ -287,5 +288,51 @@ describe('the cited documents and the budget', () => {
     expect(packet).toMatchObject({ included: [], omitted: ['docs/a.md'], unresolved: ['docs/gone.md'] });
     expect(packet.markdown.endsWith('- `docs/a.md`\n\nCited but not found in the repository:\n- `docs/gone.md`\n')).toBe(true);
     expect(packet.markdown).not.toContain('None.');
+  });
+
+  it('names a document whose front matter is never closed: its status was not read, and closing the block is the fix', () => {
+    const adr = doc('docs/adr/0003.md', '---\nstatus: accepted\n\n# Tokens\n', 'Tokens', null, true);
+    const packet = renderContext(input({ cited: [adr, doc('docs/a.md', 'a', 'A', 'draft')] }));
+    // Still included whole: the note is about the status, and fails nothing.
+    expect(packet).toMatchObject({ included: ['docs/adr/0003.md', 'docs/a.md'], omitted: [], unresolved: [], unclosedFrontMatter: ['docs/adr/0003.md'] });
+    expect(section(packet.markdown, 'Documents the brief cites')).toBe(
+      [
+        '## Documents the brief cites',
+        '',
+        '### `docs/adr/0003.md` - Tokens',
+        '',
+        '````markdown',
+        '---',
+        'status: accepted',
+        '',
+        '# Tokens',
+        '````',
+        '',
+        '### `docs/a.md` - A (draft)',
+        '',
+        '````markdown',
+        'a',
+        '````',
+        '',
+        'Front matter opened on line 1 and never closed, so the status was not read; close the block with `---` on a line of its own:',
+        '- `docs/adr/0003.md`',
+        '',
+      ].join('\n'),
+    );
+  });
+
+  it('names a document whose front matter is never closed when the budget leaves it out, and after every other note', () => {
+    const adr = doc('docs/adr/0003.md', '---\nstatus: accepted\n', null, null, true);
+    const packet = renderContext(input({ cited: [doc('docs/gone.md', null), adr], budget: fixedLength(input()) }));
+    expect(packet).toMatchObject({ included: [], omitted: ['docs/adr/0003.md'], unresolved: ['docs/gone.md'], unclosedFrontMatter: ['docs/adr/0003.md'] });
+    expect(packet.markdown.endsWith(
+      '- `docs/gone.md`\n\nFront matter opened on line 1 and never closed, so the status was not read; close the block with `---` on a line of its own:\n- `docs/adr/0003.md`\n',
+    )).toBe(true);
+  });
+
+  it('says nothing of front matter when every cited document\'s closes or there is none', () => {
+    const packet = renderContext(input({ cited: [doc('docs/a.md', '---\nstatus: draft\n---\n\n# A\n', 'A', 'draft'), doc('docs/b.md', '# B\n', 'B')] }));
+    expect(packet.unclosedFrontMatter).toEqual([]);
+    expect(packet.markdown).not.toContain('never closed');
   });
 });

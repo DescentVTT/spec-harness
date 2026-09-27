@@ -17,7 +17,8 @@ let workspace: Workspace;
 beforeAll(async () => {
   repo = repository({
     [BRIEF_FILE]: brief({ affected: ['src/auth/**'], protected: ['src/db/**'] }),
-    'briefs/002_next.md': brief({ title: '002 - Next', dependsOn: ['1'] }),
+    'briefs/002_next.md': brief({ title: '002 - Next', dependsOn: ['1'], body: 'See [the ADR](../docs/adr/0003.md).\n' }),
+    'docs/adr/0003.md': '---\nstatus: accepted\n\n# ADR-0003\n',
     'briefs/archive/003_old.md': brief({ title: '003 - Old', status: 'archived' }),
     'src/db/schema.ts': 'table;\n',
   });
@@ -44,8 +45,10 @@ describe('the tools', () => {
     const outcome = await tool('start_round').call({});
     expect(outcome.isError).toBeUndefined();
     expect(outcome.text.startsWith('# Round 001: Rotate tokens\n')).toBe(true);
-    expect(outcome.structured).toEqual({ brief: '001', included: [], omitted: [], unresolved: [] });
-    expect((await tool('start_round').call({ brief: '2' })).structured).toMatchObject({ brief: '002' });
+    expect(outcome.structured).toEqual({ brief: '001', included: [], omitted: [], unresolved: [], unclosedFrontMatter: [] });
+    const next = await tool('start_round').call({ brief: '2' });
+    expect(next.structured).toEqual({ brief: '002', included: ['docs/adr/0003.md'], omitted: [], unresolved: [], unclosedFrontMatter: ['docs/adr/0003.md'] });
+    expect(next.text).toContain('Front matter opened on line 1 and never closed, so the status was not read; close the block with `---` on a line of its own:\n- `docs/adr/0003.md`\n');
   });
 
   it('check_path decides each path, relative to the project, with the next step', async () => {

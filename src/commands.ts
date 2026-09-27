@@ -68,7 +68,16 @@ export async function contextCommand(options: Options, io: CliIO): Promise<numbe
   const { brief, briefs } = await targetBrief(workspace, options, io, options.positionals[0]);
   const packet = await buildContext(workspace, brief, briefs, reader, options.base);
   if (options.format === 'json') {
-    io.stdout.write(json('context', { brief: brief.id, markdown: packet.markdown, included: packet.included, omitted: packet.omitted, unresolved: packet.unresolved }));
+    io.stdout.write(
+      json('context', {
+        brief: brief.id,
+        markdown: packet.markdown,
+        included: packet.included,
+        omitted: packet.omitted,
+        unresolved: packet.unresolved,
+        unclosedFrontMatter: packet.unclosedFrontMatter,
+      }),
+    );
   } else {
     io.stdout.write(packet.markdown);
   }
