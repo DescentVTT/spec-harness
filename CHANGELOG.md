@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0
 
 The Claude Code plugin and `init` no longer install the guard twice by
 accident, and the Claude Code release the hooks need is stated: 2.1.139 or
