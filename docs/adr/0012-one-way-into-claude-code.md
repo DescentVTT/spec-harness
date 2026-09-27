@@ -3,7 +3,7 @@ status: accepted
 date: 2026-09-27
 ---
 
-# ADR-0012: One way into Claude Code
+# ADR-0012: One way into Claude Code, and the release it needs
 
 ## Context
 
@@ -31,6 +31,12 @@ project's `.claude/settings.json`, the local `.claude/settings.local.json`,
 `--settings` and managed settings. They merge key by key, and for each id
 the source of highest precedence that names it decides: user, then project,
 then local, then `--settings`, then managed.
+
+The hooks are exec form, `command` and `args`, so the project's path is one
+argument whatever it holds and no shell reads it. Claude Code's changelog
+adds hook `args` in 2.1.139, the release that also lets a plugin's server
+command name `${CLAUDE_PROJECT_DIR}`. The hooks reference describes exec
+form without naming a release.
 
 ## Decision
 
@@ -70,6 +76,10 @@ settings, turn the settings' hooks off and leave on the hooks of a plugin
 that managed settings force on. A guard twice is noise; no guard is an
 unguarded write. So the other order, init first and the plugin installed
 later, is found by `doctor` and by init's next run rather than prevented.
+
+**Claude Code 2.1.139 or later** runs the hooks and the plugin's server. The
+README says so where it says what to install, and so does the plugin's
+manifest.
 
 ## Consequences
 

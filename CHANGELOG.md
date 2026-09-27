@@ -3,7 +3,8 @@
 ## Unreleased
 
 The Claude Code plugin and `init` no longer install the guard twice by
-accident.
+accident, and the Claude Code release the hooks need is stated: 2.1.139 or
+later, the first that runs a hook's `args`.
 
 ### Changed
 
@@ -23,6 +24,9 @@ accident.
   file that turns it on, `init`'s hooks and server, both, or neither - on a
   `claude` line, and as `claudeCode` in JSON. Both is a double install and
   exits 1, with how to keep one.
+- The README and the plugin's manifest state the Claude Code release the
+  hooks and the plugin's server need, 2.1.139 or later
+  ([ADR-0012](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0012-one-way-into-claude-code.md)).
 
 ## 0.1.5
 

@@ -13,4 +13,4 @@
 | [0009](0009-prompts-are-workflow-with-a-budget.md) | Prompts are workflow, with a budget |
 | [0010](0010-toolchain-and-verification.md) | Toolchain and verification |
 | [0011](0011-releases-are-staged-by-ci.md) | Releases are staged by CI, and name the siblings they need |
-| [0012](0012-one-way-into-claude-code.md) | One way into Claude Code |
+| [0012](0012-one-way-into-claude-code.md) | One way into Claude Code, and the release it needs |

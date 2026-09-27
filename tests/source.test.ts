@@ -207,6 +207,13 @@ describe('the README', () => {
     for (const name of SIBLINGS) expect(install, name).toContain(`${name} ${MINIMUM_VERSIONS[name]}`);
   });
 
+  it('states the Claude Code release the hooks need where it says what to install, as the plugin does (ADR-0012)', () => {
+    // The first release whose changelog runs a hook's `args`, the exec form the guard is written in.
+    const claudeCode = 'Claude Code 2.1.139 or later';
+    expect(text('README.md').split('## A round')[0]).toContain(claudeCode);
+    expect(json('.claude-plugin/plugin.json')['description']).toContain(claudeCode);
+  });
+
   /** The keys parseConfig accepts, read from its own refusals so that a key added there is a key checked here. */
   function keysAt(raw: (key: string) => unknown): string[] {
     try {
