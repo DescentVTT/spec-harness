@@ -147,6 +147,8 @@ describe('context', () => {
         'briefs/002_file.md': brief({ title: '002 - A file', affected: ['src/auth/a.ts'] }),
         'briefs/003_new-directory.md': brief({ title: '003 - Not yet created', affected: ['src/feature'] }),
         'briefs/004_new-top.md': brief({ title: '004 - Not yet created, at the top', affected: ['tools'] }),
+        // Quoted, or YAML reads the braces as a mapping.
+        'briefs/005_no-path.md': brief({ title: '005 - Braces that expand to no path', affected: ['"{./,lib}"', 'src/auth/a.ts'] }),
         'docs/adr/0001-rules.md': `---\nstatus: accepted\n---\n\n# ADR-0001: Rules\n\n${rules.join('\n')}\n`,
         'src/auth/a.ts': 'a;\n',
         'src/auth/b.ts': 'b;\n',
@@ -174,6 +176,13 @@ describe('context', () => {
       expect(text).not.toContain('lib is frozen');
       // At the top, that directory is the root, as before.
       expect(await scope('4')).toContain('lib is frozen');
+    });
+
+    it('asks nothing about a pattern spec-core refuses, and about the rest of the scope as before', async () => {
+      // {./,lib} read as ./ or lib, and ./ as the root's contents, asked about the whole repository.
+      const text = await scope('5');
+      expect(text).toContain('the gateway is gone');
+      for (const reason of ['b is sealed', 'the feature stays pure', 'lib is frozen']) expect(text).not.toContain(reason);
     });
 
     it('leaves what the guard allows as it was: the name as a file or as a directory', async () => {

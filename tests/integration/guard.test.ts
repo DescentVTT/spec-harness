@@ -132,6 +132,24 @@ describe('guard under the repository\'s configuration', () => {
     expect((await decisions(['README.md', '--brief', '1'], broken.root))[0]).toMatchObject({ verdict: 'deny', reason: 'unreadable-protection' });
   });
 
+  it('fails closed on a protection whose braces expand to no path, which protected every path, and names such a scope pattern', async () => {
+    // Quoted, or YAML reads the braces as a mapping.
+    const noPath = repository({
+      [BRIEF_FILE]: brief({ affected: ['**'], protected: ['"{./,src}"'] }),
+      'briefs/002_scope.md': brief({ title: '002 - Scope', affected: ['"{./,src}"', 'docs/**'] }),
+    });
+    const unreadable = '{./,src} (the braces expand to "./", which names no path)';
+    expect((await decisions(['README.md', '--brief', '1'], noPath.root))[0]).toMatchObject({
+      verdict: 'deny',
+      reason: 'unreadable-protection',
+      message: `brief 001 protects files with a pattern that cannot be read: ${unreadable}`,
+    });
+    expect((await decisions(['src/a.ts', 'docs/a.md', '--brief', '2'], noPath.root)).map((d) => [d.path, d.reason, d.because])).toEqual([
+      ['src/a.ts', 'out-of-scope', [unreadable]],
+      ['docs/a.md', 'in-scope', ['docs/**']],
+    ]);
+  });
+
   it('fails closed on a protection too large to compile, in the command and the hook, with spec-core\'s reason', async () => {
     const huge = `${'{a,b}'.repeat(8)}/${'x'.repeat(300)}`;
     const large = repository({ [BRIEF_FILE]: brief({ affected: ['src/**'], protected: [`"${huge}"`] }) });

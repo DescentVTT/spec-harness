@@ -428,6 +428,8 @@ describe('spec-graph\'s history', () => {
     // A list spec-graph would refuse reads nothing.
     expect(graphReadsBriefs({ patterns: ['briefs/**', 'docs/[a'] }, 'briefs')).toBe(false);
     expect(graphReadsBriefs({ patterns: ['briefs/**', `${'{a,b}'.repeat(8)}/${'x'.repeat(300)}`] }, 'briefs')).toBe(false);
+    // Braces that expand to no path are refused, where {./,docs/**/*.md} matched every path, the briefs included.
+    expect(graphReadsBriefs({ patterns: ['{./,docs/**/*.md}'] }, 'briefs')).toBe(false);
   });
 
   it('says what the history entry does, and when it does nothing yet', () => {

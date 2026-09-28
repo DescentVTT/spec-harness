@@ -191,4 +191,22 @@ describe('audit of a round', () => {
     expect(unmeasured.base).toBeNull();
     expect(names(unmeasured.findings)).toEqual(names(report.findings));
   });
+
+  it('names a manifest name whose braces expand to no path, which made every file the round changed a manifest', async () => {
+    const r = repository(
+      { [BRIEF_FILE]: brief({ affected: ['**'] }), 'Cargo.toml': '[dependencies]\nserde = "1"\n' },
+      { dependencies: { manifests: ['{./,Gemfile}', 'Cargo.toml'] } },
+    );
+    r.git('checkout', '-q', '-b', 'brief/1-x');
+    r.write('Cargo.toml', '[dependencies]\nserde = "1.1"\n');
+    r.write('src/a.ts', 'a;\n');
+    r.commit('work');
+    const report = parsed<Report>(await cli(['audit', '--format', 'json'], r.root));
+    expect(report.findings.filter((f) => f.rule === 'manifest-name-unread').map((f) => [f.severity, f.message])).toEqual([
+      ['warning', '"dependencies.manifests" names "{./,Gemfile}", which cannot be read: the braces expand to "./", which names no path; no manifest it names was read'],
+    ]);
+    // Read as every path, the name made src/a.ts a manifest no reader understands.
+    expect(report.findings.map((f) => f.rule)).not.toContain('manifest-unread');
+    expect(report.dependencies).toEqual([{ file: 'Cargo.toml', ecosystem: 'cargo', section: 'dependencies', name: 'serde', before: '1', after: '1.1' }]);
+  });
 });

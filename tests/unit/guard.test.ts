@@ -144,6 +144,38 @@ describe('the guard', () => {
     expect(check('src/db/schema.ts', { rulings: [{ id: 'R-1', paths: [huge], signer: 's' }] }).reason).toBe('protected');
   });
 
+  it('reads braces that expand to no path as a pattern it cannot read: refused as a protection, named in the scope, passed over in a ruling', () => {
+    // {./,src} is ./ or src, and ./ alone names no path. Read as the contents
+    // of the root, it put every path under a protection and in a scope.
+    const unreadable = '{./,src} (the braces expand to "./", which names no path)';
+    const guarded = row({ affectedFiles: ['**'], protectedFiles: ['{./,src}'] });
+    for (const path of ['src/a.ts', 'README.md']) {
+      // A ruling over every path waived that protection; it cannot waive one the guard cannot read.
+      const protection = check(path, { brief: guarded, rulings: [{ id: 'R-1', paths: ['**'], signer: 's' }] });
+      expect(protection).toMatchObject({ verdict: 'deny', reason: 'unreadable-protection', because: [unreadable] });
+      expect(protection.message).toBe(`brief 012 protects files with a pattern that cannot be read: ${unreadable}`);
+    }
+    const scope = row({ affectedFiles: ['{./,src}', 'docs/**'], protectedFiles: [] });
+    for (const path of ['src/a.ts', 'README.md']) expect(check(path, { brief: scope })).toMatchObject({ verdict: 'warn', reason: 'out-of-scope', because: [unreadable] });
+    expect(check('docs/a.md', { brief: scope })).toMatchObject({ verdict: 'allow', reason: 'in-scope', because: ['docs/**'] });
+    expect(check('src/db/schema.ts', { rulings: [{ id: 'R-1', paths: ['{./,src/db/schema.ts}'], signer: 's' }] }).reason).toBe('protected');
+  });
+
+  it('names the text the braces expand to, and refuses /./ as naming no path where it protected nothing', () => {
+    const reasons = (pattern: string): readonly string[] => check('src/a.ts', { brief: row({ protectedFiles: [pattern] }) }).because;
+    expect(reasons('.{/,src}')).toEqual(['.{/,src} (the braces expand to "./", which names no path)']);
+    expect(reasons('{.,src}')).toEqual(['{.,src} (the braces expand to ".", which names no path)']);
+    expect(reasons('{,src}')).toEqual(['{,src} (the braces expand to an empty pattern)']);
+    // Rooted, it matched no path the guard is given, all repository-relative.
+    expect(reasons('/./')).toEqual(['/./ (the pattern names no path)']);
+  });
+
+  it('reads braces that name a path under a directory as before: src/{./,a} is what src holds', () => {
+    const scoped = row({ affectedFiles: ['src/{./,a}'], protectedFiles: [] });
+    expect(check('src/deep/b.ts', { brief: scoped })).toMatchObject({ verdict: 'allow', reason: 'in-scope', because: ['src/{./,a}'] });
+    expect(check('README.md', { brief: scoped })).toMatchObject({ verdict: 'warn', reason: 'out-of-scope', because: [] });
+  });
+
   it('matches case as written: the caller corrects the spelling, not the guard', () => {
     expect(check('SRC/db/schema.ts').reason).toBe('out-of-scope');
   });
