@@ -19,6 +19,15 @@
   a base to measure from. It was passed over in silence, so every manifest
   it was meant to name went unmeasured. The other names are read as before,
   and the warning fails the audit only under `--strict`.
+- `context` and `start_round` ask spec-guard for the rules over a name with
+  no glob syntax in `affectedFiles` as it is on disk: `src`, a directory, is
+  asked about as `src`, and `src/auth/a.ts`, a file, as that file. The
+  directory holding the name was asked about, the whole repository for a
+  name at the top, so the packet held rules over code outside the scope, one
+  over `lib/` say, where `src/` asked about `src` alone. A name the round
+  has yet to create is asked about through the directory that will hold it,
+  as before, since it may become a directory. The guard's answer is
+  unchanged.
 
 ## 0.3.1
 

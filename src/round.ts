@@ -40,7 +40,7 @@ import {
   type RulingRow,
 } from './rulings.js';
 import type { BriefRow, Finding } from './types.js';
-import { compileGlob } from './vendor/spec-core/pattern/index.js';
+import { compileGlob, type LiteralReading } from './vendor/spec-core/pattern/index.js';
 import { dirname, isRelativeReference, resolveInside, splitReference } from './vendor/spec-core/path/index.js';
 import { SiblingError } from './siblings.js';
 import { UsageError, type CliIO, type Workspace } from './workspace.js';
@@ -159,11 +159,26 @@ export async function checkPaths(
 
 /* ----------------------------------------------------------------- context */
 
-function scopeBases(patterns: readonly string[]): string[] {
+/**
+ * The paths spec-guard is asked about for a scope: where its patterns can
+ * match. A name with no glob syntax that exists is asked about as itself,
+ * since spec-guard reads from the disk whether a path is a file or a
+ * directory. One the round has yet to create may become either, and
+ * spec-guard would read it as a file, leaving out the rules over a
+ * directory of that name; it is asked about through the directory that will
+ * hold it, the root for a name at the top, which covers both.
+ */
+function scopeBases(root: string, patterns: readonly string[]): string[] {
+  // Read as a directory, a name's base is the name itself; read any other
+  // way, it is the directory holding it, so which other reading a missing
+  // name gets changes nothing. The glob is compiled for its bases and never
+  // matched: a file read as a directory narrows the question and nothing
+  // else.
+  const literal = (path: string): LiteralReading => (existsSync(join(root, path)) ? 'directory' : 'either');
   const bases = new Set<string>();
   for (const pattern of patterns) {
     try {
-      for (const base of compileGlob(pattern, { dialect: 'path', caseSensitive: true }).bases) bases.add(base === '' ? '.' : base);
+      for (const base of compileGlob(pattern, { dialect: 'path', caseSensitive: true, literal }).bases) bases.add(base === '' ? '.' : base);
     } catch {
       // spec-brief lint reports a pattern it cannot read; the rules for the rest still count.
     }
@@ -172,7 +187,7 @@ function scopeBases(patterns: readonly string[]): string[] {
 }
 
 async function rulesFor(workspace: Workspace, brief: BriefRow): Promise<Rules> {
-  const paths = scopeBases(brief.affectedFiles);
+  const paths = scopeBases(workspace.root, brief.affectedFiles);
   if (paths.length === 0) return [];
   try {
     const answer = await workspace.siblings.json('spec-guard', ['query', ...paths, '--json']);

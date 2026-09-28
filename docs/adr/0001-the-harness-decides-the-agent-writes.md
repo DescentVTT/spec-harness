@@ -44,6 +44,21 @@ block with `---`; the document is still included, and the note fails
 nothing. Only YAML front matter is named. TOML front matter gives no status
 closed or not, so closing it would change nothing the packet shows.
 
+*Amended 2026-09-29.* The rules in the packet are those over the brief's
+scope: spec-guard is asked about where each `affectedFiles` pattern can
+reach, its bases under spec-core's glob. A name with no glob syntax had the
+base of a file whatever it was on disk, the directory holding it, so
+`affectedFiles: [src]` asked about the whole repository and the packet held
+a rule over `lib/` that `src/` left out. A name that exists is now asked
+about as itself, file or directory, since spec-guard reads which from the
+disk. A name the round has yet to create is asked about through the
+directory that will hold it, as before, the root for a name at the top:
+spec-guard reads a path that does not exist as a file unless it ends in
+`/`, so the name alone would leave out the rules over a directory the round
+creates, and a packet that leaves out a rule in force tells the agent the
+code is freer than it is. The guard still reads the name as a file or a
+directory.
+
 ## Consequences
 
 Every command gives the same answer for the same repository. What the plan
