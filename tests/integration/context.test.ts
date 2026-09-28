@@ -111,6 +111,20 @@ describe('context', () => {
     expect((await cli(['context', '1'], unscoped.root)).stdout).toContain('spec-guard holds no rule over this scope.');
   });
 
+  it('asks spec-guard about the directory a trailing slash inside braces names, and not the whole repository', async () => {
+    const adr = `${ADR}\n<!-- @assert-absence target="lib" symbol="OldLib" reason="lib is frozen" -->\n`;
+    const braces = repository({
+      [BRIEF_FILE]: brief({ affected: ['"{src/,docs/*.md}"'] }),
+      'docs/adr/0001-sessions.md': adr,
+      'src/auth/a.ts': 'a;\n',
+      'lib/b.ts': 'b;\n',
+    });
+    const result = await cli(['context', '1'], braces.root);
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain('### docs/adr/0001-sessions.md\n\n- line 9: "LegacyGateway" must not appear in src/auth - the gateway is gone\n');
+    expect(result.stdout).not.toContain('lib is frozen');
+  });
+
   it('passes on what spec-guard said when it could not read its specs, and gives the rest of the packet', async () => {
     const broken = repository({ [BRIEF_FILE]: brief({ affected: ['src/**'] }), 'package.json': JSON.stringify({ specGuard: { bogus: 1 } }), 'docs/adr/0001.md': ADR });
     const result = await cli(['context', '1'], broken.root);

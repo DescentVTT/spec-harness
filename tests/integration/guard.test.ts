@@ -131,4 +131,17 @@ describe('guard under the repository\'s configuration', () => {
     const broken = repository({ [BRIEF_FILE]: brief({ protected: ['"src/[db"'] }) });
     expect((await decisions(['README.md', '--brief', '1'], broken.root))[0]).toMatchObject({ verdict: 'deny', reason: 'unreadable-protection' });
   });
+
+  it('fails closed on a protection too large to compile, in the command and the hook, with spec-core\'s reason', async () => {
+    const huge = `${'{a,b}'.repeat(8)}/${'x'.repeat(300)}`;
+    const large = repository({ [BRIEF_FILE]: brief({ affected: ['src/**'], protected: [`"${huge}"`] }) });
+    const message = `brief 001 protects files with a pattern that cannot be read: ${huge} (the pattern compiles to more than 65536 states)`;
+    expect((await decisions(['src/a.ts', '--brief', '1'], large.root))[0]).toMatchObject({ verdict: 'deny', reason: 'unreadable-protection', message });
+    const stdin = JSON.stringify({ cwd: large.root, hook_event_name: 'PreToolUse', tool_name: 'Write', tool_input: { file_path: join(large.root, 'src', 'a.ts') } });
+    const hook = await cli(['hook', 'claude'], large.root, { stdin, env: { SPEC_BRIEF: '1' } });
+    expect(hook.code).toBe(0);
+    const answer = JSON.parse(hook.stdout) as { hookSpecificOutput: { permissionDecision: string; permissionDecisionReason: string } };
+    expect(answer.hookSpecificOutput.permissionDecision).toBe('deny');
+    expect(answer.hookSpecificOutput.permissionDecisionReason).toContain(message);
+  });
 });

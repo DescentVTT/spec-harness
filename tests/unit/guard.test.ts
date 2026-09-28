@@ -118,6 +118,32 @@ describe('the guard', () => {
     expect(check('src/dbx.ts', { brief: directory }).reason).toBe('out-of-scope');
   });
 
+  it('reads a trailing slash inside braces as the directory\'s contents, as it reads one written alone', () => {
+    // {src/,docs/*.md} is src/ or docs/*.md: what src holds, and not a file named src.
+    const scoped = row({ affectedFiles: ['{src/,docs/*.md}'], protectedFiles: [] });
+    expect(check('src/deep/a.ts', { brief: scoped })).toMatchObject({ verdict: 'allow', reason: 'in-scope', because: ['{src/,docs/*.md}'] });
+    expect(check('docs/a.md', { brief: scoped }).reason).toBe('in-scope');
+    expect(check('src', { brief: scoped }).reason).toBe('out-of-scope');
+    expect(check('lib/src', { brief: scoped }).reason).toBe('out-of-scope');
+    const guarded = row({ affectedFiles: ['**'], protectedFiles: ['{src/db/,migrations/*.sql}'] });
+    expect(check('src/db/deep/schema.ts', { brief: guarded })).toMatchObject({ verdict: 'deny', reason: 'protected', because: ['{src/db/,migrations/*.sql}'] });
+    expect(check('migrations/1.sql', { brief: guarded }).reason).toBe('protected');
+    expect(check('src/db', { brief: guarded })).toMatchObject({ verdict: 'allow', reason: 'in-scope' });
+  });
+
+  it('reads a pattern too large to compile as one it cannot read: refused as a protection, named in the scope, passed over in a ruling', () => {
+    // As many alternatives as braces may give, each a long name, compile to more states than spec-core allows.
+    const huge = `${'{a,b}'.repeat(8)}/${'x'.repeat(300)}`;
+    const unreadable = `${huge} (the pattern compiles to more than 65536 states)`;
+    const protection = check('src/auth/login.ts', { brief: row({ protectedFiles: ['migrations/**', huge] }) });
+    expect(protection).toMatchObject({ verdict: 'deny', reason: 'unreadable-protection', because: [unreadable] });
+    expect(protection.message).toBe(`brief 012 protects files with a pattern that cannot be read: ${unreadable}`);
+    const scope = row({ affectedFiles: ['src/**', huge], protectedFiles: [] });
+    expect(check('src/a.ts', { brief: scope })).toMatchObject({ verdict: 'allow', reason: 'in-scope', because: ['src/**'] });
+    expect(check('README.md', { brief: scope })).toMatchObject({ verdict: 'warn', reason: 'out-of-scope', because: [unreadable] });
+    expect(check('src/db/schema.ts', { rulings: [{ id: 'R-1', paths: [huge], signer: 's' }] }).reason).toBe('protected');
+  });
+
   it('matches case as written: the caller corrects the spelling, not the guard', () => {
     expect(check('SRC/db/schema.ts').reason).toBe('out-of-scope');
   });

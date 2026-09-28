@@ -61,6 +61,16 @@ describe('which files are manifests', () => {
     expect(isManifest('package.json')).toBe(true);
     expect(isManifest('[x')).toBe(false);
     expect(manifestMatcher([])('package.json')).toBe(false);
+    // Too large to compile is a name it cannot read, as malformed is.
+    const huge = `${'{a,b}'.repeat(8)}/${'x'.repeat(300)}`;
+    expect(manifestMatcher([huge, 'package.json'])('a/package.json')).toBe(true);
+  });
+
+  it('reads a trailing slash inside braces as the directory\'s contents, from the root, as one written alone', () => {
+    const isManifest = manifestMatcher(['{tools/,Gemfile}']);
+    expect(isManifest('tools/deep/Cargo.toml')).toBe(true);
+    expect(isManifest('a/Gemfile')).toBe(true);
+    for (const path of ['tools', 'a/tools', 'a/tools/Cargo.toml']) expect(isManifest(path), path).toBe(false);
   });
 });
 
