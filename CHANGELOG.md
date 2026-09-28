@@ -9,6 +9,39 @@
   not be read, each with spec-core's reason. `AuditInput.dependencies` takes
   those as `unreadNames`, optional. `manifestMatcher` is unchanged.
 
+### Changed
+
+- spec-core at 56c7e54. Its glob refuses braces that expand to a text
+  naming no path, as it refuses that text written alone. `{./,src}`,
+  `{src,./}`, `.{/,src}` and `{.,src}/` read `./` as the root's contents and
+  matched every path; each is now a pattern that cannot be read, with
+  spec-core's reason, `the braces expand to "./", which names no path`:
+  - In a brief's `protectedFiles` it protected every path: the guard refused
+    every write as `protected`, and a ruling over the path waived it. The
+    guard now refuses every write as `unreadable-protection`, naming the
+    pattern and the reason, which no ruling waives.
+  - In `affectedFiles` it put every path in the scope. It is now named
+    among the patterns that could not be read, and the rest of the scope
+    still counts. `context` and `start_round` no longer ask spec-guard about
+    the whole repository for it, so the packet no longer holds rules over
+    code the rest of the scope leaves out.
+  - In a ruling's paths it allowed every protected path; it is passed over,
+    as a malformed path is.
+  - In `dependencies.manifests` it made every file the round changed a
+    manifest, each one no reader understands reported as `manifest-unread`.
+    It is now the `manifest-name-unread` warning, with the reason.
+  - In spec-graph's `patterns` it read the briefs; the list now reads
+    nothing, and `init` says spec-graph does not read the briefs.
+- `/./` and `/.//` are refused as `the pattern names no path`. They matched
+  only paths from the filesystem's root, none of which the guard is given,
+  so `protectedFiles: ["/./"]` protected nothing; it now refuses every write
+  as `unreadable-protection`.
+- A pattern refused before names what its braces expand to: `{.,src}` is
+  `the braces expand to ".", which names no path`, `{/,src}` `"/"`, and
+  `{,src}` and `{}` `the braces expand to an empty pattern`, where each was
+  `the pattern names no path`. `src/{./,a}` reads as before, what `src`
+  holds.
+
 ### Fixed
 
 - A name in `dependencies.manifests` that spec-core's glob cannot read,
