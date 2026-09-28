@@ -1,6 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.3.1
+
+spec-core at f9ce375. A trailing `/` on a brace alternative in a brief's
+patterns means that directory's contents, and a pattern too large to compile
+is refused as a pattern the guard cannot read, where it crashed the guard and
+the hook refused every write.
 
 ### Changed
 
