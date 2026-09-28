@@ -125,6 +125,67 @@ describe('context', () => {
     expect(result.stdout).not.toContain('lib is frozen');
   });
 
+  describe('asks spec-guard about a name with no glob syntax as it is on disk', () => {
+    // One rule per place a question can reach: the scope's own code, a file
+    // beside the one named, a directory not yet created, and code outside.
+    const rules = [
+      '<!-- @assert-absence target="src/auth" symbol="LegacyGateway" reason="the gateway is gone" -->',
+      '<!-- @assert-absence target="src/auth/b.ts" symbol="Bee" reason="b is sealed" -->',
+      '<!-- @assert-absence target="src/feature/impl" symbol="Imp" reason="the feature stays pure" -->',
+      '<!-- @assert-absence target="lib" symbol="OldLib" reason="lib is frozen" -->',
+    ];
+    let named: Repository;
+    const scope = async (id: string): Promise<string> => {
+      const result = await cli(['context', id], named.root);
+      expect(result.code).toBe(0);
+      return result.stdout.slice(result.stdout.indexOf('## Rules in force for this scope'));
+    };
+
+    beforeAll(() => {
+      named = repository({
+        'briefs/001_directory.md': brief({ title: '001 - A directory', affected: ['src'] }),
+        'briefs/002_file.md': brief({ title: '002 - A file', affected: ['src/auth/a.ts'] }),
+        'briefs/003_new-directory.md': brief({ title: '003 - Not yet created', affected: ['src/feature'] }),
+        'briefs/004_new-top.md': brief({ title: '004 - Not yet created, at the top', affected: ['tools'] }),
+        'docs/adr/0001-rules.md': `---\nstatus: accepted\n---\n\n# ADR-0001: Rules\n\n${rules.join('\n')}\n`,
+        'src/auth/a.ts': 'a;\n',
+        'src/auth/b.ts': 'b;\n',
+        'lib/b.ts': 'b;\n',
+      });
+    });
+
+    it('asks about a directory that exists, and not the whole repository', async () => {
+      const text = await scope('1');
+      for (const reason of ['the gateway is gone', 'b is sealed', 'the feature stays pure']) expect(text).toContain(reason);
+      expect(text).not.toContain('lib is frozen');
+    });
+
+    it('asks about a file that exists, and not the directory holding it', async () => {
+      const text = await scope('2');
+      expect(text).toContain('the gateway is gone');
+      expect(text).not.toContain('b is sealed');
+      expect(text).not.toContain('lib is frozen');
+    });
+
+    it('asks about a name not yet created through the directory that will hold it, which covers it as a directory too', async () => {
+      const text = await scope('3');
+      // Asked about as itself, spec-guard would read src/feature as a file and leave this out.
+      expect(text).toContain('the feature stays pure');
+      expect(text).not.toContain('lib is frozen');
+      // At the top, that directory is the root, as before.
+      expect(await scope('4')).toContain('lib is frozen');
+    });
+
+    it('leaves what the guard allows as it was: the name as a file or as a directory', async () => {
+      const result = await cli(['guard', '--brief', '1', 'src', 'src/auth/a.ts', 'lib/b.ts', '--format', 'json'], named.root);
+      expect(parsed<{ decisions: { path: string; reason: string }[] }>(result).decisions.map((d) => [d.path, d.reason])).toEqual([
+        ['src', 'in-scope'],
+        ['src/auth/a.ts', 'in-scope'],
+        ['lib/b.ts', 'out-of-scope'],
+      ]);
+    });
+  });
+
   it('passes on what spec-guard said when it could not read its specs, and gives the rest of the packet', async () => {
     const broken = repository({ [BRIEF_FILE]: brief({ affected: ['src/**'] }), 'package.json': JSON.stringify({ specGuard: { bogus: 1 } }), 'docs/adr/0001.md': ADR });
     const result = await cli(['context', '1'], broken.root);
