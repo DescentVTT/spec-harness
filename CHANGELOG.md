@@ -1,6 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.4.0
+
+The audit names a `dependencies.manifests` name it cannot read, with
+spec-core's reason, where it dropped the name in silence; `context` asks
+spec-guard about a plain name in the scope as it is on disk; and spec-core is
+at 56c7e54, which refuses a brace alternative that names no path, such as
+`{./,src}`, where it read as every path.
 
 ### Added
 
