@@ -47,7 +47,9 @@ function stop(child: ChildProcess): void {
   try {
     // False already on Linux and macOS, so the mutants that make it false
     // are equivalent there. On Windows the tests fail without taskkill:
-    // stopping the shell alone leaves node holding the output.
+    // stopping the shell alone leaves node holding the output. True already
+    // on Windows, so the mutant that makes it true is equivalent there;
+    // elsewhere there is no taskkill, and the shell alone is stopped.
     if (process.platform === 'win32') execFileSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
     else process.kill(-child.pid, 'SIGKILL');
   } catch {
@@ -76,6 +78,9 @@ function discard(directory: string): void {
       // `>=` would differ only in the millisecond the deadline falls on, so
       // that mutant is equivalent.
       if (Date.now() > deadline) throw error;
+      // The pause only spares the processor between attempts: without it
+      // the directory is deleted, or given up on, at the same moment, so
+      // that mutant is equivalent.
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
     }
   }
