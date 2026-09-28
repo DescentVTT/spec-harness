@@ -1,6 +1,13 @@
 # Changelog
 
-## Unreleased
+## 0.3.0
+
+An interrupted `probe` stops its commands before it removes their
+worktrees, exits 129 on SIGHUP, and never prunes the repository's other
+worktrees. `context` says when a cited document's front matter never
+closes, and spec-core is at 65ef842, which reads link reference definitions
+as CommonMark does. A `DocumentReader` written by hand for `buildContext`
+adds one field.
 
 ### Changed
 
