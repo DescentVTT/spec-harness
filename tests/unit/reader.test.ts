@@ -202,6 +202,48 @@ describe('citations', () => {
     // cites the inner document only.
     expect(reader.citations('[a [b](inner.md) c](outer.md)\n')).toEqual([{ target: 'inner.md', line: 1 }]);
   });
+
+  it('cites nothing through a definition written under a paragraph\'s text, which CommonMark reads as that text', () => {
+    // A link reference definition cannot interrupt a paragraph (CommonMark
+    // 4.7), in a block quote's lazy continuation line either, so the brief
+    // defines nothing there and cites nothing through it.
+    expect(reader.citations('Cites [r].\n\nSome text\n[r]: r.md\n')).toEqual([]);
+    expect(reader.citations('Cites [r].\n\n> Some text\n[r]: r.md\n')).toEqual([]);
+    expect(reader.citations('Cites [r] and [s].\n\nSome text\n[r]: r.md\n[s]: s.md\n')).toEqual([]);
+    // The line is the paragraph's text, brackets included: with `[r]`
+    // defined further down, its `[r]` is a shortcut like any other.
+    expect(reader.citations('Cites [r].\n\nSome text\n[r]: r.md\n\n[r]: late.md\n')).toEqual([
+      { target: 'late.md', line: 1 },
+      { target: 'late.md', line: 4 },
+    ]);
+  });
+
+  it('still cites through a definition that opens a paragraph, after a blank line or a heading', () => {
+    expect(reader.citations('Cites [r].\n\nSome text\n\n[r]: r.md\n')).toEqual([{ target: 'r.md', line: 1 }]);
+    expect(reader.citations('# Title\n[r]: r.md\n\nCites [r].\n')).toEqual([{ target: 'r.md', line: 4 }]);
+    expect(reader.citations('Cites [r] and [s].\n\n[r]: r.md\n[s]: s.md\n')).toEqual([
+      { target: 'r.md', line: 1 },
+      { target: 's.md', line: 1 },
+    ]);
+  });
+
+  it('cites the destination after a label holding a bracket, as an inline link, and reads a label with an escaped bracket', () => {
+    // A link label holds no unescaped bracket, so `[[r]: r.md]` defines
+    // nothing and `(z.md)` after it makes the line a link.
+    expect(reader.citations('[[r]: r.md](z.md)\n')).toEqual([{ target: 'z.md', line: 1 }]);
+    expect(reader.citations('Cites [a\\]b].\n\n[a\\]b]: x.md\n')).toEqual([{ target: 'x.md', line: 1 }]);
+  });
+
+  it('reads the first bracket as a shortcut when the second is no label, and a full reference when it is one', () => {
+    // `[a[b]c]` holds a bracket, so it is no label and `[r]` stands alone,
+    // as commonmark.js reads it; `[b]` inside it is a shortcut of its own.
+    expect(reader.citations('[r][a[b]c]\n\n[r]: r.md\n')).toEqual([{ target: 'r.md', line: 1 }]);
+    expect(reader.citations('[r][a[b]c]\n\n[r]: r.md\n[b]: b.md\n')).toEqual([
+      { target: 'r.md', line: 1 },
+      { target: 'b.md', line: 1 },
+    ]);
+    expect(reader.citations('[text][r]\n\n[text]: t.md\n[r]: r.md\n')).toEqual([{ target: 'r.md', line: 1 }]);
+  });
 });
 
 describe('title and status', () => {
