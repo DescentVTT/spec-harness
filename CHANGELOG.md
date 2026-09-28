@@ -1,5 +1,39 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- spec-core at f9ce375. Its glob reads a trailing `/` on a brace
+  alternative as it reads one written alone, as that directory's contents,
+  where the slash was dropped and the alternative read as a literal:
+  - In a brief's `affectedFiles` and `protectedFiles`, and in a ruling's
+    paths, `{src/,docs/*.md}` is `src/` or `docs/*.md`. The guard allows or
+    protects `src/deep/a.ts` as before, and no longer a path named `src`
+    itself.
+  - `context` and `start_round` ask spec-guard for the rules over `src` for
+    such a scope, where they asked over the whole repository, so a rule that
+    reaches only code outside the scope, one over `lib/` say, is no longer
+    in the packet.
+  - In `dependencies.manifests`, `{tools/,Gemfile}` names every file under
+    `tools/` at the root, where it named a file called `tools` at any depth.
+
+### Fixed
+
+- A pattern that spec-core's glob compiles to more than 65536 states is a
+  pattern that cannot be read, with spec-core's reason, `the pattern
+  compiles to more than 65536 states`, where the command stopped with an
+  uncaught `AutomatonTooLarge`. In a brief's `protectedFiles` the guard
+  refuses every write as `unreadable-protection`, naming the pattern and the
+  reason, as it does a malformed protection; the PreToolUse hook refused
+  every write with "cannot check this write" and now gives that refusal and
+  the fix. In `affectedFiles` the pattern is named among those that could
+  not be read, and the rest of the scope still counts. A ruling's path, a
+  name in `dependencies.manifests` and a pattern in spec-graph's
+  configuration are passed over as a malformed one is: no path is ruled by
+  it, no manifest is read by it, and `init` says spec-graph does not read
+  the briefs.
+
 ## 0.3.0
 
 An interrupted `probe` stops its commands before it removes their
