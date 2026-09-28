@@ -10,7 +10,7 @@ import { existsSync } from 'node:fs';
 import { readdir, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { audit, type ArchiveReason, type AssertionOutcome, type AuditReport } from './audit.js';
+import { audit, type ArchiveReason, type AssertionOutcome, type AuditInput, type AuditReport } from './audit.js';
 import { sameId } from './branch.js';
 import {
   enabledPlugin,
@@ -28,7 +28,7 @@ import type { DocumentReader } from './document.js';
 import { readJsonObject, readText, repositoryPath, stateDirectory, writeAtomic } from './fs.js';
 import { blameLine, changes, mergeBase, remoteDefault, revision, show, verifyCommit } from './git.js';
 import { decide, type Decision, type VerifiedRuling } from './guard.js';
-import { diffManifest, ecosystemOf, manifestMatcher, type DependencyChange } from './manifests.js';
+import { diffManifest, ecosystemOf, readManifestNames, type DependencyChange } from './manifests.js';
 import {
   addRulingRow,
   nextId,
@@ -250,9 +250,12 @@ export async function buildContext(
 
 /* ------------------------------------------------------------------- audit */
 
-async function dependencyChanges(workspace: Workspace, base: Base): Promise<{ changes: DependencyChange[]; unread: string[] }> {
-  if (base.kind === 'unresolved') return { changes: [], unread: [] };
-  const isManifest = manifestMatcher(workspace.config.dependencies.manifests);
+async function dependencyChanges(workspace: Workspace, base: Base): Promise<AuditInput['dependencies']> {
+  // A name that cannot be read is reported with or without a base: it would
+  // leave its manifests out of every audit measured from one.
+  const names = readManifestNames(workspace.config.dependencies.manifests);
+  if (base.kind === 'unresolved') return { changes: [], unread: [], unreadNames: names.unread };
+  const isManifest = names.match;
   const out: DependencyChange[] = [];
   const unread: string[] = [];
   for (const change of await changes(base.mergeBase, base.head, workspace.root)) {
@@ -268,7 +271,7 @@ async function dependencyChanges(workspace: Workspace, base: Base): Promise<{ ch
     if ('error' in diff) unread.push(change.path);
     else out.push(...diff.changes);
   }
-  return { changes: out, unread };
+  return { changes: out, unread, unreadNames: names.unread };
 }
 
 /** Whether spec-brief loads this package's plugin, as its configuration at the root says. */

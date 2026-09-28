@@ -60,6 +60,8 @@ describe('audit of a round', () => {
     const rules = report.findings.map((f) => f.rule);
     expect(rules).toContain('archive/open-task');
     expect(rules).toContain('archive/out-of-scope');
+    // The default manifest names all read.
+    expect(rules).not.toContain('manifest-name-unread');
     expect(report.findings.find((f) => f.rule === 'archive/out-of-scope')?.message).toContain('NOTES.md');
     // The premise stopped holding, as the round meant it to; the goals hold.
     expect(report.findings.filter((f) => f.rule.startsWith('premise') || f.rule === 'goal-failed').map((f) => [f.rule, f.line])).toEqual([['premise-retired', 23]]);
@@ -156,5 +158,37 @@ describe('audit of a round', () => {
     expect(report.dependencies).toEqual([{ file: 'web/package.json', ecosystem: 'npm', section: 'dependencies', name: 'b', before: null, after: '2' }]);
     // A configured manifest no reader understands is reported, not skipped.
     expect(report.findings.filter((f) => f.rule === 'manifest-unread').map((f) => f.file)).toEqual(['deps.lock']);
+    // Its name read, so the name is not reported.
+    expect(report.findings.map((f) => f.rule)).not.toContain('manifest-name-unread');
+  });
+
+  it('names a manifest name it cannot read, with spec-core\'s reason, and reads the manifests the other names name', async () => {
+    const huge = `${'{a,b}'.repeat(8)}/${'x'.repeat(300)}`;
+    const r = repository(
+      { [BRIEF_FILE]: brief({ affected: ['**'] }), 'Cargo.toml': '[dependencies]\nserde = "1"\n' },
+      { dependencies: { manifests: ['[x', huge, 'Cargo.toml'] } },
+    );
+    r.git('checkout', '-q', '-b', 'brief/1-x');
+    r.write('Cargo.toml', '[dependencies]\nserde = "1.1"\n');
+    r.commit('work');
+    const result = await cli(['audit', '--format', 'json'], r.root);
+    const report = parsed<Report>(result);
+    const names = (findings: readonly Finding[]): string[][] => findings.filter((f) => f.rule === 'manifest-name-unread').map((f) => [f.severity, f.file ?? '', f.message]);
+    expect(names(report.findings)).toEqual([
+      ['warning', '.spec-harness.json', '"dependencies.manifests" names "[x", which cannot be read: a "[" is never closed; no manifest it names was read'],
+      [
+        'warning',
+        '.spec-harness.json',
+        `"dependencies.manifests" names "${huge}", which cannot be read: the pattern compiles to more than 65536 states; no manifest it names was read`,
+      ],
+    ]);
+    expect(report.dependencies).toEqual([{ file: 'Cargo.toml', ecosystem: 'cargo', section: 'dependencies', name: 'serde', before: '1', after: '1.1' }]);
+    // A warning, which fails the audit only under --strict.
+    expect(result.code).toBe(0);
+    expect((await cli(['audit', '--strict'], r.root)).code).toBe(1);
+    // With no base to measure from, the names are named all the same.
+    const unmeasured = parsed<Report>(await cli(['audit', '--base', 'no-such-branch', '--format', 'json'], r.root));
+    expect(unmeasured.base).toBeNull();
+    expect(names(unmeasured.findings)).toEqual(names(report.findings));
   });
 });

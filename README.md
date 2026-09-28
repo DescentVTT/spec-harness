@@ -63,7 +63,7 @@ spec-brief's archive refuses a round that changed a protected file, and learns t
 
 ### `audit [brief]`
 
-One report: what spec-brief's archive would refuse or warn about, run with `--dry-run`; the brief's own assertions through spec-guard - a goal that fails, or a premise (under a heading such as *The Defect, Measured*) that still holds after the round meant to change it; rulings whose signatures do not verify; and every dependency the round added to `package.json`, `Cargo.toml`, `go.mod`, `pyproject.toml`, `requirements*.txt`, NuGet project files or a `Gemfile`. A part that could not be measured is a finding, never a silence.
+One report: what spec-brief's archive would refuse or warn about, run with `--dry-run`; the brief's own assertions through spec-guard - a goal that fails, or a premise (under a heading such as *The Defect, Measured*) that still holds after the round meant to change it; rulings whose signatures do not verify; and every dependency the round added to `package.json`, `Cargo.toml`, `go.mod`, `pyproject.toml`, `requirements*.txt`, NuGet project files or a `Gemfile`. A part that could not be measured is a finding, never a silence. So is a name in `dependencies.manifests` that spec-core's glob cannot read, malformed or too large to compile: the audit names it and the reason in a warning, `manifest-name-unread`, which fails the audit only under `--strict`, and reads the manifests the other names name.
 
 ### `probe [brief]`
 
@@ -128,7 +128,7 @@ The plugin's hooks and server are the ones `init` writes into `.claude/settings.
 | `base` | the remote's default branch | What rounds are measured from, and where allowed signers are read. `init` names it, since a repository git did not clone may have no default branch recorded. |
 | `rulings.section` | `"Rulings"` | The brief section holding the rulings table. |
 | `rulings.allowedSigners` | `".github/allowed_signers"` | The allowed-signers file, read from the base branch. |
-| `dependencies.manifests` | the list above | Manifest names whose added dependencies the audit reports. |
+| `dependencies.manifests` | the list above | Manifest names whose added dependencies the audit reports. A name that cannot be read is a warning in the audit. |
 | `context.budget` | `60000` | Characters a context packet may hold; cited documents fill what the rest leaves, and those that do not fit are named by path. |
 | `assertions.premises` | `The Defect, Measured`, `Premises`, `Preconditions` | Sections whose assertions state what was true before the round. |
 | `probes.runs`, `probes.timeout` | `2`, `600` | Runs per probe, and seconds per run. |

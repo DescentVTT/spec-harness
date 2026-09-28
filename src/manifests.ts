@@ -6,7 +6,8 @@
  * that can be answered exactly, and it matters: a dependency is code nobody in
  * the review read. Each reader here understands the part of its format that
  * declares dependencies and nothing more - no resolver, no lockfile, no
- * network. A manifest it cannot read is reported as unread, never as clean.
+ * network. A manifest it cannot read is reported as unread, never as clean,
+ * and so is a configured name it cannot read.
  */
 
 import { parseGlob, type Glob } from './vendor/spec-core/pattern/index.js';
@@ -46,14 +47,32 @@ export function ecosystemOf(path: string): Ecosystem | null {
   return null;
 }
 
-/** A predicate over paths for the configured manifest names, matched at any depth. */
-export function manifestMatcher(patterns: readonly string[]): (path: string) => boolean {
+export interface ManifestNames {
+  /** Whether a path is a manifest by one of the names that could be read, matched at any depth. */
+  readonly match: (path: string) => boolean;
+  /** The names spec-core's glob refused, malformed or too large to compile, each with its reason. */
+  readonly unread: readonly { readonly name: string; readonly reason: string }[];
+}
+
+/**
+ * The configured manifest names, read. A name that cannot be read names no
+ * manifest, and is returned so the audit can say so: every file it was
+ * meant to name would otherwise go unmeasured in silence.
+ */
+export function readManifestNames(patterns: readonly string[]): ManifestNames {
   const globs: Glob[] = [];
+  const unread: { name: string; reason: string }[] = [];
   for (const pattern of patterns) {
     const parsed = parseGlob(pattern, { dialect: 'ripgrep', caseSensitive: true });
     if (parsed.ok) globs.push(parsed.glob);
+    else unread.push({ name: pattern, reason: parsed.error });
   }
-  return (path) => globs.some((glob) => glob.match(path));
+  return { match: (path) => globs.some((glob) => glob.match(path)), unread };
+}
+
+/** A predicate over paths for the configured manifest names, matched at any depth. */
+export function manifestMatcher(patterns: readonly string[]): (path: string) => boolean {
+  return readManifestNames(patterns).match;
 }
 
 /* --------------------------------------------------------------------- npm */
