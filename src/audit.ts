@@ -20,6 +20,7 @@
  * A part that could not be measured is a finding, never a silence.
  */
 
+import { CONFIG_FILE } from './config.js';
 import { PLUGIN } from './configure.js';
 import { rulingFor, type VerifiedRuling } from './guard.js';
 import type { DependencyChange } from './manifests.js';
@@ -46,7 +47,12 @@ export interface AuditInput {
   readonly brief: BriefRow;
   /** Why the round's changes could not be measured, when they could not. */
   readonly unmeasured: string | null;
-  readonly dependencies: { readonly changes: readonly DependencyChange[]; readonly unread: readonly string[] };
+  readonly dependencies: {
+    readonly changes: readonly DependencyChange[];
+    readonly unread: readonly string[];
+    /** Names in `dependencies.manifests` that could not be read, with spec-core's reason; none when not given. */
+    readonly unreadNames?: readonly { readonly name: string; readonly reason: string }[] | undefined;
+  };
   readonly archive: { readonly blocking: readonly ArchiveReason[]; readonly warnings: readonly ArchiveReason[] } | { readonly unavailable: string };
   readonly assertions: readonly AssertionOutcome[] | { readonly unavailable: string };
   /** Section names whose assertions are premises. Compared without case, emphasis, a leading number or a trailing colon. */
@@ -187,6 +193,17 @@ export function audit(input: AuditInput): AuditReport {
     );
   }
 
+  for (const { name, reason } of input.dependencies.unreadNames ?? []) {
+    out.push(
+      finding(
+        'manifest-name-unread',
+        'warning',
+        `"dependencies.manifests" names "${name}", which cannot be read: ${reason}; no manifest it names was read`,
+        `fix or remove the name in ${CONFIG_FILE}; the other names were read`,
+        CONFIG_FILE,
+      ),
+    );
+  }
   for (const file of input.dependencies.unread) {
     out.push(finding('manifest-unread', 'warning', `${file} changed and could not be read for dependencies`, 'check its dependencies by hand; the audit cannot', file));
   }

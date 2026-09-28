@@ -1,7 +1,16 @@
 import { describe, expect, it } from 'vitest';
 
 import { DEFAULT_MANIFESTS } from '../../src/config.js';
-import { diffManifest, ecosystemOf, manifestMatcher, pythonName, readManifest, type Dependency, type Ecosystem } from '../../src/manifests.js';
+import {
+  diffManifest,
+  ecosystemOf,
+  manifestMatcher,
+  pythonName,
+  readManifest,
+  readManifestNames,
+  type Dependency,
+  type Ecosystem,
+} from '../../src/manifests.js';
 
 function read(ecosystem: Ecosystem, text: string): Dependency[] {
   const result = readManifest(ecosystem, text);
@@ -64,6 +73,23 @@ describe('which files are manifests', () => {
     // Too large to compile is a name it cannot read, as malformed is.
     const huge = `${'{a,b}'.repeat(8)}/${'x'.repeat(300)}`;
     expect(manifestMatcher([huge, 'package.json'])('a/package.json')).toBe(true);
+  });
+
+  it('names each configured name it cannot read, with spec-core\'s reason, and still matches by the rest', () => {
+    const huge = `${'{a,b}'.repeat(8)}/${'x'.repeat(300)}`;
+    const names = readManifestNames(['[x', 'package.json', huge]);
+    expect(names.unread).toEqual([
+      { name: '[x', reason: 'a "[" is never closed' },
+      { name: huge, reason: 'the pattern compiles to more than 65536 states' },
+    ]);
+    expect(names.match('a/package.json')).toBe(true);
+    expect(names.match('[x')).toBe(false);
+  });
+
+  it('names no name it can read, whether or not a file in the repository has it', () => {
+    expect(readManifestNames(DEFAULT_MANIFESTS).unread).toEqual([]);
+    expect(readManifestNames(['deps.lock', '{tools/,Gemfile}', 'C++(notes).txt']).unread).toEqual([]);
+    expect(readManifestNames([]).unread).toEqual([]);
   });
 
   it('reads a trailing slash inside braces as the directory\'s contents, from the root, as one written alone', () => {

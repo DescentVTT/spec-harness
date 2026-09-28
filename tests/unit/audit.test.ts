@@ -86,6 +86,45 @@ describe('what could not be measured is a finding, never a silence', () => {
       },
     ]);
   });
+
+  it('reports each manifest name it could not read, with the reason, as a warning that fails nothing', () => {
+    const report = audit(
+      input({
+        dependencies: {
+          changes: [change(null, '1')],
+          unread: [],
+          unreadNames: [
+            { name: '[x', reason: 'a "[" is never closed' },
+            { name: '{a,b}{a,b}', reason: 'the pattern compiles to more than 65536 states' },
+          ],
+        },
+      }),
+    );
+    expect(report.findings.slice(0, 2)).toEqual([
+      {
+        rule: 'manifest-name-unread',
+        severity: 'warning',
+        message: '"dependencies.manifests" names "[x", which cannot be read: a "[" is never closed; no manifest it names was read',
+        hint: 'fix or remove the name in .spec-harness.json; the other names were read',
+        file: '.spec-harness.json',
+      },
+      {
+        rule: 'manifest-name-unread',
+        severity: 'warning',
+        message: '"dependencies.manifests" names "{a,b}{a,b}", which cannot be read: the pattern compiles to more than 65536 states; no manifest it names was read',
+        hint: 'fix or remove the name in .spec-harness.json; the other names were read',
+        file: '.spec-harness.json',
+      },
+    ]);
+    // The names that could be read still measured the round.
+    expect(report.findings.map((f) => f.rule)).toEqual(['manifest-name-unread', 'manifest-name-unread', 'new-dependency']);
+    expect(report.counts.error).toBe(0);
+  });
+
+  it('reports no manifest name when every name was read, or none was said', () => {
+    expect(audit(input({ dependencies: { changes: [], unread: [], unreadNames: [] } })).findings).toEqual([]);
+    expect(audit(input({ dependencies: { changes: [], unread: [] } })).findings).toEqual([]);
+  });
 });
 
 describe('the archive', () => {
@@ -306,7 +345,7 @@ describe('the report', () => {
         archive: { blocking: [{ rule: 'protected-file', severity: 'error', message: 'm', hint: 'h' }], warnings: [] },
         assertions: [outcome(false, 'Invariants'), outcome(false, 'Premises')],
         unverifiedRulings: [{ id: 'R-1', reason: 'r' }],
-        dependencies: { changes: [change(null, '1'), change('1', null)], unread: ['go.mod'] },
+        dependencies: { changes: [change(null, '1'), change('1', null)], unread: ['go.mod'], unreadNames: [{ name: '[x', reason: 'r' }] },
       }),
     );
     expect(report.findings.map((f) => f.rule)).toEqual([
@@ -315,11 +354,12 @@ describe('the report', () => {
       'goal-failed',
       'premise-retired',
       'ruling-unverified',
+      'manifest-name-unread',
       'manifest-unread',
       'new-dependency',
       'dependency-removed',
     ]);
-    expect(report.counts).toEqual({ error: 2, warning: 4, note: 2 });
+    expect(report.counts).toEqual({ error: 2, warning: 5, note: 2 });
     // An archive reason with no file names none.
     expect('file' in (report.findings[1] as object)).toBe(false);
   });

@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `readManifestNames` in the programmatic API: the configured manifest
+  names read, a predicate over the paths they name and the names that could
+  not be read, each with spec-core's reason. `AuditInput.dependencies` takes
+  those as `unreadNames`, optional. `manifestMatcher` is unchanged.
+
+### Fixed
+
+- A name in `dependencies.manifests` that spec-core's glob cannot read,
+  malformed or too large to compile, is a finding in `audit` and
+  `audit_round`: a warning, `manifest-name-unread`, on `.spec-harness.json`,
+  with the name and spec-core's reason, such as `a "[" is never closed` or
+  `the pattern compiles to more than 65536 states`, whether or not there is
+  a base to measure from. It was passed over in silence, so every manifest
+  it was meant to name went unmeasured. The other names are read as before,
+  and the warning fails the audit only under `--strict`.
+
 ## 0.3.1
 
 spec-core at f9ce375. A trailing `/` on a brace alternative in a brief's
