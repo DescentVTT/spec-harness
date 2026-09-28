@@ -35,6 +35,31 @@
   `buildContext` by hand adds it. The reasoning is in
   [ADR-0001](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0001-the-harness-decides-the-agent-writes.md)'s
   amendment.
+- An interrupted `probe` stops the commands it started before it removes
+  their worktree. On Linux and macOS a probe's command runs in a process
+  group of its own, so Ctrl+C never reached it: it ran on in a worktree
+  removed from under it, and on Windows, where a running command holds its
+  directory, the worktree could not be removed. On SIGINT, SIGTERM or SIGHUP,
+  and when the process exits mid-probe, every running command is now stopped
+  with everything it started, as its timeout stops it, and an interrupt waits
+  up to three seconds for them to end before it removes the worktree. The
+  reasoning is in
+  [ADR-0003](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0003-state-outside-the-work-tree.md)'s
+  amendment.
+- A run ended by SIGHUP while it held a worktree, as when its terminal is
+  closed, exits 129, as a shell reports a process SIGHUP ended, where it
+  exited 143, SIGTERM's code. The code is 128 and the signal's number for
+  each signal the sandbox handles: SIGINT 130 and SIGTERM 143, as before.
+- An interrupted `probe` no longer prunes the repository's other
+  worktrees. After removing its own worktree the sandbox ran `git worktree
+  prune`, which forgets every worktree git has lost track of - one on a
+  drive that is not mounted, or another tool's - and it did the same at the
+  end of a probe whose command had deleted its worktree's `.git` file. It
+  now deletes the worktree's directory and runs `git worktree remove
+  --force` on that path, which forgets that worktree and no other. The
+  reasoning is in
+  [ADR-0003](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0003-state-outside-the-work-tree.md)'s
+  amendment.
 
 ## 0.2.0
 

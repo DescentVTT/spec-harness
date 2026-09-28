@@ -160,9 +160,13 @@ export async function addWorktree(path: string, rev: string, cwd: string): Promi
   if (run.code !== 0) throw new GitError(`git worktree add failed: ${run.stderr.trim()}`);
 }
 
-export async function removeWorktree(path: string, cwd: string): Promise<boolean> {
-  const run = await git(['worktree', 'remove', '--force', path], cwd);
-  if (run.code === 0) return true;
-  await git(['worktree', 'prune'], cwd);
-  return false;
+/**
+ * Forgets the worktree at `path`, and no other, once its directory is
+ * deleted. Git refuses to remove a worktree whose directory has lost its
+ * `.git` file, and removes its record of one whose directory is gone, found by
+ * the path it was added at: `git worktree prune` would also forget every other
+ * worktree git has lost track of, the person's among them.
+ */
+export async function removeWorktree(path: string, cwd: string): Promise<void> {
+  await git(['worktree', 'remove', '--force', path], cwd);
 }
