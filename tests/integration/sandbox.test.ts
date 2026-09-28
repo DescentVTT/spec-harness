@@ -417,6 +417,22 @@ describe('a command still running when the process is interrupted or exits', () 
     expect(worktrees(repo)).toHaveLength(1);
   });
 
+  it('is stopped as the interrupt begins, not once the interrupt has waited out its bound', async () => {
+    const { withWorktree, runCommand: run, handlers } = await freshSandbox();
+    const repo = repository({ 'a.txt': 'a\n' });
+    const file = join(temp(), 'ids');
+    void run(tree(file), await midJob(withWorktree, repo), 600);
+    const [grandchild = 0] = await ids(file);
+    const exited = interrupt(only(handlers('SIGINT'), 'SIGINT'), 'SIGINT');
+    try {
+      // Well inside the three seconds an interrupt waits at most (ADR-0003),
+      // which a tree left running would hold it to.
+      await until(() => !alive(grandchild), 'the grandchild to be gone', 2);
+    } finally {
+      await exited;
+    }
+  });
+
   it('is stopped with everything it started when the process exits mid-job, then its worktree is removed', async () => {
     const { withWorktree, runCommand: run, handlers } = await freshSandbox();
     const repo = repository({ 'a.txt': 'a\n' });
@@ -505,7 +521,11 @@ describe('a command still running when the process is interrupted or exits', () 
     });
     only(handlers('SIGINT'), 'SIGINT')('SIGINT');
     await new Promise((resolve) => setImmediate(resolve));
-    expect(exit).toMatchObject({ code: 130 });
+    const early = exit;
+    // Whatever the answer, the handler has finished before the test ends
+    // and the real process.exit is back.
+    await within(exited, 60, 'exit');
+    expect(early).toMatchObject({ code: 130 });
   });
 });
 
