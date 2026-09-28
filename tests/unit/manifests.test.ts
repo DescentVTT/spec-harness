@@ -86,6 +86,14 @@ describe('which files are manifests', () => {
     expect(names.match('[x')).toBe(false);
   });
 
+  it('names a name whose braces expand to no path, which named every file, and matches by the rest', () => {
+    const names = readManifestNames(['{./,Gemfile}', 'package.json']);
+    expect(names.unread).toEqual([{ name: '{./,Gemfile}', reason: 'the braces expand to "./", which names no path' }]);
+    expect(names.match('src/a.ts')).toBe(false);
+    expect(names.match('Gemfile')).toBe(false);
+    expect(names.match('a/package.json')).toBe(true);
+  });
+
   it('names no name it can read, whether or not a file in the repository has it', () => {
     expect(readManifestNames(DEFAULT_MANIFESTS).unread).toEqual([]);
     expect(readManifestNames(['deps.lock', '{tools/,Gemfile}', 'C++(notes).txt']).unread).toEqual([]);
