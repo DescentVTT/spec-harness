@@ -60,6 +60,15 @@ function compile(pattern: string): Glob | string {
   return parsed.ok ? parsed.glob : parsed.error;
 }
 
+/**
+ * Why the guard cannot read a pattern, in spec-core's words; `null` when it
+ * can. The guard matches no path by a pattern it cannot read.
+ */
+export function whyUnreadable(pattern: string): string | null {
+  const glob = compile(pattern);
+  return typeof glob === 'string' ? glob : null;
+}
+
 function matching(patterns: readonly string[], path: string): { matched: string[]; unreadable: string[] } {
   const matched: string[] = [];
   const unreadable: string[] = [];

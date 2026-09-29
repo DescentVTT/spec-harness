@@ -88,6 +88,7 @@ export function tools(workspace: Workspace, env: CliIO['env']): ToolDefinition[]
             omitted: [...packet.omitted],
             unresolved: [...packet.unresolved],
             unclosedFrontMatter: [...packet.unclosedFrontMatter],
+            unreadableScope: [...packet.unreadableScope],
           },
         };
       },
