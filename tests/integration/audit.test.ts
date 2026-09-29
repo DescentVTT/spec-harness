@@ -78,13 +78,77 @@ describe('audit of a round', () => {
     expect(report.counts.error).toBeGreaterThanOrEqual(1);
   });
 
-  it('prints the same as text, with its counts', async () => {
+  it('prints the same as text, with what it measured above its counts, which stay the last line', async () => {
     const result = await cli(['audit'], repo.root);
     expect(result.code).toBe(1);
     expect(result.stdout.startsWith(`audit of brief 001 from main (${base.slice(0, 12)})\n\n`)).toBe(true);
     expect(result.stdout).toContain(`error    ${BRIEF_FILE}:`);
     expect(result.stdout).toContain('warning  package.json  the round added npm dependency "left-pad" ^1.3.0 in package.json (dependencies)  new-dependency');
-    expect(result.stdout).toMatch(/\n\d+ error\(s\), \d+ warning\(s\), \d+ note\(s\)\n$/);
+    expect(result.stdout).toMatch(
+      /\n\nmeasured: goals: 2 held, 0 failed · premises: 1 retired, 0 holding · archive: asked · rulings: none · dependencies: 4 changed, 0 unread\n\d+ error\(s\), \d+ warning\(s\), \d+ note\(s\)\n$/,
+    );
+  });
+
+  it('says in JSON what it measured, beside the counts', async () => {
+    const report = parsed<Report & { measured: unknown }>(await cli(['audit', '--format', 'json'], repo.root));
+    expect(report.measured).toEqual({
+      changes: 'measured',
+      archive: 'asked',
+      assertions: 'run',
+      goals: { held: 2, failed: 0 },
+      premises: { retired: 1, holding: 0 },
+      unreadableAssertions: 0,
+      rulings: { verified: 0, unverified: 0 },
+      dependencies: { changed: 4, unread: 0 },
+    });
+  });
+
+  it('reports each assertion spec-guard cannot read as a warning, where the audit dropped it and passed', async () => {
+    const unreadable = ['## Goals', '', '<!-- @assert-absence target="src" -->', '<!-- @assert-count symbol="Foo" target="src" min="abc" -->', ''].join('\n');
+    const r = repository({ [BRIEF_FILE]: brief({ affected: ['src/**'], body: unreadable }), 'src/a.ts': 'a\n' });
+    r.git('checkout', '-q', '-b', 'brief/001-x');
+    r.write('src/b.ts', 'b\n');
+    r.commit('work');
+    const result = await cli(['audit', '--format', 'json'], r.root);
+    const report = parsed<Report & { measured: { assertions: string; goals: unknown; unreadableAssertions: number } }>(result);
+    expect(report.findings.filter((f) => f.rule === 'assertion-unreadable').map((f) => [f.severity, f.line, f.message])).toEqual([
+      ['warning', 22, 'spec-guard cannot read an assertion in the brief, so nothing it states was run: @assert-absence requires a non-empty symbol="..." attribute.'],
+      ['warning', 23, 'spec-guard cannot read an assertion in the brief, so nothing it states was run: Attribute "min" must be a non-negative integer, got "abc".'],
+    ]);
+    // Each is about the directive as written, which its fingerprint is made of.
+    expect(report.findings.filter((f) => f.rule === 'assertion-unreadable').map((f) => f.subject)).toEqual([
+      '<!-- @assert-absence target="src" -->',
+      '<!-- @assert-count symbol="Foo" target="src" min="abc" -->',
+    ]);
+    expect(report.measured).toMatchObject({ assertions: 'run', goals: { held: 0, failed: 0 }, unreadableAssertions: 2 });
+    // Warnings: the audit fails on them only under --strict.
+    expect(result.code).toBe(0);
+    expect((await cli(['audit', '--strict'], r.root)).code).toBe(1);
+    expect((await cli(['audit'], r.root)).stdout).toContain('\nmeasured: goals: none declared · premises: none declared · unreadable assertions: 2 · archive: asked');
+  });
+
+  it('counts a ruling row it cannot read among its warnings, first in the report', async () => {
+    const rows = '## Rulings\n\n| Ruling | Paths | Decision |\n| --- | --- | --- |\n| R-001-1 | `a` | perhaps |\n';
+    const r = repository({ [BRIEF_FILE]: brief({ affected: ['src/**'], body: rows }), 'src/a.ts': 'a\n' });
+    r.git('checkout', '-q', '-b', 'brief/001-x');
+    r.write('src/b.ts', 'b\n');
+    r.commit('work');
+    const report = parsed<Report>(await cli(['audit', '--format', 'json'], r.root));
+    expect(report.findings.map((f) => f.rule)).toEqual(['ruling-unreadable']);
+    expect(report.counts).toEqual({ error: 0, warning: 1, note: 0 });
+  });
+
+  it('says a brief with no assertion declares no goal, and warns about nothing for it', async () => {
+    const r = repository({ [BRIEF_FILE]: brief({ affected: ['src/**'] }), 'src/a.ts': 'a\n' });
+    r.git('checkout', '-q', '-b', 'brief/001-x');
+    r.write('src/b.ts', 'b\n');
+    r.commit('work');
+    const result = await cli(['audit'], r.root);
+    expect(result.code).toBe(0);
+    expect(result.stdout).toBe(
+      `audit of brief 001 from main (${r.git('rev-parse', 'main').slice(0, 12)})\n\n\nmeasured: goals: none declared · premises: none declared · archive: asked · rulings: none · dependencies: 0 changed, 0 unread\n0 error(s), 0 warning(s), 0 note(s)\n`,
+    );
+    expect((await cli(['audit', '--strict'], r.root)).code).toBe(0);
   });
 
   it('fails a goal that does not hold, and warns about a premise that still does', async () => {
@@ -192,6 +256,32 @@ describe('audit of a round', () => {
     expect(names(unmeasured.findings)).toEqual(names(report.findings));
   });
 
+  it('names a manifest name a leading "/" roots, which names no manifest the round changed, as it names one it cannot read', async () => {
+    const r = repository(
+      { [BRIEF_FILE]: brief({ affected: ['**'] }), 'package.json': '{ "dependencies": {} }\n', 'Gemfile': "gem 'rails'\n", 'Cargo.toml': '[dependencies]\n' },
+      { dependencies: { manifests: ['/package.json', '{/Gemfile,Cargo.toml}'] } },
+    );
+    r.git('checkout', '-q', '-b', 'brief/1-x');
+    r.write('package.json', '{ "dependencies": { "left-pad": "1" } }\n');
+    r.write('Gemfile', "gem 'rails'\ngem 'rack'\n");
+    r.write('Cargo.toml', '[dependencies]\nserde = "1"\n');
+    r.commit('work');
+    const result = await cli(['audit', '--format', 'json'], r.root);
+    const report = parsed<Report>(result);
+    expect(report.findings.filter((f) => f.rule === 'manifest-name-rooted').map((f) => [f.severity, f.file, f.message])).toEqual([
+      ['warning', '.spec-harness.json', `"dependencies.manifests" names "/package.json": a leading "/" roots it at the filesystem's root, where no file of the repository is, so no manifest it names was read`],
+      [
+        'warning',
+        '.spec-harness.json',
+        `"dependencies.manifests" names "{/Gemfile,Cargo.toml}": a leading "/" roots an alternative of it at the filesystem's root, where no file of the repository is, so that alternative names no manifest`,
+      ],
+    ]);
+    // The alternative that is not rooted is read as before; the rooted ones name nothing the round changed.
+    expect(report.dependencies).toEqual([{ file: 'Cargo.toml', ecosystem: 'cargo', section: 'dependencies', name: 'serde', before: null, after: '1' }]);
+    expect(result.code).toBe(0);
+    expect((await cli(['audit', '--strict'], r.root)).code).toBe(1);
+  });
+
   it('names a manifest name whose braces expand to no path, which made every file the round changed a manifest', async () => {
     const r = repository(
       { [BRIEF_FILE]: brief({ affected: ['**'] }), 'Cargo.toml': '[dependencies]\nserde = "1"\n' },
@@ -208,5 +298,65 @@ describe('audit of a round', () => {
     // Read as every path, the name made src/a.ts a manifest no reader understands.
     expect(report.findings.map((f) => f.rule)).not.toContain('manifest-unread');
     expect(report.dependencies).toEqual([{ file: 'Cargo.toml', ecosystem: 'cargo', section: 'dependencies', name: 'serde', before: '1', after: '1.1' }]);
+  });
+});
+
+describe('audit for a forge', () => {
+  interface Issue {
+    check_name: string;
+    severity: string;
+    fingerprint: string;
+    description: string;
+    location: { path: string; lines: { begin: number } };
+  }
+
+  it('prints GitLab Code Quality, every finding placed, with the exit code of the other formats', async () => {
+    const result = await cli(['audit', '--format', 'gitlab'], repo.root);
+    expect(result.code).toBe(1);
+    const issues = JSON.parse(result.stdout) as Issue[];
+    const json = parsed<Report>(await cli(['audit', '--format', 'json'], repo.root));
+    expect(issues.map((issue) => issue.check_name)).toEqual(json.findings.map((f) => f.rule));
+    const dependency = issues.find((issue) => issue.check_name === 'new-dependency');
+    expect(dependency).toMatchObject({
+      severity: 'minor',
+      description: 'the round added npm dependency "left-pad" ^1.3.0 in package.json (dependencies). say in the brief why it is needed, or remove it; a new dependency is code no reviewer read',
+      location: { path: 'package.json', lines: { begin: 1 } },
+    });
+    expect(issues.find((issue) => issue.check_name === 'premise-retired')).toMatchObject({ severity: 'info', location: { path: BRIEF_FILE, lines: { begin: 23 } } });
+    expect(new Set(issues.map((issue) => issue.fingerprint)).size).toBe(issues.length);
+  });
+
+  it('prints SARIF with what it measured as a note, and GitHub annotations', async () => {
+    const sarif = JSON.parse((await cli(['audit', '--format', 'sarif'], repo.root)).stdout) as {
+      runs: { invocations: { toolExecutionNotifications: { message: { text: string } }[] }[]; results: { ruleId: string }[] }[];
+    };
+    expect(sarif.runs[0]?.invocations[0]?.toolExecutionNotifications[0]?.message.text).toBe(
+      'measured: goals: 2 held, 0 failed · premises: 1 retired, 0 holding · archive: asked · rulings: none · dependencies: 4 changed, 0 unread',
+    );
+    expect(sarif.runs[0]?.results.map((r) => r.ruleId)).toContain('archive/open-task');
+    const github = await cli(['audit', '--format', 'github'], repo.root);
+    expect(github.code).toBe(1);
+    expect(github.stdout).toContain(
+      '::warning file=package.json,line=1,title=spec-harness new-dependency::the round added npm dependency "left-pad" ^1.3.0 in package.json (dependencies). say in the brief why it is needed, or remove it; a new dependency is code no reviewer read\n',
+    );
+    expect(github.stdout).toContain(`::notice file=${BRIEF_FILE},line=23,title=spec-harness premise-retired::`);
+  });
+
+  it('keeps a finding\'s fingerprint when its line moves', async () => {
+    const r = repository({ [BRIEF_FILE]: brief({ affected: ['src/**'], body: BODY }), 'src/auth/a.ts': 'export const OldToken = 1; LegacyGateway();\n' });
+    r.git('checkout', '-q', '-b', 'brief/001-x');
+    r.write('src/auth/b.ts', 'b;\n');
+    r.commit('work');
+    const before = JSON.parse((await cli(['audit', '--format', 'gitlab'], r.root)).stdout) as Issue[];
+    r.write(BRIEF_FILE, brief({ affected: ['src/**'], body: `A line the round added above the goals.\n\n${BODY}` }));
+    r.commit('a line above');
+    const after = JSON.parse((await cli(['audit', '--format', 'gitlab'], r.root)).stdout) as Issue[];
+    const goals = (issues: Issue[]) => issues.filter((issue) => issue.check_name === 'goal-failed');
+    expect(goals(after).map((issue) => issue.location.lines.begin)).toEqual(goals(before).map((issue) => issue.location.lines.begin + 2));
+    expect(goals(after).map((issue) => issue.fingerprint)).toEqual(goals(before).map((issue) => issue.fingerprint));
+  });
+
+  it('is refused for a command whose output has no places', async () => {
+    expect(await cli(['context', '--format', 'sarif'], repo.root)).toEqual({ code: 2, stdout: '', stderr: 'spec-harness: --format sarif is for audit and premises; context prints pretty or json\n' });
   });
 });

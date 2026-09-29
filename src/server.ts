@@ -9,6 +9,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
+import { describeMeasured } from './audit.js';
 import { findActive } from './briefs.js';
 import { briefIdFromBranch } from './branch.js';
 import { titleOf } from './context.js';
@@ -188,12 +189,17 @@ export function tools(workspace: Workspace, env: CliIO['env']): ToolDefinition[]
         const found = await round(workspace, env, args['brief']);
         if ('text' in found) return found;
         const result = await runAudit(workspace, found.brief, reader, base.base);
-        const { counts, findings } = result.report;
+        const { counts, findings, measured } = result.report;
+        // What was measured beside what was found: "nothing found" from an
+        // audit that ran no goal is not a round that is done.
         const text =
           findings.length === 0
-            ? 'The audit found nothing.'
+            ? 'The audit found nothing in what it measured.'
             : findings.map((f) => `${f.severity} ${f.rule}: ${f.message}. Next: ${f.hint}`).join('\n');
-        return { text: `${text}\n\n${counts.error} error(s), ${counts.warning} warning(s), ${counts.note} note(s)`, structured: { counts, findings: findings.map((f) => ({ ...f })) } };
+        return {
+          text: `${text}\n\n${describeMeasured(measured)}\n\n${counts.error} error(s), ${counts.warning} warning(s), ${counts.note} note(s)`,
+          structured: { counts, measured: { ...measured }, findings: findings.map((f) => ({ ...f })) },
+        };
       },
     },
     {

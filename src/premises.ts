@@ -20,10 +20,12 @@
 import { isPremise, premiseFinding } from './audit.js';
 import { briefIdFromBranch } from './branch.js';
 import { findActive } from './briefs.js';
+import { CONFIG_FILE } from './config.js';
+import { formatFindings } from './formats.js';
 import { createReader } from './reader.js';
 import { briefText } from './round.js';
 import type { Finding } from './types.js';
-import { EXIT_ERROR, EXIT_FAILED, EXIT_OK, json, openWorkspace, type CliIO, type Options } from './workspace.js';
+import { EXIT_ERROR, EXIT_FAILED, EXIT_OK, json, openWorkspace, version, type CliIO, type Options } from './workspace.js';
 
 interface GuardResult {
   readonly ok: boolean;
@@ -41,7 +43,9 @@ export async function premisesCommand(options: Options, io: CliIO): Promise<numb
   const active = findActive(briefs, { flag: options.brief, environment: io.env['SPEC_BRIEF'], branch: fromBranch });
   const round = active.kind === 'found' ? active.brief.file : null;
   if (live.length === 0) {
-    io.stdout.write(options.format === 'json' ? json('premises', { ok: true, checked: 0, findings: [] }) : 'no live brief\n');
+    if (options.format === 'json') io.stdout.write(json('premises', { ok: true, checked: 0, findings: [] }));
+    else if (options.format === 'pretty') io.stdout.write('no live brief\n');
+    else io.stdout.write(formatFindings(options.format, [], { file: CONFIG_FILE, version: version(), summary: 'no live brief' }));
     return EXIT_OK;
   }
   const answer = await workspace.siblings.json('spec-guard', [...live.map((brief) => brief.file), '--ignore-status', '--json']);
@@ -70,12 +74,15 @@ export async function premisesCommand(options: Options, io: CliIO): Promise<numb
   }
   const stale = findings.filter((finding) => finding.severity === 'error').length;
   const retired = findings.length - stale;
+  const intended = retired === 0 || active.kind !== 'found' ? '' : `, and ${retired} retired by the round on brief ${active.brief.id}, as it intends`;
+  const summary = `${premises} premise(s) in ${live.length} live brief(s), ${stale} no longer hold${intended}`;
   if (options.format === 'json') {
     io.stdout.write(json('premises', { ok: stale === 0, briefs: live.length, premises, findings }));
-  } else {
+  } else if (options.format === 'pretty') {
     for (const finding of findings) io.stdout.write(`${finding.severity.padEnd(8)} ${finding.file}:${finding.line}  ${finding.message}\n         ${finding.hint}\n`);
-    const intended = retired === 0 || active.kind !== 'found' ? '' : `, and ${retired} retired by the round on brief ${active.brief.id}, as it intends`;
-    io.stdout.write(`${premises} premise(s) in ${live.length} live brief(s), ${stale} no longer hold${intended}\n`);
+    io.stdout.write(`${summary}\n`);
+  } else {
+    io.stdout.write(formatFindings(options.format, findings, { file: CONFIG_FILE, version: version(), summary }));
   }
   return stale > 0 ? EXIT_FAILED : EXIT_OK;
 }

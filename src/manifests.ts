@@ -52,22 +52,33 @@ export interface ManifestNames {
   readonly match: (path: string) => boolean;
   /** The names spec-core's glob refused, malformed or too large to compile, each with its reason. */
   readonly unread: readonly { readonly name: string; readonly reason: string }[];
+  /** The names a leading `/` roots, alone or on a brace alternative, and whether every alternative is. */
+  readonly rooted: readonly { readonly name: string; readonly whole: boolean }[];
 }
 
 /**
  * The configured manifest names, read. A name that cannot be read names no
  * manifest, and is returned so the audit can say so: every file it was
- * meant to name would otherwise go unmeasured in silence.
+ * meant to name would otherwise go unmeasured in silence. So is a name a
+ * leading `/` roots at the filesystem's root: it can be read, and names no
+ * path the audit is given, all of which are repository-relative.
  */
 export function readManifestNames(patterns: readonly string[]): ManifestNames {
   const globs: Glob[] = [];
   const unread: { name: string; reason: string }[] = [];
+  const rooted: { name: string; whole: boolean }[] = [];
   for (const pattern of patterns) {
     const parsed = parseGlob(pattern, { dialect: 'ripgrep', caseSensitive: true });
-    if (parsed.ok) globs.push(parsed.glob);
-    else unread.push({ name: pattern, reason: parsed.error });
+    if (!parsed.ok) {
+      unread.push({ name: pattern, reason: parsed.error });
+      continue;
+    }
+    globs.push(parsed.glob);
+    // A rooted alternative's base starts at the root, `/` itself at the least.
+    const roots = parsed.glob.bases.filter((base) => base.startsWith('/'));
+    if (roots.length > 0) rooted.push({ name: pattern, whole: roots.length === parsed.glob.bases.length });
   }
-  return { match: (path) => globs.some((glob) => glob.match(path)), unread };
+  return { match: (path) => globs.some((glob) => glob.match(path)), unread, rooted };
 }
 
 /** A predicate over paths for the configured manifest names, matched at any depth. */

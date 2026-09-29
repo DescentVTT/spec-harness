@@ -10,7 +10,7 @@ import { existsSync } from 'node:fs';
 import { readdir, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { audit, type ArchiveReason, type AssertionOutcome, type AuditInput, type AuditReport } from './audit.js';
+import { audit, tally, type ArchiveReason, type AssertionOutcome, type AuditInput, type AuditReport, type UnreadableAssertion } from './audit.js';
 import { sameId } from './branch.js';
 import {
   enabledPlugin,
@@ -271,7 +271,7 @@ async function dependencyChanges(workspace: Workspace, base: Base): Promise<Audi
   // A name that cannot be read is reported with or without a base: it would
   // leave its manifests out of every audit measured from one.
   const names = readManifestNames(workspace.config.dependencies.manifests);
-  if (base.kind === 'unresolved') return { changes: [], unread: [], unreadNames: names.unread };
+  if (base.kind === 'unresolved') return { changes: [], unread: [], unreadNames: names.unread, rootedNames: names.rooted };
   const isManifest = names.match;
   const out: DependencyChange[] = [];
   const unread: string[] = [];
@@ -288,7 +288,7 @@ async function dependencyChanges(workspace: Workspace, base: Base): Promise<Audi
     if ('error' in diff) unread.push(change.path);
     else out.push(...diff.changes);
   }
-  return { changes: out, unread, unreadNames: names.unread };
+  return { changes: out, unread, unreadNames: names.unread, rootedNames: names.rooted };
 }
 
 /** Whether spec-brief loads this package's plugin, as its configuration at the root says. */
@@ -344,17 +344,31 @@ async function archiveReasons(workspace: Workspace, brief: BriefRow, base: Base)
   return { blocking: plan?.blocking ?? [], warnings: plan?.warnings ?? [] };
 }
 
-async function briefAssertions(workspace: Workspace, brief: BriefRow, text: string, reader: DocumentReader): Promise<AssertionOutcome[] | { unavailable: string }> {
+interface GuardRun {
+  readonly results?: readonly { readonly ok: boolean; readonly description: string; readonly message: string; readonly spec?: { readonly file: string; readonly line: number } }[];
+  readonly errors?: readonly { readonly message: string; readonly raw?: string; readonly spec?: { readonly file: string; readonly line: number } }[];
+}
+
+/** The brief's assertions as spec-guard ran them, and those it could not read, which it lists apart as `errors`. */
+async function briefAssertions(
+  workspace: Workspace,
+  brief: BriefRow,
+  text: string,
+  reader: DocumentReader,
+): Promise<{ outcomes: AssertionOutcome[]; unreadable: UnreadableAssertion[] } | { unavailable: string }> {
   const answer = await workspace.siblings.json('spec-guard', [brief.file, '--ignore-status', '--json']);
   if ('absent' in answer) return { unavailable: answer.absent };
   if (answer.code === 2) return { unavailable: 'spec-guard could not run the brief\'s assertions' };
-  const report = answer.document as { results?: { ok: boolean; description: string; message: string; spec?: { file: string; line: number } }[] };
-  return (report.results ?? [])
-    .filter((result) => result.spec === undefined || result.spec.file.replace(/\\/g, '/') === brief.file)
+  const report = answer.document as GuardRun;
+  const own = (spec: { readonly file: string } | undefined): boolean => spec === undefined || spec.file.replace(/\\/g, '/') === brief.file;
+  const outcomes = (report.results ?? [])
+    .filter((result) => own(result.spec))
     .map((result) => {
       const line = result.spec?.line ?? 0;
       return { ok: result.ok, description: result.description, message: result.message, line, section: reader.sectionAt(text, line), enclosing: reader.sectionsAt(text, line) };
     });
+  const unreadable = (report.errors ?? []).filter((error) => own(error.spec)).map((error) => ({ message: error.message, line: error.spec?.line ?? 0, raw: error.raw ?? '' }));
+  return { outcomes, unreadable };
 }
 
 export interface AuditResult {
@@ -381,24 +395,15 @@ export async function runAudit(workspace: Workspace, brief: BriefRow, reader: Do
     unmeasured,
     dependencies,
     archive,
-    assertions,
+    assertions: 'unavailable' in assertions ? assertions : assertions.outcomes,
+    unreadableAssertions: 'unavailable' in assertions ? [] : assertions.unreadable,
     premiseSections: workspace.config.assertions.premises,
     unverifiedRulings: rulings.unverified,
     verifiedRulings: rulings.verified,
     pluginLoaded: plugin.kind === 'loaded',
   });
-  return {
-    brief,
-    base,
-    dependencies: dependencies.changes,
-    report: { findings: [...rulings.problems, ...report.findings], counts: tally([...rulings.problems, ...report.findings]) },
-  };
-}
-
-function tally(findings: readonly Finding[]): AuditReport['counts'] {
-  const counts = { error: 0, warning: 0, note: 0 };
-  for (const finding of findings) counts[finding.severity] += 1;
-  return counts;
+  const findings = [...rulings.problems, ...report.findings];
+  return { brief, base, dependencies: dependencies.changes, report: { findings, counts: tally(findings), measured: report.measured } };
 }
 
 /* -------------------------------------------------------------- escalation */

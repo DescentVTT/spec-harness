@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { audit, isPremise, premiseFinding, type AssertionOutcome, type AuditInput } from '../../src/audit.js';
+import { audit, describeMeasured, isPremise, premiseFinding, type AssertionOutcome, type AuditInput } from '../../src/audit.js';
 import { DEFAULT_CONFIG } from '../../src/config.js';
 import type { DependencyChange } from '../../src/manifests.js';
 import { row } from './helpers.js';
@@ -31,8 +31,122 @@ function change(before: string | null, after: string | null, name = 'left-pad'):
 }
 
 describe('a clean round', () => {
-  it('finds nothing and counts nothing', () => {
-    expect(audit(input())).toEqual({ findings: [], counts: { error: 0, warning: 0, note: 0 } });
+  it('finds nothing, and says what it measured to find it (spec-core ADR-0005)', () => {
+    const held = audit(input({ assertions: [outcome(true, 'Invariants'), outcome(true, 'Goals'), outcome(false, 'Premises')] }));
+    expect(held.findings.map((f) => f.rule)).toEqual(['premise-retired']);
+    expect(held.counts).toEqual({ error: 0, warning: 0, note: 1 });
+    expect(held.measured).toEqual({
+      changes: 'measured',
+      archive: 'asked',
+      assertions: 'run',
+      goals: { held: 2, failed: 0 },
+      premises: { retired: 1, holding: 0 },
+      unreadableAssertions: 0,
+      rulings: { verified: 0, unverified: 0 },
+      dependencies: { changed: 0, unread: 0 },
+    });
+    expect(describeMeasured(held.measured)).toBe(
+      'measured: goals: 2 held, 0 failed · premises: 1 retired, 0 holding · archive: asked · rulings: none · dependencies: 0 changed, 0 unread',
+    );
+  });
+
+  it('says a brief with no assertion declares no goal, and warns about nothing for it', () => {
+    const report = audit(input());
+    expect(report.findings).toEqual([]);
+    expect(report.counts).toEqual({ error: 0, warning: 0, note: 0 });
+    expect(report.measured.goals).toEqual({ held: 0, failed: 0 });
+    expect(describeMeasured(report.measured)).toBe(
+      'measured: goals: none declared · premises: none declared · archive: asked · rulings: none · dependencies: 0 changed, 0 unread',
+    );
+  });
+});
+
+describe('what the audit measured', () => {
+  it('tells an audit that ran nothing from one that found nothing', () => {
+    const report = audit(input({ unmeasured: 'no base', archive: { unavailable: 'x' }, assertions: { unavailable: 'y' } }));
+    expect(report.measured).toMatchObject({ changes: 'unmeasured', archive: 'unavailable', assertions: 'unavailable' });
+    expect(describeMeasured(report.measured)).toBe('measured: assertions: not run · archive: not asked · rulings: none · dependencies: not measured');
+  });
+
+  it('counts goals, premises, rulings and dependencies as it judged them', () => {
+    const report = audit(
+      input({
+        assertions: [outcome(false, 'Invariants'), outcome(true, 'Invariants'), outcome(true, 'Premises'), outcome(false, 'The Defect, Measured'), outcome(false, 'Premises')],
+        verifiedRulings: [{ id: 'R-012-1', paths: ['x'], signer: 'p@example.com' }],
+        unverifiedRulings: [
+          { id: 'R-012-2', reason: 'r' },
+          { id: 'R-012-3', reason: 'r' },
+        ],
+        dependencies: { changes: [change(null, '1'), change('1', null, 'b'), change('1', '2', 'c')], unread: ['go.mod'] },
+      }),
+    );
+    expect(report.measured).toMatchObject({
+      goals: { held: 1, failed: 1 },
+      premises: { retired: 2, holding: 1 },
+      rulings: { verified: 1, unverified: 2 },
+      dependencies: { changed: 3, unread: 1 },
+    });
+    expect(describeMeasured(report.measured)).toBe(
+      'measured: goals: 1 held, 1 failed · premises: 2 retired, 1 holding · archive: asked · rulings: 1 verified, 2 unverified · dependencies: 3 changed, 1 unread',
+    );
+  });
+
+  it('declares goals, premises and rulings when any of them is counted, whichever way it went', () => {
+    const failed = audit(
+      input({
+        assertions: [outcome(false, 'Invariants'), outcome(true, 'Premises')],
+        unverifiedRulings: [{ id: 'R-012-1', reason: 'r' }],
+      }),
+    );
+    expect(describeMeasured(failed.measured)).toBe(
+      'measured: goals: 0 held, 1 failed · premises: 0 retired, 1 holding · archive: asked · rulings: 0 verified, 1 unverified · dependencies: 0 changed, 0 unread',
+    );
+  });
+
+  it('names the assertions spec-guard could not read beside those it ran', () => {
+    const report = audit(input({ assertions: [outcome(true, 'Invariants')], unreadableAssertions: [{ message: 'm', line: 9, raw: '<!-- @assert-absence -->' }] }));
+    expect(report.measured.unreadableAssertions).toBe(1);
+    expect(describeMeasured(report.measured)).toBe(
+      'measured: goals: 1 held, 0 failed · premises: none declared · unreadable assertions: 1 · archive: asked · rulings: none · dependencies: 0 changed, 0 unread',
+    );
+  });
+});
+
+describe('an assertion spec-guard cannot read', () => {
+  const unreadable = [
+    { message: '@assert-absence requires a non-empty symbol="..." attribute.', line: 22, raw: '<!-- @assert-absence target="src" -->\n' },
+    { message: 'Attribute "min" must be a non-negative integer, got "abc".', line: 23, raw: '<!-- @assert-count symbol="Foo" target="src" min="abc" -->' },
+  ];
+
+  it('is a warning each, never dropped, which fails the audit only under --strict', () => {
+    const report = audit(input({ unreadableAssertions: unreadable }));
+    expect(report.findings).toEqual([
+      {
+        rule: 'assertion-unreadable',
+        severity: 'warning',
+        message: 'spec-guard cannot read an assertion in the brief, so nothing it states was run: @assert-absence requires a non-empty symbol="..." attribute.',
+        hint: `fix the directive in ${FILE}; until spec-guard can read it, the audit measures nothing it states`,
+        file: FILE,
+        line: 22,
+        subject: '<!-- @assert-absence target="src" -->',
+      },
+      {
+        rule: 'assertion-unreadable',
+        severity: 'warning',
+        message: 'spec-guard cannot read an assertion in the brief, so nothing it states was run: Attribute "min" must be a non-negative integer, got "abc".',
+        hint: `fix the directive in ${FILE}; until spec-guard can read it, the audit measures nothing it states`,
+        file: FILE,
+        line: 23,
+        subject: '<!-- @assert-count symbol="Foo" target="src" min="abc" -->',
+      },
+    ]);
+    expect(report.counts).toEqual({ error: 0, warning: 2, note: 0 });
+  });
+
+  it('comes after the assertions spec-guard ran, and says nothing when there is none', () => {
+    const report = audit(input({ assertions: [outcome(false, 'Invariants')], unreadableAssertions: unreadable.slice(0, 1), unverifiedRulings: [{ id: 'R-1', reason: 'r' }] }));
+    expect(report.findings.map((f) => f.rule)).toEqual(['goal-failed', 'assertion-unreadable', 'ruling-unverified']);
+    expect(audit(input({ unreadableAssertions: [] })).findings).toEqual([]);
   });
 });
 
@@ -107,6 +221,7 @@ describe('what could not be measured is a finding, never a silence', () => {
         message: '"dependencies.manifests" names "[x", which cannot be read: a "[" is never closed; no manifest it names was read',
         hint: 'fix or remove the name in .spec-harness.json; the other names were read',
         file: '.spec-harness.json',
+        subject: '[x',
       },
       {
         rule: 'manifest-name-unread',
@@ -114,6 +229,7 @@ describe('what could not be measured is a finding, never a silence', () => {
         message: '"dependencies.manifests" names "{a,b}{a,b}", which cannot be read: the pattern compiles to more than 65536 states; no manifest it names was read',
         hint: 'fix or remove the name in .spec-harness.json; the other names were read',
         file: '.spec-harness.json',
+        subject: '{a,b}{a,b}',
       },
     ]);
     // The names that could be read still measured the round.
@@ -121,8 +237,43 @@ describe('what could not be measured is a finding, never a silence', () => {
     expect(report.counts.error).toBe(0);
   });
 
+  it('reports a manifest name a leading "/" roots, which names no file of the repository, as a warning that fails nothing', () => {
+    const report = audit(
+      input({
+        dependencies: {
+          changes: [],
+          unread: [],
+          rootedNames: [
+            { name: '/package.json', whole: true },
+            { name: '{/Gemfile,Cargo.toml}', whole: false },
+          ],
+        },
+      }),
+    );
+    expect(report.findings).toEqual([
+      {
+        rule: 'manifest-name-rooted',
+        severity: 'warning',
+        message: `"dependencies.manifests" names "/package.json": a leading "/" roots it at the filesystem's root, where no file of the repository is, so no manifest it names was read`,
+        hint: 'write it without the leading "/" in .spec-harness.json, since a name is matched at any depth; the other names were read',
+        file: '.spec-harness.json',
+        subject: '/package.json',
+      },
+      {
+        rule: 'manifest-name-rooted',
+        severity: 'warning',
+        message:
+          `"dependencies.manifests" names "{/Gemfile,Cargo.toml}": a leading "/" roots an alternative of it at the filesystem's root, where no file of the repository is, so that alternative names no manifest`,
+        hint: 'write it without the leading "/" in .spec-harness.json, since a name is matched at any depth; the other names were read',
+        file: '.spec-harness.json',
+        subject: '{/Gemfile,Cargo.toml}',
+      },
+    ]);
+    expect(report.counts).toEqual({ error: 0, warning: 2, note: 0 });
+  });
+
   it('reports no manifest name when every name was read, or none was said', () => {
-    expect(audit(input({ dependencies: { changes: [], unread: [], unreadNames: [] } })).findings).toEqual([]);
+    expect(audit(input({ dependencies: { changes: [], unread: [], unreadNames: [], rootedNames: [] } })).findings).toEqual([]);
     expect(audit(input({ dependencies: { changes: [], unread: [] } })).findings).toEqual([]);
   });
 });
@@ -162,8 +313,8 @@ describe('the archive', () => {
     const { findings } = audit(input({ archive: { blocking: [refused('src/db/schema.ts'), refused('src/api.ts')], warnings: [] }, verifiedRulings: signed, pluginLoaded: false }));
     const loadIt = 'but spec-brief does not load spec-harness\'s plugin, which is how its archive learns of signed rulings: add "@descent-vtt/spec-harness/spec-brief-plugin" to "plugins" in its configuration, or run spec-harness init --write';
     expect(findings).toEqual([
-      { rule: 'archive/protected-file', severity: 'error', message: 'the round changed src/db/schema.ts, which this brief protects', hint: `ruling R-012-1, signed by person@example.com, allows it, ${loadIt}`, file: FILE, line: 7 },
-      { rule: 'archive/protected-file', severity: 'error', message: 'the round changed src/api.ts, which this brief protects', hint: `ruling R-012-2, signed by other@example.com, allows it, ${loadIt}`, file: FILE, line: 7 },
+      { rule: 'archive/protected-file', severity: 'error', message: 'the round changed src/db/schema.ts, which this brief protects', hint: `ruling R-012-1, signed by person@example.com, allows it, ${loadIt}`, file: FILE, line: 7, subject: 'src/db/schema.ts' },
+      { rule: 'archive/protected-file', severity: 'error', message: 'the round changed src/api.ts, which this brief protects', hint: `ruling R-012-2, signed by other@example.com, allows it, ${loadIt}`, file: FILE, line: 7, subject: 'src/api.ts' },
     ]);
   });
 
@@ -199,8 +350,9 @@ describe('the brief\'s assertions', () => {
         hint: 'the round is not done until this holds',
         file: FILE,
         line: 30,
+        subject: '"X" in Invariants',
       },
-      { rule: 'goal-failed', severity: 'error', message: '"X" in no section: expected 0, found 2', hint: 'the round is not done until this holds', file: FILE, line: 40 },
+      { rule: 'goal-failed', severity: 'error', message: '"X" in no section: expected 0, found 2', hint: 'the round is not done until this holds', file: FILE, line: 40, subject: '"X" in no section' },
     ]);
   });
 
@@ -214,8 +366,9 @@ describe('the brief\'s assertions', () => {
         hint: 'the round set out to change what this premise states; check that it did, or move the assertion out of the premises',
         file: FILE,
         line: 12,
+        subject: '"X" in The Defect, Measured',
       },
-      { rule: 'premise-retired', severity: 'note', message: 'a premise no longer holds, as the round intended: "X" in Premises', hint: 'nothing to do', file: FILE, line: 14 },
+      { rule: 'premise-retired', severity: 'note', message: 'a premise no longer holds, as the round intended: "X" in Premises', hint: 'nothing to do', file: FILE, line: 14, subject: '"X" in Premises' },
     ]);
     expect(counts).toEqual({ error: 0, warning: 1, note: 1 });
   });
@@ -268,6 +421,7 @@ describe('rulings', () => {
         message: 'ruling R-012-1 allows nothing: its row is not committed',
         hint: "a ruling counts when the commit that last changed its row is signed by a key in the base branch's allowed signers",
         file: FILE,
+        subject: 'R-012-1',
       },
     ]);
   });
@@ -283,6 +437,7 @@ describe('dependencies', () => {
         message: 'the round added npm dependency "left-pad" ^1.3.0 in package.json (dependencies)',
         hint: 'say in the brief why it is needed, or remove it; a new dependency is code no reviewer read',
         file: 'package.json',
+        subject: 'left-pad (dependencies)',
       },
       {
         rule: 'new-dependency',
@@ -290,6 +445,7 @@ describe('dependencies', () => {
         message: 'the round added npm dependency "serde" in package.json (dependencies)',
         hint: 'say in the brief why it is needed, or remove it; a new dependency is code no reviewer read',
         file: 'package.json',
+        subject: 'serde (dependencies)',
       },
     ]);
   });
@@ -297,13 +453,14 @@ describe('dependencies', () => {
   it('notes a dependency removed or moved to another version', () => {
     const { findings, counts } = audit(input({ dependencies: { changes: [change('1.0.0', null), change('1.0.0', '2.0.0')], unread: [] } }));
     expect(findings).toEqual([
-      { rule: 'dependency-removed', severity: 'note', message: 'the round removed "left-pad" from package.json (dependencies)', hint: 'nothing to do', file: 'package.json' },
+      { rule: 'dependency-removed', severity: 'note', message: 'the round removed "left-pad" from package.json (dependencies)', hint: 'nothing to do', file: 'package.json', subject: 'left-pad (dependencies)' },
       {
         rule: 'dependency-changed',
         severity: 'note',
         message: 'the round moved "left-pad" from 1.0.0 to 2.0.0 in package.json (dependencies)',
         hint: 'nothing to do, if the brief meant it',
         file: 'package.json',
+        subject: 'left-pad (dependencies)',
       },
     ]);
     expect(counts).toEqual({ error: 0, warning: 0, note: 2 });
@@ -322,6 +479,7 @@ describe('a premise that premises finds no longer holds', () => {
       hint: 'what the brief was written against has changed; archive the brief if its work is done, or rewrite its premise before a round is run on it',
       file: FILE,
       line: 20,
+      subject: '"legacyCall" in src',
     });
   });
 
@@ -333,6 +491,7 @@ describe('a premise that premises finds no longer holds', () => {
       hint: 'nothing to do: this is the round that changes it, and audit measures it',
       file: FILE,
       line: 20,
+      subject: '"legacyCall" in src',
     });
   });
 });
@@ -344,8 +503,14 @@ describe('the report', () => {
         unmeasured: 'no base',
         archive: { blocking: [{ rule: 'protected-file', severity: 'error', message: 'm', hint: 'h' }], warnings: [] },
         assertions: [outcome(false, 'Invariants'), outcome(false, 'Premises')],
+        unreadableAssertions: [{ message: 'm', line: 3, raw: 'r' }],
         unverifiedRulings: [{ id: 'R-1', reason: 'r' }],
-        dependencies: { changes: [change(null, '1'), change('1', null)], unread: ['go.mod'], unreadNames: [{ name: '[x', reason: 'r' }] },
+        dependencies: {
+          changes: [change(null, '1'), change('1', null)],
+          unread: ['go.mod'],
+          unreadNames: [{ name: '[x', reason: 'r' }],
+          rootedNames: [{ name: '/Gemfile', whole: true }],
+        },
       }),
     );
     expect(report.findings.map((f) => f.rule)).toEqual([
@@ -353,14 +518,19 @@ describe('the report', () => {
       'archive/protected-file',
       'goal-failed',
       'premise-retired',
+      'assertion-unreadable',
       'ruling-unverified',
       'manifest-name-unread',
+      'manifest-name-rooted',
       'manifest-unread',
       'new-dependency',
       'dependency-removed',
     ]);
-    expect(report.counts).toEqual({ error: 2, warning: 5, note: 2 });
-    // An archive reason with no file names none.
+    expect(report.counts).toEqual({ error: 2, warning: 7, note: 2 });
+    // An archive reason with no file names none, and with no path is about nothing narrower than its rule.
     expect('file' in (report.findings[1] as object)).toBe(false);
+    expect('subject' in (report.findings[1] as object)).toBe(false);
+    // Nor has a finding about the whole round a subject: its rule and its file are its identity.
+    expect('subject' in (report.findings[0] as object)).toBe(false);
   });
 });

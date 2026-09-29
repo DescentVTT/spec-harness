@@ -115,9 +115,21 @@ describe('which files are manifests', () => {
     const paths = ['package.json', 'a/package.json', 'Gemfile', 'a/Gemfile'];
     expect(paths.map((path) => braced.match(path))).toEqual([false, false, true, true]);
     expect(paths.map((path) => alone.match(path))).toEqual(paths.map((path) => braced.match(path)));
-    // Readable, so no warning names it.
+    // Readable, so it is not among the names that cannot be read; it is among the rooted.
     expect(braced.unread).toEqual([]);
     expect(alone.unread).toEqual([]);
+    expect(braced.rooted).toEqual([{ name: '{/package.json,Gemfile}', whole: false }]);
+    expect(alone.rooted).toEqual([{ name: '/package.json', whole: true }]);
+  });
+
+  it('names a name rooted in every alternative as rooted whole, and one written anywhere else as not rooted', () => {
+    expect(readManifestNames(['{/package.json,/Gemfile}', '/{a,b}/Cargo.toml', './/go.mod']).rooted).toEqual([
+      { name: '{/package.json,/Gemfile}', whole: true },
+      { name: '/{a,b}/Cargo.toml', whole: true },
+      { name: './/go.mod', whole: true },
+    ]);
+    // A slash after a segment, a name at any depth and one under a directory are the repository's.
+    expect(readManifestNames([...DEFAULT_MANIFESTS, 'tools/package.json', 'a/{/b,c}.toml', '{tools/,Gemfile}', './Gemfile']).rooted).toEqual([]);
   });
 });
 

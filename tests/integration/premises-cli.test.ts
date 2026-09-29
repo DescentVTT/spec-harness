@@ -57,3 +57,32 @@ describe('the spec-brief plugin', () => {
     expect(waivers).toEqual([]);
   });
 });
+
+describe('premises for a forge', () => {
+  const body = ['## The Defect, Measured', '', '<!-- @assert-count target="src" symbol="legacyCall" min="1" -->', ''].join('\n');
+
+  it('places each stale premise on its brief, and fails as the other formats do', async () => {
+    const repo = repository({ [BRIEF_FILE]: brief({ affected: ['src/**'], body }), 'src/a.ts': 'modernCall();\n' });
+    const gitlab = await cli(['premises', '--format', 'gitlab'], repo.root);
+    expect(gitlab.code).toBe(1);
+    expect(JSON.parse(gitlab.stdout)).toEqual([
+      {
+        description: expect.stringMatching(/^brief 001's premise no longer holds: .+\. what the brief was written against has changed; archive the brief/),
+        check_name: 'stale-premise',
+        fingerprint: expect.stringMatching(/^[0-9a-f]{64}$/),
+        severity: 'major',
+        location: { path: BRIEF_FILE, lines: { begin: 22 } },
+      },
+    ]);
+    const github = await cli(['premises', '--format', 'github'], repo.root);
+    expect(github.stdout.startsWith(`::error file=${BRIEF_FILE},line=22,title=spec-harness stale-premise::brief 001's premise no longer holds: `)).toBe(true);
+    const sarif = JSON.parse((await cli(['premises', '--format', 'sarif'], repo.root)).stdout) as { runs: { invocations: { toolExecutionNotifications: { message: { text: string } }[] }[] }[] };
+    expect(sarif.runs[0]?.invocations[0]?.toolExecutionNotifications[0]?.message.text).toBe('1 premise(s) in 1 live brief(s), 1 no longer hold');
+  });
+
+  it('prints an empty report, and passes, when no brief is live', async () => {
+    const repo = repository({ 'briefs/archive/001_done.md': brief({ status: 'archived' }) });
+    expect(await cli(['premises', '--format', 'gitlab'], repo.root)).toEqual({ code: 0, stdout: '[]\n', stderr: '' });
+    expect(await cli(['premises', '--format', 'github'], repo.root)).toEqual({ code: 0, stdout: '', stderr: '' });
+  });
+});
