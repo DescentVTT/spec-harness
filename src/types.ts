@@ -10,6 +10,13 @@ export interface Finding {
   readonly hint: string;
   readonly file?: string | undefined;
   readonly line?: number | undefined;
+  /**
+   * What the finding is about - an assertion, a ruling, a dependency, a name -
+   * in words that stay the same while it stays the same finding. With the rule
+   * and the file it is the finding's identity, which a GitLab fingerprint is
+   * made of; the message, the hint and the line never are.
+   */
+  readonly subject?: string | undefined;
 }
 
 /** A brief as `spec-brief list --format json` reports it. */

@@ -63,7 +63,34 @@ spec-brief's archive refuses a round that changed a protected file, and learns t
 
 ### `audit [brief]`
 
-One report: what spec-brief's archive would refuse or warn about, run with `--dry-run`; the brief's own assertions through spec-guard - a goal that fails, or a premise (under a heading such as *The Defect, Measured*) that still holds after the round meant to change it; rulings whose signatures do not verify; and every dependency the round added to `package.json`, `Cargo.toml`, `go.mod`, `pyproject.toml`, `requirements*.txt`, NuGet project files or a `Gemfile`. A part that could not be measured is a finding, never a silence. So is a name in `dependencies.manifests` that spec-core's glob cannot read, malformed or too large to compile: the audit names it and the reason in a warning, `manifest-name-unread`, which fails the audit only under `--strict`, and reads the manifests the other names name.
+One report: what spec-brief's archive would refuse or warn about, run with `--dry-run`; the brief's own assertions through spec-guard - a goal that fails, or a premise (under a heading such as *The Defect, Measured*) that still holds after the round meant to change it; rulings whose signatures do not verify; and every dependency the round added to `package.json`, `Cargo.toml`, `go.mod`, `pyproject.toml`, `requirements*.txt`, NuGet project files or a `Gemfile`. A part that could not be measured is a finding, never a silence. Each of these is a warning, which fails the audit only under `--strict`:
+
+- `assertion-unreadable`: an assertion in the brief spec-guard cannot read, on its line, with spec-guard's reason. Nothing it states was run.
+- `manifest-name-unread`: a name in `dependencies.manifests` that spec-core's glob cannot read, malformed or too large to compile, with the reason. The audit reads the manifests the other names name.
+- `manifest-name-rooted`: a name a leading `/` roots at the filesystem's root, alone or on a brace alternative, such as `/package.json` or `{/Gemfile,Cargo.toml}`. Every path the audit reads is repository-relative, so the rooted part names no manifest; write the name without the slash, since a name is matched at any depth.
+
+What was measured is said beside what was found, so an audit that found nothing can be told from one that checked nothing ([spec-core's ADR-0005](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0005-the-family-contract.md)). It is the line above the counts, which stay the last line:
+
+```text
+measured: goals: 2 held, 0 failed · premises: 1 retired, 0 holding · archive: asked · rulings: none · dependencies: 3 changed, 0 unread
+0 error(s), 0 warning(s), 1 note(s)
+```
+
+A brief that declares no assertion says `goals: none declared`, and draws no warning: a brief without assertions is a brief, and the archive still measures its round. `--format json` has the same as `measured`, beside `counts`: `changes` (`measured` or `unmeasured`), `archive` (`asked` or `unavailable`), `assertions` (`run` or `unavailable`), `goals` (`held`, `failed`), `premises` (`retired`, `holding`), `unreadableAssertions`, `rulings` (`verified`, `unverified`) and `dependencies` (`changed`, `unread`). `audit_round` says it too.
+
+`--format gitlab`, `sarif` or `github` prints the findings for a forge: a GitLab Code Quality report, SARIF 2.1.0, or GitHub workflow commands. Each carries the finding's hint after its message. A finding with no file of its own is placed on the brief, and one with no line on line 1. An error is `major` in GitLab, a warning `minor` and a note `info`; SARIF's levels and GitHub's commands are `error`, `warning` and `note` or `notice`. The fingerprint is the SHA-256 of the rule, the file and the finding's `subject` - the assertion, ruling, dependency or name it is about - never of its message or line, so a reworded message or a line added above does not read as one problem fixed and another found; SARIF carries it as `partialFingerprints.specHarnessFinding`, with what was measured as a note. In GitLab CI:
+
+```yaml
+spec-harness:
+  image: node:22
+  script:
+    - npm ci
+    - npx spec-harness audit --format gitlab > gl-spec-harness.json
+  artifacts:
+    when: always
+    reports:
+      codequality: gl-spec-harness.json
+```
 
 ### `probe [brief]`
 
@@ -86,7 +113,7 @@ signature: expected 401, got 200
 
 ### `premises`
 
-Is every live brief still about something true? It runs spec-guard over the live briefs' assertions and reports each premise - an assertion under a section in `assertions.premises` - that no longer holds as `stale-premise`: the defect was fixed another way, or the code the brief describes is gone, and an agent sent to fix it would fix nothing. Goals are left to `audit`, since a goal fails until its round is done. For the same reason, the premise of the brief a round is working on - the one `--brief`, `SPEC_BRIEF` or the branch names - is reported as `audit` reports it, `premise-retired`, a note that fails nothing: on the round's branch, a premise that no longer holds is the work being done. Run it in CI: exit 1 when a premise is stale, exit 2 when spec-guard is not there to ask.
+Is every live brief still about something true? It runs spec-guard over the live briefs' assertions and reports each premise - an assertion under a section in `assertions.premises` - that no longer holds as `stale-premise`: the defect was fixed another way, or the code the brief describes is gone, and an agent sent to fix it would fix nothing. Goals are left to `audit`, since a goal fails until its round is done. For the same reason, the premise of the brief a round is working on - the one `--brief`, `SPEC_BRIEF` or the branch names - is reported as `audit` reports it, `premise-retired`, a note that fails nothing: on the round's branch, a premise that no longer holds is the work being done. Run it in CI: exit 1 when a premise is stale, exit 2 when spec-guard is not there to ask. `--format gitlab`, `sarif` or `github` prints its findings for a forge, as `audit` does.
 
 ### `mcp`
 

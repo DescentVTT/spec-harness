@@ -17,7 +17,10 @@
  * - And the one question nobody else asks: which dependencies the round
  *   added. A dependency is code no reviewer read.
  *
- * A part that could not be measured is a finding, never a silence.
+ * A part that could not be measured is a finding, never a silence, and what
+ * was measured is reported beside what was found: an audit that finds nothing
+ * because it checked nothing must not read as one that checked and found
+ * nothing (spec-core ADR-0005).
  */
 
 import { CONFIG_FILE } from './config.js';
@@ -38,6 +41,14 @@ export interface AssertionOutcome {
   readonly enclosing?: readonly string[] | undefined;
 }
 
+/** An assertion spec-guard could not read, as it reports it: nothing it states was run. */
+export interface UnreadableAssertion {
+  readonly message: string;
+  readonly line: number;
+  /** The directive as written. */
+  readonly raw: string;
+}
+
 /** A reason spec-brief's archive gives; a `protected-file` refusal names its `path`. */
 export interface ArchiveReason extends Finding {
   readonly path?: string | undefined;
@@ -52,9 +63,13 @@ export interface AuditInput {
     readonly unread: readonly string[];
     /** Names in `dependencies.manifests` that could not be read, with spec-core's reason; none when not given. */
     readonly unreadNames?: readonly { readonly name: string; readonly reason: string }[] | undefined;
+    /** Names in `dependencies.manifests` a leading `/` roots, and whether every alternative of each is rooted; none when not given. */
+    readonly rootedNames?: readonly { readonly name: string; readonly whole: boolean }[] | undefined;
   };
   readonly archive: { readonly blocking: readonly ArchiveReason[]; readonly warnings: readonly ArchiveReason[] } | { readonly unavailable: string };
   readonly assertions: readonly AssertionOutcome[] | { readonly unavailable: string };
+  /** The assertions in the brief spec-guard could not read; none when not given. */
+  readonly unreadableAssertions?: readonly UnreadableAssertion[] | undefined;
   /** Section names whose assertions are premises. Compared without case, emphasis, a leading number or a trailing colon. */
   readonly premiseSections: readonly string[];
   readonly unverifiedRulings: readonly { readonly id: string; readonly reason: string }[];
@@ -64,13 +79,67 @@ export interface AuditInput {
   readonly pluginLoaded: boolean;
 }
 
+/**
+ * What the audit measured, beside what it found. A script tells "nothing
+ * found" from "nothing checked" here: `assertions: "unavailable"` with no
+ * goal failed is an audit that ran no goal.
+ */
+export interface Measured {
+  /** Whether the round's changes were measured from a base; the dependencies are read from them. */
+  readonly changes: 'measured' | 'unmeasured';
+  /** Whether spec-brief's archive answered. */
+  readonly archive: 'asked' | 'unavailable';
+  /** Whether spec-guard ran the brief's assertions. */
+  readonly assertions: 'run' | 'unavailable';
+  readonly goals: { readonly held: number; readonly failed: number };
+  readonly premises: { readonly retired: number; readonly holding: number };
+  /** Assertions spec-guard could not read, so ran none of. */
+  readonly unreadableAssertions: number;
+  /** The rulings that allow something, by whether their signatures verify. */
+  readonly rulings: { readonly verified: number; readonly unverified: number };
+  /** Dependencies the round added, removed or moved, and manifests it changed that could not be read. */
+  readonly dependencies: { readonly changed: number; readonly unread: number };
+}
+
 export interface AuditReport {
   readonly findings: readonly Finding[];
   readonly counts: Readonly<Record<Severity, number>>;
+  readonly measured: Measured;
 }
 
-function finding(rule: string, severity: Severity, message: string, hint: string, file?: string, line?: number): Finding {
-  return { rule, severity, message, hint, ...(file === undefined ? {} : { file }), ...(line === undefined ? {} : { line }) };
+/**
+ * Each rule the audit and `premises` report, as a reader of SARIF sees it
+ * described. A reason spec-brief's archive gives is `archive/<its rule>`.
+ */
+export const RULES: Readonly<Record<string, string>> = {
+  unmeasured: "The round's changes could not be measured from a base.",
+  'archive-unchecked': "spec-brief's archive could not be asked what it would refuse.",
+  'assertions-unchecked': "The brief's assertions could not be run.",
+  'assertion-unreadable': 'An assertion in the brief spec-guard cannot read, so nothing it states was run.',
+  'goal-failed': 'A goal the brief asserts does not hold.',
+  'premise-holds': 'A premise still holds after the round meant to change it.',
+  'premise-retired': 'A premise no longer holds, as the round on the brief intends.',
+  'stale-premise': "A live brief's premise no longer holds: what it was written against has changed.",
+  'ruling-unverified': 'A ruling whose signature does not verify, which allows nothing.',
+  'ruling-unreadable': 'A row of the rulings table that cannot be read.',
+  'manifest-name-unread': 'A name in dependencies.manifests that cannot be read, which names no manifest.',
+  'manifest-name-rooted': "A name in dependencies.manifests rooted at the filesystem's root, where no file of the repository is.",
+  'manifest-unread': 'A manifest the round changed that cannot be read for dependencies.',
+  'new-dependency': 'A dependency the round added: code no reviewer read.',
+  'dependency-removed': 'A dependency the round removed.',
+  'dependency-changed': 'A dependency the round moved to another version.',
+};
+
+function finding(rule: string, severity: Severity, message: string, hint: string, file?: string, line?: number, subject?: string): Finding {
+  return {
+    rule,
+    severity,
+    message,
+    hint,
+    ...(file === undefined ? {} : { file }),
+    ...(line === undefined ? {} : { line }),
+    ...(subject === undefined ? {} : { subject }),
+  };
 }
 
 /**
@@ -106,6 +175,7 @@ export function premiseFinding(
       'nothing to do: this is the round that changes it, and audit measures it',
       brief.file,
       outcome.line,
+      outcome.description,
     );
   }
   return finding(
@@ -115,6 +185,7 @@ export function premiseFinding(
     'what the brief was written against has changed; archive the brief if its work is done, or rewrite its premise before a round is run on it',
     brief.file,
     outcome.line,
+    outcome.description,
   );
 }
 
@@ -135,6 +206,8 @@ function archiveHint(reason: ArchiveReason, input: AuditInput): string {
 export function audit(input: AuditInput): AuditReport {
   const { brief } = input;
   const out: Finding[] = [];
+  const goals = { held: 0, failed: 0 };
+  const premises = { retired: 0, holding: 0 };
 
   if (input.unmeasured !== null) {
     out.push(
@@ -152,7 +225,7 @@ export function audit(input: AuditInput): AuditReport {
     out.push(finding('archive-unchecked', 'warning', `what the archive would say is unknown: ${input.archive.unavailable}`, 'install spec-brief, or fix what stopped it', brief.file));
   } else {
     for (const reason of [...input.archive.blocking, ...input.archive.warnings]) {
-      out.push(finding(`archive/${reason.rule}`, reason.severity, reason.message, archiveHint(reason, input), reason.file, reason.line));
+      out.push(finding(`archive/${reason.rule}`, reason.severity, reason.message, archiveHint(reason, input), reason.file, reason.line, reason.path));
     }
   }
 
@@ -163,6 +236,7 @@ export function audit(input: AuditInput): AuditReport {
     for (const outcome of input.assertions) {
       const premise = isPremise(outcome.enclosing ?? outcome.section, input.premiseSections);
       if (premise && outcome.ok) {
+        premises.holding += 1;
         out.push(
           finding(
             'premise-holds',
@@ -171,14 +245,35 @@ export function audit(input: AuditInput): AuditReport {
             'the round set out to change what this premise states; check that it did, or move the assertion out of the premises',
             brief.file,
             outcome.line,
+            outcome.description,
           ),
         );
       } else if (premise) {
-        out.push(finding('premise-retired', 'note', `a premise no longer holds, as the round intended: ${outcome.description}`, 'nothing to do', brief.file, outcome.line));
+        premises.retired += 1;
+        out.push(finding('premise-retired', 'note', `a premise no longer holds, as the round intended: ${outcome.description}`, 'nothing to do', brief.file, outcome.line, outcome.description));
       } else if (!outcome.ok) {
-        out.push(finding('goal-failed', 'error', `${outcome.description}: ${outcome.message}`, 'the round is not done until this holds', brief.file, outcome.line));
+        goals.failed += 1;
+        out.push(finding('goal-failed', 'error', `${outcome.description}: ${outcome.message}`, 'the round is not done until this holds', brief.file, outcome.line, outcome.description));
+      } else {
+        goals.held += 1;
       }
     }
+  }
+  // Whether a goal or a premise, an assertion spec-guard cannot read was not
+  // run, and dropping it would let the audit pass on what it never checked.
+  const unreadable = input.unreadableAssertions ?? [];
+  for (const assertion of unreadable) {
+    out.push(
+      finding(
+        'assertion-unreadable',
+        'warning',
+        `spec-guard cannot read an assertion in the brief, so nothing it states was run: ${assertion.message}`,
+        `fix the directive in ${brief.file}; until spec-guard can read it, the audit measures nothing it states`,
+        brief.file,
+        assertion.line,
+        assertion.raw.trim(),
+      ),
+    );
   }
 
   for (const ruling of input.unverifiedRulings) {
@@ -189,6 +284,8 @@ export function audit(input: AuditInput): AuditReport {
         `ruling ${ruling.id} allows nothing: ${ruling.reason}`,
         'a ruling counts when the commit that last changed its row is signed by a key in the base branch\'s allowed signers',
         brief.file,
+        undefined,
+        ruling.id,
       ),
     );
   }
@@ -201,6 +298,27 @@ export function audit(input: AuditInput): AuditReport {
         `"dependencies.manifests" names "${name}", which cannot be read: ${reason}; no manifest it names was read`,
         `fix or remove the name in ${CONFIG_FILE}; the other names were read`,
         CONFIG_FILE,
+        undefined,
+        name,
+      ),
+    );
+  }
+  for (const { name, whole } of input.dependencies.rootedNames ?? []) {
+    // Every path the audit reads is repository-relative, so a rooted name, or
+    // a rooted alternative of one, names no manifest, as silently as a name
+    // that cannot be read.
+    const what = whole
+      ? 'a leading "/" roots it at the filesystem\'s root, where no file of the repository is, so no manifest it names was read'
+      : 'a leading "/" roots an alternative of it at the filesystem\'s root, where no file of the repository is, so that alternative names no manifest';
+    out.push(
+      finding(
+        'manifest-name-rooted',
+        'warning',
+        `"dependencies.manifests" names "${name}": ${what}`,
+        `write it without the leading "/" in ${CONFIG_FILE}, since a name is matched at any depth; the other names were read`,
+        CONFIG_FILE,
+        undefined,
+        name,
       ),
     );
   }
@@ -209,6 +327,7 @@ export function audit(input: AuditInput): AuditReport {
   }
   for (const change of input.dependencies.changes) {
     const where = `${change.file} (${change.section})`;
+    const subject = `${change.name} (${change.section})`;
     if (change.before === null) {
       out.push(
         finding(
@@ -217,16 +336,54 @@ export function audit(input: AuditInput): AuditReport {
           `the round added ${change.ecosystem} dependency "${change.name}"${change.after === '' ? '' : ` ${change.after}`} in ${where}`,
           'say in the brief why it is needed, or remove it; a new dependency is code no reviewer read',
           change.file,
+          undefined,
+          subject,
         ),
       );
     } else if (change.after === null) {
-      out.push(finding('dependency-removed', 'note', `the round removed "${change.name}" from ${where}`, 'nothing to do', change.file));
+      out.push(finding('dependency-removed', 'note', `the round removed "${change.name}" from ${where}`, 'nothing to do', change.file, undefined, subject));
     } else {
-      out.push(finding('dependency-changed', 'note', `the round moved "${change.name}" from ${change.before} to ${change.after} in ${where}`, 'nothing to do, if the brief meant it', change.file));
+      out.push(finding('dependency-changed', 'note', `the round moved "${change.name}" from ${change.before} to ${change.after} in ${where}`, 'nothing to do, if the brief meant it', change.file, undefined, subject));
     }
   }
 
+  const measured: Measured = {
+    changes: input.unmeasured === null ? 'measured' : 'unmeasured',
+    archive: 'unavailable' in input.archive ? 'unavailable' : 'asked',
+    assertions: Array.isArray(input.assertions) ? 'run' : 'unavailable',
+    goals,
+    premises,
+    unreadableAssertions: unreadable.length,
+    rulings: { verified: input.verifiedRulings.length, unverified: input.unverifiedRulings.length },
+    dependencies: { changed: input.dependencies.changes.length, unread: input.dependencies.unread.length },
+  };
+  return { findings: out, counts: tally(out), measured };
+}
+
+/** How many findings of each severity. */
+export function tally(findings: readonly Finding[]): Record<Severity, number> {
   const counts: Record<Severity, number> = { error: 0, warning: 0, note: 0 };
-  for (const item of out) counts[item.severity] += 1;
-  return { findings: out, counts };
+  for (const item of findings) counts[item.severity] += 1;
+  return counts;
+}
+
+/**
+ * What the audit measured, in one line a person reads above the counts. A
+ * brief that declares no assertion says so, and draws no warning: a brief
+ * without assertions is a brief, and the archive still measured its round.
+ */
+export function describeMeasured(measured: Measured): string {
+  const { goals, premises, rulings, dependencies } = measured;
+  const parts: string[] = [];
+  if (measured.assertions === 'unavailable') {
+    parts.push('assertions: not run');
+  } else {
+    parts.push(goals.held + goals.failed === 0 ? 'goals: none declared' : `goals: ${goals.held} held, ${goals.failed} failed`);
+    parts.push(premises.retired + premises.holding === 0 ? 'premises: none declared' : `premises: ${premises.retired} retired, ${premises.holding} holding`);
+  }
+  if (measured.unreadableAssertions > 0) parts.push(`unreadable assertions: ${measured.unreadableAssertions}`);
+  parts.push(measured.archive === 'asked' ? 'archive: asked' : 'archive: not asked');
+  parts.push(rulings.verified + rulings.unverified === 0 ? 'rulings: none' : `rulings: ${rulings.verified} verified, ${rulings.unverified} unverified`);
+  parts.push(measured.changes === 'unmeasured' ? 'dependencies: not measured' : `dependencies: ${dependencies.changed} changed, ${dependencies.unread} unread`);
+  return `measured: ${parts.join(' · ')}`;
 }

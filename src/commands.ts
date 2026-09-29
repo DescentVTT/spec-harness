@@ -8,8 +8,10 @@ import { existsSync } from 'node:fs';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
+import { describeMeasured } from './audit.js';
 import { briefIdFromBranch } from './branch.js';
 import { findActive } from './briefs.js';
+import { formatFindings } from './formats.js';
 import { readJUnit } from './junit.js';
 import { classify, readProbes, renderEvidence, verdictOf, type ProbeResult, type ProbeSpec } from './probe.js';
 import { createReader } from './reader.js';
@@ -33,6 +35,7 @@ import {
   EXIT_OK,
   json,
   UsageError,
+  version,
   type CliIO,
   type Options,
   type Workspace,
@@ -93,7 +96,7 @@ export async function auditCommand(options: Options, io: CliIO): Promise<number>
   const workspace = await openWorkspace(options, io);
   const { brief } = await targetBrief(workspace, options, io, options.positionals[0]);
   const result = await runAudit(workspace, brief, reader, options.base);
-  const { counts, findings } = result.report;
+  const { counts, findings, measured } = result.report;
   if (options.format === 'json') {
     io.stdout.write(
       json('audit', {
@@ -101,14 +104,18 @@ export async function auditCommand(options: Options, io: CliIO): Promise<number>
         brief: brief.id,
         base: result.base.kind === 'resolved' ? { ref: result.base.ref, mergeBase: result.base.mergeBase, head: result.base.head } : null,
         counts,
+        measured,
         findings,
         dependencies: result.dependencies,
       }),
     );
-  } else {
+  } else if (options.format === 'pretty') {
     io.stdout.write(`audit of brief ${brief.id}${result.base.kind === 'resolved' ? ` from ${result.base.ref} (${result.base.mergeBase.slice(0, 12)})` : ''}\n\n`);
     printFindings(io, findings);
-    io.stdout.write(`\n${counts.error} error(s), ${counts.warning} warning(s), ${counts.note} note(s)\n`);
+    // The counts stay the last line, where a script reads them.
+    io.stdout.write(`\n${describeMeasured(measured)}\n${counts.error} error(s), ${counts.warning} warning(s), ${counts.note} note(s)\n`);
+  } else {
+    io.stdout.write(formatFindings(options.format, findings, { file: brief.file, version: version(), summary: describeMeasured(measured) }));
   }
   return counts.error > 0 || (options.strict && counts.warning > 0) ? EXIT_FAILED : EXIT_OK;
 }

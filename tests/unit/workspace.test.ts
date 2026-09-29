@@ -112,8 +112,21 @@ describe('options', () => {
   });
 
   it('refuses a format or a probe position it does not know', () => {
-    expect(usage(['audit', '--format', 'sarif'])).toBe('--format must be pretty or json, not "sarif"');
+    expect(usage(['audit', '--format', 'xml'])).toBe('--format must be pretty, json, gitlab, sarif or github, not "xml"');
+    expect(usage(['audit', '--format', 'SARIF'])).toBe('--format must be pretty, json, gitlab, sarif or github, not "SARIF"');
     expect(usage(['probe', '--at', 'tip'])).toBe('--at must be base, head or both, not "tip"');
+  });
+
+  it('reads the formats that place findings for audit and premises, and for no other command (spec-core ADR-0005)', () => {
+    for (const format of ['gitlab', 'sarif', 'github'] as const) {
+      expect(parseOptions(['audit', '--format', format]).format).toBe(format);
+      expect(parseOptions(['premises', '--format', format]).format).toBe(format);
+      expect(usage(['doctor', '--format', format])).toBe(`--format ${format} is for audit and premises; doctor prints pretty or json`);
+      expect(usage(['context', '--format', format])).toBe(`--format ${format} is for audit and premises; context prints pretty or json`);
+    }
+    // Every command reads pretty and json; with no command, help is printed and the format is never used.
+    for (const command of ['doctor', 'guard', 'init', 'rulings']) expect(parseOptions([command, '--format', 'json']).format).toBe('json');
+    expect(parseOptions(['--format', 'sarif', '--help'])).toMatchObject({ help: true, format: 'sarif' });
   });
 
   it('refuses an unknown flag, and a flag missing its value', () => {

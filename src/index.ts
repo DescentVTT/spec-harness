@@ -6,8 +6,8 @@
 export { main, run, EXIT_ERROR, EXIT_FAILED, EXIT_OK, UsageError, version } from './cli.js';
 export type { CliIO } from './cli.js';
 
-export { audit } from './audit.js';
-export type { AssertionOutcome, AuditInput, AuditReport } from './audit.js';
+export { audit, describeMeasured } from './audit.js';
+export type { AssertionOutcome, AuditInput, AuditReport, Measured, UnreadableAssertion } from './audit.js';
 export { briefIdFromBranch, idFromBranch, sameId, templateError } from './branch.js';
 export { findActive, parseBriefList, SiblingOutputError, SUPPORTED_SCHEMA_VERSIONS } from './briefs.js';
 export type { ActiveBrief, ActiveSource } from './briefs.js';
@@ -15,6 +15,8 @@ export { ConfigError, CONFIG_FILE, DEFAULT_CONFIG, parseConfig, SIBLINGS } from 
 export type { HarnessConfig, OutOfScope, SiblingName } from './config.js';
 export { renderContext } from './context.js';
 export type { CitedDocument, ContextInput, ContextPacket, RuleInForce, RulingInForce, UnreadablePattern, UnreadableRulingPath } from './context.js';
+export { formatFindings, formatGithub, formatGitlab, formatSarif } from './formats.js';
+export type { FindingFormat, FormatOptions } from './formats.js';
 export { decide } from './guard.js';
 export type { Decision, GuardInput, Reason, Verdict, VerifiedRuling } from './guard.js';
 export { claudeResponse, gitResponse, parseClaudeHook, WRITING_TOOLS } from './hooks.js';

@@ -75,7 +75,7 @@ Options:
   --base <ref>        What the round is measured from. Otherwise "base" in
                       .spec-harness.json, then the remote's default branch.
   --root <dir>        Run from another directory.
-  --format <fmt>      pretty or json.
+  --format <fmt>      pretty or json; audit and premises also gitlab, sarif or github.
   --strict            Warnings fail the run.
   --help, --version
 

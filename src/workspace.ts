@@ -11,6 +11,7 @@ import { briefIdFromBranch } from './branch.js';
 import type { HarnessConfig } from './config.js';
 import { loadConfig } from './fs.js';
 import { commonDirectory, currentBranch, workTreeRoot } from './git.js';
+import type { FindingFormat } from './formats.js';
 import { createSiblings, type Siblings } from './siblings.js';
 import type { BriefRow } from './types.js';
 
@@ -47,7 +48,8 @@ export interface Options {
   readonly brief: string | undefined;
   readonly base: string | undefined;
   readonly root: string | undefined;
-  readonly format: 'pretty' | 'json';
+  /** `gitlab`, `sarif` and `github` only for `audit` and `premises`, whose findings have places. */
+  readonly format: 'pretty' | 'json' | FindingFormat;
   readonly strict: boolean;
   readonly help: boolean;
   readonly version: boolean;
@@ -105,12 +107,18 @@ export function parseOptions(argv: readonly string[]): Options {
     throw new UsageError((error as Error).message);
   }
   const { values, positionals } = parsed;
-  const format = values.format ?? 'pretty';
-  if (format !== 'pretty' && format !== 'json') throw new UsageError(`--format must be pretty or json, not "${format}"`);
+  const format = (values.format ?? 'pretty') as Options['format'];
+  const formats: readonly Options['format'][] = ['pretty', 'json', 'gitlab', 'sarif', 'github'];
+  if (!formats.includes(format)) throw new UsageError(`--format must be pretty, json, gitlab, sarif or github, not "${format}"`);
+  const command = positionals[0];
+  // Only the commands whose findings have places print them for a forge.
+  if (command !== undefined && command !== 'audit' && command !== 'premises' && format !== 'pretty' && format !== 'json') {
+    throw new UsageError(`--format ${format} is for audit and premises; ${command} prints pretty or json`);
+  }
   const at = values.at;
   if (at !== undefined && at !== 'base' && at !== 'head' && at !== 'both') throw new UsageError(`--at must be base, head or both, not "${at}"`);
   return {
-    command: positionals[0],
+    command,
     positionals: positionals.slice(1),
     brief: values.brief,
     base: values.base,

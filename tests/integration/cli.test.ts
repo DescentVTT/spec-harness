@@ -28,7 +28,7 @@ describe('the command line', () => {
     const flag = await cli(['guard', '--frobnicate'], ROOT);
     expect(flag.code).toBe(2);
     expect(flag.stderr).toContain("Unknown option '--frobnicate'");
-    expect(await cli(['audit', '--format', 'xml'], ROOT)).toEqual({ code: 2, stdout: '', stderr: 'spec-harness: --format must be pretty or json, not "xml"\n' });
+    expect(await cli(['audit', '--format', 'xml'], ROOT)).toEqual({ code: 2, stdout: '', stderr: 'spec-harness: --format must be pretty, json, gitlab, sarif or github, not "xml"\n' });
   });
 
   it('names every command in its help', () => {

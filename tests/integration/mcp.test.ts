@@ -124,14 +124,29 @@ describe('the tools', () => {
     expect((await call({ paths: ['a'], reason: 'r', why: 'x' })).isError).toBe(true);
   });
 
-  it('audit_round reports the audit\'s findings and counts', async () => {
+  it('audit_round reports the audit\'s findings, what it measured, and its counts', async () => {
     const outcome = await tool('audit_round').call({});
     expect(outcome.text).toContain('warning unmeasured: the round\'s changes were not measured: main and HEAD are the same commit');
-    expect(outcome.text).toMatch(/\n\n\d+ error\(s\), \d+ warning\(s\), \d+ note\(s\)$/);
+    expect(outcome.text).toMatch(
+      /\n\nmeasured: goals: none declared · premises: none declared · archive: asked · rulings: none · dependencies: not measured\n\n\d+ error\(s\), \d+ warning\(s\), \d+ note\(s\)$/,
+    );
     expect((outcome.structured as { counts: Record<string, number> }).counts.warning).toBeGreaterThanOrEqual(1);
+    expect((outcome.structured as { measured: unknown }).measured).toMatchObject({ changes: 'unmeasured', archive: 'asked', assertions: 'run', goals: { held: 0, failed: 0 } });
     expect(await tool('audit_round').call({ base: 7 })).toEqual({ text: '"base" must be a string.', isError: true });
     const unbased = await tool('audit_round').call({ base: 'nowhere' });
     expect(unbased.text).toContain('"nowhere" names no commit');
+  });
+
+  it('audit_round says what it measured when it finds nothing, so nothing found is not read as nothing checked', async () => {
+    const clean = repository({ [BRIEF_FILE]: brief({ affected: ['src/**'], body: '## Goals\n\n<!-- @assert-absence target="src" symbol="OldToken" -->\n' }), 'src/a.ts': 'a\n' });
+    clean.git('checkout', '-q', '-b', 'brief/001-x');
+    clean.write('src/b.ts', 'b\n');
+    clean.commit('work');
+    const other = await openWorkspace(parseOptions(['mcp']), { stdout: { write: () => true }, stderr: { write: () => true }, cwd: clean.root, env: {} });
+    const audited = await tools(other, {}).find((t) => t.descriptor.name === 'audit_round')?.call({});
+    expect(audited?.text).toBe(
+      'The audit found nothing in what it measured.\n\nmeasured: goals: 1 held, 0 failed · premises: none declared · archive: asked · rulings: none · dependencies: 0 changed, 0 unread\n\n0 error(s), 0 warning(s), 0 note(s)',
+    );
   });
 
   it('list_rounds lists the live briefs and what each waits on', async () => {

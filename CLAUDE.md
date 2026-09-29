@@ -46,6 +46,7 @@ its first hosted run ([ADR-0010](docs/adr/0010-toolchain-and-verification.md)).
 | `branch.ts`, `briefs.ts`, `config.ts` | Which brief, what spec-brief says about it, what the repository configured. |
 | `guard.ts`, `hooks.ts` | May this path be written, and the answer in each hook's language. |
 | `context.ts`, `audit.ts`, `manifests.ts` | The context packet; the audit's judgement; dependency diffs. |
+| `formats.ts` | Findings for a forge: GitLab Code Quality, SARIF and GitHub annotations. |
 | `rulings.ts`, `probe.ts`, `junit.ts` | Escalations and rulings; probes and their verdicts; JUnit reports. |
 | `reader.ts` | Documents through spec-core's Markdown scanner. |
 | `round.ts` | The operations the CLI and the server share: facts gathered, decisions delegated. |
