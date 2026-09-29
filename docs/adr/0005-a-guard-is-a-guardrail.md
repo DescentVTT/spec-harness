@@ -78,6 +78,17 @@ it. No Bash hook looks for `--no-verify` or a shell's writes: every shell
 command would pay for it, it is easy to get around, and the audit stays the
 gate.
 
+*Amended 2026-09-30.* `premises` reads spec-guard's errors as the audit now
+does. A directive in a premise section that spec-guard cannot read was
+dropped with the rest of its errors, so a brief whose premise nothing checks
+passed for one whose premise holds, and CI said nothing. It is now
+`assertion-unreadable`, the audit's warning, on its line with spec-guard's
+reason, and `premises` fails on a warning under `--strict`, as the audit
+does; without it, only a stale premise fails the run, as before. A directive
+spec-guard cannot read outside the premise sections is a goal, the audit's
+to report. The summary counts the premises that could not be read apart
+from those checked, and `--format json` gains `unreadable`.
+
 ## Consequences
 
 An agent that writes through a shell passes the guard and is caught at the

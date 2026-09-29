@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { audit, describeMeasured, isPremise, premiseFinding, type AssertionOutcome, type AuditInput } from '../../src/audit.js';
+import { audit, describeMeasured, isPremise, premiseFinding, unreadablePremiseFinding, type AssertionOutcome, type AuditInput } from '../../src/audit.js';
 import { DEFAULT_CONFIG } from '../../src/config.js';
 import type { DependencyChange } from '../../src/manifests.js';
 import { row } from './helpers.js';
@@ -492,6 +492,18 @@ describe('a premise that premises finds no longer holds', () => {
       file: FILE,
       line: 20,
       subject: '"legacyCall" in src',
+    });
+  });
+
+  it('is a warning when spec-guard cannot read it, about the directive as written, as the audit reports one', () => {
+    expect(unreadablePremiseFinding(brief, { message: 'Attribute "min" must be a non-negative integer, got "x".', line: 21, raw: ' <!-- @assert-count min="x" -->\n' })).toEqual({
+      rule: 'assertion-unreadable',
+      severity: 'warning',
+      message: 'spec-guard cannot read a premise of brief 012, so whether it still holds is not checked: Attribute "min" must be a non-negative integer, got "x".',
+      hint: `fix the directive in ${FILE}; until spec-guard can read it, nothing checks what it states`,
+      file: FILE,
+      line: 21,
+      subject: '<!-- @assert-count min="x" -->',
     });
   });
 });
