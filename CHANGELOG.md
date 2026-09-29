@@ -67,6 +67,14 @@ cannot turn a run red. The family's policy is
   repository-relative, so the rooted part named no manifest, in silence. It
   fails `audit --strict`. Upgrading: write the name without the slash; a
   name is matched at any depth.
+- A pattern in `protectedFiles`, or a path of a signed ruling, that a
+  leading `/` roots, such as `/src/db/schema.ts` or `{/docs,migrations/**}`,
+  protects no path, or allows nothing, since every path the guard decides is
+  repository-relative. `context` and `start_round` mark it so where they
+  listed it as written, and `audit` warns about it as `protection-rooted`
+  or `ruling-path-rooted`, which fail `audit --strict`. Upgrading: write
+  the protection without the slash, and check what the round changed there;
+  for a ruling's path, escalate again for a ruling on the path without it.
 - `doctor` runs `claude --version` when the plugin or `init`'s hooks wire
   Claude Code to the guard, and exits 1 when it is older than 2.1.139: an
   older Claude Code runs every write unguarded. One it cannot find or read,

@@ -25,7 +25,7 @@
 
 import { CONFIG_FILE } from './config.js';
 import { PLUGIN } from './configure.js';
-import { rulingFor, type VerifiedRuling } from './guard.js';
+import { rooted, rulingFor, type VerifiedRuling } from './guard.js';
 import type { DependencyChange } from './manifests.js';
 import { sameSection } from './reader.js';
 import type { BriefRow, Finding, Severity } from './types.js';
@@ -122,6 +122,8 @@ export const RULES: Readonly<Record<string, string>> = {
   'stale-premise': "A live brief's premise no longer holds: what it was written against has changed.",
   'ruling-unverified': 'A ruling whose signature does not verify, which allows nothing.',
   'ruling-unreadable': 'A row of the rulings table that cannot be read.',
+  'protection-rooted': "A protection rooted at the filesystem's root, which protects no path of the repository.",
+  'ruling-path-rooted': "A signed ruling's path rooted at the filesystem's root, which allows nothing.",
   'manifest-name-unread': 'A name in dependencies.manifests that cannot be read, which names no manifest.',
   'manifest-name-rooted': "A name in dependencies.manifests rooted at the filesystem's root, where no file of the repository is.",
   'manifest-unread': 'A manifest the round changed that cannot be read for dependencies.',
@@ -305,6 +307,45 @@ export function audit(input: AuditInput): AuditReport {
         ruling.id,
       ),
     );
+  }
+
+  // A protection or a ruling's path a leading `/` roots can be read, and
+  // names no path the guard or the archive decides, all repository-relative:
+  // the file it was meant to protect was the round's to write, and the file
+  // a ruling was meant to allow is still refused.
+  for (const pattern of brief.protectedFiles) {
+    const root = rooted(pattern);
+    if (root === null) continue;
+    const what = root === 'whole' ? 'which a leading "/" roots at the filesystem\'s root, so it protects no path' : 'an alternative of which a leading "/" roots at the filesystem\'s root, so that alternative protects no path';
+    out.push(
+      finding(
+        'protection-rooted',
+        'warning',
+        `brief ${brief.id} protects "${pattern}", ${what}`,
+        `write it without the leading "/" in ${brief.file}, since a protection is read from the repository's root, and check what the round changed there`,
+        brief.file,
+        undefined,
+        pattern,
+      ),
+    );
+  }
+  for (const ruling of input.verifiedRulings) {
+    for (const pattern of ruling.paths) {
+      const root = rooted(pattern);
+      if (root === null) continue;
+      const what = root === 'whole' ? 'which a leading "/" roots at the filesystem\'s root, so it allows nothing' : 'an alternative of which a leading "/" roots at the filesystem\'s root, so that alternative allows nothing';
+      out.push(
+        finding(
+          'ruling-path-rooted',
+          'warning',
+          `ruling ${ruling.id} allows "${pattern}", ${what}`,
+          'a ruling\'s path is read from the repository\'s root: escalate again, and have the person rule on the path without the leading "/"',
+          brief.file,
+          undefined,
+          `${ruling.id} ${pattern}`,
+        ),
+      );
+    }
   }
 
   for (const { name, reason } of input.dependencies.unreadNames ?? []) {

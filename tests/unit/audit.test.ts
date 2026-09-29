@@ -427,6 +427,64 @@ describe('rulings', () => {
   });
 });
 
+describe('a protection or a ruling\'s path a leading slash roots', () => {
+  it('warns that it protects no path, or allows nothing, and fails nothing without --strict', () => {
+    const report = audit(
+      input({
+        brief: row({ protectedFiles: ['/src/db/schema.ts', '{/docs,migrations/**}', 'src/db/**', 'src/[a'] }),
+        verifiedRulings: [{ id: 'R-012-1', paths: ['/src/db/schema.ts', '{src/a.ts,/src/b.ts}', 'src/c.ts'], signer: 'p@example.com' }],
+      }),
+    );
+    expect(report.findings).toEqual([
+      {
+        rule: 'protection-rooted',
+        severity: 'warning',
+        message: `brief 012 protects "/src/db/schema.ts", which a leading "/" roots at the filesystem's root, so it protects no path`,
+        hint: `write it without the leading "/" in ${FILE}, since a protection is read from the repository's root, and check what the round changed there`,
+        file: FILE,
+        subject: '/src/db/schema.ts',
+      },
+      {
+        rule: 'protection-rooted',
+        severity: 'warning',
+        message: `brief 012 protects "{/docs,migrations/**}", an alternative of which a leading "/" roots at the filesystem's root, so that alternative protects no path`,
+        hint: `write it without the leading "/" in ${FILE}, since a protection is read from the repository's root, and check what the round changed there`,
+        file: FILE,
+        subject: '{/docs,migrations/**}',
+      },
+      {
+        rule: 'ruling-path-rooted',
+        severity: 'warning',
+        message: `ruling R-012-1 allows "/src/db/schema.ts", which a leading "/" roots at the filesystem's root, so it allows nothing`,
+        hint: `a ruling's path is read from the repository's root: escalate again, and have the person rule on the path without the leading "/"`,
+        file: FILE,
+        subject: 'R-012-1 /src/db/schema.ts',
+      },
+      {
+        rule: 'ruling-path-rooted',
+        severity: 'warning',
+        message: `ruling R-012-1 allows "{src/a.ts,/src/b.ts}", an alternative of which a leading "/" roots at the filesystem's root, so that alternative allows nothing`,
+        hint: `a ruling's path is read from the repository's root: escalate again, and have the person rule on the path without the leading "/"`,
+        file: FILE,
+        subject: 'R-012-1 {src/a.ts,/src/b.ts}',
+      },
+    ]);
+    expect(report.counts).toEqual({ error: 0, warning: 4, note: 0 });
+  });
+
+  it('comes after the rulings, and says nothing of a pattern the repository roots or the guard cannot read', () => {
+    const report = audit(
+      input({
+        brief: row({ protectedFiles: ['/x'] }),
+        unverifiedRulings: [{ id: 'R-1', reason: 'r' }],
+        dependencies: { changes: [], unread: [], unreadNames: [{ name: '[x', reason: 'r' }] },
+      }),
+    );
+    expect(report.findings.map((f) => f.rule)).toEqual(['ruling-unverified', 'protection-rooted', 'manifest-name-unread']);
+    expect(audit(input({ brief: row({ protectedFiles: ['src/db/**', 'src/[a', 'a/{/b,c}'] }), verifiedRulings: [{ id: 'R-1', paths: ['src/x.ts'], signer: 's' }] })).findings).toEqual([]);
+  });
+});
+
 describe('dependencies', () => {
   it('warns about a dependency the round added, with its version when it has one', () => {
     const { findings } = audit(input({ dependencies: { changes: [change(null, '^1.3.0'), change(null, '', 'serde')], unread: [] } }));

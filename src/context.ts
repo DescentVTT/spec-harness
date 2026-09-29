@@ -11,7 +11,8 @@
  * front matter is never closed, whose status cannot be read, rather than
  * shown as one without a status, and a pattern in the scope, a protection or
  * a ruling's path the guard cannot read, with spec-core's reason and what the
- * guard does without it, rather than listed as one it can.
+ * guard does without it, rather than listed as one it can; and one a leading
+ * `/` roots, which names no path the guard decides.
  */
 
 import { sameId } from './branch.js';
@@ -233,7 +234,13 @@ export function renderContext(input: ContextInput): ContextPacket {
           .map((ruling) => {
             const paths = ruling.paths.map((pattern) => {
               const reason = whyUnreadable(pattern);
-              if (reason === null) return `\`${pattern}\``;
+              if (reason === null) {
+                // A rooted path can be read, and names no path the guard decides.
+                const root = rooted(pattern);
+                if (root === 'whole') return `\`${pattern}\` (which a leading \`/\` roots at the filesystem's root; it allows nothing)`;
+                if (root === 'part') return `\`${pattern}\` (an alternative of which a leading \`/\` roots at the filesystem's root; that alternative allows nothing)`;
+                return `\`${pattern}\``;
+              }
               unreadableRulingPaths.push({ ruling: ruling.id, pattern, reason });
               return `\`${pattern}\` (which the guard cannot read: ${reason}; it allows nothing)`;
             });
@@ -249,8 +256,12 @@ export function renderContext(input: ContextInput): ContextPacket {
   const unreadableScope = mayWrite.unreadable;
   // While a protection the guard cannot read stands, the guard refuses every
   // write, and no ruling waives it; a write to the brief is let through,
-  // since that is where it is fixed.
-  const mustNot = patternLines(brief.protectedFiles, 'until it is fixed, the guard refuses every write but to the brief');
+  // since that is where it is fixed. A rooted protection can be read, and
+  // protects nothing: the file it was meant to protect is the round's to write.
+  const mustNot = patternLines(brief.protectedFiles, 'until it is fixed, the guard refuses every write but to the brief', {
+    whole: "which a leading `/` roots at the filesystem's root: it protects no path",
+    part: "an alternative of which a leading `/` roots at the filesystem's root: that alternative protects no path",
+  });
   const unreadableProtections = mustNot.unreadable;
   const scope = [
     '## Scope, as the guard reads it',

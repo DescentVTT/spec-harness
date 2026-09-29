@@ -107,6 +107,17 @@ that alternative putting none. When no pattern in `affectedFiles` puts a
 path in the scope, each rooted or unreadable, the packet says so, and to
 treat every ADR as binding until the scope is fixed.
 
+*Amended 2026-09-30.* A protection or a signed ruling's path that a leading
+`/` roots is read the same way, and was listed as written: a person read
+`/src/db/schema.ts` among the files the round must not change while the
+guard let every write to it through, and a ruling over `/src/db/schema.ts`
+among what is allowed while the file stayed refused. The packet now marks a
+rooted protection as protecting no path and a rooted ruling path as
+allowing nothing, or, for a rooted brace alternative, that alternative. The
+audit warns about each, `protection-rooted` and `ruling-path-rooted`, which
+fail it under `--strict`: a protection that protects nothing may have let
+the round change what the person meant to keep.
+
 ## Consequences
 
 Every command gives the same answer for the same repository. What the plan
