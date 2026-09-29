@@ -286,6 +286,37 @@ describe.skipIf(!hasSshKeygen())('a ruling is a row whose commit a person signed
     expect((await tool('start_round')?.call({ base: 'main' }))?.text).toContain('Rulings in force:\n- R-001-1, signed by t@example.com: `src/db/schema.ts`\n');
   });
 
+  it('names a path of a signed ruling the guard cannot read, in context and start_round, as allowing nothing', async () => {
+    const huge = `${'{a,b}'.repeat(8)}/${'x'.repeat(300)}`;
+    const other = round({ '.github/allowed_signers': signers });
+    await cli(['escalate', '--path', 'src/db/schema.ts', '--path', 'src/db/[a', '--path', huge, '--path', '{./,src}', '--reason', 'r'], other.root);
+    await cli(['rule', 'E-001-1', '--allow', '--note', 'n'], other.root);
+    commitSigned(other, key, 'ruling R-001-1: allow');
+    const unreadable = [
+      { ruling: 'R-001-1', pattern: 'src/db/[a', reason: 'a "[" is never closed' },
+      { ruling: 'R-001-1', pattern: huge, reason: 'the pattern compiles to more than 65536 states' },
+      { ruling: 'R-001-1', pattern: '{./,src}', reason: 'the braces expand to "./", which names no path' },
+    ];
+    const listed =
+      'Rulings in force:\n- R-001-1, signed by t@example.com: `src/db/schema.ts`, ' +
+      '`src/db/[a` (which the guard cannot read: a "[" is never closed; it allows nothing), ' +
+      `\`${huge}\` (which the guard cannot read: the pattern compiles to more than 65536 states; it allows nothing), ` +
+      '`{./,src}` (which the guard cannot read: the braces expand to "./", which names no path; it allows nothing)\n';
+
+    const context = parsed<{ markdown: string; unreadableRulingPaths: unknown[] }>(await cli(['context', '--format', 'json'], other.root));
+    expect(context).toMatchObject({ unreadableRulingPaths: unreadable, unreadableScope: [], unreadableProtections: [] });
+    expect(context.markdown).toContain(listed);
+
+    const workspace = await openWorkspace(parseOptions(['mcp']), { stdout: { write: () => true }, stderr: { write: () => true }, cwd: other.root, env: {} });
+    const started = await tools(workspace, {}).find((candidate) => candidate.descriptor.name === 'start_round')?.call({});
+    expect(started?.structured).toMatchObject({ unreadableRulingPaths: unreadable, unreadableScope: [], unreadableProtections: [] });
+    expect(started?.text).toContain(listed);
+
+    // As the guard decides: the path it reads allows, and a protected path only an unreadable one names is refused.
+    expect(await decision(other, 'src/db/schema.ts')).toMatchObject({ verdict: 'allow', reason: 'ruled', because: ['R-001-1'] });
+    expect(await decision(other, 'src/db/other.ts')).toMatchObject({ verdict: 'deny', reason: 'protected' });
+  });
+
   it('says why the archive refuses a file a signed ruling allows, until spec-brief loads the plugin, which waives it', async () => {
     const other = round({ '.github/allowed_signers': signers });
     installHarness(other.root);

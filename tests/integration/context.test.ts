@@ -66,6 +66,8 @@ describe('context', () => {
       // A link to code or a directory is not a document, and is not missing either.
       unresolved: ['docs/gone.md'],
       unreadableScope: [],
+      unreadableProtections: [],
+      unreadableRulingPaths: [],
     });
   });
 
@@ -196,7 +198,7 @@ describe('context', () => {
     });
   });
 
-  describe('names a pattern in the scope the guard cannot read', () => {
+  describe('names a pattern in the scope or a protection the guard cannot read', () => {
     const huge = `${'{a,b}'.repeat(8)}/${'x'.repeat(300)}`;
     let unread: Repository;
 
@@ -205,6 +207,7 @@ describe('context', () => {
         // Quoted, or YAML reads the brackets and braces as its own.
         'briefs/001_mixed.md': brief({ title: '001 - Some readable', affected: ['src/auth/**', '"src/[a"', `"${huge}"`, '"{./,lib}"'] }),
         'briefs/002_none.md': brief({ title: '002 - None readable', affected: ['"src/[a"', '"{./,lib}"'] }),
+        'briefs/003_protections.md': brief({ title: '003 - Protections', affected: ['src/auth/**'], protected: ['lib/**', '"src/[a"', `"${huge}"`, '"{./,lib}"'] }),
         'docs/adr/0001-sessions.md': `${ADR}\n<!-- @assert-absence target="lib" symbol="OldLib" reason="lib is frozen" -->\n`,
         'src/auth/a.ts': 'a;\n',
         'lib/b.ts': 'b;\n',
@@ -244,6 +247,34 @@ describe('context', () => {
         '## Rules in force for this scope\n\nThe scope could not be read: no pattern in `affectedFiles` can be read, so spec-guard was not asked for the rules over it. Treat every ADR as binding until the scope is fixed.\n',
       );
       expect(packet.markdown).not.toContain('holds no rule');
+    });
+
+    it('names each protection it cannot read, with spec-core\'s reason and that the guard refuses every write until it is fixed', async () => {
+      const result = await cli(['context', '3', '--format', 'json'], unread.root);
+      expect(result.code).toBe(0);
+      const packet = parsed<{ markdown: string; unreadableScope: unknown[]; unreadableProtections: { pattern: string; reason: string }[]; unreadableRulingPaths: unknown[] }>(result);
+      expect(packet.unreadableProtections).toEqual([
+        { pattern: 'src/[a', reason: 'a "[" is never closed' },
+        { pattern: huge, reason: 'the pattern compiles to more than 65536 states' },
+        { pattern: '{./,lib}', reason: 'the braces expand to "./", which names no path' },
+      ]);
+      expect(packet).toMatchObject({ unreadableScope: [], unreadableRulingPaths: [] });
+      const refused = 'until it is fixed, the guard refuses every write but to the brief';
+      expect(packet.markdown).toContain(
+        [
+          'Must not change without a ruling:',
+          '- `lib/**`',
+          `- \`src/[a\`, which the guard cannot read: a "[" is never closed; ${refused}`,
+          `- \`${huge}\`, which the guard cannot read: the pattern compiles to more than 65536 states; ${refused}`,
+          `- \`{./,lib}\`, which the guard cannot read: the braces expand to "./", which names no path; ${refused}`,
+          '',
+        ].join('\n'),
+      );
+      // As the guard decides: a write in the scope is refused, naming each with the same reason.
+      const guarded = await cli(['guard', 'src/auth/a.ts', 'briefs/003_protections.md', '--brief', '3', '--format', 'json'], unread.root);
+      const [inScope, own] = parsed<{ decisions: { verdict: string; reason: string; because: string[] }[] }>(guarded).decisions;
+      expect(inScope).toMatchObject({ verdict: 'deny', reason: 'unreadable-protection', because: packet.unreadableProtections.map(({ pattern, reason }) => `${pattern} (${reason})`) });
+      expect(own).toMatchObject({ verdict: 'allow', reason: 'brief-file' });
     });
   });
 

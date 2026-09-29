@@ -168,12 +168,95 @@ describe('the contract and the scope', () => {
     expect(outside.because).toEqual(packet.unreadableScope.map(({ pattern, reason }) => `${pattern} (${reason})`));
   });
 
+  it('names each protection the guard cannot read, with spec-core\'s reason and that every write is refused until it is fixed', () => {
+    const huge = `${'{a,b}'.repeat(8)}/${'x'.repeat(300)}`;
+    const brief = row({ affectedFiles: ['src/auth/**'], protectedFiles: ['src/db/**', 'src/[a', huge, '{./,src}', 'migrations/*.sql'] });
+    const packet = renderContext(input({ brief, rulings: [{ id: 'R-012-1', paths: ['src/db/schema.ts'], signer: 'p@example.com' }] }));
+    const refused = 'until it is fixed, the guard refuses every write but to the brief';
+    expect(section(packet.markdown, 'Scope, as the guard reads it')).toBe(
+      [
+        '## Scope, as the guard reads it',
+        '',
+        'May write:',
+        '- `src/auth/**`',
+        '',
+        'Must not change without a ruling:',
+        '- `src/db/**`',
+        `- \`src/[a\`, which the guard cannot read: a "[" is never closed; ${refused}`,
+        `- \`${huge}\`, which the guard cannot read: the pattern compiles to more than 65536 states; ${refused}`,
+        `- \`{./,src}\`, which the guard cannot read: the braces expand to "./", which names no path; ${refused}`,
+        '- `migrations/*.sql`',
+        '',
+        'Rulings in force:',
+        '- R-012-1, signed by p@example.com: `src/db/schema.ts`',
+        '',
+        '',
+      ].join('\n'),
+    );
+    expect(packet.unreadableProtections).toEqual([
+      { pattern: 'src/[a', reason: 'a "[" is never closed' },
+      { pattern: huge, reason: 'the pattern compiles to more than 65536 states' },
+      { pattern: '{./,src}', reason: 'the braces expand to "./", which names no path' },
+    ]);
+    // Neither the scope nor the ruling is named for a protection the guard cannot read.
+    expect(packet.unreadableScope).toEqual([]);
+    expect(packet.unreadableRulingPaths).toEqual([]);
+    // The guard refuses a write in the scope and one the ruling allows, naming each with the same reason, and lets a write to the brief through.
+    const rulings = [{ id: 'R-012-1', paths: ['src/db/schema.ts'], signer: 'p@example.com' }];
+    for (const path of ['src/auth/a.ts', 'src/db/schema.ts']) {
+      const decision = decide({ path, given: path, brief, rulings, outOfScope: 'warn' });
+      expect(decision).toMatchObject({ verdict: 'deny', reason: 'unreadable-protection' });
+      expect(decision.because).toEqual(packet.unreadableProtections.map(({ pattern, reason }) => `${pattern} (${reason})`));
+    }
+    expect(decide({ path: brief.file, given: brief.file, brief, rulings, outOfScope: 'deny' }).verdict).toBe('allow');
+  });
+
+  it('names each path of a ruling the guard cannot read, with spec-core\'s reason and that it allows nothing', () => {
+    const huge = `${'{a,b}'.repeat(8)}/${'x'.repeat(300)}`;
+    const rulings = [
+      { id: 'R-012-1', paths: ['src/db/schema.ts', 'src/db/[a', huge], signer: 'p@example.com' },
+      { id: 'R-012-2', paths: ['{./,src}'], signer: 'q@example.com' },
+      { id: 'R-012-3', paths: ['docs/**', 'migrations/*.sql'], signer: 'p@example.com' },
+    ];
+    const brief = row({ affectedFiles: ['src/auth/**'], protectedFiles: ['src/**', 'migrations/**'] });
+    const packet = renderContext(input({ brief, rulings }));
+    expect(section(packet.markdown, 'Scope, as the guard reads it')).toContain(
+      [
+        'Rulings in force:',
+        '- R-012-1, signed by p@example.com: `src/db/schema.ts`, `src/db/[a` (which the guard cannot read: a "[" is never closed; it allows nothing), ' +
+          `\`${huge}\` (which the guard cannot read: the pattern compiles to more than 65536 states; it allows nothing)`,
+        '- R-012-2, signed by q@example.com: `{./,src}` (which the guard cannot read: the braces expand to "./", which names no path; it allows nothing)',
+        '- R-012-3, signed by p@example.com: `docs/**`, `migrations/*.sql`',
+        '',
+        '',
+      ].join('\n'),
+    );
+    expect(packet.unreadableRulingPaths).toEqual([
+      { ruling: 'R-012-1', pattern: 'src/db/[a', reason: 'a "[" is never closed' },
+      { ruling: 'R-012-1', pattern: huge, reason: 'the pattern compiles to more than 65536 states' },
+      { ruling: 'R-012-2', pattern: '{./,src}', reason: 'the braces expand to "./", which names no path' },
+    ]);
+    expect(packet.unreadableScope).toEqual([]);
+    expect(packet.unreadableProtections).toEqual([]);
+    // The guard passes over each: a protected path it names stays refused, and the ruling's readable path still allows.
+    const decision = (path: string) => decide({ path, given: path, brief, rulings, outOfScope: 'warn' });
+    for (const path of ['src/db/[a', 'src/a.ts', 'src/db/other.ts']) expect(decision(path), path).toMatchObject({ verdict: 'deny', reason: 'protected' });
+    expect(decision('src/db/schema.ts')).toMatchObject({ verdict: 'allow', reason: 'ruled', because: ['R-012-1'] });
+    expect(decision('migrations/1.sql')).toMatchObject({ verdict: 'allow', reason: 'ruled', because: ['R-012-3'] });
+  });
+
   it('lists a pattern the guard can read as written, however it looks', () => {
     // A lone brace is a literal, a slash inside braces is a directory's contents, and ./ under a directory is what it holds.
     const patterns = ['}', '{src/,docs/*.md}', 'src/{./,a}', '[!a]*', 'src'];
-    const packet = renderContext(input({ brief: row({ affectedFiles: patterns }) }));
-    expect(packet.unreadableScope).toEqual([]);
-    expect(section(packet.markdown, 'Scope, as the guard reads it')).toContain(`May write:\n${patterns.map((pattern) => `- \`${pattern}\``).join('\n')}\n\n`);
+    const packet = renderContext(
+      input({ brief: row({ affectedFiles: patterns, protectedFiles: patterns }), rulings: [{ id: 'R-012-1', paths: patterns, signer: 'p@example.com' }] }),
+    );
+    expect(packet).toMatchObject({ unreadableScope: [], unreadableProtections: [], unreadableRulingPaths: [] });
+    const lines = patterns.map((pattern) => `- \`${pattern}\``).join('\n');
+    const scope = section(packet.markdown, 'Scope, as the guard reads it');
+    expect(scope).toContain(`May write:\n${lines}\n\n`);
+    expect(scope).toContain(`Must not change without a ruling:\n${lines}\n\n`);
+    expect(scope).toContain(`Rulings in force:\n- R-012-1, signed by p@example.com: ${patterns.map((pattern) => `\`${pattern}\``).join(', ')}\n`);
     expect(packet.markdown).not.toContain('cannot read');
   });
 });
@@ -307,7 +390,7 @@ describe('the cited documents and the budget', () => {
   it('says None when the brief cites nothing', () => {
     const packet = renderContext(input());
     expect(packet.markdown.endsWith('## Documents the brief cites\n\nNone.\n')).toBe(true);
-    expect(packet).toMatchObject({ included: [], omitted: [], unresolved: [], unclosedFrontMatter: [], unreadableScope: [] });
+    expect(packet).toMatchObject({ included: [], omitted: [], unresolved: [], unclosedFrontMatter: [], unreadableScope: [], unreadableProtections: [], unreadableRulingPaths: [] });
   });
 
   it('fills the budget exactly, and names a document that would pass it', () => {
