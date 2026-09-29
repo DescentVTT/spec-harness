@@ -14,7 +14,7 @@ export type { ActiveBrief, ActiveSource } from './briefs.js';
 export { ConfigError, CONFIG_FILE, DEFAULT_CONFIG, parseConfig, SIBLINGS } from './config.js';
 export type { HarnessConfig, OutOfScope, SiblingName } from './config.js';
 export { renderContext } from './context.js';
-export type { CitedDocument, ContextInput, ContextPacket, RuleInForce, RulingInForce, UnreadablePattern } from './context.js';
+export type { CitedDocument, ContextInput, ContextPacket, RuleInForce, RulingInForce, UnreadablePattern, UnreadableRulingPath } from './context.js';
 export { decide } from './guard.js';
 export type { Decision, GuardInput, Reason, Verdict, VerifiedRuling } from './guard.js';
 export { claudeResponse, gitResponse, parseClaudeHook, WRITING_TOOLS } from './hooks.js';

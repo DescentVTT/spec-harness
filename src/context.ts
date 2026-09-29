@@ -9,8 +9,9 @@
  * they fill what the budget leaves, in the order the brief cites them, and
  * the rest are named rather than dropped silently. So is a document whose
  * front matter is never closed, whose status cannot be read, rather than
- * shown as one without a status, and a pattern in the scope the guard cannot
- * read, with spec-core's reason, rather than listed as one it can.
+ * shown as one without a status, and a pattern in the scope, a protection or
+ * a ruling's path the guard cannot read, with spec-core's reason and what the
+ * guard does without it, rather than listed as one it can.
  */
 
 import { sameId } from './branch.js';
@@ -95,10 +96,15 @@ export interface ContextInput {
   readonly budget: number;
 }
 
-/** A pattern in the brief's scope that the guard cannot read, with spec-core's reason. */
+/** A pattern in the brief's scope or protections that the guard cannot read, with spec-core's reason. */
 export interface UnreadablePattern {
   readonly pattern: string;
   readonly reason: string;
+}
+
+/** A path of a ruling in force that the guard cannot read, with the ruling's id and spec-core's reason. */
+export interface UnreadableRulingPath extends UnreadablePattern {
+  readonly ruling: string;
 }
 
 export interface ContextPacket {
@@ -113,10 +119,30 @@ export interface ContextPacket {
   readonly unclosedFrontMatter: readonly string[];
   /** Patterns in `affectedFiles` the guard cannot read, in the brief's order: each puts no path in the scope. */
   readonly unreadableScope: readonly UnreadablePattern[];
+  /** Patterns in `protectedFiles` the guard cannot read, in the brief's order: while one stands, the guard refuses every write but to the brief. */
+  readonly unreadableProtections: readonly UnreadablePattern[];
+  /** Paths of the rulings in force the guard cannot read, in the order the rulings are listed: each allows nothing. */
+  readonly unreadableRulingPaths: readonly UnreadableRulingPath[];
 }
 
-function list(items: readonly string[], empty: string): string {
-  return items.length === 0 ? `- ${empty}` : items.map((item) => `- \`${item}\``).join('\n');
+function list(items: readonly string[]): string {
+  return items.map((item) => `- \`${item}\``).join('\n');
+}
+
+/**
+ * Each pattern a line, as the guard reads it: as written, or with spec-core's
+ * reason the guard cannot read it and what the guard does without it. The
+ * guard's own compile decides, so the packet and the guard cannot disagree.
+ */
+function patternLines(patterns: readonly string[], consequence: string): { lines: string[]; unreadable: UnreadablePattern[] } {
+  const unreadable: UnreadablePattern[] = [];
+  const lines = patterns.map((pattern) => {
+    const reason = whyUnreadable(pattern);
+    if (reason === null) return `- \`${pattern}\``;
+    unreadable.push({ pattern, reason });
+    return `- \`${pattern}\`, which the guard cannot read: ${reason}; ${consequence}`;
+  });
+  return { lines, unreadable };
 }
 
 function rulesSection(rules: Rules, scopeUnread: boolean): string {
@@ -174,25 +200,39 @@ export function renderContext(input: ContextInput): ContextPacket {
 
   const contract = ['## The contract', '', `\`${brief.file}\`, in full:`, '', '````markdown', input.briefText.trimEnd(), '````', ''].join('\n');
 
+  // The guard passes over a ruling's path it cannot read, so the path allows
+  // nothing. The paths share a line, so the note is in parentheses, closed
+  // before the next path.
+  const unreadableRulingPaths: UnreadableRulingPath[] = [];
   const rulings =
     input.rulings.length === 0
       ? '- none'
-      : input.rulings.map((ruling) => `- ${ruling.id}, signed by ${ruling.signer}: ${ruling.paths.map((p) => `\`${p}\``).join(', ')}`).join('\n');
-  const unreadableScope: UnreadablePattern[] = [];
-  const mayWrite = brief.affectedFiles.map((pattern) => {
-    const reason = whyUnreadable(pattern);
-    if (reason === null) return `- \`${pattern}\``;
-    unreadableScope.push({ pattern, reason });
-    return `- \`${pattern}\`, which the guard cannot read: ${reason}; it puts no path in the scope`;
-  });
+      : input.rulings
+          .map((ruling) => {
+            const paths = ruling.paths.map((pattern) => {
+              const reason = whyUnreadable(pattern);
+              if (reason === null) return `\`${pattern}\``;
+              unreadableRulingPaths.push({ ruling: ruling.id, pattern, reason });
+              return `\`${pattern}\` (which the guard cannot read: ${reason}; it allows nothing)`;
+            });
+            return `- ${ruling.id}, signed by ${ruling.signer}: ${paths.join(', ')}`;
+          })
+          .join('\n');
+  const mayWrite = patternLines(brief.affectedFiles, 'it puts no path in the scope');
+  const unreadableScope = mayWrite.unreadable;
+  // While a protection the guard cannot read stands, the guard refuses every
+  // write, and no ruling waives it; a write to the brief is let through,
+  // since that is where it is fixed.
+  const mustNot = patternLines(brief.protectedFiles, 'until it is fixed, the guard refuses every write but to the brief');
+  const unreadableProtections = mustNot.unreadable;
   const scope = [
     '## Scope, as the guard reads it',
     '',
     'May write:',
-    mayWrite.length === 0 ? '- nothing declared: every write is outside the scope' : mayWrite.join('\n'),
+    mayWrite.lines.length === 0 ? '- nothing declared: every write is outside the scope' : mayWrite.lines.join('\n'),
     '',
     'Must not change without a ruling:',
-    list(brief.protectedFiles, 'nothing declared'),
+    mustNot.lines.length === 0 ? '- nothing declared' : mustNot.lines.join('\n'),
     '',
     'Rulings in force:',
     rulings,
@@ -206,7 +246,7 @@ export function renderContext(input: ContextInput): ContextPacket {
   });
   const dependencies = ['## Depends on', '', waiting.length === 0 ? '- nothing' : waiting.join('\n'), ''].join('\n');
 
-  const scopeUnread = mayWrite.length > 0 && unreadableScope.length === mayWrite.length;
+  const scopeUnread = mayWrite.lines.length > 0 && unreadableScope.length === mayWrite.lines.length;
   const rules = ['## Rules in force for this scope', '', rulesSection(input.rules, scopeUnread), ''].join('\n');
 
   const howTo = [
@@ -247,15 +287,22 @@ export function renderContext(input: ContextInput): ContextPacket {
   const citedSection = ['## Documents the brief cites', ''];
   if (documents.length === 0 && omitted.length === 0 && unresolved.length === 0) citedSection.push('None.', '');
   citedSection.push(...documents);
-  // Each list below is shown only with an entry in it, so the text `list`
-  // gives an empty one is never read, and its mutants are equivalent.
   if (omitted.length > 0) {
-    citedSection.push(`Left out to stay within ${input.budget} characters; read them when the work reaches them:`, list(omitted, ''), '');
+    citedSection.push(`Left out to stay within ${input.budget} characters; read them when the work reaches them:`, list(omitted), '');
   }
-  if (unresolved.length > 0) citedSection.push('Cited but not found in the repository:', list(unresolved, ''), '');
+  if (unresolved.length > 0) citedSection.push('Cited but not found in the repository:', list(unresolved), '');
   if (unclosed.length > 0) {
-    citedSection.push('Front matter opened on line 1 and never closed, so the status was not read; close the block with `---` on a line of its own:', list(unclosed, ''), '');
+    citedSection.push('Front matter opened on line 1 and never closed, so the status was not read; close the block with `---` on a line of its own:', list(unclosed), '');
   }
 
-  return { markdown: `${fixed}\n${citedSection.join('\n').trimEnd()}\n`, included, omitted, unresolved, unclosedFrontMatter: unclosed, unreadableScope };
+  return {
+    markdown: `${fixed}\n${citedSection.join('\n').trimEnd()}\n`,
+    included,
+    omitted,
+    unresolved,
+    unclosedFrontMatter: unclosed,
+    unreadableScope,
+    unreadableProtections,
+    unreadableRulingPaths,
+  };
 }
