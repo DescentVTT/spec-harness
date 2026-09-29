@@ -2,6 +2,38 @@
 
 ## Unreleased
 
+### Changed
+
+- spec-core at 7e41240. Its glob reads a leading `/` on a brace
+  alternative as it reads one on a pattern written alone, where the slash
+  was dropped: `{/docs,src/**}` is `/docs` or `src/**`, where it was `docs`
+  or `src/**`. `/docs` is rooted at the filesystem's root, and every path
+  the guard decides is repository-relative, so it matches none of them:
+  - In a brief's `affectedFiles`, `{/docs,src/**}` no longer puts
+    `docs/a.md` in the scope: the guard answers `out-of-scope` where it
+    answered `in-scope`, as it does for `/docs` written alone. `src/a.ts`
+    is in the scope as before.
+  - In `protectedFiles`, `{/docs,migrations/**}` no longer protects
+    `docs/a.md`, and in a ruling's paths `{/src/db/schema.ts,x}` no longer
+    allows `src/db/schema.ts`, as `/docs` and `/src/db/schema.ts` alone
+    protect and allow nothing. The guard can read each, so the packet lists
+    it as written, as it lists `/docs`, with no note.
+  - `context` and `start_round` ask spec-guard about `/docs`, or about `/`
+    when the repository holds no `docs`, where they asked about `docs`, as
+    they do for `/docs` written alone. spec-guard refuses a path outside the
+    repository, so the packet says the rules could not be read, with what
+    spec-guard said, and to treat every ADR as binding.
+  - In `dependencies.manifests`, `{/package.json,Gemfile}` no longer names
+    `package.json` at any depth, and names no file the round changed, as
+    `/package.json` alone names none. `Gemfile` is read as before, and no
+    warning names the name, since it can be read.
+  - In spec-graph's `patterns`, `{/briefs/**/*.md,docs/**/*.md}` no longer
+    reaches `briefs/`, and `init` says spec-graph does not read the briefs
+    there, as it says for `/briefs/**/*.md`.
+  - A slash after a segment, or before the braces, reads as before:
+    `a/{/b,c}` is `a/b` or `a/c`, `/{docs,src}` roots both, and
+    `{docs,src}` is `docs` or `src`.
+
 ### Fixed
 
 - `context` and `start_round` name a pattern in `protectedFiles` the guard
