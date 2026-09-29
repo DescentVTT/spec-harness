@@ -59,6 +59,25 @@ creates, and a packet that leaves out a rule in force tells the agent the
 code is freer than it is. The guard still reads the name as a file or a
 directory.
 
+*Amended 2026-09-29.* The packet names a pattern in the scope the guard
+cannot read, as it names what it could not read in a cited document. A
+pattern in `affectedFiles` that spec-core's glob refuses - malformed, too
+large to compile, or naming no path, such as `{./,src}` - puts no path in
+the scope: the guard passes over it, naming it and the reason in `because`,
+and spec-guard is not asked about it. The packet listed it as written among
+the files the round may write, so the agent read a scope the guard does not
+hold, and a write it made there drew, by default, the guard's out-of-scope
+warning after the write. Each such pattern is now marked where the scope is listed,
+with spec-core's reason, and `context --format json` and `start_round` list
+them as `unreadableScope`; a readable pattern is listed as before. When no
+pattern in `affectedFiles` can be read, spec-guard is asked about no path,
+and its empty answer read as "spec-guard holds no rule over this scope",
+which tells the agent the code it writes is unconstrained. The packet now
+says the scope could not be read, and to treat every ADR as binding until
+the scope is fixed. A protection the guard cannot read is still listed as
+written: the guard refuses every write while it stands, naming it and the
+reason, so no write gets past it on the packet's word.
+
 ## Consequences
 
 Every command gives the same answer for the same repository. What the plan

@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- `context` and `start_round` name a pattern in `affectedFiles` the guard
+  cannot read - malformed, too large to compile, or naming no path, such as
+  `{./,src}` - where the scope is listed: it is marked with spec-core's
+  reason, the one the guard gives in `because` when it passes over it, and
+  as putting no path in the scope. It was listed as written among the files
+  the round may write, with no note. When no pattern in `affectedFiles` can
+  be read, the rules section says the scope could not be read and to treat
+  every ADR as binding until it is fixed, where it said "spec-guard holds no
+  rule over this scope": spec-guard was asked about no path. A readable
+  pattern is listed as before. `context --format json` and `start_round`'s
+  structured result list such patterns as `unreadableScope`, each with its
+  `pattern` and `reason`, a field added beside `unclosedFrontMatter`, so no
+  `schemaVersion` moves; in the programmatic API a context packet carries
+  it as well, each entry an `UnreadablePattern`. The reasoning is in
+  [ADR-0001](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0001-the-harness-decides-the-agent-writes.md)'s
+  amendment.
+
 ## 0.4.0
 
 The audit names a `dependencies.manifests` name it cannot read, with
