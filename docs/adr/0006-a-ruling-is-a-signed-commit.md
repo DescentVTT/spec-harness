@@ -38,6 +38,19 @@ recommendation is a FIDO2 key (`sk-ssh-ed25519@openssh.com`), whose
 signature needs a touch no process can supply, or a signing key the agent's
 account cannot read.
 
+*Amended 2026-09-30.* doctor notes each signer in the allowed-signers file on
+the base whose key is not a FIDO2 key, `sk-ssh-ed25519@openssh.com` or
+`sk-ecdsa-sha2-nistp256@openssh.com`, reading the file as OpenSSH does:
+principals, any options, the key type and the key. It is a note, never a
+failure. This decision accepts a key the agent's account cannot read as well
+as a FIDO2 key, and a hardware key reached through PIV or PKCS#11 is written
+as a plain `ssh-rsa` or `ecdsa` line, so a failure on the key type would
+refuse keys this decision accepts. A `cert-authority` line holds a
+certificate authority's key; the keys it certifies are not in the file, so
+it is left out. init's advice names the file `rulings.allowedSigners`
+names, where it named `.github/allowed_signers` whatever the configuration
+said, and a FIDO2 key made with `ssh-keygen -t ed25519-sk`.
+
 ## Consequences
 
 No new format, service or network: git, OpenSSH 8.1 or later (2019), and an

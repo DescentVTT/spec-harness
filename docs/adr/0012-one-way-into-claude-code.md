@@ -81,6 +81,23 @@ later, is found by `doctor` and by init's next run rather than prevented.
 README says so where it says what to install, and so does the plugin's
 manifest.
 
+*Amended 2026-09-30.* doctor checks the release, where only the documents
+stated it. A Claude Code older than 2.1.139 ignores a hook's `args` and runs
+its bare `command`, `node`, which reads the hook's input as a script and
+fails; Claude Code blocks a tool call only on a PreToolUse hook's exit 2, so
+every write passes unguarded, and nothing says so. When the plugin or
+init's hooks wire Claude Code to the guard, doctor runs `claude --version`,
+found on `PATH` and started without a shell, as every program the harness
+runs is (ADR-0002). An older release exits 1. A `claude` that is not found,
+a version that cannot be read, and on Windows a `claude.cmd` shim, which
+cannot be started without a shell, are *cannot tell*: never reported as
+fine, and a failure under `--strict`, since nothing measured is not clean
+(spec-core ADR-0005). The minimum is `CLAUDE_CODE_MINIMUM` in
+`src/versions.ts`, beside the siblings', and a test holds the README and the
+plugin's manifest to it. The `claude` on `PATH` may not be the one an editor
+or the desktop app runs, which doctor cannot see; the README says to check
+that one there.
+
 ## Consequences
 
 - A plugin turned on by managed settings or `--settings` is invisible to

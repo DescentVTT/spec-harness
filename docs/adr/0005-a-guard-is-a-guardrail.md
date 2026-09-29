@@ -66,6 +66,18 @@ problem fixed and another found. A finding with no file is placed on the
 brief, and one with no line on line 1. `subject` is a field of each finding
 in `--format json` as well, added, so no `schemaVersion` moves.
 
+*Amended 2026-09-30.* The guard at commit covers what the agent's hooks do
+not, a write through a shell, and it was installed only when asked. init
+now advises git's pre-commit hook when `--git-hook` is not given, and doctor
+says whether it is installed. Both find it where git runs it from, as `git
+rev-parse --path-format=absolute --git-path hooks/pre-commit` answers:
+`core.hooksPath` relative to the work tree, absolute or under `~`, and the
+shared hooks of a linked worktree. init joined `core.hooksPath` to the work
+tree, which put the hook for an absolute or a `~` path where git never runs
+it. No Bash hook looks for `--no-verify` or a shell's writes: every shell
+command would pay for it, it is easy to get around, and the audit stays the
+gate.
+
 ## Consequences
 
 An agent that writes through a shell passes the guard and is caught at the

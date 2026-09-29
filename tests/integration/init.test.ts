@@ -1,12 +1,12 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { afterAll, describe, expect, it } from 'vitest';
 
 import { GUARD_HOOK, mcpServer, mergeMcp, PLUGIN, PROJECT_DIR_OR_HERE } from '../../src/configure.js';
 import { claudeSettingsFiles } from '../../src/round.js';
-import { cleanup, cli, install, installFake, parsed, repository, siblings, temp, write, type Repository } from './helpers.js';
+import { cleanup, cli, install, installFake, installHarness, parsed, repository, siblings, temp, write, type Repository } from './helpers.js';
 
 afterAll(cleanup);
 
@@ -70,6 +70,7 @@ describe('init', () => {
       ['.spec-harness.json', 'create'],
       ['.claude/settings.json', 'create'],
       ['.mcp.json', 'create'],
+      ['.git/hooks/pre-commit', 'advise'],
       ['.github/allowed_signers', 'advise'],
     ]);
     const briefConfig = JSON.parse(repo.read('.spec-brief.json'));
@@ -275,30 +276,100 @@ describe('init', () => {
     expect(JSON.parse(repo.read('.spec-harness.json'))).toEqual({ outOfScope: 'ask', base: 'main' });
   });
 
-  it('adds git\'s pre-commit hook only when asked, and never over one that exists', async () => {
+  it('advises git\'s pre-commit hook when not asked to add it, adds it when asked, and never over one that exists', async () => {
     const repo = repository({});
     const hook = join(repo.git('rev-parse', '--path-format=absolute', '--git-common-dir'), 'hooks', 'pre-commit');
-    expect((await cli(['init'], repo.root)).stdout).not.toContain('pre-commit');
+    const advised = await cli(['init', '--write'], repo.root);
+    expect(advised.stdout).toContain(
+      'advise  .git/hooks/pre-commit\n        no pre-commit hook runs spec-harness: one refuses a commit that changes what the active brief protects, for any agent or none, a shell\'s writes included; run spec-harness init --git-hook --write to add it\n',
+    );
+    expect(existsSync(hook)).toBe(false);
     const planned = await cli(['init', '--git-hook', '--write'], repo.root);
-    expect(planned.stdout).toContain('refuse a commit that changes what the active brief protects');
+    expect(planned.stdout).toContain('create  .git/hooks/pre-commit\n        refuse a commit that changes what the active brief protects\n');
     expect(repo.read('.git/hooks/pre-commit')).toBe(
       '#!/bin/sh\n# spec-harness: refuse a commit that changes what the active brief protects.\nexec npx --no-install spec-harness hook git\n',
     );
     expect(existsSync(hook)).toBe(true);
-    expect((await cli(['init', '--git-hook'], repo.root)).stdout).toContain('already runs spec-harness');
+    // Once there, it is kept, asked for or not.
+    expect((await cli(['init', '--git-hook'], repo.root)).stdout).toContain('keep    .git/hooks/pre-commit\n        already runs spec-harness\n');
+    expect((await cli(['init'], repo.root)).stdout).toContain('keep    .git/hooks/pre-commit\n        already runs spec-harness\n');
 
     const other = repository({});
     other.write('.git/hooks/pre-commit', '#!/bin/sh\nnpm test\n');
-    const advised = await cli(['init', '--git-hook', '--write'], other.root);
-    expect(advised.stdout).toContain('a pre-commit hook exists; add the line "npx --no-install spec-harness hook git" to it');
+    const line = 'advise  .git/hooks/pre-commit\n        a pre-commit hook exists; add the line "npx --no-install spec-harness hook git" to it\n';
+    expect((await cli(['init', '--git-hook', '--write'], other.root)).stdout).toContain(line);
+    expect((await cli(['init', '--write'], other.root)).stdout).toContain(line);
     expect(other.read('.git/hooks/pre-commit')).toBe('#!/bin/sh\nnpm test\n');
   });
 
-  it('writes the hook where core.hooksPath points', async () => {
+  it('writes the hook where core.hooksPath points, relative to the work tree', async () => {
     const repo = repository({});
     repo.git('config', 'core.hooksPath', '.githooks');
-    await cli(['init', '--git-hook', '--write'], repo.root);
+    const result = await cli(['init', '--git-hook', '--write'], repo.root);
+    expect(result.stdout).toContain('create  .githooks/pre-commit\n');
     expect(repo.read('.githooks/pre-commit')).toContain('spec-harness hook git');
+  });
+
+  it('writes the hook where an absolute core.hooksPath points, which it joined to the work tree', async () => {
+    const repo = repository({});
+    const hooks = join(temp(), 'shared-hooks');
+    repo.git('config', 'core.hooksPath', hooks);
+    const result = parsed<{ steps: Step[] }>(await cli(['init', '--git-hook', '--write', '--format', 'json'], repo.root));
+    const step = result.steps.find((candidate) => candidate.file.endsWith('pre-commit'));
+    expect(step?.action).toBe('create');
+    expect(realpathSync.native(step?.file ?? '')).toBe(realpathSync.native(join(hooks, 'pre-commit')));
+    expect(readFileSync(join(hooks, 'pre-commit'), 'utf8')).toContain('spec-harness hook git');
+    expect(existsSync(join(repo.root, hooks.replace(/^[A-Za-z]:/, ''), 'pre-commit'))).toBe(false);
+  });
+
+  it('plans the hook where git reads a core.hooksPath under ~, and writes nothing without --write', async () => {
+    const repo = repository({});
+    repo.git('config', 'core.hooksPath', '~/spec-harness-test-hooks-never-written');
+    const step = parsed<{ steps: Step[] }>(await cli(['init', '--format', 'json'], repo.root)).steps.find((candidate) => candidate.file.endsWith('pre-commit'));
+    // Where git itself runs the hook from, outside the work tree; never "<root>/~/...".
+    expect(step).toMatchObject({ action: 'advise', file: repo.git('rev-parse', '--path-format=absolute', '--git-path', 'hooks/pre-commit') });
+    expect(step?.file).not.toContain('~');
+  });
+
+  it('writes the hook of a linked worktree where git runs it: the shared hooks, or a relative core.hooksPath in that worktree', async () => {
+    const main = repository({});
+    const linked = join(temp(), 'linked');
+    main.git('worktree', 'add', '-q', '-b', 'brief/001-linked', linked);
+    await cli(['init', '--git-hook', '--write'], linked);
+    expect(main.read('.git/hooks/pre-commit')).toContain('spec-harness hook git');
+    main.git('config', 'core.hooksPath', '.githooks');
+    await cli(['init', '--git-hook', '--write'], linked);
+    expect(readFileSync(join(linked, '.githooks', 'pre-commit'), 'utf8')).toContain('spec-harness hook git');
+    expect(existsSync(join(main.root, '.githooks', 'pre-commit'))).toBe(false);
+  });
+
+  it('advises the allowed-signers file the configuration names, with a FIDO2 key, and how each forge protects it', async () => {
+    const detail =
+      'rulings count only when signed by a key listed here on the base branch: one line per person, <email> namespaces="git" <public key>. Where an agent runs as the person, make it a FIDO2 key, ssh-keygen -t ed25519-sk, whose signature needs a touch no process can supply. ' +
+      "Have the forge protect this file, the ADRs, the tool configurations and the CI configuration, so no change to them reaches the base branch without a person, and check each change in CI against the base branch's rules: " +
+      'on GitHub, CODEOWNERS and a protected branch; on GitLab Premium, Code Owners; on GitLab Free, a protected branch no one pushes to, merged by Maintainers, agents as Developers, and pipelines that must succeed. ' +
+      "spec-core's docs/adopting.md has the settings";
+    const named = repository({}, { rulings: { allowedSigners: '.gitlab/allowed_signers' } });
+    const steps = parsed<{ steps: Step[] }>(await cli(['init', '--format', 'json'], named.root)).steps;
+    expect(steps.filter((step) => step.file.endsWith('allowed_signers'))).toEqual([{ file: '.gitlab/allowed_signers', action: 'advise', detail }]);
+    const plain = repository({});
+    expect(parsed<{ steps: Step[] }>(await cli(['init', '--format', 'json'], plain.root)).steps.filter((step) => step.file.endsWith('allowed_signers'))).toEqual([
+      { file: '.github/allowed_signers', action: 'advise', detail },
+    ]);
+  });
+
+  it('keeps a spec-brief configuration that loads the plugin by a path to its file, and adds no second one', async () => {
+    const repo = repository({ '.spec-brief.json': JSON.stringify({ plugins: ['./node_modules/@descent-vtt/spec-harness/plugin.js'], archiving: { base: 'main' } }) });
+    installHarness(repo.root);
+    const result = await cli(['init', '--write'], repo.root);
+    expect(result.stdout).toContain("keep    .spec-brief.json\n        spec-harness's plugin is loaded, and the archive is measured from main\n");
+    expect(JSON.parse(repo.read('.spec-brief.json')).plugins).toEqual(['./node_modules/@descent-vtt/spec-harness/plugin.js']);
+    // A path to another file is another plugin.
+    const other = repository({ '.spec-brief.json': JSON.stringify({ plugins: ['./tools/plugin.js'] }) });
+    installHarness(other.root);
+    other.write('tools/plugin.js', 'export default { name: "x", rules: [] };\n');
+    await cli(['init', '--write'], other.root);
+    expect(JSON.parse(other.read('.spec-brief.json')).plugins).toEqual(['./tools/plugin.js', PLUGIN]);
   });
 
   it('writes no hook and no server while the Claude Code plugin is on, and says how to have them instead', async () => {

@@ -86,3 +86,45 @@ describe('premises for a forge', () => {
     expect(await cli(['premises', '--format', 'github'], repo.root)).toEqual({ code: 0, stdout: '', stderr: '' });
   });
 });
+
+describe('premises in a CI run on a detached head', () => {
+  const body = ['## The Defect, Measured', '', '<!-- @assert-count target="src" symbol="legacyCall" min="1" -->', ''].join('\n');
+
+  /** A round that retired its premise, checked out as CI checks it out: the commit, on no branch. */
+  function detached(): ReturnType<typeof repository> {
+    const repo = repository({ [BRIEF_FILE]: brief({ affected: ['src/**'], body }), 'src/a.ts': 'legacyCall();\n' });
+    repo.git('checkout', '-q', '-b', 'brief/001-retire');
+    repo.write('src/a.ts', 'modernCall();\n');
+    repo.commit('the round');
+    repo.git('checkout', '-q', '--detach');
+    return repo;
+  }
+
+  it('reads the branch the forge names, so the round\'s own retired premise fails nothing', async () => {
+    const repo = detached();
+    for (const env of [{ GITHUB_HEAD_REF: 'brief/001-retire' }, { CI_MERGE_REQUEST_SOURCE_BRANCH_NAME: 'brief/001-retire' }, { GITHUB_REF_TYPE: 'branch', GITHUB_REF_NAME: 'brief/001-retire' }, { CI_COMMIT_BRANCH: 'brief/001-retire' }]) {
+      const result = await cli(['premises', '--format', 'json'], repo.root, { env });
+      expect(result.code, JSON.stringify(env)).toBe(0);
+      expect(parsed<{ findings: { rule: string }[] }>(result).findings.map((f) => f.rule), JSON.stringify(env)).toEqual(['premise-retired']);
+    }
+  });
+
+  it('names no brief without them, as before, and the premise is stale', async () => {
+    const result = await cli(['premises', '--format', 'json'], detached().root, { env: {} });
+    expect(result.code).toBe(1);
+    expect(parsed<{ findings: { rule: string }[] }>(result).findings.map((f) => f.rule)).toEqual(['stale-premise']);
+  });
+
+  it('keeps the branch checked out over what the forge names', async () => {
+    const repo = detached();
+    repo.git('checkout', '-q', 'main');
+    const result = await cli(['premises', '--format', 'json'], repo.root, { env: { GITHUB_HEAD_REF: 'brief/001-retire' } });
+    // On main the round's change is not there, so the premise holds: nothing to report either way.
+    expect(parsed<{ findings: unknown[] }>(result).findings).toEqual([]);
+    expect((await cli(['doctor'], repo.root, { env: { GITHUB_HEAD_REF: 'brief/001-retire' } })).stdout).toContain('\nbranch  main\nbrief   (none named)\n');
+    repo.git('checkout', '-q', '--detach', 'brief/001-retire');
+    expect((await cli(['doctor'], repo.root, { env: { GITHUB_HEAD_REF: 'brief/001-retire' } })).stdout).toContain(
+      '\nbranch  brief/001-retire (detached; GITHUB_HEAD_REF names it)\nbrief   001\n',
+    );
+  });
+});

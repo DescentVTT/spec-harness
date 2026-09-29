@@ -1,11 +1,11 @@
-import { readFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, linkSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { afterAll, describe, expect, it } from 'vitest';
 
 import { HELP } from '../../src/cli.js';
 import { mergeClaudeSettings, mergeMcp } from '../../src/configure.js';
-import { brief, BRIEF_FILE, cleanup, cli, installFake, parsed, repository, ROOT, SPEC_BRIEF, spawnBin, temp, write } from './helpers.js';
+import { brief, BRIEF_FILE, cleanup, cli, installFake, installHarness, parsed, repository, ROOT, SPEC_BRIEF, spawnBin, temp, write, type Repository } from './helpers.js';
 
 afterAll(cleanup);
 
@@ -239,6 +239,164 @@ describe('the siblings', () => {
     const result = await cli(['context', '1'], repo.root);
     expect(result.code).toBe(0);
     expect(result.stdout.split('\n')[0]).toBe('# Round 001: ["a b;c","$(exit 7)","%PATH%","list","--archived","--format","json","--no-color"]');
+  });
+});
+
+describe('doctor on the Claude Code that runs the guard (ADR-0012)', () => {
+  const wired = (): Repository => repository({ '.claude/settings.json': JSON.stringify(mergeClaudeSettings({})) });
+
+  /** A directory holding a `claude` that prints `output` for --version: a shell script, which Windows cannot run without a shell. */
+  function claude(output: string): string {
+    const directory = temp();
+    const file = join(directory, 'claude');
+    writeFileSync(file, `#!/bin/sh\necho '${output}'\n`);
+    chmodSync(file, 0o755);
+    return directory;
+  }
+
+  it.skipIf(process.platform === 'win32')('fails when it is older than the hooks need, which lets every write through unguarded', async () => {
+    const repo = wired();
+    const result = await cli(['doctor'], repo.root, { env: { PATH: claude('2.1.100 (Claude Code)') } });
+    expect(result.code).toBe(1);
+    expect(result.stdout).toContain(
+      "\n        Claude Code 2.1.100 is older than 2.1.139, which the hooks need: it ignores a hook's args and runs a bare node, which fails, and a PreToolUse hook that fails blocks nothing, so every write passes unguarded: update Claude Code, with claude update\n",
+    );
+    const json = parsed<{ claudeCode: { release: unknown } }>(await cli(['doctor', '--format', 'json'], repo.root, { env: { PATH: claude('2.1.100 (Claude Code)') } }));
+    expect(json.claudeCode.release).toMatchObject({ state: 'outdated', version: '2.1.100', minimum: '2.1.139' });
+  });
+
+  it.skipIf(process.platform === 'win32')('passes a release at the minimum or later', async () => {
+    const result = await cli(['doctor', '--strict'], wired().root, { env: { PATH: claude('2.1.139 (Claude Code)') } });
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain('\n        Claude Code 2.1.139 runs the hooks, which need 2.1.139 or later\n');
+  });
+
+  it('cannot tell when no claude is on PATH, which is never fine and fails under --strict', async () => {
+    const repo = wired();
+    const result = await cli(['doctor'], repo.root, { env: { PATH: temp() } });
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain(
+      '\n        whether Claude Code is 2.1.139 or later, which the hooks need, cannot be told: no claude is on PATH; an older release lets every write pass unguarded, so check claude --version where Claude Code runs\n',
+    );
+    expect((await cli(['doctor', '--strict'], repo.root, { env: { PATH: temp() } })).code).toBe(1);
+    expect(parsed<{ claudeCode: { release: unknown } }>(await cli(['doctor', '--format', 'json'], repo.root, { env: {} })).claudeCode.release).toEqual({
+      state: 'unknown',
+      version: null,
+      minimum: '2.1.139',
+      detail: expect.stringContaining('cannot be told: no claude is on PATH'),
+    });
+  });
+
+  it('cannot tell from a program that prints no version, which it runs without a shell', async () => {
+    // This Node under the name claude: it prints its own version, v24.x, which is not Claude Code's.
+    const directory = temp();
+    const name = process.platform === 'win32' ? 'claude.exe' : 'claude';
+    try {
+      linkSync(process.execPath, join(directory, name));
+    } catch {
+      copyFileSync(process.execPath, join(directory, name));
+    }
+    const result = await cli(['doctor'], wired().root, { env: { PATH: directory } });
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain(`cannot be told: claude --version printed "${process.version}", which is not a version`);
+  });
+
+  it.runIf(process.platform === 'win32')('cannot tell from a claude.cmd shim, which only a shell can start', async () => {
+    const directory = temp();
+    write(directory, 'claude.cmd', '@echo 2.1.200 (Claude Code)\r\n');
+    const result = await cli(['doctor', '--strict'], wired().root, { env: { PATH: directory, PATHEXT: '.COM;.EXE;.BAT;.CMD' } });
+    expect(result.code).toBe(1);
+    expect(result.stdout).toContain(`cannot be told: claude on PATH is ${join(directory, 'claude.cmd')}, a script that cannot be started without a shell, which spec-harness does not use`);
+  });
+
+  it('asks nothing of Claude Code where nothing wires it to the guard', async () => {
+    const result = await cli(['doctor', '--strict', '--format', 'json'], repository({}).root, { env: { PATH: temp() } });
+    expect(result.code).toBe(0);
+    expect(parsed<{ claudeCode: { release: unknown } }>(result).claudeCode.release).toEqual({
+      state: 'unchecked',
+      version: null,
+      minimum: '2.1.139',
+      detail: 'not asked: nothing wires Claude Code to the guard here',
+    });
+  });
+});
+
+describe('doctor on the rest of what a ruling and a commit need', () => {
+  // Made-up keys: nothing here decodes one.
+  const KEY = 'AAAAC3NzaC1lZDI1NTE5AAAAIGb0mVx1Vt1yZ1U0dG1uZm9yZXhhbXBsZW9ubHk=';
+
+  it('notes the signers whose key is not FIDO2, a certificate authority left out, and fails nothing for it (ADR-0006)', async () => {
+    const repo = repository({
+      '.github/allowed_signers': [
+        `a@example.com namespaces="git" ssh-ed25519 ${KEY}`,
+        `b@example.com sk-ssh-ed25519@openssh.com ${KEY}`,
+        `*@example.com cert-authority ssh-rsa ${KEY}`,
+        `c@example.com ecdsa-sha2-nistp256 ${KEY}`,
+        'not a signer',
+        '',
+      ].join('\n'),
+    });
+    const result = await cli(['doctor'], repo.root);
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain(
+      "\nsigners .github/allowed_signers is on main\n        note: signers whose key is not a FIDO2 key: a@example.com (ssh-ed25519, line 1), c@example.com (ecdsa-sha2-nistp256, line 4). Where an agent runs as the person, ADR-0006 recommends a FIDO2 key, ssh-keygen -t ed25519-sk, whose signature needs a touch no process can supply, or a key the agent's account cannot read; a PIV or PKCS#11 hardware key reads as a plain ssh-rsa or ecdsa line, so this is a note, not a failure\n        note: line 5 is not a signer: a signer is its principals, any options, a key type and a key\n",
+    );
+    const json = parsed<{ allowedSigners: unknown }>(await cli(['doctor', '--format', 'json'], repo.root));
+    expect(json.allowedSigners).toMatchObject({
+      onBase: true,
+      notFido2: [
+        { line: 1, principals: ['a@example.com'], keyType: 'ssh-ed25519' },
+        { line: 4, principals: ['c@example.com'], keyType: 'ecdsa-sha2-nistp256' },
+      ],
+      problems: [{ line: 5, message: 'a signer is its principals, any options, a key type and a key' }],
+    });
+  });
+
+  it('says nothing of the keys when every signer\'s is FIDO2', async () => {
+    const repo = repository({ '.github/allowed_signers': `b@example.com sk-ssh-ed25519@openssh.com ${KEY}\n` });
+    const result = await cli(['doctor'], repo.root);
+    expect(result.stdout).toContain('\nsigners .github/allowed_signers is on main\nplugin  ');
+  });
+
+  it('reports whether git\'s pre-commit hook runs spec-harness, where git runs it from', async () => {
+    const repo = repository({});
+    expect((await cli(['doctor'], repo.root)).stdout).toContain(
+      '\ngit     no pre-commit hook runs spec-harness (.git/hooks/pre-commit): one refuses a commit that changes what the active brief protects, for any agent or none, a shell\'s writes included; run spec-harness init --git-hook --write to add it\n',
+    );
+    await cli(['init', '--git-hook', '--write'], repo.root);
+    expect((await cli(['doctor'], repo.root)).stdout).toContain('\ngit     .git/hooks/pre-commit runs spec-harness\n');
+    const json = parsed<{ gitHook: unknown }>(await cli(['doctor', '--format', 'json'], repo.root));
+    expect(json.gitHook).toEqual({ state: 'runs', file: '.git/hooks/pre-commit', detail: '.git/hooks/pre-commit runs spec-harness' });
+    const other = repository({});
+    other.git('config', 'core.hooksPath', '.githooks');
+    other.write('.githooks/pre-commit', '#!/bin/sh\nnpm test\n');
+    expect((await cli(['doctor'], other.root)).stdout).toContain(
+      '\ngit     .githooks/pre-commit does not run spec-harness: add the line "npx --no-install spec-harness hook git" to it\n',
+    );
+  });
+
+  it.skipIf(process.platform === 'win32')('says a hook git skips, one that is not executable, is not installed', async () => {
+    const repo = repository({});
+    await cli(['init', '--git-hook', '--write'], repo.root);
+    chmodSync(join(repo.root, '.git', 'hooks', 'pre-commit'), 0o644);
+    expect((await cli(['doctor'], repo.root)).stdout).toContain(
+      '\ngit     .git/hooks/pre-commit runs spec-harness, but is not executable, so git skips it: chmod +x .git/hooks/pre-commit\n',
+    );
+  });
+
+  it('reads a spec-brief plugin loaded by a path to this package\'s plugin as loaded', async () => {
+    const repo = repository({ '.spec-brief.json': JSON.stringify({ plugins: [{ module: './node_modules/@descent-vtt/spec-harness/plugin.js' }] }) });
+    installHarness(repo.root);
+    expect((await cli(['doctor'], repo.root)).stdout).toContain("\nplugin  spec-brief loads spec-harness's plugin (.spec-brief.json)");
+    // As the package ships its export, under conditions: the file for an import is the default one.
+    const manifest = { name: '@descent-vtt/spec-harness', type: 'module', exports: { './spec-brief-plugin': { types: './plugin.d.ts', default: './plugin.js' } } };
+    repo.write('node_modules/@descent-vtt/spec-harness/package.json', JSON.stringify(manifest));
+    expect((await cli(['doctor'], repo.root)).stdout).toContain("\nplugin  spec-brief loads spec-harness's plugin (.spec-brief.json)");
+    // Absolute, and to this checkout's own build.
+    repo.write('.spec-brief.json', JSON.stringify({ plugins: [join(ROOT, 'dist', 'plugin.js')] }));
+    expect((await cli(['doctor'], repo.root)).stdout).toContain("\nplugin  spec-brief loads spec-harness's plugin (.spec-brief.json)");
+    repo.write('.spec-brief.json', JSON.stringify({ plugins: ['./node_modules/@descent-vtt/spec-harness/package.json', './missing.js'] }));
+    expect((await cli(['doctor'], repo.root)).stdout).toContain("\nplugin  spec-brief does not load spec-harness's plugin");
   });
 });
 

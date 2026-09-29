@@ -9,7 +9,7 @@ import { pluginDrift, releaseOf } from '../scripts/release.js';
 import { ConfigError, parseConfig, SIBLINGS } from '../src/config.js';
 import { GUARD_HOOK, mcpServer, mergeClaudeSettings, mergeMcp, PROJECT_DIR, PROJECT_DIR_OR_HERE } from '../src/configure.js';
 import { scanMarkdown } from '../src/vendor/spec-core/markdown/index.js';
-import { MINIMUM_VERSIONS } from '../src/versions.js';
+import { CLAUDE_CODE_MINIMUM, MINIMUM_VERSIONS } from '../src/versions.js';
 
 /**
  * Claims the repository makes about itself, checked rather than trusted. This
@@ -75,7 +75,7 @@ describe('dependencies', () => {
 
 describe('no shell', () => {
   it('starts git and the siblings with an argument vector, never through a shell', () => {
-    for (const path of ['src/siblings.ts', 'src/git.ts']) {
+    for (const path of ['src/siblings.ts', 'src/git.ts', 'src/host.ts']) {
       const source = text(path);
       expect(source, path).not.toMatch(/shell:\s*true/);
       // exec and spawn with shell: true read a line as shell syntax; RegExp#exec is not a process.
@@ -208,8 +208,8 @@ describe('the README', () => {
   });
 
   it('states the Claude Code release the hooks need where it says what to install, as the plugin does (ADR-0012)', () => {
-    // The first release whose changelog runs a hook's `args`, the exec form the guard is written in.
-    const claudeCode = 'Claude Code 2.1.139 or later';
+    // The first release whose changelog runs a hook's `args`, the exec form the guard is written in, and the one doctor checks.
+    const claudeCode = `Claude Code ${CLAUDE_CODE_MINIMUM} or later`;
     expect(text('README.md').split('## A round')[0]).toContain(claudeCode);
     expect(json('.claude-plugin/plugin.json')['description']).toContain(claudeCode);
   });

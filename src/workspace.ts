@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
 
 import { findActive, type ActiveBrief } from './briefs.js';
-import { briefIdFromBranch } from './branch.js';
+import { briefIdFromBranch, ciBranch } from './branch.js';
 import type { HarnessConfig } from './config.js';
 import { loadConfig } from './fs.js';
 import { commonDirectory, currentBranch, workTreeRoot } from './git.js';
@@ -149,7 +149,10 @@ export interface Workspace {
   readonly commonDir: string;
   readonly config: HarnessConfig;
   readonly siblings: Siblings;
+  /** The branch checked out, or on a detached head the one the forge's CI names; `null` when neither names one. */
   readonly branch: string | null;
+  /** The CI variable that named the branch, on a detached head; absent when git named it. */
+  readonly branchSource?: string | undefined;
   readonly cwd: string;
 }
 
@@ -159,7 +162,12 @@ export async function openWorkspace(options: Options, io: CliIO): Promise<Worksp
   if (root === null) throw new UsageError(`${cwd} is not inside a git work tree; spec-harness measures rounds by their commits`);
   const commonDir = (await commonDirectory(root)) ?? `${root}/.git`;
   const { config } = await loadConfig(root);
-  return { root, commonDir, config, siblings: createSiblings(root, config), branch: await currentBranch(root), cwd: io.cwd };
+  // A branch checked out is the branch; only a head on none, as CI checks
+  // out, asks the forge which branch the run builds.
+  const checkedOut = await currentBranch(root);
+  const ci = checkedOut === null ? ciBranch(io.env) : null;
+  const named = ci === null ? { branch: checkedOut } : { branch: ci.branch, branchSource: ci.source };
+  return { root, commonDir, config, siblings: createSiblings(root, config), ...named, cwd: io.cwd };
 }
 
 /** The id the flag, the environment or the branch names, without asking spec-brief anything. */

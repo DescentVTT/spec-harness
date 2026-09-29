@@ -2,8 +2,8 @@
 /**
  * The core sweep: the pure modules against the unit suite alone, in minutes.
  * The edges - cli, commands, round, setup, workspace, server, premises,
- * plugin, git, fs, siblings, sandbox - read the disk, git or a sibling, so
- * the unit suite cannot reach them; the full sweep measures them.
+ * plugin, git, fs, siblings, host, sandbox - read the disk, git or another
+ * program, so the unit suite cannot reach them; the full sweep measures them.
  *
  * `workspace.ts` is an edge holding a pure function, the option parser, so
  * only that function's lines are mutated. tests/source.test.ts holds the
@@ -36,6 +36,7 @@ export default {
     'src/probe.ts',
     'src/reader.ts',
     'src/rulings.ts',
+    'src/signers.ts',
     'src/versions.ts',
     ...Object.keys(PURE_RANGES),
   ],

@@ -10,17 +10,29 @@
 
 import { auditCommand, contextCommand, escalateCommand, probeCommand, ruleCommand, rulingsCommand } from './commands.js';
 import { ConfigError, SIBLINGS } from './config.js';
-import { describeBase, describeClaudeCode, describePlugin, describeSigners, wiringState } from './configure.js';
+import {
+  describeBase,
+  describeClaudeCode,
+  describeClaudeRelease,
+  describeGitHook,
+  describePlugin,
+  describeSignerKeys,
+  describeSignerProblem,
+  describeSigners,
+  wiringState,
+} from './configure.js';
 import { show, stagedChanges } from './git.js';
 import type { Decision } from './guard.js';
 import { claudeResponse, gitResponse, parseClaudeHook } from './hooks.js';
+import { claudeVersion } from './host.js';
 import { premisesCommand } from './premises.js';
 import { createReader } from './reader.js';
 import { checkPaths, claudeCodeWiring, resolveBase, specBriefPlugin } from './round.js';
 import { mcpCommand } from './server.js';
-import { initCommand } from './setup.js';
+import { gitHook, initCommand } from './setup.js';
+import { notFido2, readAllowedSigners } from './signers.js';
 import { SiblingError } from './siblings.js';
-import { MINIMUM_VERSIONS } from './versions.js';
+import { checkClaudeCode, CLAUDE_CODE_MINIMUM, MINIMUM_VERSIONS } from './versions.js';
 import {
   activeBrief,
   describeActive,
@@ -67,8 +79,9 @@ Commands:
   mcp                 Serve start_round, check_path, request_escalation, audit_round,
                       list_rounds and the workflow prompts over MCP on stdio.
   doctor              Which siblings are installed, at which versions, which brief is
-                      named, and how Claude Code runs the guard. Exit 1 when a sibling
-                      is older than this release needs, or the guard is installed twice.
+                      named, how Claude Code runs the guard, and git's hook. Exit 1
+                      when a sibling is older than this release needs, the guard is
+                      installed twice, or Claude Code is too old to run its hooks.
 
 Options:
   --brief <id>        The brief the round works on. Otherwise SPEC_BRIEF, then the branch.
@@ -205,36 +218,67 @@ async function doctorCommand(options: Options, io: CliIO): Promise<number> {
   // on the base, and only once spec-brief's archive asks the plugin about it.
   const base = await resolveBase(workspace, options.base);
   const signersFile = workspace.config.rulings.allowedSigners;
-  const onBase = base.kind === 'resolved' ? (await show(base.sha, signersFile, workspace.root)) !== null : null;
+  const signersText = base.kind === 'resolved' ? await show(base.sha, signersFile, workspace.root) : null;
+  const onBase = base.kind === 'resolved' ? signersText !== null : null;
   const signers = describeSigners(signersFile, base.kind === 'resolved' ? base.ref : null, onBase === true);
+  // Which keys sign, as notes: a key that is not FIDO2 can still be one the
+  // agent cannot use, and a PIV key reads as a plain one (ADR-0006).
+  const read = readAllowedSigners(signersText ?? '');
+  const plain = notFido2(read.signers);
+  const signerNotes = [describeSignerKeys(plain), ...read.problems.map(describeSignerProblem)].filter((note): note is string => note !== null);
   const plugin = await specBriefPlugin(workspace.root);
   // The plugin and init's entries both on: Claude Code runs every guard twice
   // and registers the server twice (ADR-0012).
   const wiring = await claudeCodeWiring(workspace.root, io.env);
   const claude = wiringState(wiring);
+  // Only a Claude Code that runs the guard is asked its release: one older
+  // than the hooks need lets every write through unguarded.
+  const release = claude === 'none' ? null : checkClaudeCode(await claudeVersion(io.env));
+  const { hook } = await gitHook(workspace.root);
+  const branch = workspace.branch === null ? '(detached)' : `${workspace.branch}${workspace.branchSource === undefined ? '' : ` (detached; ${workspace.branchSource} names it)`}`;
   if (options.format === 'json') {
     io.stdout.write(
       json('doctor', {
         root: workspace.root,
         branch: workspace.branch,
+        branchSource: workspace.branchSource ?? null,
         brief: named,
         base: base.kind === 'resolved' ? { ref: base.ref, source: base.source, mergeBase: base.mergeBase } : { unresolved: base.reason },
-        allowedSigners: { file: signersFile, onBase, detail: signers },
+        allowedSigners: {
+          file: signersFile,
+          onBase,
+          detail: signers,
+          notFido2: plain.map(({ line, principals, keyType }) => ({ line, principals, keyType })),
+          problems: read.problems,
+        },
         plugin: { state: plugin.kind, file: 'file' in plugin ? plugin.file : null, detail: describePlugin(plugin) },
-        claudeCode: { state: claude, ...wiring, detail: describeClaudeCode(wiring) },
+        claudeCode: {
+          state: claude,
+          ...wiring,
+          detail: describeClaudeCode(wiring),
+          release:
+            release === null
+              ? { state: 'unchecked', version: null, minimum: CLAUDE_CODE_MINIMUM, detail: 'not asked: nothing wires Claude Code to the guard here' }
+              : { state: release.state, version: 'version' in release ? release.version : null, minimum: CLAUDE_CODE_MINIMUM, detail: describeClaudeRelease(release) },
+        },
+        gitHook: { state: hook.state, file: 'file' in hook ? hook.file : null, detail: describeGitHook(hook) },
         siblings: rows,
       }),
     );
   } else {
+    const more = (notes: readonly string[]): string[] => notes.map((note) => `        ${note}`);
     io.stdout.write(
       [
         `root    ${workspace.root}`,
-        `branch  ${workspace.branch ?? '(detached)'}`,
+        `branch  ${branch}`,
         `brief   ${named ?? '(none named)'}`,
         `base    ${describeBase(base.kind === 'resolved' ? base : { reason: base.reason })}`,
         `signers ${signers}`,
+        ...more(signerNotes),
         `plugin  ${describePlugin(plugin)}`,
         `claude  ${describeClaudeCode(wiring)}`,
+        ...more(release === null ? [] : [describeClaudeRelease(release)]),
+        `git     ${describeGitHook(hook)}`,
         '',
         '',
       ].join('\n'),
@@ -243,10 +287,14 @@ async function doctorCommand(options: Options, io: CliIO): Promise<number> {
   }
   // An outdated sibling is a problem to fix, where a missing optional one is
   // a choice; with none installed, the harness can check nothing. A double
-  // install is a problem too, where no Claude Code wiring at all is a choice.
+  // install is a problem too, where no Claude Code wiring at all is a choice,
+  // and so is a Claude Code too old to run the hooks. One whose release
+  // cannot be told is not fine either: --strict fails it.
   const outdated = rows.some((row) => row.state === 'outdated');
   const usable = rows.some((row) => row.state === 'found');
-  return outdated || !usable || claude === 'both' ? EXIT_FAILED : EXIT_OK;
+  const tooOld = release?.state === 'outdated';
+  const untold = options.strict && release?.state === 'unknown';
+  return outdated || !usable || claude === 'both' || tooOld || untold ? EXIT_FAILED : EXIT_OK;
 }
 
 /* ---------------------------------------------------------------- dispatch */

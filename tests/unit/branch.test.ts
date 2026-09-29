@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { briefIdFromBranch, idFromBranch, sameId, templateError } from '../../src/branch.js';
+import { briefIdFromBranch, ciBranch, idFromBranch, sameId, templateError } from '../../src/branch.js';
 
 describe('templates', () => {
   it('accepts a template with {id} once, at its end', () => {
@@ -113,5 +113,29 @@ describe('id equality', () => {
     expect(sameId('abc', 'ABC')).toBe(false);
     expect(sameId('', '0')).toBe(false);
     expect(sameId('90071992547409930', '90071992547409931')).toBe(false);
+  });
+});
+
+describe('the branch a CI run builds, on a detached head', () => {
+  it('is a GitHub pull request\'s head branch, then the branch a GitHub push built, then a GitLab merge request\'s, then a GitLab pipeline\'s', () => {
+    const all = {
+      GITHUB_HEAD_REF: 'brief/1-pr',
+      GITHUB_REF_TYPE: 'branch',
+      GITHUB_REF_NAME: 'brief/2-push',
+      CI_MERGE_REQUEST_SOURCE_BRANCH_NAME: 'brief/3-mr',
+      CI_COMMIT_BRANCH: 'brief/4-pipeline',
+    };
+    expect(ciBranch(all)).toEqual({ branch: 'brief/1-pr', source: 'GITHUB_HEAD_REF' });
+    expect(ciBranch({ ...all, GITHUB_HEAD_REF: '' })).toEqual({ branch: 'brief/2-push', source: 'GITHUB_REF_NAME' });
+    expect(ciBranch({ ...all, GITHUB_HEAD_REF: undefined, GITHUB_REF_NAME: '  ' })).toEqual({ branch: 'brief/3-mr', source: 'CI_MERGE_REQUEST_SOURCE_BRANCH_NAME' });
+    expect(ciBranch({ CI_MERGE_REQUEST_SOURCE_BRANCH_NAME: '', CI_COMMIT_BRANCH: ' brief/4-pipeline ' })).toEqual({ branch: 'brief/4-pipeline', source: 'CI_COMMIT_BRANCH' });
+  });
+
+  it('is never a tag GitHub built, or a name outside CI', () => {
+    expect(ciBranch({ GITHUB_REF_TYPE: 'tag', GITHUB_REF_NAME: 'v1.0.0' })).toBeNull();
+    expect(ciBranch({ GITHUB_REF_NAME: 'brief/2-push' })).toBeNull();
+    // GitLab's CI_COMMIT_REF_NAME names a tag as well, so it is not read.
+    expect(ciBranch({ CI_COMMIT_REF_NAME: 'v1.0.0', CI_COMMIT_TAG: 'v1.0.0' })).toBeNull();
+    expect(ciBranch({})).toBeNull();
   });
 });

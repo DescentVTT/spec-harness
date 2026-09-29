@@ -12,16 +12,19 @@
  * repository already has is left alone, with the line to add printed instead.
  */
 
-import { existsSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import { chmod, mkdir, readFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { dirname, isAbsolute, join, relative, sep } from 'node:path';
 
 import { CONFIG_FILE } from './config.js';
 import {
   chooseBase,
+  describeGitHook,
   describeGraph,
   describeSkipped,
   enabledPlugin,
+  GIT_HOOK_LINE,
+  type GitHookState,
   graphReadsBriefs,
   GUARD_HOOK,
   holdsGuard,
@@ -31,14 +34,16 @@ import {
   mergeMcp,
   mergeSpecBrief,
   mergeSpecGraph,
+  missingGitHook,
   PLUGIN,
+  PROTECT_RULE_FILES,
   registersServer,
   SPEC_BRIEF_CONFIGS,
   SPEC_GRAPH_CONFIGS,
 } from './configure.js';
 import { readJsonObject as readJson, writeAtomic } from './fs.js';
-import { git, localBranches, remoteDefault } from './git.js';
-import { claudeSettings } from './round.js';
+import { hookPath, localBranches, remoteDefault } from './git.js';
+import { claudeSettings, pluginFile } from './round.js';
 import { runSibling } from './siblings.js';
 import { EXIT_ERROR, EXIT_OK, json, openWorkspace, type CliIO, type Options, type Workspace } from './workspace.js';
 
@@ -71,6 +76,29 @@ const PRE_COMMIT = `#!/bin/sh
 # spec-harness: refuse a commit that changes what the active brief protects.
 exec npx --no-install spec-harness hook git
 `;
+
+/** A path as a person finds it: from the root when it is inside it, POSIX-separated, and as it is otherwise. */
+function shown(root: string, path: string): string {
+  const inside = relative(root, path);
+  return inside === '' || inside.startsWith('..') || isAbsolute(inside) ? path : inside.split(sep).join('/');
+}
+
+/**
+ * git's pre-commit hook, where git runs it from, and what is there: init and
+ * doctor both read it. `path` is `null` when git cannot say where its hooks
+ * are.
+ */
+export async function gitHook(root: string): Promise<{ readonly hook: GitHookState; readonly path: string | null }> {
+  const path = await hookPath('pre-commit', root);
+  if (path === null) return { hook: { state: 'unknown', reason: 'git does not say where they are; spec-harness needs git 2.31 or later' }, path };
+  const file = shown(root, path);
+  if (!existsSync(path)) return { hook: { state: 'absent', file }, path };
+  if (!(await readFile(path, 'utf8')).includes('spec-harness')) return { hook: { state: 'other', file }, path };
+  // git skips a hook it cannot execute, and says so only in a hint; Windows
+  // has no executable bit, and runs it.
+  const inert = process.platform !== 'win32' && (statSync(path).mode & 0o111) === 0;
+  return { hook: { state: inert ? 'inert' : 'runs', file }, path };
+}
 
 export async function plan(workspace: Workspace, options: Options, env: CliIO['env']): Promise<Step[]> {
   const { root } = workspace;
@@ -113,7 +141,7 @@ export async function plan(workspace: Workspace, options: Options, env: CliIO['e
         apply: async () => {
           const written = await readJson(created);
           if (written === null || written === 'unreadable') throw new Error('spec-brief init wrote no configuration JSON can read');
-          const merged = mergeSpecBrief(written, base);
+          const merged = mergeSpecBrief(written, base, pluginFile(root));
           if (merged !== null) await writeAtomic(created, stringify(merged));
         },
       });
@@ -134,13 +162,14 @@ export async function plan(workspace: Workspace, options: Options, env: CliIO['e
       const measure = base === null ? '' : `, and "archiving": { "base": "${base}" }`;
       steps.push({ file: briefConfig, action: 'advise', detail: `cannot be read as JSON; add "plugins": ["${PLUGIN}"]${measure} by hand` });
     } else {
-      const merged = mergeSpecBrief(config, base);
+      const isPluginFile = pluginFile(root);
+      const merged = mergeSpecBrief(config, base, isPluginFile);
       const measured = measuresArchive(config);
       if (merged === null) {
         const from = measured ? `, and the archive is measured from ${String((config['archiving'] as Json)['base'])}` : '';
         steps.push({ file: briefConfig, action: 'keep', detail: `spec-harness's plugin is loaded${from}` });
       } else {
-        const detail = specBriefDetail(!loadsPlugin(config), measured ? null : base);
+        const detail = specBriefDetail(!loadsPlugin(config, isPluginFile), measured ? null : base);
         steps.push({ file: briefConfig, action: 'update', detail, apply: () => writeAtomic(file, stringify(merged)) });
       }
     }
@@ -225,36 +254,40 @@ export async function plan(workspace: Workspace, options: Options, env: CliIO['e
       });
   }
 
-  // git's hook, only when asked: it is configuration outside the tree.
-  if (options.gitHook) {
-    const hooksPath = (await git(['config', '--get', 'core.hooksPath'], root)).stdout.trim();
-    const hookFile = hooksPath === '' ? join(workspace.commonDir, 'hooks', 'pre-commit') : join(root, hooksPath, 'pre-commit');
-    if (existsSync(hookFile)) {
-      const text = await readFile(hookFile, 'utf8');
-      steps.push(
-        text.includes('spec-harness')
-          ? { file: hookFile, action: 'keep', detail: 'already runs spec-harness' }
-          : { file: hookFile, action: 'advise', detail: 'a pre-commit hook exists; add the line "npx --no-install spec-harness hook git" to it' },
-      );
-    } else {
-      steps.push({
-        file: hookFile,
-        action: 'create',
-        detail: 'refuse a commit that changes what the active brief protects',
-        apply: async () => {
-          await mkdir(dirname(hookFile), { recursive: true });
-          await writeAtomic(hookFile, PRE_COMMIT);
-          await chmod(hookFile, 0o755);
-        },
-      });
-    }
+  // git's hook, where git runs it from: core.hooksPath as git reads it, and
+  // a linked worktree's shared hooks. It is the guard for a write the agent's
+  // hooks never see, one through a shell, so it is advised when not asked
+  // for; it is configuration outside the tree, so it is written only then.
+  const { hook, path: hookFile } = await gitHook(root);
+  if (hook.state === 'unknown' || hookFile === null) {
+    steps.push({ file: 'pre-commit', action: 'advise', detail: describeGitHook(hook) });
+  } else if (hook.state === 'runs') {
+    steps.push({ file: hook.file, action: 'keep', detail: 'already runs spec-harness' });
+  } else if (hook.state === 'inert') {
+    steps.push({ file: hook.file, action: 'advise', detail: describeGitHook(hook) });
+  } else if (hook.state === 'other') {
+    steps.push({ file: hook.file, action: 'advise', detail: `a pre-commit hook exists; add the line "${GIT_HOOK_LINE}" to it` });
+  } else if (options.gitHook) {
+    steps.push({
+      file: hook.file,
+      action: 'create',
+      detail: 'refuse a commit that changes what the active brief protects',
+      apply: async () => {
+        await mkdir(dirname(hookFile), { recursive: true });
+        await writeAtomic(hookFile, PRE_COMMIT);
+        await chmod(hookFile, 0o755);
+      },
+    });
+  } else {
+    steps.push({ file: hook.file, action: 'advise', detail: missingGitHook(null) });
   }
 
+  // The file the configuration names, which a ruling's signature is checked
+  // against on the base branch (ADR-0006).
   steps.push({
-    file: '.github/allowed_signers',
+    file: workspace.config.rulings.allowedSigners,
     action: 'advise',
-    detail:
-      'rulings count only when signed by a key listed here on the base branch: one line per person, <email> namespaces="git" <public key>; protect it, the ADRs and the tool configurations with CODEOWNERS',
+    detail: `rulings count only when signed by a key listed here on the base branch: one line per person, <email> namespaces="git" <public key>. Where an agent runs as the person, make it a FIDO2 key, ssh-keygen -t ed25519-sk, whose signature needs a touch no process can supply. ${PROTECT_RULE_FILES}`,
   });
   return steps;
 }

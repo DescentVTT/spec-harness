@@ -71,6 +71,28 @@ export function idFromBranch(template: string, name: string): string | null {
   return null;
 }
 
+/**
+ * The branch a CI run is building, as the forge names it, for a checkout on
+ * no branch: CI checks out a commit, and without the branch a round's own
+ * run would name no brief. In order: a GitHub pull request's head branch; the
+ * branch a GitHub push built; a GitLab merge request's source branch; the
+ * branch a GitLab pipeline built. Each is set only where it names a branch -
+ * GitHub's `GITHUB_REF_NAME` names a tag too, so only when `GITHUB_REF_TYPE`
+ * says `branch` - and an empty one is not set. `null` outside CI.
+ */
+export function ciBranch(env: Readonly<Record<string, string | undefined>>): { readonly branch: string; readonly source: string } | null {
+  const named = (name: string): { branch: string; source: string } | null => {
+    const value = env[name]?.trim() ?? '';
+    return value === '' ? null : { branch: value, source: name };
+  };
+  return (
+    named('GITHUB_HEAD_REF') ??
+    (env['GITHUB_REF_TYPE'] === 'branch' ? named('GITHUB_REF_NAME') : null) ??
+    named('CI_MERGE_REQUEST_SOURCE_BRANCH_NAME') ??
+    named('CI_COMMIT_BRANCH')
+  );
+}
+
 /** The first template that yields an id, in order. */
 export function briefIdFromBranch(templates: readonly string[], name: string): string | null {
   for (const template of templates) {
