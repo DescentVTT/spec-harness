@@ -1,6 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.6.0
+
+The context packet names a protection or a ruling's path the guard cannot
+read, with what that costs - every write refused, or nothing allowed - and
+spec-core is at 7e41240, which reads a leading `/` on a brace alternative as
+it reads one on a pattern alone. `context --format json` and `start_round`
+gain `unreadableProtections` and `unreadableRulingPaths`.
 
 ### Changed
 
