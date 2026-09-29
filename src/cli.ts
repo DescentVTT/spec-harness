@@ -73,7 +73,8 @@ Commands:
                       the brief's assertions, unverified rulings, new dependencies.
   probe [brief]       Run the brief's probes: red at the base, green at the head.
                       --at base|head|both, --id <probe>.
-  premises            Do the live briefs' premises still hold? For CI: exit 1 when one is stale.
+  premises            Do the live briefs' premises still hold? For CI: exit 1 when one
+                      is stale, or, with --strict, when spec-guard cannot read one.
   init                Configure the spec-* tools to agree. Prints the plan; --write
                       applies it; --git-hook adds a pre-commit hook.
   mcp                 Serve start_round, check_path, request_escalation, audit_round,

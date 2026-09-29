@@ -190,6 +190,23 @@ export function premiseFinding(
 }
 
 /**
+ * A premise spec-guard cannot read, as `premises` reports it: nothing checks
+ * whether it still holds, so a stale brief would pass for a live one. A
+ * warning, as the audit's is, which fails the run under `--strict`.
+ */
+export function unreadablePremiseFinding(brief: Pick<BriefRow, 'id' | 'file'>, assertion: UnreadableAssertion): Finding {
+  return finding(
+    'assertion-unreadable',
+    'warning',
+    `spec-guard cannot read a premise of brief ${brief.id}, so whether it still holds is not checked: ${assertion.message}`,
+    `fix the directive in ${brief.file}; until spec-guard can read it, nothing checks what it states`,
+    brief.file,
+    assertion.line,
+    assertion.raw.trim(),
+  );
+}
+
+/**
  * The next step for a reason the archive gives. A protected file a verified
  * ruling covers is refused only because the archive did not learn of the
  * ruling, and recording a departure in the brief would not fix that.

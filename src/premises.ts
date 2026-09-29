@@ -15,9 +15,12 @@
  * one the flag, SPEC_BRIEF or the branch names - is reported as the audit
  * reports it, retired as the round intends, and fails nothing: on the round's
  * branch, a premise that no longer holds is the work being done.
+ *
+ * A premise spec-guard cannot read is checked by nothing, and is a warning,
+ * as it is in the audit: `--strict` fails the run on it.
  */
 
-import { isPremise, premiseFinding } from './audit.js';
+import { isPremise, premiseFinding, unreadablePremiseFinding } from './audit.js';
 import { briefIdFromBranch } from './branch.js';
 import { findActive } from './briefs.js';
 import { CONFIG_FILE } from './config.js';
@@ -31,6 +34,12 @@ interface GuardResult {
   readonly ok: boolean;
   readonly description: string;
   readonly message: string;
+  readonly spec?: { readonly file: string; readonly line: number };
+}
+
+interface GuardError {
+  readonly message: string;
+  readonly raw?: string;
   readonly spec?: { readonly file: string; readonly line: number };
 }
 
@@ -57,32 +66,47 @@ export async function premisesCommand(options: Options, io: CliIO): Promise<numb
     io.stderr.write('spec-harness: spec-guard could not run the briefs\' assertions\n');
     return EXIT_ERROR;
   }
-  const results = ((answer.document as { results?: GuardResult[] }).results ?? []).filter((result) => result.spec !== undefined);
+  const document = answer.document as { results?: GuardResult[]; errors?: GuardError[] };
+  const results = (document.results ?? []).filter((result) => result.spec !== undefined);
+  // A directive spec-guard cannot read is listed apart from the results; one
+  // in a premise section is a premise nothing checks.
+  const errors = (document.errors ?? []).filter((error) => error.spec !== undefined);
+  const inBrief = (spec: { readonly file: string } | undefined, file: string): boolean => spec?.file.replace(/\\/g, '/') === file;
   const findings: Finding[] = [];
   let premises = 0;
   for (const brief of live) {
-    const own = results.filter((result) => result.spec?.file.replace(/\\/g, '/') === brief.file);
-    if (own.length === 0) continue;
+    const own = results.filter((result) => inBrief(result.spec, brief.file));
+    const unread = errors.filter((error) => inBrief(error.spec, brief.file));
+    if (own.length === 0 && unread.length === 0) continue;
     const text = await briefText(workspace, brief);
+    const premise = (line: number): boolean => isPremise(reader.sectionsAt(text, line), workspace.config.assertions.premises);
     for (const result of own) {
       const line = result.spec?.line ?? 0;
-      if (!isPremise(reader.sectionsAt(text, line), workspace.config.assertions.premises)) continue;
+      if (!premise(line)) continue;
       premises += 1;
       if (result.ok) continue;
       findings.push(premiseFinding(brief, { description: result.description, message: result.message, line }, brief.file === round));
     }
+    for (const error of unread) {
+      const line = error.spec?.line ?? 0;
+      if (premise(line)) findings.push(unreadablePremiseFinding(brief, { message: error.message, line, raw: error.raw ?? '' }));
+    }
   }
   const stale = findings.filter((finding) => finding.severity === 'error').length;
-  const retired = findings.length - stale;
+  const retired = findings.filter((finding) => finding.severity === 'note').length;
+  const unreadable = findings.filter((finding) => finding.severity === 'warning').length;
   const intended = retired === 0 || active.kind !== 'found' ? '' : `, and ${retired} retired by the round on brief ${active.brief.id}, as it intends`;
-  const summary = `${premises} premise(s) in ${live.length} live brief(s), ${stale} no longer hold${intended}`;
+  const unchecked = unreadable === 0 ? '' : `; ${unreadable} premise(s) spec-guard cannot read, so not checked`;
+  const summary = `${premises} premise(s) in ${live.length} live brief(s), ${stale} no longer hold${intended}${unchecked}`;
+  // As the audit does: a warning fails the run under --strict.
+  const failed = stale > 0 || (options.strict && unreadable > 0);
   if (options.format === 'json') {
-    io.stdout.write(json('premises', { ok: stale === 0, briefs: live.length, premises, findings }));
+    io.stdout.write(json('premises', { ok: !failed, briefs: live.length, premises, unreadable, findings }));
   } else if (options.format === 'pretty') {
     for (const finding of findings) io.stdout.write(`${finding.severity.padEnd(8)} ${finding.file}:${finding.line}  ${finding.message}\n         ${finding.hint}\n`);
     io.stdout.write(`${summary}\n`);
   } else {
     io.stdout.write(formatFindings(options.format, findings, { file: CONFIG_FILE, version: version(), summary }));
   }
-  return stale > 0 ? EXIT_FAILED : EXIT_OK;
+  return failed ? EXIT_FAILED : EXIT_OK;
 }

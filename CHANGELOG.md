@@ -55,6 +55,12 @@ cannot turn a run red. The family's policy is
   `assertion-unreadable`, a warning on its line with spec-guard's reason. It
   was dropped, and the audit passed on assertions it never ran. It fails
   `audit --strict`. Upgrading: fix the directive spec-guard names.
+- `premises` reports a premise spec-guard cannot read as the same
+  `assertion-unreadable` warning, where it was dropped and the brief passed
+  unchecked, and `premises --strict` now fails on it, as `audit --strict`
+  does. The summary line counts it, and `--format json` gains `unreadable`.
+  Without `--strict`, only a stale premise fails the run, as before.
+  Upgrading: fix the directive, or run `premises` without `--strict`.
 - `audit` warns about a name in `dependencies.manifests` a leading `/`
   roots, alone or on a brace alternative, such as `/package.json` or
   `{/Gemfile,Cargo.toml}`, as `manifest-name-rooted`: every path it reads is

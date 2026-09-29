@@ -128,3 +128,46 @@ describe('premises in a CI run on a detached head', () => {
     );
   });
 });
+
+describe('a premise spec-guard cannot read', () => {
+  const body = [
+    '## The Defect, Measured',
+    '',
+    '<!-- @assert-count target="src" symbol="legacyCall" min="1" -->',
+    '<!-- @assert-count target="src" min="1" -->',
+    '',
+    '## Goals',
+    '',
+    '<!-- @assert-absence target="src" -->',
+    '',
+  ].join('\n');
+
+  it('is a warning, where it was dropped, which fails the run under --strict; a goal spec-guard cannot read is the audit\'s', async () => {
+    const repo = repository({ [BRIEF_FILE]: brief({ affected: ['src/**'], body }), 'src/a.ts': 'legacyCall();\n' });
+    const result = await cli(['premises'], repo.root);
+    expect(result.code).toBe(0);
+    expect(result.stdout).toBe(
+      [
+        `warning  ${BRIEF_FILE}:23  spec-guard cannot read a premise of brief 001, so whether it still holds is not checked: @assert-count requires a non-empty symbol="..." attribute.`,
+        `         fix the directive in ${BRIEF_FILE}; until spec-guard can read it, nothing checks what it states`,
+        "1 premise(s) in 1 live brief(s), 0 no longer hold; 1 premise(s) spec-guard cannot read, so not checked",
+        '',
+      ].join('\n'),
+    );
+    const strict = await cli(['premises', '--strict', '--format', 'json'], repo.root);
+    expect(strict.code).toBe(1);
+    expect(parsed<{ ok: boolean; premises: number; unreadable: number; findings: { rule: string; subject: string }[] }>(strict)).toMatchObject({
+      ok: false,
+      premises: 1,
+      unreadable: 1,
+      findings: [{ rule: 'assertion-unreadable', subject: '<!-- @assert-count target="src" min="1" -->' }],
+    });
+    expect(parsed<{ ok: boolean }>(await cli(['premises', '--format', 'json'], repo.root)).ok).toBe(true);
+    // On the round's own brief the warning stands, and is no premise the round retired.
+    expect((await cli(['premises', '--brief', '1'], repo.root)).stdout).toContain(
+      '\n1 premise(s) in 1 live brief(s), 0 no longer hold; 1 premise(s) spec-guard cannot read, so not checked\n',
+    );
+    const gitlab = JSON.parse((await cli(['premises', '--format', 'gitlab'], repo.root)).stdout) as { check_name: string; severity: string }[];
+    expect(gitlab.map((issue) => [issue.check_name, issue.severity])).toEqual([['assertion-unreadable', 'minor']]);
+  });
+});
