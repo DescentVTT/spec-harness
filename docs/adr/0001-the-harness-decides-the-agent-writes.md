@@ -78,6 +78,22 @@ the scope is fixed. A protection the guard cannot read is still listed as
 written: the guard refuses every write while it stands, naming it and the
 reason, so no write gets past it on the packet's word.
 
+*Amended 2026-09-29.* The packet names a protection and a ruling's path the
+guard cannot read, as it names such a pattern in the scope. While a
+protection the guard cannot read stands, the guard refuses every write but
+to the brief, where it is fixed, as `unreadable-protection`, and no ruling
+waives the refusal. No write got past it on the packet's word, but the
+packet listed the pattern as written among the files the round must not
+change, so the agent planned the round on a scope it could not write and
+learned why from the first refusal. A ruling's path the guard cannot read
+is passed over, so it allows nothing, and the packet listed it among what
+the ruling allows. Each is now marked where it is listed, with spec-core's
+reason and what the guard does without it: for a protection, that until it
+is fixed the guard refuses every write but to the brief; for a ruling's
+path, that it allows nothing. `context --format json` and `start_round`
+list them as `unreadableProtections` and `unreadableRulingPaths`, each path
+with its ruling's id. A readable pattern is listed as before.
+
 ## Consequences
 
 Every command gives the same answer for the same repository. What the plan

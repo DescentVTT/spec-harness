@@ -1,5 +1,30 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- `context` and `start_round` name a pattern in `protectedFiles` the guard
+  cannot read - malformed, too large to compile, or naming no path, such as
+  `{./,src}` - where the protections are listed: it is marked with
+  spec-core's reason, the one the guard gives in `because` when it refuses a
+  write for it, and with what it does: until it is fixed, the guard refuses
+  every write but to the brief, as `unreadable-protection`, which no ruling
+  waives. It was listed as written, so the agent learned why every write was
+  refused only from the first refusal.
+- A path of a signed ruling the guard cannot read is marked the same way
+  where the ruling is listed, as allowing nothing: the guard passes over it.
+  It was listed among the paths the ruling allows. The ruling's paths the
+  guard reads are listed as before, as is a readable protection.
+- `context --format json` and `start_round`'s structured result list such
+  patterns as `unreadableProtections`, each with its `pattern` and
+  `reason`, and `unreadableRulingPaths`, each with its `ruling` as well,
+  fields added beside `unreadableScope`, so no `schemaVersion` moves; in the
+  programmatic API a context packet carries both, each entry of the second
+  an `UnreadableRulingPath`. The reasoning is in
+  [ADR-0001](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0001-the-harness-decides-the-agent-writes.md)'s
+  third amendment of 2026-09-29.
+
 ## 0.5.0
 
 The context packet names a scope pattern the guard cannot read, with
