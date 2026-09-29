@@ -430,6 +430,11 @@ describe('spec-graph\'s history', () => {
     expect(graphReadsBriefs({ patterns: ['briefs/**', `${'{a,b}'.repeat(8)}/${'x'.repeat(300)}`] }, 'briefs')).toBe(false);
     // Braces that expand to no path are refused, where {./,docs/**/*.md} matched every path, the briefs included.
     expect(graphReadsBriefs({ patterns: ['{./,docs/**/*.md}'] }, 'briefs')).toBe(false);
+    // A leading slash inside braces roots that alternative, as one written
+    // alone does, where {/briefs/**/*.md,x} read as briefs/**/*.md.
+    expect(graphReadsBriefs({ patterns: ['{/briefs/**/*.md,docs/**/*.md}'] }, 'briefs')).toBe(false);
+    expect(graphReadsBriefs({ patterns: ['/briefs/**/*.md'] }, 'briefs')).toBe(false);
+    expect(graphReadsBriefs({ patterns: ['{/briefs/**/*.md,docs/**/*.md}'] }, 'docs/briefs')).toBe(true);
   });
 
   it('says what the history entry does, and when it does nothing yet', () => {

@@ -106,6 +106,19 @@ describe('which files are manifests', () => {
     expect(isManifest('a/Gemfile')).toBe(true);
     for (const path of ['tools', 'a/tools', 'a/tools/Cargo.toml']) expect(isManifest(path), path).toBe(false);
   });
+
+  it('reads a leading slash inside braces as one written alone: rooted, so it names no manifest in the repository', () => {
+    // Changed paths are repository-relative; {/package.json,Gemfile} read as
+    // package.json at any depth, or Gemfile.
+    const braced = readManifestNames(['{/package.json,Gemfile}']);
+    const alone = readManifestNames(['/package.json', 'Gemfile']);
+    const paths = ['package.json', 'a/package.json', 'Gemfile', 'a/Gemfile'];
+    expect(paths.map((path) => braced.match(path))).toEqual([false, false, true, true]);
+    expect(paths.map((path) => alone.match(path))).toEqual(paths.map((path) => braced.match(path)));
+    // Readable, so no warning names it.
+    expect(braced.unread).toEqual([]);
+    expect(alone.unread).toEqual([]);
+  });
 });
 
 describe('npm', () => {
