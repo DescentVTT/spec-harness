@@ -256,6 +256,22 @@ describe('audit of a round', () => {
     expect(names(unmeasured.findings)).toEqual(names(report.findings));
   });
 
+  it('warns about a protection a leading "/" roots, which let the round change the file it meant to protect', async () => {
+    const r = repository({ [BRIEF_FILE]: brief({ affected: ['src/**'], protected: ['/src/db/schema.ts'] }), 'src/db/schema.ts': 'table;\n' });
+    r.git('checkout', '-q', '-b', 'brief/001-x');
+    // The guard lets the write through: the protection names no path it decides.
+    expect((await cli(['guard', 'src/db/schema.ts', '--format', 'json'], r.root)).code).toBe(0);
+    r.write('src/db/schema.ts', 'table; column;\n');
+    r.commit('work');
+    const result = await cli(['audit', '--format', 'json'], r.root);
+    expect(parsed<Report>(result).findings.filter((f) => f.rule === 'protection-rooted').map((f) => [f.severity, f.file, f.message])).toEqual([
+      ['warning', BRIEF_FILE, `brief 001 protects "/src/db/schema.ts", which a leading "/" roots at the filesystem's root, so it protects no path`],
+    ]);
+    expect((await cli(['audit', '--strict'], r.root)).code).toBe(1);
+    const packet = (await cli(['context', '1'], r.root)).stdout;
+    expect(packet).toContain("Must not change without a ruling:\n- `/src/db/schema.ts`, which a leading `/` roots at the filesystem's root: it protects no path\n");
+  });
+
   it('names a manifest name a leading "/" roots, which names no manifest the round changed, as it names one it cannot read', async () => {
     const r = repository(
       { [BRIEF_FILE]: brief({ affected: ['**'] }), 'package.json': '{ "dependencies": {} }\n', 'Gemfile': "gem 'rails'\n", 'Cargo.toml': '[dependencies]\n' },

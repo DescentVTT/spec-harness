@@ -282,7 +282,7 @@ describe('the contract and the scope', () => {
     expect(packet.markdown).not.toContain('cannot read');
   });
 
-  it('marks a pattern in the scope a leading slash roots, alone or on a brace alternative, as putting no path in it', () => {
+  it('marks a pattern a leading slash roots, alone or on a brace alternative, as putting no path in the scope, protecting none or allowing none', () => {
     // Rooted at the filesystem's root, each rooted alternative matches no
     // path the guard is given, all of which are repository-relative.
     const patterns = ['/docs', '{/docs,src/**}', '{/docs,/src/**}', 'lib/**'];
@@ -293,9 +293,17 @@ describe('the contract and the scope', () => {
     const part = "an alternative of which a leading `/` roots at the filesystem's root: that alternative puts no path in the scope, and spec-guard is not asked about it";
     const scope = section(packet.markdown, 'Scope, as the guard reads it');
     expect(scope).toContain(`May write:\n- \`/docs\`, ${whole}\n- \`{/docs,src/**}\`, ${part}\n- \`{/docs,/src/**}\`, ${whole}\n- \`lib/**\`\n\n`);
-    // The scope alone: a protection or a ruling's path is listed as written.
-    const lines = patterns.map((pattern) => `- \`${pattern}\``).join('\n');
-    expect(scope).toContain(`Must not change without a ruling:\n${lines}\n\n`);
+    // A protection and a ruling's path are marked with what they do not do.
+    const protects = "which a leading `/` roots at the filesystem's root: it protects no path";
+    const protectsPart = "an alternative of which a leading `/` roots at the filesystem's root: that alternative protects no path";
+    expect(scope).toContain(
+      `Must not change without a ruling:\n- \`/docs\`, ${protects}\n- \`{/docs,src/**}\`, ${protectsPart}\n- \`{/docs,/src/**}\`, ${protects}\n- \`lib/**\`\n\n`,
+    );
+    const allows = "(which a leading `/` roots at the filesystem's root; it allows nothing)";
+    const allowsPart = "(an alternative of which a leading `/` roots at the filesystem's root; that alternative allows nothing)";
+    expect(scope).toContain(
+      `Rulings in force:\n- R-012-1, signed by p@example.com: \`/docs\` ${allows}, \`{/docs,src/**}\` ${allowsPart}, \`{/docs,/src/**}\` ${allows}, \`lib/**\`\n`,
+    );
     expect(packet.markdown).not.toContain('cannot read');
     // With a pattern that puts a path in the scope, an empty answer is spec-guard's own.
     expect(section(packet.markdown, 'Rules in force for this scope')).toBe('## Rules in force for this scope\n\nspec-guard holds no rule over this scope.\n\n');
