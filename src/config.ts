@@ -209,7 +209,9 @@ export function parseConfig(raw: unknown, file = CONFIG_FILE): HarnessConfig {
       const command = value[name];
       if (command === undefined || command === null) continue;
       if (!isStringList(command) || command.length === 0 || command[0]?.trim() === '') {
-        throw new ConfigError(`${file}: "tools.${name}" must be a command as a list, such as ["npx", "${name}"], or null`);
+        // A sibling runs without a shell, so the example is node and the
+        // script: npx is a shim Windows cannot start without one.
+        throw new ConfigError(`${file}: "tools.${name}" must be a command as a list, such as ["node", "node_modules/@descent-vtt/${name}/bin/${name}.js"], or null`);
       }
       tools[name] = command;
     }
