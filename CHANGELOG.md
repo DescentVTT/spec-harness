@@ -1,6 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.5.0
+
+The context packet names a scope pattern the guard cannot read, with
+spec-core's reason, and a scope none of whose patterns can be read is said to
+be unread, not to be ruled by nothing. `context --format json` and
+`start_round` gain `unreadableScope`.
 
 ### Fixed
 
