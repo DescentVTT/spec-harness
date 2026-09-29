@@ -113,6 +113,13 @@ cannot turn a run red. The family's policy is
   em or en dash or a colon without spaces, as spec-brief reads it; a hyphen
   still needs a space on each side, so `001-2 migration` is kept.
 
+### Documentation
+
+- README reorganised: each long paragraph is a lead sentence with a list or
+  a table, the commands sit under their own heading, and the spec-brief
+  plugin is named apart from the Claude Code plugin; nothing was removed.
+  SECURITY.md says how to report a vulnerability privately.
+
 ## 0.6.0
 
 The context packet names a protection or a ruling's path the guard cannot
