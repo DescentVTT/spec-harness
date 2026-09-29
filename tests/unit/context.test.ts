@@ -69,13 +69,35 @@ describe('the header', () => {
     expect(title('012', '012: Rotate tokens')).toBe('# Round 012: Rotate tokens');
     expect(title('012', '013 \u2014 Another brief')).toBe('# Round 012: 013 \u2014 Another brief');
     expect(title('012', 'ADR-012: Tokens')).toBe('# Round 012: ADR-012: Tokens');
-    expect(title('012', '012:Rotate')).toBe('# Round 012: 012:Rotate');
-    expect(title('012', '012 \u2014Rotate')).toBe('# Round 012: 012 \u2014Rotate');
-    expect(title('012', '012 : Rotate')).toBe('# Round 012: 012 : Rotate');
     expect(titleOf({ id: '012', title: null })).toBeNull();
     expect(titleOf({ id: '012', title: '012 \u2014 Rotate tokens' })).toBe('Rotate tokens');
     // Only at the start: an id later in the title is part of it.
     expect(title('012', 'Part 012 - the rest')).toBe('# Round 012: Part 012 - the rest');
+  });
+
+  it('takes the id off before a dash, a full-width colon or a colon however spaced, and a hyphen only with spaces around it', () => {
+    const titled = (id: string, text: string): string | null => titleOf({ id, title: text });
+    // An em dash, an en dash, a full-width colon and a colon, with or without spaces.
+    for (const text of ['012\u2014Rotate tokens', '012 \u2014Rotate tokens', '012\u2014 Rotate tokens', '012\u2013Rotate tokens', '012\uFF1ARotate tokens', '012 \uFF1A Rotate tokens', '012:Rotate tokens', '012 : Rotate tokens', '12\u3000\u2014\u3000Rotate tokens']) {
+      expect(titled('012', text), text).toBe('Rotate tokens');
+    }
+    expect(titled('001', '001\uFF1A\u8DEF\u7EBF\u56FE')).toBe('\u8DEF\u7EBF\u56FE');
+    // A hyphen needs spaces on both sides: without them it is part of a word or a number.
+    expect(titled('001', '001 - Rotate')).toBe('Rotate');
+    expect(titled('001', '001-2 migration')).toBe('001-2 migration');
+    expect(titled('001', '001 -2 migration')).toBe('001 -2 migration');
+    expect(titled('001', '001- migration')).toBe('001- migration');
+    // Never a title that does not start with the brief's own id.
+    expect(titled('012', 'Fix - the login bug')).toBe('Fix - the login bug');
+    expect(titled('001', '0010 \u2014 x')).toBe('0010 \u2014 x');
+    expect(titled('001', '2026\uFF1Aroadmap')).toBe('2026\uFF1Aroadmap');
+    expect(titled('001', 'Fix\u2014the login bug')).toBe('Fix\u2014the login bug');
+    // Nothing after the separator leaves the title as written.
+    expect(titled('012', '012 \u2014')).toBe('012 \u2014');
+    expect(titled('012', '012:')).toBe('012:');
+    // The id ends at the first separator: a dash later in the title is the title's.
+    expect(titled('012', '012\u2014Rotate\u2014tokens')).toBe('Rotate\u2014tokens');
+    expect(titled('012', '012\uFF1APart one\uFF1Adraft')).toBe('Part one\uFF1Adraft');
   });
 
   it('is its own block, followed by the contract', () => {

@@ -186,14 +186,20 @@ function rulesSection(rules: Rules, scopeUnread: boolean, scopeRooted: boolean):
 }
 
 /**
- * A brief's title without the id it repeats: `012 - Rotate tokens` read as
- * `Rotate tokens`, and the same with an en or an em dash, which `spec-brief
- * new` writes, or with a colon after the id. Only the brief's own id is taken
- * off: `Fix - the login bug` is a title, not an id and a title.
+ * A brief's title without the id it repeats, by the rules spec-brief reads
+ * it with: the brief's own id, then an em dash, which `spec-brief new`
+ * writes, an en dash, a full-width colon or a colon, spaced or not, or a
+ * hyphen with a space on each side; `012 - Rotate tokens`, `012\u2014Rotate
+ * tokens` and `012\uFF1ARotate tokens` read as `Rotate tokens`. A bare hyphen
+ * is part of a word or a number, as in `001-2 migration`, and only the
+ * brief's own id is taken off: `Fix - the login bug` is a title, and so is
+ * `0010 \u2014 x` on brief 001.
  */
 export function titleOf(brief: Pick<BriefRow, 'id' | 'title'>): string | null {
   if (brief.title === null) return null;
-  return brief.title.replace(/^\s*([^\s:]+)(?:\s+[-\u2013\u2014]|:)\s+/, (whole, first: string) => (sameId(first, brief.id) ? '' : whole));
+  return brief.title.replace(/^\s*([^\s:\uFF1A\u2013\u2014]+)(?:\s*[:\uFF1A\u2013\u2014]\s*|\s+-\s+)(?=\S)/, (whole, first: string) =>
+    sameId(first, brief.id) ? '' : whole,
+  );
 }
 
 /** Renders the packet, filling the budget with cited documents in the order the brief cites them. */
