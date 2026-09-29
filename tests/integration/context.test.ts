@@ -128,10 +128,10 @@ describe('context', () => {
     expect(result.stdout).not.toContain('lib is frozen');
   });
 
-  it('reads a leading slash on a brace alternative as it reads one on the pattern, in the rules and in what the guard allows', async () => {
-    // {/docs,src/**} read as docs or src/**, and spec-guard was asked about
-    // docs and src. Rooted, /docs is asked about as /docs, as it is written
-    // alone, and spec-guard refuses a path outside the repository.
+  it('keeps the rules over the rest of the scope when a pattern in it is rooted, alone or on a brace alternative', async () => {
+    // spec-guard refuses a path outside the repository, and with it the
+    // whole question: asked about /docs beside src, it answered for neither.
+    // A rooted base puts no path in the scope, and is not asked about.
     const rooted = repository({
       'briefs/001_braced.md': brief({ title: '001 - Braced', affected: ['"{/docs,src/**}"'] }),
       'briefs/002_alone.md': brief({ title: '002 - Alone', affected: ['/docs', 'src/**'] }),
@@ -146,8 +146,18 @@ describe('context', () => {
     };
     const braced = await rules('1');
     expect(braced).toBe(await rules('2'));
-    expect(braced).toContain('spec-guard: "/docs" is outside the root');
-    expect(braced).not.toContain('the gateway is gone');
+    expect(braced).not.toContain('outside the root');
+    expect(braced).toContain('### docs/adr/0001-sessions.md\n\n- line 9: "LegacyGateway" must not appear in src/auth - the gateway is gone\n');
+    const scope = (await cli(['context', '1'], rooted.root)).stdout;
+    expect(scope).toContain(
+      "May write:\n- `{/docs,src/**}`, an alternative of which a leading `/` roots at the filesystem's root: that alternative puts no path in the scope, and spec-guard is not asked about it\n",
+    );
+    expect((await cli(['context', '2'], rooted.root)).stdout).toContain(
+      "May write:\n- `/docs`, which a leading `/` roots at the filesystem's root: it puts no path in the scope, and spec-guard is not asked about it\n- `src/**`\n",
+    );
+    // Nothing in the scope but a rooted pattern: spec-guard is asked nothing, and the packet says so.
+    rooted.write('briefs/003_only.md', brief({ title: '003 - Only', affected: ['/docs'] }));
+    expect(await rules('3')).toContain('No pattern in `affectedFiles` puts a path in the scope: each is rooted at the filesystem');
     const decisions = async (id: string): Promise<string[][]> => {
       const result = await cli(['guard', '--brief', id, 'docs/adr/0001-sessions.md', 'src/auth/a.ts', '--format', 'json'], rooted.root);
       return parsed<{ decisions: { path: string; reason: string }[] }>(result).decisions.map((d) => [d.path, d.reason]);

@@ -15,7 +15,7 @@
  */
 
 import { sameId } from './branch.js';
-import { whyUnreadable } from './guard.js';
+import { rooted, whyUnreadable } from './guard.js';
 import type { BriefRow } from './types.js';
 
 export interface CitedDocument {
@@ -133,19 +133,32 @@ function list(items: readonly string[]): string {
  * Each pattern a line, as the guard reads it: as written, or with spec-core's
  * reason the guard cannot read it and what the guard does without it. The
  * guard's own compile decides, so the packet and the guard cannot disagree.
+ * With `rootedNote`, a pattern a leading `/` roots, or one of whose
+ * alternatives it roots, is marked too, and counted when every alternative
+ * is rooted.
  */
-function patternLines(patterns: readonly string[], consequence: string): { lines: string[]; unreadable: UnreadablePattern[] } {
+function patternLines(
+  patterns: readonly string[],
+  consequence: string,
+  rootedNote?: { readonly whole: string; readonly part: string },
+): { lines: string[]; unreadable: UnreadablePattern[]; rootedWhole: number } {
   const unreadable: UnreadablePattern[] = [];
+  let rootedWhole = 0;
   const lines = patterns.map((pattern) => {
     const reason = whyUnreadable(pattern);
-    if (reason === null) return `- \`${pattern}\``;
+    if (reason === null) {
+      const root = rootedNote === undefined ? null : rooted(pattern);
+      if (root === null) return `- \`${pattern}\``;
+      if (root === 'whole') rootedWhole += 1;
+      return `- \`${pattern}\`, ${(rootedNote as { whole: string; part: string })[root]}`;
+    }
     unreadable.push({ pattern, reason });
     return `- \`${pattern}\`, which the guard cannot read: ${reason}; ${consequence}`;
   });
-  return { lines, unreadable };
+  return { lines, unreadable, rootedWhole };
 }
 
-function rulesSection(rules: Rules, scopeUnread: boolean): string {
+function rulesSection(rules: Rules, scopeUnread: boolean, scopeRooted: boolean): string {
   if ('none' in rules) return `spec-guard holds no rule over this scope: ${rules.none}.`;
   if ('unavailable' in rules) {
     return `The rules spec-guard holds this code to could not be read: ${rules.unavailable}. Treat every ADR as binding until they can.`;
@@ -154,8 +167,11 @@ function rulesSection(rules: Rules, scopeUnread: boolean): string {
     // With no pattern of the scope readable, spec-guard was asked about no
     // path, so an empty answer is no answer: "no rule" would tell the agent
     // the code it writes is unconstrained.
-    return scopeUnread
-      ? 'The scope could not be read: no pattern in `affectedFiles` can be read, so spec-guard was not asked for the rules over it. Treat every ADR as binding until the scope is fixed.'
+    if (scopeUnread) {
+      return 'The scope could not be read: no pattern in `affectedFiles` can be read, so spec-guard was not asked for the rules over it. Treat every ADR as binding until the scope is fixed.';
+    }
+    return scopeRooted
+      ? "No pattern in `affectedFiles` puts a path in the scope: each is rooted at the filesystem's root or cannot be read, so spec-guard was not asked for the rules over it. Treat every ADR as binding until the scope is fixed."
       : 'spec-guard holds no rule over this scope.';
   }
   const byDocument = new Map<string, RuleInForce[]>();
@@ -218,7 +234,12 @@ export function renderContext(input: ContextInput): ContextPacket {
             return `- ${ruling.id}, signed by ${ruling.signer}: ${paths.join(', ')}`;
           })
           .join('\n');
-  const mayWrite = patternLines(brief.affectedFiles, 'it puts no path in the scope');
+  // A rooted pattern can be read and puts no path in the scope: every path
+  // the guard decides is repository-relative. spec-guard is not asked about it.
+  const mayWrite = patternLines(brief.affectedFiles, 'it puts no path in the scope', {
+    whole: "which a leading `/` roots at the filesystem's root: it puts no path in the scope, and spec-guard is not asked about it",
+    part: "an alternative of which a leading `/` roots at the filesystem's root: that alternative puts no path in the scope, and spec-guard is not asked about it",
+  });
   const unreadableScope = mayWrite.unreadable;
   // While a protection the guard cannot read stands, the guard refuses every
   // write, and no ruling waives it; a write to the brief is let through,
@@ -247,7 +268,8 @@ export function renderContext(input: ContextInput): ContextPacket {
   const dependencies = ['## Depends on', '', waiting.length === 0 ? '- nothing' : waiting.join('\n'), ''].join('\n');
 
   const scopeUnread = mayWrite.lines.length > 0 && unreadableScope.length === mayWrite.lines.length;
-  const rules = ['## Rules in force for this scope', '', rulesSection(input.rules, scopeUnread), ''].join('\n');
+  const scopeRooted = mayWrite.rootedWhole > 0 && unreadableScope.length + mayWrite.rootedWhole === mayWrite.lines.length;
+  const rules = ['## Rules in force for this scope', '', rulesSection(input.rules, scopeUnread, scopeRooted), ''].join('\n');
 
   const howTo = [
     '## How this round works',

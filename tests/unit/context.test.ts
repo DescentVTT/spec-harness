@@ -260,19 +260,23 @@ describe('the contract and the scope', () => {
     expect(packet.markdown).not.toContain('cannot read');
   });
 
-  it('lists a leading slash on a brace alternative as it lists one on the pattern: as written, a pattern the guard reads', () => {
-    // Rooted at the filesystem's root, each matches no path the guard is
-    // given; the packet names only patterns the guard cannot read, and says
-    // nothing more of /docs alone.
-    const patterns = ['/docs', '{/docs,src/**}', '{/docs,/src/**}'];
+  it('marks a pattern in the scope a leading slash roots, alone or on a brace alternative, as putting no path in it', () => {
+    // Rooted at the filesystem's root, each rooted alternative matches no
+    // path the guard is given, all of which are repository-relative.
+    const patterns = ['/docs', '{/docs,src/**}', '{/docs,/src/**}', 'lib/**'];
     const brief = row({ affectedFiles: patterns, protectedFiles: patterns });
     const packet = renderContext(input({ brief, rulings: [{ id: 'R-012-1', paths: patterns, signer: 'p@example.com' }] }));
     expect(packet).toMatchObject({ unreadableScope: [], unreadableProtections: [], unreadableRulingPaths: [] });
-    const lines = patterns.map((pattern) => `- \`${pattern}\``).join('\n');
+    const whole = "which a leading `/` roots at the filesystem's root: it puts no path in the scope, and spec-guard is not asked about it";
+    const part = "an alternative of which a leading `/` roots at the filesystem's root: that alternative puts no path in the scope, and spec-guard is not asked about it";
     const scope = section(packet.markdown, 'Scope, as the guard reads it');
-    expect(scope).toContain(`May write:\n${lines}\n\n`);
+    expect(scope).toContain(`May write:\n- \`/docs\`, ${whole}\n- \`{/docs,src/**}\`, ${part}\n- \`{/docs,/src/**}\`, ${whole}\n- \`lib/**\`\n\n`);
+    // The scope alone: a protection or a ruling's path is listed as written.
+    const lines = patterns.map((pattern) => `- \`${pattern}\``).join('\n');
     expect(scope).toContain(`Must not change without a ruling:\n${lines}\n\n`);
     expect(packet.markdown).not.toContain('cannot read');
+    // With a pattern that puts a path in the scope, an empty answer is spec-guard's own.
+    expect(section(packet.markdown, 'Rules in force for this scope')).toBe('## Rules in force for this scope\n\nspec-guard holds no rule over this scope.\n\n');
     // As the guard reads them: docs/a.md is neither in the scope nor protected, src/a.ts both.
     const decision = (path: string) => decide({ path, given: path, brief, rulings: [], outOfScope: 'warn' });
     expect(decision('docs/a.md')).toMatchObject({ reason: 'out-of-scope', because: [] });
@@ -340,6 +344,17 @@ describe('the rules in force', () => {
       '## Rules in force for this scope\n\nThe scope could not be read: no pattern in `affectedFiles` can be read, so spec-guard was not asked for the rules over it. Treat every ADR as binding until the scope is fixed.\n\n',
     );
     expect(packet.unreadableScope.map(({ pattern }) => pattern)).toEqual(['src/[a', '{./,src}']);
+  });
+
+  it('says no pattern puts a path in the scope when each is rooted or unreadable, rather than that spec-guard holds no rule', () => {
+    // spec-guard is asked about no path for such a scope either.
+    const said = "## Rules in force for this scope\n\nNo pattern in `affectedFiles` puts a path in the scope: each is rooted at the filesystem's root or cannot be read, so spec-guard was not asked for the rules over it. Treat every ADR as binding until the scope is fixed.\n\n";
+    const rules = (affectedFiles: string[]): string => section(renderContext(input({ brief: row({ affectedFiles }), rules: [] })).markdown, 'Rules in force for this scope');
+    for (const affectedFiles of [['/docs'], ['{/docs,/src/**}', 'src/[a'], ['/src/**', '/lib']]) expect(rules(affectedFiles), affectedFiles.join(' ')).toBe(said);
+    // A rooted alternative beside one that is not leaves a path in the scope, as does a pattern that is not rooted.
+    for (const affectedFiles of [['{/docs,src/**}'], ['/docs', 'src/**'], ['/docs', 'src/[a', 'lib/**']]) {
+      expect(rules(affectedFiles), affectedFiles.join(' ')).toBe('## Rules in force for this scope\n\nspec-guard holds no rule over this scope.\n\n');
+    }
   });
 
   it('says spec-guard holds no rule when the scope declares nothing, or a pattern in it can be read', () => {

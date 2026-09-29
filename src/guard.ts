@@ -69,6 +69,22 @@ export function whyUnreadable(pattern: string): string | null {
   return typeof glob === 'string' ? glob : null;
 }
 
+/**
+ * Whether a leading `/` roots a pattern the guard can read at the
+ * filesystem's root: `whole` when every alternative is rooted, `part` when
+ * some brace alternative is, `null` when none is or the pattern cannot be
+ * read. The guard decides repository-relative paths, so a rooted
+ * alternative matches none of them.
+ */
+export function rooted(pattern: string): 'whole' | 'part' | null {
+  const glob = compile(pattern);
+  if (typeof glob === 'string') return null;
+  // A rooted alternative's base starts at the root, `/` itself at the least.
+  const roots = glob.bases.filter((base) => base.startsWith('/')).length;
+  if (roots === 0) return null;
+  return roots === glob.bases.length ? 'whole' : 'part';
+}
+
 function matching(patterns: readonly string[], path: string): { matched: string[]; unreadable: string[] } {
   const matched: string[] = [];
   const unreadable: string[] = [];

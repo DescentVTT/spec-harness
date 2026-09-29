@@ -94,6 +94,19 @@ path, that it allows nothing. `context --format json` and `start_round`
 list them as `unreadableProtections` and `unreadableRulingPaths`, each path
 with its ruling's id. A readable pattern is listed as before.
 
+*Amended 2026-09-30.* A pattern in `affectedFiles` that a leading `/` roots,
+alone or on a brace alternative, such as `/docs` or `{/docs,src/**}`, can be
+read, and matches no path the guard decides, all of which are
+repository-relative: the rooted part puts no path in the scope. spec-guard
+was asked about its base, `/docs`, or `/` for a name the repository does not
+hold, refused the path as outside the repository, and with it the whole
+query, so the rules over the rest of the scope were lost too. A rooted base
+is no longer asked about, and the packet marks the pattern where the scope
+is listed as putting no path in the scope, or, for a rooted alternative, as
+that alternative putting none. When no pattern in `affectedFiles` puts a
+path in the scope, each rooted or unreadable, the packet says so, and to
+treat every ADR as binding until the scope is fixed.
+
 ## Consequences
 
 Every command gives the same answer for the same repository. What the plan

@@ -178,7 +178,14 @@ function scopeBases(root: string, patterns: readonly string[]): string[] {
   const bases = new Set<string>();
   for (const pattern of patterns) {
     try {
-      for (const base of compileGlob(pattern, { dialect: 'path', caseSensitive: true, literal }).bases) bases.add(base === '' ? '.' : base);
+      for (const base of compileGlob(pattern, { dialect: 'path', caseSensitive: true, literal }).bases) {
+        // A rooted alternative's base, `/docs` or `/`, is outside the
+        // repository: it puts no path in the scope, and spec-guard refuses
+        // the whole question for it, with the rules for every other base.
+        // The packet names the pattern.
+        if (base.startsWith('/')) continue;
+        bases.add(base === '' ? '.' : base);
+      }
     } catch {
       // The packet names a pattern the guard cannot read, with spec-core's
       // reason, and says so when it is every pattern; the rules for the rest
