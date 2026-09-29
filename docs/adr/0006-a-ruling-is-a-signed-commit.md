@@ -51,6 +51,15 @@ it is left out. init's advice names the file `rulings.allowedSigners`
 names, where it named `.github/allowed_signers` whatever the configuration
 said, and a FIDO2 key made with `ssh-keygen -t ed25519-sk`.
 
+*Amended 2026-09-30.* A squash or a rebase writes new commits, on GitLab as
+on GitHub: a squash, a fast-forward or semi-linear merge, and the *Rebase*
+button, which rebases on the server. On the base branch a ruling's row then
+blames to a commit no allowed signer signed, and the ruling no longer counts
+there. Rulings are verified on the round's branch, before the merge, and a
+merge commit keeps them verifiable after it: the README says how to set
+that, on GitLab the merge method *Merge commit* with *Squash commits when
+merging* set to *Do not allow*.
+
 ## Consequences
 
 No new format, service or network: git, OpenSSH 8.1 or later (2019), and an

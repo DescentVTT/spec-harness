@@ -63,6 +63,11 @@ A ruling is a row in the brief's `## Rulings` table. It **counts** when the comm
 
 spec-brief's archive refuses a round that changed a protected file, and learns that a signed ruling allows it only from this package's plugin: `init` adds `"plugins": ["@descent-vtt/spec-harness/spec-brief-plugin"]` to spec-brief's configuration. Without it, the archive refuses the file whatever was signed; `doctor` says whether spec-brief loads the plugin, and `audit` names it as the reason for such a refusal. spec-brief loads a plugin by a path as well, one that starts with `.` or is absolute: a path to this package's plugin file counts as loading it.
 
+**Merge a round with a merge commit.** A squash or a rebase writes new commits: the forge signs them with its own key or not at all, so on the base branch a ruling's row blames to a commit no allowed signer signed, and it no longer counts. Rulings are verified on the round's branch, before the merge; keep them verifiable after it:
+
+- GitHub: allow merge commits for the repository, and turn off *Allow squash merging* and *Allow rebase merging* in its settings, or in the rules for the branch rounds merge into.
+- GitLab: in *Settings > Merge requests*, set *Merge method* to *Merge commit* and *Squash commits when merging* to *Do not allow*. *Merge commit with semi-linear history* and *Fast-forward merge* need the branch rebased, which the *Rebase* button does on the server, writing new commits.
+
 ### `audit [brief]`
 
 One report: what spec-brief's archive would refuse or warn about, run with `--dry-run`; the brief's own assertions through spec-guard - a goal that fails, or a premise (under a heading such as *The Defect, Measured*) that still holds after the round meant to change it; rulings whose signatures do not verify; and every dependency the round added to `package.json`, `Cargo.toml`, `go.mod`, `pyproject.toml`, `requirements*.txt`, NuGet project files or a `Gemfile`. A part that could not be measured is a finding, never a silence. Each of these is a warning, which fails the audit only under `--strict`:
@@ -152,7 +157,18 @@ The repository is a plugin and a one-plugin marketplace: the four skills (`draft
 /plugin install spec-harness@spec-tools
 ```
 
+`DescentVTT/spec-harness` is GitHub shorthand, fetched from github.com. Where GitHub cannot be reached, as on a company network, mirror the repository and add the mirror by its full git URL, such as `/plugin marketplace add https://gitlab.example.com/tools/spec-harness.git`; the plugin is `spec-harness@spec-tools` either way.
+
 The plugin's hooks and server are the ones `init` writes into `.claude/settings.json` and `.mcp.json`: use one or the other. With both, every write is guarded twice and the server is registered twice. `init` run while the plugin is on writes neither. The other order, `init` first and the plugin after, nothing prevents: Claude Code runs a plugin's hooks as the plugin ships them, and a plugin hook that stood down because it believed `init`'s ran could leave no guard at all - Claude Code reads no hooks from `.claude/settings.json` in a session that spans several repositories, and managed settings can turn off the settings' hooks while those of a plugin they force on keep running ([ADR-0012](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0012-one-way-into-claude-code.md)). So after installing the plugin where `init` has run, run `npx spec-harness doctor`: a double install exits 1. Then take the `spec-harness` entries out of those two files, or turn the plugin off for the project.
+
+## In a repository that is not Node
+
+The hooks, the server and git's hook run the spec-harness installed in the project, so a .NET, Java or Python repository installs the tools as a Node project does, and its build never sees them:
+
+- A `package.json` at the root holding `{ "private": true }`, then `npm install --save-dev @descent-vtt/spec-harness @descent-vtt/spec-brief`, and `@descent-vtt/spec-guard` for the rules and the assertions. `private` keeps npm from ever publishing it; npm writes the tools as `devDependencies`, and `package-lock.json` pins them.
+- `node_modules/` in `.gitignore`, and `npm ci` after a clone and in CI, which installs what the lock pins.
+
+The hooks name `${CLAUDE_PROJECT_DIR}/node_modules/@descent-vtt/spec-harness/bin/spec-harness.js`, not `npx` or a global install. Claude Code starts a hook wherever the session stands and a plugin's server in the plugin's directory, so neither can rely on `npx` finding the project's install; on Windows `npx` is a shim that cannot start without a shell; and the copy in the project is the version the project pinned, the one `doctor` checks the siblings against. A person who runs the tools by hand runs `npx spec-harness`, from the root.
 
 ## Configuration
 

@@ -1,5 +1,104 @@
 # Changelog
 
+spec-harness is before 1.0, and its version says what an upgrade can do to a
+run: a minor release (0.6.x to 0.7.0) may turn a passing run red or change
+what a script reads - a finding on by default that was not, a changed exit
+code, a flag, key or field renamed or removed, each deprecated with a warning
+for a minor release first - and brings new features, while a patch release
+only fixes, reports less or documents, so `^0.7.0` takes only releases that
+cannot turn a run red. The family's policy is
+[spec-core's ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
+
+## Unreleased
+
+### Added
+
+- `audit` and `premises` take `--format gitlab`, `sarif` and `github`: a
+  GitLab Code Quality report, SARIF 2.1.0, or GitHub workflow commands, each
+  finding with its hint, on its file and line, or on the brief and line 1.
+  An error is `major` in GitLab, a warning `minor`, a note `info`. The
+  fingerprint is made of the rule, the file and the finding's subject, never
+  its message or line, so a reworded message or a moved line is not a new
+  finding in a merge request. Every other command refuses the three, exit 2.
+  See [ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)'s
+  second amendment of 2026-09-30.
+- `audit` says what it measured beside what it found, so nothing found can
+  be told from nothing checked: a line above the counts, which stay the last
+  line, such as `measured: goals: 2 held, 0 failed · premises: 1 retired, 0
+  holding · archive: asked · rulings: none · dependencies: 3 changed, 0
+  unread`, and `measured` beside `counts` in `--format json` and in
+  `audit_round`'s result. A brief with no assertion says `goals: none
+  declared`, and draws no warning. `audit_round` answers "The audit found
+  nothing in what it measured." and the line, where it said "The audit found
+  nothing." The fields are added, so no `schemaVersion` moves.
+- Each finding in `--format json` carries its `subject`: the assertion, the
+  ruling, the dependency or the name it is about.
+- `doctor` notes each signer in the allowed-signers file whose key is not a
+  FIDO2 key, and each line that is not a signer. A note, never a failure: a
+  key the agent's account cannot read is fine too, and a PIV or PKCS#11
+  hardware key reads as a plain one. A `cert-authority` line is left out.
+- `doctor` says whether git's pre-commit hook runs spec-harness, where git
+  runs it from, and `init` advises the hook when `--git-hook` is not given:
+  it is the guard for a write through a shell, which the agent's hooks never
+  see.
+- `doctor --format json` gains `branchSource`, `allowedSigners.notFido2` and
+  `allowedSigners.problems`, `claudeCode.release` and `gitHook`, fields
+  added, so no `schemaVersion` moves.
+- The README says how a .NET or other non-Node repository installs the
+  tools, how to merge a round so its signed rulings still count on GitHub and
+  GitLab, how to add the plugin's marketplace from a GitLab mirror, and that
+  spec-harness needs git 2.31 or later, which it has since 0.1.
+
+### Changed
+
+- `audit` reports an assertion in the brief that spec-guard cannot read as
+  `assertion-unreadable`, a warning on its line with spec-guard's reason. It
+  was dropped, and the audit passed on assertions it never ran. It fails
+  `audit --strict`. Upgrading: fix the directive spec-guard names.
+- `audit` warns about a name in `dependencies.manifests` a leading `/`
+  roots, alone or on a brace alternative, such as `/package.json` or
+  `{/Gemfile,Cargo.toml}`, as `manifest-name-rooted`: every path it reads is
+  repository-relative, so the rooted part named no manifest, in silence. It
+  fails `audit --strict`. Upgrading: write the name without the slash; a
+  name is matched at any depth.
+- `doctor` runs `claude --version` when the plugin or `init`'s hooks wire
+  Claude Code to the guard, and exits 1 when it is older than 2.1.139: an
+  older Claude Code runs every write unguarded. One it cannot find or read,
+  or a Windows `claude.cmd` it cannot start without a shell, is said to be
+  unknown, never fine, and fails `doctor --strict`. See
+  [ADR-0012](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0012-one-way-into-claude-code.md)'s
+  amendment. Upgrading: update Claude Code, `claude update`.
+
+### Fixed
+
+- On a detached HEAD, as CI checks out, the branch is the one the forge's CI
+  names: `GITHUB_HEAD_REF`, `GITHUB_REF_NAME` on a branch push,
+  `CI_MERGE_REQUEST_SOURCE_BRANCH_NAME`, then `CI_COMMIT_BRANCH`. A round's
+  own CI run named no brief, and `premises` failed it for the premise the
+  round retires. A branch checked out still wins. See
+  [ADR-0004](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0004-the-active-brief-is-named-not-guessed.md)'s
+  amendment.
+- `context` and `start_round` keep the rules over the rest of the scope when
+  a pattern in `affectedFiles` is rooted, such as `/docs` or
+  `{/docs,src/**}`: spec-guard was asked about `/docs` and refused the whole
+  question. The packet marks such a pattern as putting no path in the scope,
+  and says so when no pattern puts one.
+- `init --git-hook` writes the hook where git runs it from: an absolute
+  `core.hooksPath`, or one under `~`, was joined to the work tree.
+- `init` names the allowed-signers file `rulings.allowedSigners` names,
+  where it named `.github/allowed_signers`, with a FIDO2 key, and says how
+  each forge protects the rule files, GitLab Free included, where it said
+  CODEOWNERS alone.
+- `doctor`, `audit` and `init` read a spec-brief plugin loaded by a path to
+  this package's plugin file as the plugin, where they said spec-brief did
+  not load it and `init` added it a second time.
+- The error for a `tools` command that is not a list suggests `["node",
+  "node_modules/@descent-vtt/<tool>/bin/<tool>.js"]`, which runs on every
+  host, where it suggested `npx`, which Windows cannot start without a shell.
+- The title of a brief loses its id before a full-width colon, and before an
+  em or en dash or a colon without spaces, as spec-brief reads it; a hyphen
+  still needs a space on each side, so `001-2 migration` is kept.
+
 ## 0.6.0
 
 The context packet names a protection or a ruling's path the guard cannot
