@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { SIBLINGS } from '../../src/config.js';
-import { checkVersion, meets, MINIMUM_VERSIONS, parseVersion, type Version } from '../../src/versions.js';
+import { checkClaudeCode, checkVersion, CLAUDE_CODE_MINIMUM, meets, MINIMUM_VERSIONS, parseVersion, type Version } from '../../src/versions.js';
 
 const version = (text: string): Version => {
   const parsed = parseVersion(text);
@@ -119,5 +119,31 @@ describe('an installed sibling', () => {
     for (const name of SIBLINGS) {
       expect(parseVersion(MINIMUM_VERSIONS[name])?.prerelease, name).toBe(false);
     }
+  });
+});
+
+describe('the Claude Code that runs the hooks', () => {
+  it('needs 2.1.139, the first release that runs a hook\'s args (ADR-0012)', () => {
+    expect(CLAUDE_CODE_MINIMUM).toBe('2.1.139');
+  });
+
+  it('is read from the first word claude --version prints, and runs the hooks at the minimum or later', () => {
+    expect(checkClaudeCode({ output: '2.1.139 (Claude Code)\n' })).toEqual({ state: 'ok', version: '2.1.139' });
+    expect(checkClaudeCode({ output: '2.1.235 (Claude Code)\n' })).toEqual({ state: 'ok', version: '2.1.235' });
+    expect(checkClaudeCode({ output: '  3.0.0\n' })).toEqual({ state: 'ok', version: '3.0.0' });
+  });
+
+  it('is too old below the minimum, a prerelease of it included', () => {
+    for (const output of ['2.1.138 (Claude Code)', '2.0.999 (Claude Code)', '1.9.500', '2.1.139-beta.1 (Claude Code)']) {
+      expect(checkClaudeCode({ output }).state, output).toBe('outdated');
+    }
+    expect(checkClaudeCode({ output: '2.1.100 (Claude Code)' })).toEqual({ state: 'outdated', version: '2.1.100' });
+  });
+
+  it('cannot be told when claude is not there, or prints no version, and is never read as fine', () => {
+    expect(checkClaudeCode({ missing: 'no claude on PATH' })).toEqual({ state: 'unknown', reason: 'no claude on PATH' });
+    expect(checkClaudeCode({ output: 'v24.18.1\n' })).toEqual({ state: 'unknown', reason: 'claude --version printed "v24.18.1", which is not a version' });
+    expect(checkClaudeCode({ output: '' })).toEqual({ state: 'unknown', reason: 'claude --version printed nothing' });
+    expect(checkClaudeCode({ output: 'Claude Code 2.1.200\nmore' })).toEqual({ state: 'unknown', reason: 'claude --version printed "Claude Code 2.1.200", which is not a version' });
   });
 });

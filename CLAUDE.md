@@ -47,11 +47,11 @@ its first hosted run ([ADR-0010](docs/adr/0010-toolchain-and-verification.md)).
 | `guard.ts`, `hooks.ts` | May this path be written, and the answer in each hook's language. |
 | `context.ts`, `audit.ts`, `manifests.ts` | The context packet; the audit's judgement; dependency diffs. |
 | `formats.ts` | Findings for a forge: GitLab Code Quality, SARIF and GitHub annotations. |
-| `rulings.ts`, `probe.ts`, `junit.ts` | Escalations and rulings; probes and their verdicts; JUnit reports. |
+| `rulings.ts`, `signers.ts`, `probe.ts`, `junit.ts` | Escalations and rulings; the allowed-signers file; probes and their verdicts; JUnit reports. |
 | `reader.ts` | Documents through spec-core's Markdown scanner. |
 | `round.ts` | The operations the CLI and the server share: facts gathered, decisions delegated. |
-| `versions.ts` | The oldest release of each sibling this one runs, and an installed version against it. |
-| `git.ts`, `fs.ts`, `siblings.ts`, `sandbox.ts` | The edges. |
+| `versions.ts` | The oldest release of each sibling this one runs, and of Claude Code; an installed version against it. |
+| `git.ts`, `fs.ts`, `siblings.ts`, `host.ts`, `sandbox.ts` | The edges; `host.ts` asks Claude Code its release. |
 | `configure.ts` | What `init` writes into each tool's configuration. |
 | `cli.ts`, `commands.ts`, `setup.ts`, `server.ts` | The command line, `init`, and the MCP server. |
 

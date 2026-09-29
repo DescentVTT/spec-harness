@@ -6,9 +6,10 @@
  */
 
 import { createHash } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { readdir, readFile, rm } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { audit, tally, type ArchiveReason, type AssertionOutcome, type AuditInput, type AuditReport, type UnreadableAssertion } from './audit.js';
 import { sameId } from './branch.js';
@@ -298,13 +299,58 @@ async function dependencyChanges(workspace: Workspace, base: Base): Promise<Audi
   return { changes: out, unread, unreadNames: names.unread, rootedNames: names.rooted };
 }
 
+/** A file's real path, links and the filesystem's case resolved, or `null` when there is no such file. */
+function realFile(path: string): string | null {
+  try {
+    return realpathSync.native(path);
+  } catch {
+    return null;
+  }
+}
+
+/** The file a package's `exports` entry names for an import, as spec-brief resolves its plugins. */
+function exportTarget(entry: unknown): string | null {
+  if (typeof entry === 'string') return entry;
+  if (typeof entry !== 'object' || entry === null) return null;
+  const conditions = entry as Record<string, unknown>;
+  for (const condition of ['import', 'node', 'default']) {
+    const target = exportTarget(conditions[condition]);
+    if (target !== null) return target;
+  }
+  return null;
+}
+
+/**
+ * Whether a path spec-brief's `plugins` names, read from the root, is this
+ * package's plugin: the file its `./spec-brief-plugin` export names, as the
+ * project installed the package, or as this copy of it ships. spec-brief
+ * loads a plugin by a path as well as by its name, and a path to the plugin
+ * read as another plugin would say the archive cannot accept a ruling it can.
+ */
+export function pluginFile(root: string): (path: string) => boolean {
+  const installed = join(root, 'node_modules', '@descent-vtt', 'spec-harness');
+  const candidates: string[] = [fileURLToPath(new URL('../dist/plugin.js', import.meta.url))];
+  try {
+    const manifest = JSON.parse(readFileSync(join(installed, 'package.json'), 'utf8')) as { exports?: Record<string, unknown> };
+    const target = exportTarget(manifest.exports?.['./spec-brief-plugin']);
+    if (target !== null) candidates.push(join(installed, target));
+  } catch {
+    // Not installed at the root, or its manifest cannot be read: this copy's file is the one to compare.
+  }
+  const files = new Set(candidates.map(realFile).filter((file): file is string => file !== null));
+  return (path) => {
+    const file = realFile(resolve(root, path));
+    return file !== null && files.has(file);
+  };
+}
+
 /** Whether spec-brief loads this package's plugin, as its configuration at the root says. */
 export async function specBriefPlugin(root: string): Promise<PluginState> {
   const file = SPEC_BRIEF_CONFIGS.find((name) => existsSync(join(root, name)));
   if (file === undefined) return { kind: 'unconfigured' };
   const config = await readJsonObject(join(root, file));
   if (config === null || config === 'unreadable') return { kind: 'unreadable', file };
-  return { kind: loadsPlugin(config) ? 'loaded' : 'not-loaded', file };
+  return { kind: loadsPlugin(config, pluginFile(root)) ? 'loaded' : 'not-loaded', file };
 }
 
 /**

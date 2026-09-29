@@ -8,7 +8,8 @@
  * the minimum instead, as a missing sibling is reported (ADR-0002, ADR-0011).
  *
  * package.json says the same minimums to npm as `peerDependencies`; a test
- * holds the two together.
+ * holds the two together. So is the oldest Claude Code that runs the hooks,
+ * which doctor measures the one on `PATH` against.
  */
 
 import type { SiblingName } from './config.js';
@@ -66,4 +67,32 @@ export function checkVersion(name: SiblingName, declared: unknown): VersionCheck
   if (parsed === null) return { ok: false, version: declared, reason: `the ${name} installed here declares "${declared}", which is not a version; ${needs}` };
   if (meets(parsed, parseVersion(minimum) as Version)) return { ok: true, version: declared };
   return { ok: false, version: declared, reason: `${name} ${declared} is installed here; ${needs}` };
+}
+
+/**
+ * The oldest Claude Code that runs the guard hooks (ADR-0012). Its changelog
+ * adds hook `args` in 2.1.139. An older release runs the hook's bare
+ * `command`, `node`, which reads the hook's input as a script and fails, and
+ * a PreToolUse hook that fails with anything but exit 2 blocks nothing: every
+ * write passes unguarded.
+ */
+export const CLAUDE_CODE_MINIMUM = '2.1.139';
+
+/** What `claude --version` printed, or why nothing could be asked. */
+export type ClaudeCodeAnswer = { readonly output: string } | { readonly missing: string };
+
+export type ClaudeCodeCheck =
+  | { readonly state: 'ok' | 'outdated'; readonly version: string }
+  /** Never read as fine: an older release lets every write through. */
+  | { readonly state: 'unknown'; readonly reason: string };
+
+/** The release `claude --version` names in its first word, `2.1.235 (Claude Code)`, against the minimum. */
+export function checkClaudeCode(answer: ClaudeCodeAnswer): ClaudeCodeCheck {
+  if ('missing' in answer) return { state: 'unknown', reason: answer.missing };
+  const said = answer.output.trim().split('\n')[0]?.trim() ?? '';
+  if (said === '') return { state: 'unknown', reason: 'claude --version printed nothing' };
+  const first = said.split(/\s+/)[0] as string;
+  const parsed = parseVersion(first);
+  if (parsed === null) return { state: 'unknown', reason: `claude --version printed "${said}", which is not a version` };
+  return { state: meets(parsed, parseVersion(CLAUDE_CODE_MINIMUM) as Version) ? 'ok' : 'outdated', version: first };
 }

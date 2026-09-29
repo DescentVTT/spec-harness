@@ -4,7 +4,11 @@ import {
   chooseBase,
   describeBase,
   describeClaudeCode,
+  describeClaudeRelease,
+  describeGitHook,
   describePlugin,
+  describeSignerKeys,
+  describeSignerProblem,
   describeGraph,
   describeSigners,
   describeSkipped,
@@ -19,7 +23,9 @@ import {
   measuresArchive,
   mergeSpecBrief,
   mergeSpecGraph,
+  missingGitHook,
   PLUGIN,
+  PROTECT_RULE_FILES,
   PROJECT_DIR,
   PROJECT_DIR_OR_HERE,
   registersServer,
@@ -295,6 +301,28 @@ describe('spec-brief\'s plugins', () => {
     expect(loadsPlugin({ plugins: ['@descent-vtt/spec-harness', { module: '@descent-vtt/spec-harness' }, null, { name: PLUGIN }] })).toBe(false);
   });
 
+  it("reads a path spec-brief loads as the plugin when it names the plugin's file, and asks about nothing else", () => {
+    const asked: string[] = [];
+    const isPluginFile = (path: string): boolean => {
+      asked.push(path);
+      return path.endsWith('plugin.js');
+    };
+    // A path starts with a dot or is absolute, as spec-brief reads one, alone or as a module.
+    expect(loadsPlugin({ plugins: ['./node_modules/@descent-vtt/spec-harness/dist/plugin.js'] }, isPluginFile)).toBe(true);
+    expect(loadsPlugin({ plugins: [{ module: '../shared/plugin.js' }] }, isPluginFile)).toBe(true);
+    expect(loadsPlugin({ plugins: ['/opt/spec-harness/dist/plugin.js'] }, isPluginFile)).toBe(true);
+    expect(loadsPlugin({ plugins: ['./tools/other.mjs', { module: './x.mjs' }] }, isPluginFile)).toBe(false);
+    // A package name is never a path, and never asked about.
+    asked.length = 0;
+    expect(loadsPlugin({ plugins: ['some-plugin.js', { module: '@scope/plugin.js' }, 7] }, isPluginFile)).toBe(false);
+    expect(asked).toEqual([]);
+    // Without a way to read the disk, a path is not the plugin.
+    expect(loadsPlugin({ plugins: ['./node_modules/@descent-vtt/spec-harness/dist/plugin.js'] })).toBe(false);
+    // And init adds no second one.
+    expect(mergeSpecBrief({ plugins: ['./dist/plugin.js'] }, null, isPluginFile)).toBeNull();
+    expect(mergeSpecBrief({ plugins: ['./dist/plugin.js'] })).toEqual({ plugins: ['./dist/plugin.js', PLUGIN] });
+  });
+
   it('loads the plugin after those already there, keeping every other setting', () => {
     expect(mergeSpecBrief({})).toEqual({ plugins: [PLUGIN] });
     const current = { briefs: 'docs/briefs', plugins: ['./tools/x.mjs'], archiving: { base: null } };
@@ -370,6 +398,54 @@ describe('the base init names', () => {
     const detached = { base: null, detail: `no base can be told: ${unrecorded}, and HEAD is detached; ${advice}` };
     expect(chooseBase({ remoteDefault: null, branch: null, branches: ['main'] })).toEqual(detached);
     expect(chooseBase({ remoteDefault: null, branch: null, branches: [] })).toEqual(detached);
+  });
+});
+
+describe("what doctor says of the keys, the Claude Code release and git's hook", () => {
+  it('notes the signers whose key is not FIDO2, and says nothing when there is none', () => {
+    expect(describeSignerKeys([])).toBeNull();
+    expect(
+      describeSignerKeys([
+        { line: 1, principals: ['a@example.com', 'b@example.com'], keyType: 'ssh-ed25519' },
+        { line: 4, principals: ['c@example.com'], keyType: 'ssh-rsa' },
+      ]),
+    ).toBe(
+      "note: signers whose key is not a FIDO2 key: a@example.com,b@example.com (ssh-ed25519, line 1), c@example.com (ssh-rsa, line 4). Where an agent runs as the person, ADR-0006 recommends a FIDO2 key, ssh-keygen -t ed25519-sk, whose signature needs a touch no process can supply, or a key the agent's account cannot read; a PIV or PKCS#11 hardware key reads as a plain ssh-rsa or ecdsa line, so this is a note, not a failure",
+    );
+    expect(describeSignerProblem({ line: 3, message: 'm' })).toBe('note: line 3 is not a signer: m');
+  });
+
+  it('says whether the Claude Code on PATH runs the hooks, and never that one it cannot tell is fine', () => {
+    expect(describeClaudeRelease({ state: 'ok', version: '2.1.200' })).toBe('Claude Code 2.1.200 runs the hooks, which need 2.1.139 or later');
+    expect(describeClaudeRelease({ state: 'outdated', version: '2.1.100' })).toBe(
+      "Claude Code 2.1.100 is older than 2.1.139, which the hooks need: it ignores a hook's args and runs a bare node, which fails, and a PreToolUse hook that fails blocks nothing, so every write passes unguarded: update Claude Code, with claude update",
+    );
+    expect(describeClaudeRelease({ state: 'unknown', reason: 'no claude is on PATH' })).toBe(
+      'whether Claude Code is 2.1.139 or later, which the hooks need, cannot be told: no claude is on PATH; an older release lets every write pass unguarded, so check claude --version where Claude Code runs',
+    );
+  });
+
+  it("says whether git's pre-commit hook runs spec-harness, and what to do when it does not", () => {
+    expect(describeGitHook({ state: 'runs', file: '.git/hooks/pre-commit' })).toBe('.git/hooks/pre-commit runs spec-harness');
+    expect(describeGitHook({ state: 'inert', file: '.githooks/pre-commit' })).toBe(
+      '.githooks/pre-commit runs spec-harness, but is not executable, so git skips it: chmod +x .githooks/pre-commit',
+    );
+    expect(describeGitHook({ state: 'other', file: '.git/hooks/pre-commit' })).toBe(
+      '.git/hooks/pre-commit does not run spec-harness: add the line "npx --no-install spec-harness hook git" to it',
+    );
+    expect(describeGitHook({ state: 'absent', file: '.git/hooks/pre-commit' })).toBe(missingGitHook('.git/hooks/pre-commit'));
+    expect(missingGitHook('.git/hooks/pre-commit')).toBe(
+      "no pre-commit hook runs spec-harness (.git/hooks/pre-commit): one refuses a commit that changes what the active brief protects, for any agent or none, a shell's writes included; run spec-harness init --git-hook --write to add it",
+    );
+    expect(missingGitHook(null)).toBe(
+      "no pre-commit hook runs spec-harness: one refuses a commit that changes what the active brief protects, for any agent or none, a shell's writes included; run spec-harness init --git-hook --write to add it",
+    );
+    expect(describeGitHook({ state: 'unknown', reason: 'r' })).toBe('where git runs its hooks cannot be told: r');
+  });
+
+  it('says how each forge protects the rule files, GitLab Free without Code Owners (spec-core ADR-0005)', () => {
+    expect(PROTECT_RULE_FILES).toContain('on GitHub, CODEOWNERS and a protected branch; on GitLab Premium, Code Owners; on GitLab Free, a protected branch no one pushes to, merged by Maintainers, agents as Developers, and pipelines that must succeed');
+    expect(PROTECT_RULE_FILES).toContain("check each change in CI against the base branch's rules");
   });
 });
 

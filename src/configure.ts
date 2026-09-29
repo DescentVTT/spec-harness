@@ -8,7 +8,11 @@
  * nothing to add.
  */
 
+import { isAbsolute } from 'node:path';
+
+import type { AllowedSigner } from './signers.js';
 import { parseGlobList } from './vendor/spec-core/pattern/index.js';
+import { CLAUDE_CODE_MINIMUM, type ClaudeCodeCheck } from './versions.js';
 
 type Json = Record<string, unknown>;
 
@@ -235,10 +239,18 @@ export const PLUGIN = '@descent-vtt/spec-harness/spec-brief-plugin';
 /** spec-brief's configuration files, in the order spec-brief looks for them in a directory. */
 export const SPEC_BRIEF_CONFIGS: readonly string[] = ['.spec-brief.json', 'spec-brief.json'];
 
-/** Whether spec-brief's configuration loads the plugin, by name or as `{ module, options }`. */
-export function loadsPlugin(config: Json): boolean {
+/**
+ * Whether spec-brief's configuration loads the plugin, by name or as
+ * `{ module, options }`. spec-brief also loads a plugin by a path, one that
+ * starts with `.` or is absolute, read from the root; such a path is the
+ * plugin when `isPluginFile` says it names the plugin's file, which only the
+ * disk can tell.
+ */
+export function loadsPlugin(config: Json, isPluginFile: (path: string) => boolean = () => false): boolean {
   const plugins = config['plugins'];
-  return Array.isArray(plugins) && plugins.some((entry) => entry === PLUGIN || (isObject(entry) && entry['module'] === PLUGIN));
+  const names = (specifier: unknown): boolean =>
+    specifier === PLUGIN || (typeof specifier === 'string' && (specifier.startsWith('.') || isAbsolute(specifier)) && isPluginFile(specifier));
+  return Array.isArray(plugins) && plugins.some((entry) => names(entry) || (isObject(entry) && names(entry['module'])));
 }
 
 /** Whether spec-brief's configuration names the base its archive measures a round from. */
@@ -256,8 +268,8 @@ export function measuresArchive(config: Json): boolean {
  * unmeasured and passes, so the gate is open until a base is named. A base a
  * person wrote is kept.
  */
-export function mergeSpecBrief(current: Json, base: string | null = null): Json | null {
-  const plugin = loadsPlugin(current);
+export function mergeSpecBrief(current: Json, base: string | null = null, isPluginFile?: (path: string) => boolean): Json | null {
+  const plugin = loadsPlugin(current, isPluginFile);
   const measure = base !== null && !measuresArchive(current);
   if (plugin && !measure) return null;
   const plugins: unknown[] = Array.isArray(current['plugins']) ? current['plugins'] : [];
@@ -347,6 +359,84 @@ export function describeSigners(file: string, base: string | null, onBase: boole
   if (base === null) return `${file}, read from the base, which could not be resolved: no ruling can count`;
   if (onBase) return `${file} is on ${base}`;
   return `${file} is not on ${base}, so no ruling can count: commit it there, one line per person: <email> namespaces="git" <public key>`;
+}
+
+/**
+ * The note doctor gives on the signers whose key is not FIDO2, or `null`
+ * when every one's is. A note, never a failure: ADR-0006 accepts a key the
+ * agent's account cannot read too, and a PIV or PKCS#11 hardware key is
+ * written as a plain key.
+ */
+export function describeSignerKeys(signers: readonly Pick<AllowedSigner, 'line' | 'principals' | 'keyType'>[]): string | null {
+  if (signers.length === 0) return null;
+  const named = signers.map((signer) => `${signer.principals.join(',')} (${signer.keyType}, line ${signer.line})`).join(', ');
+  return (
+    `note: signers whose key is not a FIDO2 key: ${named}. ` +
+    "Where an agent runs as the person, ADR-0006 recommends a FIDO2 key, ssh-keygen -t ed25519-sk, whose signature needs a touch no process can supply, or a key the agent's account cannot read; " +
+    'a PIV or PKCS#11 hardware key reads as a plain ssh-rsa or ecdsa line, so this is a note, not a failure'
+  );
+}
+
+/** The note doctor gives on a line of the allowed-signers file that is not a signer. */
+export function describeSignerProblem(problem: { readonly line: number; readonly message: string }): string {
+  return `note: line ${problem.line} is not a signer: ${problem.message}`;
+}
+
+/** What doctor says of the Claude Code on `PATH`, which runs the guard's hooks only from the minimum on. */
+export function describeClaudeRelease(check: ClaudeCodeCheck): string {
+  switch (check.state) {
+    case 'ok':
+      return `Claude Code ${check.version} runs the hooks, which need ${CLAUDE_CODE_MINIMUM} or later`;
+    case 'outdated':
+      return `Claude Code ${check.version} is older than ${CLAUDE_CODE_MINIMUM}, which the hooks need: it ignores a hook's args and runs a bare node, which fails, and a PreToolUse hook that fails blocks nothing, so every write passes unguarded: update Claude Code, with claude update`;
+    case 'unknown':
+      return `whether Claude Code is ${CLAUDE_CODE_MINIMUM} or later, which the hooks need, cannot be told: ${check.reason}; an older release lets every write pass unguarded, so check claude --version where Claude Code runs`;
+  }
+}
+
+/** Where git's pre-commit hook stands: git's path for it, shown from the root, and what is there. */
+export type GitHookState =
+  | { readonly state: 'runs' | 'absent' | 'other' | 'inert'; readonly file: string }
+  | { readonly state: 'unknown'; readonly reason: string };
+
+/**
+ * The advice for a missing hook, which init gives beside the file and doctor
+ * with it. The hook is the guard for a write the agent's hooks never see,
+ * one made through a shell (ADR-0005).
+ */
+export function missingGitHook(file: string | null): string {
+  const where = file === null ? '' : ` (${file})`;
+  return `no pre-commit hook runs spec-harness${where}: one refuses a commit that changes what the active brief protects, for any agent or none, a shell's writes included; run spec-harness init --git-hook --write to add it`;
+}
+
+/**
+ * How to keep the files the rules live in from changing unread, on each
+ * forge, as spec-core's ADR-0005 asks: the forge protects them, and CI checks
+ * a change against the base branch's rules. GitLab Free has no Code Owners
+ * approval, so there the person who merges is the reviewer.
+ */
+export const PROTECT_RULE_FILES =
+  "Have the forge protect this file, the ADRs, the tool configurations and the CI configuration, so no change to them reaches the base branch without a person, and check each change in CI against the base branch's rules: " +
+  'on GitHub, CODEOWNERS and a protected branch; on GitLab Premium, Code Owners; on GitLab Free, a protected branch no one pushes to, merged by Maintainers, agents as Developers, and pipelines that must succeed. ' +
+  "spec-core's docs/adopting.md has the settings";
+
+/** The line to add to a hook the repository has of its own. */
+export const GIT_HOOK_LINE = 'npx --no-install spec-harness hook git';
+
+/** What doctor says of git's pre-commit hook. */
+export function describeGitHook(hook: GitHookState): string {
+  switch (hook.state) {
+    case 'runs':
+      return `${hook.file} runs spec-harness`;
+    case 'inert':
+      return `${hook.file} runs spec-harness, but is not executable, so git skips it: chmod +x ${hook.file}`;
+    case 'other':
+      return `${hook.file} does not run spec-harness: add the line "${GIT_HOOK_LINE}" to it`;
+    case 'absent':
+      return missingGitHook(hook.file);
+    case 'unknown':
+      return `where git runs its hooks cannot be told: ${hook.reason}`;
+  }
 }
 
 /** spec-graph's configuration files, in the order spec-graph reads them; then a "spec-graph" key in package.json. */

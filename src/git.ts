@@ -55,6 +55,15 @@ export async function commonDirectory(cwd: string): Promise<string | null> {
   return value(['rev-parse', '--path-format=absolute', '--git-common-dir'], cwd);
 }
 
+/**
+ * Where git runs the hook `name` from, absolute: `core.hooksPath` read as git
+ * reads it - relative to the work tree, absolute, or under `~` - and a linked
+ * worktree's shared hooks. `null` when git cannot say, before 2.31.
+ */
+export async function hookPath(name: string, cwd: string): Promise<string | null> {
+  return value(['rev-parse', '--path-format=absolute', '--git-path', `hooks/${name}`], cwd);
+}
+
 /** The checked-out branch's short name, or `null` on a detached head. */
 export async function currentBranch(cwd: string): Promise<string | null> {
   return value(['symbolic-ref', '--quiet', '--short', 'HEAD'], cwd);
