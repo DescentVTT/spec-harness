@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { OutOfScope } from '../../src/config.js';
-import { decide, type GuardInput, type VerifiedRuling } from '../../src/guard.js';
+import { decide, rooted, type GuardInput, type VerifiedRuling } from '../../src/guard.js';
 import type { BriefRow } from '../../src/types.js';
 import { row } from './helpers.js';
 
@@ -255,5 +255,16 @@ describe('the guard', () => {
       message: '/elsewhere/x.ts is outside the repository; no brief governs it',
       hint: 'nothing to do',
     });
+  });
+});
+
+describe('a rooted pattern', () => {
+  it('is rooted whole when a leading slash roots every alternative, and in part when it roots some', () => {
+    for (const pattern of ['/docs', '/src/**', '{/docs,/src/**}', '/{docs,src}', './/docs']) expect(rooted(pattern), pattern).toBe('whole');
+    for (const pattern of ['{/docs,src/**}', '{src/**,/docs}', '{/a,/b,c}']) expect(rooted(pattern), pattern).toBe('part');
+  });
+
+  it('is not a pattern the repository roots, a slash after a segment, or a pattern the guard cannot read', () => {
+    for (const pattern of ['docs', 'src/**', './docs', 'a/{/b,c}', '{docs,src}/', '**/x.ts', 'src/[a', '{./,src}']) expect(rooted(pattern), pattern).toBeNull();
   });
 });
