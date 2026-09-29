@@ -128,6 +128,37 @@ describe('context', () => {
     expect(result.stdout).not.toContain('lib is frozen');
   });
 
+  it('reads a leading slash on a brace alternative as it reads one on the pattern, in the rules and in what the guard allows', async () => {
+    // {/docs,src/**} read as docs or src/**, and spec-guard was asked about
+    // docs and src. Rooted, /docs is asked about as /docs, as it is written
+    // alone, and spec-guard refuses a path outside the repository.
+    const rooted = repository({
+      'briefs/001_braced.md': brief({ title: '001 - Braced', affected: ['"{/docs,src/**}"'] }),
+      'briefs/002_alone.md': brief({ title: '002 - Alone', affected: ['/docs', 'src/**'] }),
+      'docs/adr/0001-sessions.md': ADR,
+      'src/auth/a.ts': 'a;\n',
+    });
+    const rules = async (id: string): Promise<string> => {
+      const result = await cli(['context', id], rooted.root);
+      expect(result.code).toBe(0);
+      const text = result.stdout;
+      return text.slice(text.indexOf('## Rules in force for this scope'), text.indexOf('## How this round works'));
+    };
+    const braced = await rules('1');
+    expect(braced).toBe(await rules('2'));
+    expect(braced).toContain('spec-guard: "/docs" is outside the root');
+    expect(braced).not.toContain('the gateway is gone');
+    const decisions = async (id: string): Promise<string[][]> => {
+      const result = await cli(['guard', '--brief', id, 'docs/adr/0001-sessions.md', 'src/auth/a.ts', '--format', 'json'], rooted.root);
+      return parsed<{ decisions: { path: string; reason: string }[] }>(result).decisions.map((d) => [d.path, d.reason]);
+    };
+    expect(await decisions('1')).toEqual([
+      ['docs/adr/0001-sessions.md', 'out-of-scope'],
+      ['src/auth/a.ts', 'in-scope'],
+    ]);
+    expect(await decisions('2')).toEqual(await decisions('1'));
+  });
+
   describe('asks spec-guard about a name with no glob syntax as it is on disk', () => {
     // One rule per place a question can reach: the scope's own code, a file
     // beside the one named, a directory not yet created, and code outside.

@@ -259,6 +259,25 @@ describe('the contract and the scope', () => {
     expect(scope).toContain(`Rulings in force:\n- R-012-1, signed by p@example.com: ${patterns.map((pattern) => `\`${pattern}\``).join(', ')}\n`);
     expect(packet.markdown).not.toContain('cannot read');
   });
+
+  it('lists a leading slash on a brace alternative as it lists one on the pattern: as written, a pattern the guard reads', () => {
+    // Rooted at the filesystem's root, each matches no path the guard is
+    // given; the packet names only patterns the guard cannot read, and says
+    // nothing more of /docs alone.
+    const patterns = ['/docs', '{/docs,src/**}', '{/docs,/src/**}'];
+    const brief = row({ affectedFiles: patterns, protectedFiles: patterns });
+    const packet = renderContext(input({ brief, rulings: [{ id: 'R-012-1', paths: patterns, signer: 'p@example.com' }] }));
+    expect(packet).toMatchObject({ unreadableScope: [], unreadableProtections: [], unreadableRulingPaths: [] });
+    const lines = patterns.map((pattern) => `- \`${pattern}\``).join('\n');
+    const scope = section(packet.markdown, 'Scope, as the guard reads it');
+    expect(scope).toContain(`May write:\n${lines}\n\n`);
+    expect(scope).toContain(`Must not change without a ruling:\n${lines}\n\n`);
+    expect(packet.markdown).not.toContain('cannot read');
+    // As the guard reads them: docs/a.md is neither in the scope nor protected, src/a.ts both.
+    const decision = (path: string) => decide({ path, given: path, brief, rulings: [], outOfScope: 'warn' });
+    expect(decision('docs/a.md')).toMatchObject({ reason: 'out-of-scope', because: [] });
+    expect(decision('src/a.ts')).toMatchObject({ reason: 'protected', because: ['{/docs,src/**}'] });
+  });
 });
 
 describe('dependencies', () => {

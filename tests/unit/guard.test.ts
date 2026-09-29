@@ -176,6 +176,47 @@ describe('the guard', () => {
     expect(check('README.md', { brief: scoped })).toMatchObject({ verdict: 'warn', reason: 'out-of-scope', because: [] });
   });
 
+  describe('reads a leading slash on a brace alternative as it reads one on the pattern: rooted, so it names no path the guard is given', () => {
+    // Every path the guard decides is repository-relative, and /docs is rooted
+    // at the filesystem's root. {/docs,src/**} read as docs or src/**.
+    const reasons = (brief: BriefRow, paths: readonly string[]): string[] => paths.map((path) => check(path, { brief }).reason);
+
+    it('puts nothing in the scope for it, and the other alternative as before', () => {
+      const paths = ['docs/a.md', 'docs', 'src/a.ts', 'README.md'];
+      const braced = row({ affectedFiles: ['{/docs,src/**}'], protectedFiles: [] });
+      expect(reasons(braced, paths)).toEqual(['out-of-scope', 'out-of-scope', 'in-scope', 'out-of-scope']);
+      expect(reasons(row({ affectedFiles: ['/docs', 'src/**'], protectedFiles: [] }), paths)).toEqual(reasons(braced, paths));
+      // Readable, it is not named as a pattern the guard passes over.
+      expect(check('docs/a.md', { brief: braced })).toMatchObject({ verdict: 'warn', because: [] });
+      expect(check('docs/a.md', { brief: braced }).message).toBe("docs/a.md is outside brief 012's scope, which covers {/docs,src/**}");
+      for (const pattern of ['{/docs}', '{/docs,/src/**}', '{//docs,src/**}', '{/./docs,src/**}', '{.//docs,src/**}', '{/docs/,src/**}', '{/*,src/**}']) {
+        expect(check('docs/a.md', { brief: row({ affectedFiles: [pattern], protectedFiles: [] }) }).reason, pattern).toBe('out-of-scope');
+      }
+    });
+
+    it('protects nothing by it, and the other alternative as before', () => {
+      const paths = ['docs/a.md', 'migrations/1.sql', 'src/a.ts'];
+      const braced = row({ affectedFiles: ['**'], protectedFiles: ['{/docs,migrations/**}'] });
+      expect(reasons(braced, paths)).toEqual(['in-scope', 'protected', 'in-scope']);
+      expect(reasons(row({ affectedFiles: ['**'], protectedFiles: ['/docs', 'migrations/**'] }), paths)).toEqual(reasons(braced, paths));
+      expect(check('migrations/1.sql', { brief: braced }).because).toEqual(['{/docs,migrations/**}']);
+    });
+
+    it('allows nothing by it in a ruling, and the other alternative as before', () => {
+      const rulings = (paths: string[]): VerifiedRuling[] => [{ id: 'R-1', paths, signer: 's' }];
+      expect(check('src/db/schema.ts', { rulings: rulings(['{/src/db/schema.ts,migrations/1.sql}']) }).reason).toBe('protected');
+      expect(check('src/db/schema.ts', { rulings: rulings(['/src/db/schema.ts']) }).reason).toBe('protected');
+      expect(check('migrations/1.sql', { rulings: rulings(['{/src/db/schema.ts,migrations/1.sql}']) }).reason).toBe('ruled');
+    });
+
+    it('reads a slash after a segment, or before the braces, as before', () => {
+      // a/{/b,c} is a//b or a/c, and a//b is a/b; /{docs,src} roots both.
+      expect(reasons(row({ affectedFiles: ['a/{/b,c}'], protectedFiles: [] }), ['a/b', 'a/c', 'b'])).toEqual(['in-scope', 'in-scope', 'out-of-scope']);
+      expect(reasons(row({ affectedFiles: ['/{docs,src}'], protectedFiles: [] }), ['docs/a.md', 'src/a.ts'])).toEqual(['out-of-scope', 'out-of-scope']);
+      expect(reasons(row({ affectedFiles: ['{docs,src}'], protectedFiles: [] }), ['docs/a.md', 'src/a.ts'])).toEqual(['in-scope', 'in-scope']);
+    });
+  });
+
   it('matches case as written: the caller corrects the spelling, not the guard', () => {
     expect(check('SRC/db/schema.ts').reason).toBe('out-of-scope');
   });
