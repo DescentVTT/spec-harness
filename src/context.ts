@@ -9,10 +9,12 @@
  * they fill what the budget leaves, in the order the brief cites them, and
  * the rest are named rather than dropped silently. So is a document whose
  * front matter is never closed, whose status cannot be read, rather than
- * shown as one without a status.
+ * shown as one without a status, and a pattern in the scope the guard cannot
+ * read, with spec-core's reason, rather than listed as one it can.
  */
 
 import { sameId } from './branch.js';
+import { whyUnreadable } from './guard.js';
 import type { BriefRow } from './types.js';
 
 export interface CitedDocument {
@@ -93,6 +95,12 @@ export interface ContextInput {
   readonly budget: number;
 }
 
+/** A pattern in the brief's scope that the guard cannot read, with spec-core's reason. */
+export interface UnreadablePattern {
+  readonly pattern: string;
+  readonly reason: string;
+}
+
 export interface ContextPacket {
   readonly markdown: string;
   /** Cited documents included whole. */
@@ -103,18 +111,27 @@ export interface ContextPacket {
   readonly unresolved: readonly string[];
   /** Cited documents whose front matter opens on line 1 and is never closed, so no status was read from them. */
   readonly unclosedFrontMatter: readonly string[];
+  /** Patterns in `affectedFiles` the guard cannot read, in the brief's order: each puts no path in the scope. */
+  readonly unreadableScope: readonly UnreadablePattern[];
 }
 
 function list(items: readonly string[], empty: string): string {
   return items.length === 0 ? `- ${empty}` : items.map((item) => `- \`${item}\``).join('\n');
 }
 
-function rulesSection(rules: Rules): string {
+function rulesSection(rules: Rules, scopeUnread: boolean): string {
   if ('none' in rules) return `spec-guard holds no rule over this scope: ${rules.none}.`;
   if ('unavailable' in rules) {
     return `The rules spec-guard holds this code to could not be read: ${rules.unavailable}. Treat every ADR as binding until they can.`;
   }
-  if (rules.length === 0) return 'spec-guard holds no rule over this scope.';
+  if (rules.length === 0) {
+    // With no pattern of the scope readable, spec-guard was asked about no
+    // path, so an empty answer is no answer: "no rule" would tell the agent
+    // the code it writes is unconstrained.
+    return scopeUnread
+      ? 'The scope could not be read: no pattern in `affectedFiles` can be read, so spec-guard was not asked for the rules over it. Treat every ADR as binding until the scope is fixed.'
+      : 'spec-guard holds no rule over this scope.';
+  }
   const byDocument = new Map<string, RuleInForce[]>();
   for (const rule of rules) byDocument.set(rule.document, [...(byDocument.get(rule.document) ?? []), rule]);
   const parts: string[] = [];
@@ -161,11 +178,18 @@ export function renderContext(input: ContextInput): ContextPacket {
     input.rulings.length === 0
       ? '- none'
       : input.rulings.map((ruling) => `- ${ruling.id}, signed by ${ruling.signer}: ${ruling.paths.map((p) => `\`${p}\``).join(', ')}`).join('\n');
+  const unreadableScope: UnreadablePattern[] = [];
+  const mayWrite = brief.affectedFiles.map((pattern) => {
+    const reason = whyUnreadable(pattern);
+    if (reason === null) return `- \`${pattern}\``;
+    unreadableScope.push({ pattern, reason });
+    return `- \`${pattern}\`, which the guard cannot read: ${reason}; it puts no path in the scope`;
+  });
   const scope = [
     '## Scope, as the guard reads it',
     '',
     'May write:',
-    list(brief.affectedFiles, 'nothing declared: every write is outside the scope'),
+    mayWrite.length === 0 ? '- nothing declared: every write is outside the scope' : mayWrite.join('\n'),
     '',
     'Must not change without a ruling:',
     list(brief.protectedFiles, 'nothing declared'),
@@ -182,7 +206,8 @@ export function renderContext(input: ContextInput): ContextPacket {
   });
   const dependencies = ['## Depends on', '', waiting.length === 0 ? '- nothing' : waiting.join('\n'), ''].join('\n');
 
-  const rules = ['## Rules in force for this scope', '', rulesSection(input.rules), ''].join('\n');
+  const scopeUnread = mayWrite.length > 0 && unreadableScope.length === mayWrite.length;
+  const rules = ['## Rules in force for this scope', '', rulesSection(input.rules, scopeUnread), ''].join('\n');
 
   const howTo = [
     '## How this round works',
@@ -232,5 +257,5 @@ export function renderContext(input: ContextInput): ContextPacket {
     citedSection.push('Front matter opened on line 1 and never closed, so the status was not read; close the block with `---` on a line of its own:', list(unclosed, ''), '');
   }
 
-  return { markdown: `${fixed}\n${citedSection.join('\n').trimEnd()}\n`, included, omitted, unresolved, unclosedFrontMatter: unclosed };
+  return { markdown: `${fixed}\n${citedSection.join('\n').trimEnd()}\n`, included, omitted, unresolved, unclosedFrontMatter: unclosed, unreadableScope };
 }

@@ -65,6 +65,7 @@ describe('context', () => {
       omitted: [],
       // A link to code or a directory is not a document, and is not missing either.
       unresolved: ['docs/gone.md'],
+      unreadableScope: [],
     });
   });
 
@@ -192,6 +193,57 @@ describe('context', () => {
         ['src/auth/a.ts', 'in-scope'],
         ['lib/b.ts', 'out-of-scope'],
       ]);
+    });
+  });
+
+  describe('names a pattern in the scope the guard cannot read', () => {
+    const huge = `${'{a,b}'.repeat(8)}/${'x'.repeat(300)}`;
+    let unread: Repository;
+
+    beforeAll(() => {
+      unread = repository({
+        // Quoted, or YAML reads the brackets and braces as its own.
+        'briefs/001_mixed.md': brief({ title: '001 - Some readable', affected: ['src/auth/**', '"src/[a"', `"${huge}"`, '"{./,lib}"'] }),
+        'briefs/002_none.md': brief({ title: '002 - None readable', affected: ['"src/[a"', '"{./,lib}"'] }),
+        'docs/adr/0001-sessions.md': `${ADR}\n<!-- @assert-absence target="lib" symbol="OldLib" reason="lib is frozen" -->\n`,
+        'src/auth/a.ts': 'a;\n',
+        'lib/b.ts': 'b;\n',
+      });
+    });
+
+    it('with spec-core\'s reason, in the packet and in JSON, and asks spec-guard about the rest of the scope', async () => {
+      const result = await cli(['context', '1', '--format', 'json'], unread.root);
+      expect(result.code).toBe(0);
+      const packet = parsed<{ markdown: string; unreadableScope: { pattern: string; reason: string }[] }>(result);
+      expect(packet.unreadableScope).toEqual([
+        { pattern: 'src/[a', reason: 'a "[" is never closed' },
+        { pattern: huge, reason: 'the pattern compiles to more than 65536 states' },
+        { pattern: '{./,lib}', reason: 'the braces expand to "./", which names no path' },
+      ]);
+      expect(packet.markdown).toContain(
+        [
+          'May write:',
+          '- `src/auth/**`',
+          '- `src/[a`, which the guard cannot read: a "[" is never closed; it puts no path in the scope',
+          `- \`${huge}\`, which the guard cannot read: the pattern compiles to more than 65536 states; it puts no path in the scope`,
+          '- `{./,lib}`, which the guard cannot read: the braces expand to "./", which names no path; it puts no path in the scope',
+          '',
+        ].join('\n'),
+      );
+      expect(packet.markdown).toContain('### docs/adr/0001-sessions.md\n\n- line 9: "LegacyGateway" must not appear in src/auth - the gateway is gone\n');
+      expect(packet.markdown).not.toContain('lib is frozen');
+      expect(packet.markdown).not.toContain('The scope could not be read');
+    });
+
+    it('says the scope could not be read when no pattern in it can be, rather than that spec-guard holds no rule over it', async () => {
+      const result = await cli(['context', '2', '--format', 'json'], unread.root);
+      expect(result.code).toBe(0);
+      const packet = parsed<{ markdown: string; unreadableScope: { pattern: string }[] }>(result);
+      expect(packet.unreadableScope.map(({ pattern }) => pattern)).toEqual(['src/[a', '{./,lib}']);
+      expect(packet.markdown).toContain(
+        '## Rules in force for this scope\n\nThe scope could not be read: no pattern in `affectedFiles` can be read, so spec-guard was not asked for the rules over it. Treat every ADR as binding until the scope is fixed.\n',
+      );
+      expect(packet.markdown).not.toContain('holds no rule');
     });
   });
 

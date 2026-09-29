@@ -180,7 +180,9 @@ function scopeBases(root: string, patterns: readonly string[]): string[] {
     try {
       for (const base of compileGlob(pattern, { dialect: 'path', caseSensitive: true, literal }).bases) bases.add(base === '' ? '.' : base);
     } catch {
-      // spec-brief lint reports a pattern it cannot read; the rules for the rest still count.
+      // The packet names a pattern the guard cannot read, with spec-core's
+      // reason, and says so when it is every pattern; the rules for the rest
+      // still count.
     }
   }
   return [...bases].sort();

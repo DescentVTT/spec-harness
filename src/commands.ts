@@ -76,6 +76,7 @@ export async function contextCommand(options: Options, io: CliIO): Promise<numbe
         omitted: packet.omitted,
         unresolved: packet.unresolved,
         unclosedFrontMatter: packet.unclosedFrontMatter,
+        unreadableScope: packet.unreadableScope,
       }),
     );
   } else {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { readRules, renderContext, titleOf, type CitedDocument, type ContextInput } from '../../src/context.js';
+import { decide } from '../../src/guard.js';
 import { row } from './helpers.js';
 
 const BRIEF_TEXT = '---\nstatus: active\n---\n\n# 012 - Rotate tokens\n\n## Intent\n\nRotate them.\n\n\n';
@@ -131,6 +132,50 @@ describe('the contract and the scope', () => {
     expect(scope).toContain('Must not change without a ruling:\n- nothing declared\n');
     expect(scope).toContain('Rulings in force:\n- none\n');
   });
+
+  it('names each pattern the guard cannot read, with spec-core\'s reason, and lists the rest as before', () => {
+    // Malformed, too large to compile, and braces that expand to no path, among patterns the guard reads.
+    const huge = `${'{a,b}'.repeat(8)}/${'x'.repeat(300)}`;
+    const brief = row({ affectedFiles: ['src/auth/**', 'src/[a', huge, '{./,src}', 'tests/**'], protectedFiles: ['src/db/schema.ts'] });
+    const packet = renderContext(input({ brief }));
+    expect(section(packet.markdown, 'Scope, as the guard reads it')).toBe(
+      [
+        '## Scope, as the guard reads it',
+        '',
+        'May write:',
+        '- `src/auth/**`',
+        '- `src/[a`, which the guard cannot read: a "[" is never closed; it puts no path in the scope',
+        `- \`${huge}\`, which the guard cannot read: the pattern compiles to more than 65536 states; it puts no path in the scope`,
+        '- `{./,src}`, which the guard cannot read: the braces expand to "./", which names no path; it puts no path in the scope',
+        '- `tests/**`',
+        '',
+        'Must not change without a ruling:',
+        '- `src/db/schema.ts`',
+        '',
+        'Rulings in force:',
+        '- none',
+        '',
+        '',
+      ].join('\n'),
+    );
+    expect(packet.unreadableScope).toEqual([
+      { pattern: 'src/[a', reason: 'a "[" is never closed' },
+      { pattern: huge, reason: 'the pattern compiles to more than 65536 states' },
+      { pattern: '{./,src}', reason: 'the braces expand to "./", which names no path' },
+    ]);
+    // Each is a pattern the guard passes over, and names with the same reason.
+    const outside = decide({ path: 'README.md', given: 'README.md', brief, rulings: [], outOfScope: 'warn' });
+    expect(outside.because).toEqual(packet.unreadableScope.map(({ pattern, reason }) => `${pattern} (${reason})`));
+  });
+
+  it('lists a pattern the guard can read as written, however it looks', () => {
+    // A lone brace is a literal, a slash inside braces is a directory's contents, and ./ under a directory is what it holds.
+    const patterns = ['}', '{src/,docs/*.md}', 'src/{./,a}', '[!a]*', 'src'];
+    const packet = renderContext(input({ brief: row({ affectedFiles: patterns }) }));
+    expect(packet.unreadableScope).toEqual([]);
+    expect(section(packet.markdown, 'Scope, as the guard reads it')).toContain(`May write:\n${patterns.map((pattern) => `- \`${pattern}\``).join('\n')}\n\n`);
+    expect(packet.markdown).not.toContain('cannot read');
+  });
 });
 
 describe('dependencies', () => {
@@ -184,6 +229,22 @@ describe('the rules in force', () => {
     expect(unavailable).not.toContain('holds no rule');
     const none = section(renderContext(input({ rules: { none: 'no spec file matched its patterns' } })).markdown, 'Rules in force for this scope');
     expect(none).toBe('## Rules in force for this scope\n\nspec-guard holds no rule over this scope: no spec file matched its patterns.\n\n');
+  });
+
+  it('says the scope could not be read when no pattern in it can be, rather than that spec-guard holds no rule', () => {
+    // spec-guard is asked about no path for such a scope, so its answer is empty whatever rules are in force.
+    const packet = renderContext(input({ brief: row({ affectedFiles: ['src/[a', '{./,src}'] }), rules: [] }));
+    expect(section(packet.markdown, 'Rules in force for this scope')).toBe(
+      '## Rules in force for this scope\n\nThe scope could not be read: no pattern in `affectedFiles` can be read, so spec-guard was not asked for the rules over it. Treat every ADR as binding until the scope is fixed.\n\n',
+    );
+    expect(packet.unreadableScope.map(({ pattern }) => pattern)).toEqual(['src/[a', '{./,src}']);
+  });
+
+  it('says spec-guard holds no rule when the scope declares nothing, or a pattern in it can be read', () => {
+    const rules = (affectedFiles: string[]): string => section(renderContext(input({ brief: row({ affectedFiles }), rules: [] })).markdown, 'Rules in force for this scope');
+    for (const affectedFiles of [[], ['src/**'], ['src/[a', 'src/**'], ['src/**', '{./,src}']]) {
+      expect(rules(affectedFiles), affectedFiles.join(' ')).toBe('## Rules in force for this scope\n\nspec-guard holds no rule over this scope.\n\n');
+    }
   });
 
   it('reads spec-guard\'s query, the rules in force once each', () => {
@@ -246,7 +307,7 @@ describe('the cited documents and the budget', () => {
   it('says None when the brief cites nothing', () => {
     const packet = renderContext(input());
     expect(packet.markdown.endsWith('## Documents the brief cites\n\nNone.\n')).toBe(true);
-    expect(packet).toMatchObject({ included: [], omitted: [], unresolved: [], unclosedFrontMatter: [] });
+    expect(packet).toMatchObject({ included: [], omitted: [], unresolved: [], unclosedFrontMatter: [], unreadableScope: [] });
   });
 
   it('fills the budget exactly, and names a document that would pass it', () => {
