@@ -130,6 +130,14 @@ and says a status written on it, if any, was not read. `--format json` and
 from another line, since the reader cannot tell what it held; a line the
 reader did read, such as a key declared twice, is not named.
 
+*Amended 2026-09-30.* A cited document's status is read under `status`
+alone again. 0.7.0 read it under `狀態` or `状态` as well, without a
+`status` key, with the family's Chinese status words; the maintainer chose
+English only for the whole family - a small team, one language to
+maintain, and a heuristic in a second language is where false positives
+come from. A document may be written in any language; its status is
+written in English, `status: superseded`, which every spec-* tool reads.
+
 ## Consequences
 
 Every command gives the same answer for the same repository. What the plan

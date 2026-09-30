@@ -21,6 +21,13 @@ cannot turn a run red. The family's policy is
   `unclosedFrontMatter`; no `schemaVersion` moves
   ([ADR-0001](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0001-the-harness-decides-the-agent-writes.md)).
 
+### Removed
+
+- `context` no longer reads a cited document's status under `狀態` or
+  `状态`, as 0.7.0 did without a `status` key: the spec-* tools read status
+  words in English only, so such a document shows no status.
+  Upgrading: write the status in English, e.g. `status: superseded`.
+
 ## 0.7.0
 
 The audit and `premises` no longer pass on what they could not read, the

@@ -9,15 +9,6 @@ import type { TableView } from './rulings.js';
 import { findEntry, readFrontMatter, scanMarkdown, type FrontMatter, type MarkdownScan } from './vendor/spec-core/markdown/index.js';
 import { splitLines } from './vendor/spec-core/text/index.js';
 
-/**
- * The front matter keys a cited document's status is read under, the first
- * the document holds deciding: `status`, then the Traditional and the
- * Simplified Chinese for it, which a Chinese ADR writes with YAML's ASCII
- * colon. A full-width colon is no YAML separator, so `狀態：已接受` gives no
- * key, and no status, as spec-guard reads it.
- */
-const STATUS_KEYS = ['status', '狀態', '状态'] as const;
-
 /** Section names compare without case, emphasis, a leading number or a trailing colon. */
 export function sameSection(heading: string, name: string): boolean {
   const normal = (text: string): string =>
@@ -135,7 +126,9 @@ export function createReader(): DocumentReader {
       const title = scanned.headings.find((heading) => heading.level === 1)?.text ?? null;
       const front = readFrontMatter(text);
       let status: string | null = null;
-      const entry = STATUS_KEYS.map((key) => findEntry(front, key)).find((candidate) => candidate !== undefined);
+      // The status is read under `status` alone: a key in another language,
+      // such as `狀態`, is another key (ADR-0001).
+      const entry = findEntry(front, 'status');
       if (entry !== undefined && entry.value.kind === 'scalar') status = entry.value.scalar.text || null;
       // TOML front matter gives no status, closed or not, so closing it would
       // change nothing the context packet shows; only YAML's is worth saying.

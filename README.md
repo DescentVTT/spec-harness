@@ -68,7 +68,7 @@ The packet an agent starts a round with: the brief in full - it is the contract 
 - the rulings already signed;
 - the briefs it depends on, and whether they are done;
 - the architecture rules spec-guard holds that code to;
-- the documents the brief links to, whole, until the packet reaches its budget (`context.budget`, 60,000 characters). Documents left out are named by path, not dropped. Each is headed by its first level-one heading and the status its front matter gives under `status`, or, without that key, under `狀態` or `状态`, written with YAML's ASCII colon.
+- the documents the brief links to, whole, until the packet reaches its budget (`context.budget`, 60,000 characters). Documents left out are named by path, not dropped. Each is headed by its first level-one heading and the status its front matter gives under `status`, in English as every spec-* tool reads it, whatever language the document is written in.
 
 `--base` names the base the rulings are verified against.
 
