@@ -38,6 +38,9 @@ Both mutation sweeps run in GitHub Actions. The core sweep is a job in
 `npm run test:mutation:full`, every module against the whole suite, is
 `mutation.yml`: weekly and on request, with its own `break` of 89, set below
 its first hosted run ([ADR-0010](docs/adr/0010-toolchain-and-verification.md)).
+It runs in eight shards, balanced on measured minutes in
+`scripts/mutation-shards.mjs`, and the `break` is applied once, to their
+merged report; a file no shard lists is mutated by the last.
 
 ## Layout
 
