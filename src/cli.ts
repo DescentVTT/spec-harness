@@ -8,6 +8,7 @@
  * (spec-core ADR-0005).
  */
 
+import { SiblingOutputError } from './briefs.js';
 import { auditCommand, contextCommand, escalateCommand, probeCommand, ruleCommand, rulingsCommand } from './commands.js';
 import { ConfigError, SIBLINGS } from './config.js';
 import {
@@ -344,7 +345,9 @@ export async function run(argv: readonly string[], io: CliIO): Promise<number> {
   try {
     return await command(options, io);
   } catch (error) {
-    if (error instanceof UsageError || error instanceof ConfigError || error instanceof SiblingError) {
+    // A sibling's document of a shape the harness does not read is a sibling
+    // that printed something it cannot read (answers.ts): exit 2.
+    if (error instanceof UsageError || error instanceof ConfigError || error instanceof SiblingError || error instanceof SiblingOutputError) {
       io.stderr.write(`spec-harness: ${error.message}\n`);
       return EXIT_ERROR;
     }

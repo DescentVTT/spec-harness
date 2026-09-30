@@ -18,6 +18,13 @@ cannot turn a run red. The family's policy is
   none.
 - When spec-brief exits 2 while listing the briefs and says nothing, the
   error ends in `exit 2`, where it ended with the colon before a reason.
+- When spec-guard or spec-brief prints JSON of a shape spec-harness does
+  not read - `results` that is not a list, a result whose `ok` is not true
+  or false, an archive reason of a severity it does not know - `audit` and
+  `premises` exit 2 naming the tool and the field, where they stopped with
+  a stack trace or read the document halfway; `context` says the rules could
+  not be read and why, as it does for spec-guard output that is not JSON
+  ([ADR-0002](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0002-siblings-through-their-command-lines.md)).
 
 ## 0.8.0
 

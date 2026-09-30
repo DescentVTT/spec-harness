@@ -17,6 +17,7 @@
  * decides.
  */
 
+import { readQueryRules } from './answers.js';
 import { sameId } from './branch.js';
 import type { UnreadableFrontMatterLine } from './document.js';
 import { rooted, whyUnreadable } from './guard.js';
@@ -51,7 +52,6 @@ export type Rules = readonly RuleInForce[] | { readonly none: string } | { reado
 
 interface QueryDocument {
   readonly specFiles?: unknown;
-  readonly results?: readonly { readonly rules?: readonly (RuleInForce & { readonly reason?: string | null; readonly inForce?: boolean })[] }[];
 }
 
 /**
@@ -60,6 +60,7 @@ interface QueryDocument {
  * where it does not look - and when it could not read the specs it has; only
  * the first prints a document, one with no spec file in it, so that is how
  * the two are told apart. What it said on stderr is the reason for the second.
+ * A document of another shape is refused (answers.ts).
  */
 export function readRules(answer: { readonly code: number; readonly document: unknown; readonly stderr: string }): Rules {
   const document = (answer.document ?? {}) as QueryDocument;
@@ -72,12 +73,12 @@ export function readRules(answer: { readonly code: number; readonly document: un
   }
   const seen = new Set<string>();
   const out: RuleInForce[] = [];
-  for (const result of document.results ?? []) {
-    for (const rule of result.rules ?? []) {
+  for (const rules of readQueryRules(answer.document)) {
+    for (const rule of rules) {
       const key = `${rule.document}:${rule.line}`;
-      if (rule.inForce === false || seen.has(key)) continue;
+      if (!rule.inForce || seen.has(key)) continue;
       seen.add(key);
-      out.push({ document: rule.document, line: rule.line, kind: rule.kind, description: rule.description, reason: rule.reason ?? null });
+      out.push({ document: rule.document, line: rule.line, kind: rule.kind, description: rule.description, reason: rule.reason });
     }
   }
   return out;
