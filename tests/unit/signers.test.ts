@@ -83,6 +83,54 @@ describe('the allowed-signers file', () => {
     expect(readAllowedSigners(`"" ssh-ed25519 ${ED}`).signers[0]?.principals).toEqual([]);
   });
 
+  it('takes out the first pair of double quotes in the principals, wherever it opens, and ends the field at the second, as OpenSSH does', () => {
+    // OpenSSH's strdelim: the first quote is taken out with the next one, and
+    // the field ends there, so a quote in the middle quotes the rest of a name.
+    expect(readAllowedSigners(`a@example.com,"b@example.com" ssh-ed25519 ${ED}`).signers[0]?.principals).toEqual(['a@example.com', 'b@example.com']);
+    expect(readAllowedSigners(`a@example.com,"b@example.com c@example.com" ssh-ed25519 ${ED}`).signers[0]?.principals).toEqual(['a@example.com', 'b@example.com c@example.com']);
+    // What follows the closing quote is the next field: here it is read as options, which OpenSSH refuses.
+    const options = 'OpenSSH reads only cert-authority, namespaces="...", valid-after="..." and valid-before="..." as options';
+    expect(readAllowedSigners(`"a@example.com"b@example.com ssh-ed25519 ${ED}`)).toEqual({ signers: [], problems: [{ line: 1, message: options }] });
+    expect(readAllowedSigners(`a@example.com,"b@example.com",c@example.com ssh-ed25519 ${ED}`)).toEqual({ signers: [], problems: [{ line: 1, message: options }] });
+    expect(readAllowedSigners(`"a@example.com ssh-ed25519 ${ED}`)).toEqual({ signers: [], problems: [{ line: 1, message: 'its principals open a double quote that is never closed' }] });
+  });
+
+  it('reads an option\'s value only in double quotes, where \\" is a quote, as OpenSSH does', () => {
+    expect(readAllowedSigners(`a@example.com namespaces="git,\\"file\\"",valid-after="20260101" ssh-ed25519 ${ED}`).signers[0]).toMatchObject({
+      namespaces: ['git', '"file"'],
+      validAfter: '20260101',
+      keyType: 'ssh-ed25519',
+    });
+    expect(readAllowedSigners(`a@example.com namespaces="a \\"b c\\"" ssh-ed25519 ${ED}`).signers[0]).toMatchObject({ namespaces: ['a "b c"'], key: ED });
+    const problem = (line: string): string | undefined => readAllowedSigners(line).problems[0]?.message;
+    expect(problem(`a@example.com namespaces=git ssh-ed25519 ${ED}`)).toBe('the value of namespaces is not in double quotes, as OpenSSH needs: write namespaces="..."');
+    expect(problem(`a@example.com Valid-Before=20270101 ssh-ed25519 ${ED}`)).toBe('the value of Valid-Before is not in double quotes, as OpenSSH needs: write Valid-Before="..."');
+    expect(problem(`a@example.com namespaces="git ssh-ed25519 ${ED}`)).toBe('its options open a double quote that is never closed');
+    expect(problem(`a@example.com namespaces="git\\" ssh-ed25519 ${ED}`)).toBe('its options open a double quote that is never closed');
+  });
+
+  it('refuses the options OpenSSH refuses: another option, one written wrong, a value given twice, a separator that is no comma', () => {
+    const problem = (options: string): string | undefined => readAllowedSigners(`a@example.com ${options} ssh-ed25519 ${ED}`).problems[0]?.message;
+    const only = 'OpenSSH reads only cert-authority, namespaces="...", valid-after="..." and valid-before="..." as options';
+    for (const options of ['no-touch-required', 'cert-authority="yes"', 'namespaces', 'cert-authority,,namespaces="git"']) expect(problem(options), options).toBe(only);
+    expect(problem('namespaces="git",NAMESPACES="file"')).toBe('it gives namespaces twice, which OpenSSH refuses');
+    expect(problem('valid-after="20260101",valid-after="20260102"')).toBe('it gives valid-after twice, which OpenSSH refuses');
+    expect(problem('namespaces="git"x')).toBe('its options are not separated by commas');
+    // OpenSSH matches cert-authority as a prefix, and then wants a comma.
+    expect(problem('cert-authority"x"')).toBe('its options are not separated by commas');
+    expect(problem('cert-authority,')).toBe('its options end in a comma');
+    // The key is read first, and what is wrong with it is said first.
+    expect(readAllowedSigners('a@example.com no-touch-required ssh-ed25519 not-a-key').problems[0]?.message).toBe('a signer is its principals, any options, a key type and a key');
+  });
+
+  it('reads cert-authority beside a valued option, in any order and case', () => {
+    expect(readAllowedSigners(`*@example.com namespaces="git",CERT-AUTHORITY,valid-before="20270101" ssh-ed25519 ${ED}`).signers[0]).toMatchObject({
+      certAuthority: true,
+      namespaces: ['git'],
+      validBefore: '20270101',
+    });
+  });
+
   it('reads an empty file as no signer', () => {
     expect(readAllowedSigners('')).toEqual({ signers: [], problems: [] });
     expect(readAllowedSigners('# nobody yet\n\n')).toEqual({ signers: [], problems: [] });

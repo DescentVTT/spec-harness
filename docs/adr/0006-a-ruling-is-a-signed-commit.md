@@ -51,6 +51,19 @@ it is left out. init's advice names the file `rulings.allowedSigners`
 names, where it named `.github/allowed_signers` whatever the configuration
 said, and a FIDO2 key made with `ssh-keygen -t ed25519-sk`.
 
+*Amended 2026-09-30.* The reader followed OpenSSH's fields but not its
+quotes: it unquoted a field only when quoted whole, and read an option's
+value quoted or not. OpenSSH's `strdelim` takes the first double quote of
+the principals out with the next, wherever it opens, and the field ends at
+that one, so `a@example.com,"b@example.com"` names both people and
+`"a@example.com"b` ends at `a@example.com`; its `sshsigopt_parse` reads
+only `cert-authority`, `namespaces`, `valid-after` and `valid-before`,
+each value in double quotes with `\"` a quote inside, once each,
+separated by commas, and refuses the line otherwise. The reader now does
+the same, following those functions, and names a line OpenSSH refuses as
+no signer with the reason, still as a note. It reads the times as
+written, where OpenSSH also refuses one it cannot parse.
+
 *Amended 2026-09-30.* A squash or a rebase writes new commits, on GitLab as
 on GitHub: a squash, a fast-forward or semi-linear merge, and the *Rebase*
 button, which rebases on the server. On the base branch a ruling's row then

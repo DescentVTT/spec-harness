@@ -38,6 +38,12 @@ cannot turn a run red. The family's policy is
   ([ADR-0012](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0012-one-way-into-claude-code.md)).
 - `doctor` says it cannot tell the release of a `claude.exe` on Windows that
   is no program Windows starts, where it stopped with `spawn UNKNOWN`.
+- `doctor` reads the allowed-signers file's quotes as OpenSSH does: a
+  principals field quoted in part, such as `a@example.com,"b@example.com"`,
+  names both people, and a line OpenSSH refuses - an option it does not read,
+  or an option's value without its double quotes - is noted as no signer,
+  with why, where it was listed as one
+  ([ADR-0006](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0006-a-ruling-is-a-signed-commit.md)).
 
 ## 0.7.0
 
