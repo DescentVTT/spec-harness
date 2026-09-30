@@ -69,6 +69,8 @@ describe('probe', () => {
     expect(report.results[1]?.commit).toBe(repo.git('rev-parse', 'HEAD'));
     expect(report.evidence).toContain('| value-fixed | base `');
     expect(report.evidence).toContain(`by spec-harness with probes \`${report.hash}\`.`);
+    expect(report.evidence).toMatch(/\nMeasured \d{4}-\d{2}-\d{2} by spec-harness/);
+    expect(parsed<{ command: string }>(result).command).toBe('probe');
     // The worktrees were temporary; the person's checkout was never touched.
     expect(worktrees(repo)).toHaveLength(1);
     expect(repo.git('status', '--porcelain')).toBe('');
@@ -141,6 +143,36 @@ describe('probe', () => {
     expect(report.results[1]?.runs[0]).toEqual({ outcome: 'green', detail: 'every test passed' });
   });
 
+  it('judges a run that writes no JUnit report by its exit, and never by the report an earlier run left', async () => {
+    // Red the first time, with a report; the second time it passes and writes none.
+    const script = [
+      "const fs = require('node:fs');",
+      "if (!fs.existsSync('seen')) {",
+      "  fs.writeFileSync('seen', '');",
+      "  fs.mkdirSync('reports', { recursive: true });",
+      "  fs.writeFileSync('reports/junit.xml', '<testsuites><testsuite name=\"s\"><testcase classname=\"value\" name=\"is fixed\"><failure message=\"expected fixed\">got broken</failure></testcase></testsuite></testsuites>');",
+      '  process.exit(1);',
+      '}',
+    ].join('\n');
+    const repo = defect('id: v\nrun: node once.js\ntest: value is fixed\njunit: reports/junit.xml\nruns: 2', { files: { 'once.js': script } });
+    const report = parsed<ProbeReport>(await cli(['probe', '--format', 'json'], repo.root));
+    expect(report.results[0]?.runs).toEqual([
+      { outcome: 'red', detail: 'is fixed failed' },
+      { outcome: 'no-report', detail: 'the command passed and wrote no reports/junit.xml' },
+    ]);
+    const silent = defect('id: v\nrun: node -e "process.exit(1)"\ntest: value is fixed\njunit: reports/junit.xml');
+    expect(parsed<ProbeReport>(await cli(['probe', '--format', 'json'], silent.root)).results[0]?.runs).toEqual([
+      { outcome: 'wrong-failure', detail: 'the command failed before writing reports/junit.xml' },
+    ]);
+  });
+
+  it('writes each probe file with a final newline, and runs the setup before the probe', async () => {
+    const check = "const text = require('node:fs').readFileSync('data.txt', 'utf8'); console.log(text === 'x\\n' ? 'expected fixed' : JSON.stringify(text)); process.exit(1);";
+    const repo = defect('id: v\nsetup: node -e "process.exit(0)"\nrun: node check.js\nsignature: expected fixed', { files: { 'check.js': check, 'data.txt': 'x' } });
+    const report = parsed<ProbeReport>(await cli(['probe', '--format', 'json'], repo.root));
+    expect(report.results.map((r) => [r.at, r.verdict])).toEqual([['base', 'measured']]);
+  });
+
   it('runs one probe by --id, and says when there is none', async () => {
     const repo = defect('id: v\nrun: node probe.js\nsignature: expected fixed');
     expect(parsed<ProbeReport>(await cli(['probe', '--id', 'v', '--format', 'json'], repo.root)).results).toHaveLength(1);
@@ -161,6 +193,9 @@ describe('probe', () => {
     const result = await cli(['probe'], repo.root);
     expect(result.code).toBe(2);
     expect(result.stderr).toContain('the probe setup "node -e "console.log(\'no network\'); process.exit(3)"" failed at base:\nno network');
+    const loud = defect('id: v\nsetup: node -e "process.stdout.write(\'a\'.repeat(1000) + \'b\'.repeat(2000)); process.exit(3)"\nrun: node probe.js\nsignature: expected fixed');
+    // The last 2,000 characters of what it said, where a failure says why.
+    expect((await cli(['probe'], loud.root)).stderr).toMatch(/failed at base:\nb{2000}\n$/);
     expect(worktrees(repo)).toHaveLength(1);
     const unbased = defect('id: v\nrun: node probe.js\nsignature: x');
     expect(await cli(['probe', '--base', 'nowhere'], unbased.root)).toMatchObject({ code: 2, stderr: 'spec-harness: "nowhere" names no commit\n' });

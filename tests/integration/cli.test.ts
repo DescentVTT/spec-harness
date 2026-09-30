@@ -212,6 +212,14 @@ describe('the siblings', () => {
     );
   });
 
+  it('prints what doctor read a line each, then a blank line and a line per sibling', async () => {
+    const r = repository({ [BRIEF_FILE]: brief() });
+    const doctor = await cli(['doctor'], r.root);
+    expect(doctor.stdout).toMatch(/^root    \S[^\n]*\nbranch  main\n/);
+    expect(doctor.stdout).toMatch(/\ngit     [^\n]*\n\n(found|absent|outdated) +spec-brief /);
+    expect(parsed<{ command: string }>(await cli(['doctor', '--format', 'json'], r.root)).command).toBe('doctor');
+  });
+
   it('refuses a list document at a schema version it does not read', async () => {
     const tool = fake("process.stdout.write(JSON.stringify({ tool: 'spec-brief', command: 'list', schemaVersion: 9, briefs: [] }));");
     const repo = repository({}, { tools: { 'spec-brief': tool } });
@@ -226,6 +234,9 @@ describe('the siblings', () => {
     expect(result).toEqual({ code: 2, stdout: '', stderr: 'spec-harness: spec-brief exited 0 without JSON: line one line two line three\n' });
     const silent = repository({}, { tools: { 'spec-brief': fake('process.exit(1);') } });
     expect((await cli(['guard', 'a.ts', '--brief', '1'], silent.root)).stderr).toBe('spec-harness: spec-brief exited 1 without JSON\n');
+    // Blank lines on stderr say nothing, so what it printed is quoted instead, without its own line ends.
+    const blank = repository({}, { tools: { 'spec-brief': fake("process.stdout.write('Usage: x\\n'); process.stderr.write('\\n');") } });
+    expect((await cli(['guard', 'a.ts', '--brief', '1'], blank.root)).stderr).toBe('spec-harness: spec-brief exited 0 without JSON: Usage: x\n');
   });
 
   it('says why spec-brief could not list the briefs, or its exit code when it says nothing', async () => {
@@ -419,6 +430,23 @@ describe('doctor on the rest of what a ruling and a commit need', () => {
     expect((await cli(['doctor'], repo.root)).stdout).toContain(
       '\ngit     .git/hooks/pre-commit runs spec-harness, but is not executable, so git skips it: chmod +x .git/hooks/pre-commit\n',
     );
+  });
+
+  it('says where the base came from: the flag, the configuration, or the remote\'s default branch', async () => {
+    const r = repository({ [BRIEF_FILE]: brief() }, { base: null });
+    r.git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+    r.git('symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main');
+    const base = async (args: string[], root = r.root) => parsed<{ base: { ref: string; source: string } }>(await cli(['doctor', ...args, '--format', 'json'], root)).base;
+    expect(await base([])).toMatchObject({ ref: 'origin/main', source: 'remote' });
+    expect(await base(['--base', 'main'])).toMatchObject({ ref: 'main', source: 'flag' });
+    const configured = repository({ [BRIEF_FILE]: brief() });
+    expect(await base([], configured.root)).toMatchObject({ ref: 'main', source: 'config' });
+  });
+
+  it('reads a spec-brief configuration that is not JSON as one that cannot say whether it loads the plugin', async () => {
+    const r = repository({ [BRIEF_FILE]: brief(), '.spec-brief.json': '{ plugins: [' });
+    const doctor = parsed<{ plugin: { state: string; file: string | null } }>(await cli(['doctor', '--format', 'json'], r.root));
+    expect(doctor.plugin).toMatchObject({ state: 'unreadable', file: '.spec-brief.json' });
   });
 
   it('reads a spec-brief plugin loaded by a path to this package\'s plugin as loaded', async () => {

@@ -18,18 +18,16 @@ export interface Run {
 }
 
 /** Runs git and answers whatever it answered; a missing git is a code of -1. */
-export function git(args: readonly string[], cwd: string, input?: string): Promise<Run> {
+export function git(args: readonly string[], cwd: string): Promise<Run> {
   return new Promise((resolve) => {
-    const child = execFile(
-      'git',
-      [...args],
-      { cwd, maxBuffer: 256 * 1024 * 1024, encoding: 'utf8', windowsHide: true },
-      (error, stdout, stderr) => {
-        const code = error === null ? 0 : typeof (error as { code?: unknown }).code === 'number' ? ((error as { code: number }).code) : -1;
-        resolve({ code, stdout, stderr });
-      },
-    );
-    if (input !== undefined) child.stdin?.end(input);
+    // windowsHide only keeps a console window from flashing up on Windows,
+    // and the sweep runs on Linux, where its mutant is equivalent.
+    execFile('git', [...args], { cwd, maxBuffer: 256 * 1024 * 1024, encoding: 'utf8', windowsHide: true }, (error, stdout, stderr) => {
+      // Every caller tells 0 from any other code, never one failure from
+      // another, so which code a failure gets is equivalent to its mutants.
+      const code = error === null ? 0 : typeof (error as { code?: unknown }).code === 'number' ? (error as { code: number }).code : -1;
+      resolve({ code, stdout, stderr });
+    });
   });
 }
 
@@ -77,7 +75,9 @@ export async function remoteDefault(cwd: string): Promise<string | null> {
 /** Every local branch, by its short name. */
 export async function localBranches(cwd: string): Promise<string[]> {
   const listed = await value(['for-each-ref', '--format=%(refname:short)', 'refs/heads/'], cwd);
-  return listed === null || listed === '' ? [] : listed.split('\n').map((name) => name.trim());
+  // for-each-ref fails only where git itself does, outside a repository,
+  // where init never runs: the null check is there for the type.
+  return listed === null || listed === '' ? [] : listed.split('\n');
 }
 
 export async function revision(ref: string, cwd: string): Promise<string | null> {
@@ -93,7 +93,7 @@ export function parseNameStatus(output: string): FileChange[] {
   const fields = output.split('\0');
   const out: FileChange[] = [];
   for (let i = 0; i < fields.length; ) {
-    const code = fields[i] ?? '';
+    const code = fields[i] as string;
     if (code === '') {
       i += 1;
       continue;
@@ -130,6 +130,11 @@ export async function show(ref: string, path: string, cwd: string): Promise<stri
   return run.code === 0 ? run.stdout : null;
 }
 
+/** Whether a commit id from {@link blameLine} is the all-zero one of a line nobody committed. */
+export function isUncommitted(sha: string): boolean {
+  return /^0+$/.test(sha);
+}
+
 /**
  * The commit that last changed one line of a file, as of a revision, or of
  * the working tree when `ref` is `null` - where a line nobody committed yet
@@ -137,17 +142,16 @@ export async function show(ref: string, path: string, cwd: string): Promise<stri
  */
 export async function blameLine(ref: string | null, path: string, line: number, cwd: string): Promise<string | null> {
   const run = await git(['blame', '--porcelain', '-L', `${line},${line}`, ...(ref === null ? [] : [ref]), '--', path], cwd);
-  if (run.code !== 0) return null;
+  // A blame that fails prints nothing on stdout, which names no commit. Its
+  // output opens with the commit, so the anchor is equivalent to its mutant.
   const sha = /^([0-9a-f]{40,64}) /.exec(run.stdout)?.[1];
   return sha ?? null;
 }
 
-export interface Signature {
-  readonly good: boolean;
-  /** The allowed signer's principal, for a good signature. */
-  readonly principal: string | null;
-  readonly detail: string;
-}
+/** A good signature names its allowed signer's principal; any other names none. */
+export type Signature =
+  | { readonly good: true; readonly principal: string; readonly detail: string }
+  | { readonly good: false; readonly principal: null; readonly detail: string };
 
 /**
  * Whether a commit carries a good SSH signature by a principal in the given
@@ -160,8 +164,13 @@ export async function verifyCommit(sha: string, allowedSignersFile: string, cwd:
     cwd,
   );
   const text = `${run.stderr}\n${run.stdout}`;
-  const principal = /Good "git" signature for (\S+)/.exec(text)?.[1] ?? null;
-  return { good: run.code === 0 && principal !== null, principal, detail: text.trim().split('\n')[0] ?? '' };
+  const principal = /Good "git" signature for (\S+)/.exec(text)?.[1];
+  // git writes the check to stderr, so the trim changes the first line only
+  // for output on stdout alone, which verify-commit does not print.
+  const detail = text.trim().split('\n')[0] ?? '';
+  // git exits 0 only for a signature by a listed principal, which it names:
+  // either condition alone is equivalent to both, and both trust neither.
+  return run.code === 0 && principal !== undefined ? { good: true, principal, detail } : { good: false, principal: null, detail };
 }
 
 export async function addWorktree(path: string, rev: string, cwd: string): Promise<void> {

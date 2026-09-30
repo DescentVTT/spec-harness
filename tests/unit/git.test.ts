@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseNameStatus } from '../../src/git.js';
+import { isUncommitted, parseNameStatus } from '../../src/git.js';
 
 // `git diff --name-status -z` separates fields with NUL; written as escapes so the file holds none.
 const NUL = '\u0000';
@@ -30,5 +30,16 @@ describe('git diff --name-status -z', () => {
     expect(parseNameStatus(`${NUL}${NUL}`)).toEqual([]);
     expect(parseNameStatus('M')).toEqual([{ status: 'M', path: '' }]);
     expect(parseNameStatus(`R090${NUL}a`)).toEqual([{ status: 'R', from: 'a', path: '' }]);
+    expect(parseNameStatus('R090')).toEqual([{ status: 'R', from: '', path: '' }]);
+  });
+});
+
+describe('a line nobody committed', () => {
+  it('belongs to the all-zero commit, in either hash, and to no commit that merely starts or ends with a zero', () => {
+    expect(isUncommitted('0'.repeat(40))).toBe(true);
+    expect(isUncommitted('0'.repeat(64))).toBe(true);
+    expect(isUncommitted(`0${'a'.repeat(39)}`)).toBe(false);
+    expect(isUncommitted(`${'a'.repeat(39)}0`)).toBe(false);
+    expect(isUncommitted(`${'0'.repeat(20)}1${'0'.repeat(19)}`)).toBe(false);
   });
 });

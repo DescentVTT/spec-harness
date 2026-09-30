@@ -4,7 +4,7 @@ import type { DependencyChange } from '../../src/manifests.js';
 import type { Finding } from '../../src/types.js';
 import { join } from 'node:path';
 
-import { brief, BRIEF_FILE, cleanup, cli, parsed, repository, SPEC_BRIEF, temp, write, type Repository } from './helpers.js';
+import { brief, BRIEF_FILE, cleanup, cli, parsed, repository, siblings, SPEC_BRIEF, temp, write, type Repository } from './helpers.js';
 
 afterAll(cleanup);
 
@@ -86,6 +86,7 @@ describe('audit of a round', () => {
     expect(result.stdout.startsWith(`audit of brief 001 from main (${base.slice(0, 12)})\n\n`)).toBe(true);
     expect(result.stdout).toContain(`error    ${BRIEF_FILE}:`);
     expect(result.stdout).toContain('warning  package.json  the round added npm dependency "left-pad" ^1.3.0 in package.json (dependencies)  new-dependency');
+    expect(result.stdout).toContain('\nnote     package.json  the round removed "dropped" from package.json (dependencies)  dependency-removed\n');
     expect(result.stdout).toMatch(
       /\n\nmeasured: goals: 2 held, 0 failed · premises: 1 retired, 0 holding · archive: asked · rulings: none · dependencies: 4 changed, 0 unread\n\d+ error\(s\), \d+ warning\(s\), \d+ note\(s\)\n$/,
     );
@@ -151,6 +152,7 @@ describe('audit of a round', () => {
       `audit of brief 001 from main (${r.git('rev-parse', 'main').slice(0, 12)})\n\n\nmeasured: goals: none declared · premises: none declared · archive: asked · rulings: none · dependencies: 0 changed, 0 unread\n0 error(s), 0 warning(s), 0 note(s)\n`,
     );
     expect((await cli(['audit', '--strict'], r.root)).code).toBe(0);
+    expect(parsed<Report & { command: string }>(await cli(['audit', '--strict', '--format', 'json'], r.root))).toMatchObject({ command: 'audit', ok: true });
   });
 
   it('fails a goal that does not hold, and warns about a premise that still does', async () => {
@@ -173,6 +175,9 @@ describe('audit of a round', () => {
     const r = repository({ [BRIEF_FILE]: brief({ affected: ['src/**'] }) });
     const same = parsed<Report>(await cli(['audit', '1', '--format', 'json'], r.root));
     expect(same.findings[0]).toMatchObject({ rule: 'unmeasured', message: "the round's changes were not measured: main and HEAD are the same commit: there is nothing to measure" });
+    // Warnings alone pass unless --strict.
+    expect(same.ok).toBe(true);
+    expect((await cli(['audit', '1', '--base', 'no-such-branch'], r.root)).stdout.startsWith('audit of brief 001\n\n')).toBe(true);
     const none = parsed<Report>(await cli(['audit', '1', '--base', 'no-such-branch', '--format', 'json'], r.root));
     expect(none.base).toBeNull();
     expect(none.findings[0]).toMatchObject({ rule: 'unmeasured', message: 'the round\'s changes were not measured: "no-such-branch" names no commit' });
@@ -193,6 +198,79 @@ describe('audit of a round', () => {
     const apart = parsed<Report>(await cli(['audit', '--format', 'json'], r.root));
     expect(apart.base).toBeNull();
     expect(apart.findings[0]).toMatchObject({ rule: 'unmeasured', message: 'the round\'s changes were not measured: "main" and HEAD share no history' });
+  });
+
+  it('says no base is named, and measures nothing, when neither the configuration nor the remote names one', async () => {
+    const r = repository({ [BRIEF_FILE]: brief({ affected: ['src/**'] }), 'package.json': '{"dependencies":{"a":"1"}}\n' }, { base: null });
+    r.git('checkout', '-q', '-b', 'brief/1-x');
+    r.write('package.json', '{"dependencies":{"a":"1","b":"2"}}\n');
+    r.commit('work');
+    const report = parsed<Report>(await cli(['audit', '--format', 'json'], r.root));
+    expect(report.base).toBeNull();
+    expect(report.findings[0]).toMatchObject({
+      rule: 'unmeasured',
+      message: 'the round\'s changes were not measured: no base is named and the remote has no default branch; pass --base <ref> or set "base"',
+    });
+    expect(report.dependencies).toEqual([]);
+  });
+
+  it('runs the goals of a brief whatever its status, as spec-guard runs them only when told to ignore it', async () => {
+    const r = repository({ [BRIEF_FILE]: brief({ status: 'draft', affected: ['src/**'], body: '## Goals\n\n<!-- @assert-absence target="src" symbol="OldToken" -->\n' }), 'src/a.ts': 'OldToken\n' });
+    const report = parsed<Report & { measured: { goals: unknown } }>(await cli(['audit', '1', '--format', 'json'], r.root));
+    expect(report.measured.goals).toEqual({ held: 0, failed: 1 });
+  });
+
+  describe('when a sibling cannot answer', () => {
+    /** spec-brief as installed, but for its archive, which prints `plan` and exits with `code`. */
+    const fakeBrief = (plan: string, code: number): string[] => {
+      const fake = temp();
+      write(
+        fake,
+        'spec-brief.mjs',
+        [
+          "import { spawnSync } from 'node:child_process';",
+          'const args = process.argv.slice(2);',
+          `if (args[0] === 'archive') { process.stdout.write(${JSON.stringify(plan)}); process.exit(${code}); }`,
+          `const run = spawnSync(process.execPath, [${JSON.stringify(SPEC_BRIEF)}, ...args], { stdio: 'inherit' });`,
+          'process.exit(run.status ?? 1);',
+          '',
+        ].join('\n'),
+      );
+      return ['node', join(fake, 'spec-brief.mjs')];
+    };
+    const guard = (): string[] => {
+      const fake = temp();
+      write(fake, 'guard.js', 'process.stdout.write("{}"); process.exit(2);\n');
+      return ['node', join(fake, 'guard.js')];
+    };
+    const audited = async (tools: Record<string, string[]>) => {
+      const r = repository({ [BRIEF_FILE]: brief({ affected: ['src/**'] }) }, { tools: { ...siblings(), ...tools } });
+      return parsed<Report & { measured: Record<string, unknown> }>(await cli(['audit', '1', '--format', 'json'], r.root));
+    };
+
+    it('says the archive could not be planned when spec-brief exits 2', async () => {
+      const report = await audited({ 'spec-brief': fakeBrief('{}', 2) });
+      expect(report.measured['archive']).toBe('unavailable');
+      expect(report.findings.find((f) => f.rule === 'archive-unchecked')?.message).toContain('spec-brief could not plan the archive');
+    });
+
+    it('prints a reason the archive places in no file without a place', async () => {
+      const plan = { plan: { blocking: [{ rule: 'no-base', severity: 'error', message: 'the archive has no base', hint: 'name one' }], warnings: [] } };
+      const r = repository({ [BRIEF_FILE]: brief({ affected: ['src/**'] }) }, { tools: { ...siblings(), 'spec-brief': fakeBrief(JSON.stringify(plan), 1) } });
+      expect((await cli(['audit', '1'], r.root)).stdout).toContain('\nerror    the archive has no base  archive/no-base\n         name one\n');
+    });
+
+    it('reads an archive plan that lists nothing as refusing nothing', async () => {
+      const report = await audited({ 'spec-brief': fakeBrief('{}', 0) });
+      expect(report.measured['archive']).toBe('asked');
+      expect(report.findings.filter((f) => f.rule.startsWith('archive'))).toEqual([]);
+    });
+
+    it('says the assertions could not be run when spec-guard exits 2', async () => {
+      const report = await audited({ 'spec-guard': guard() });
+      expect(report.measured['assertions']).toBe('unavailable');
+      expect(report.findings.find((f) => f.rule === 'assertions-unchecked')?.message).toContain("spec-guard could not run the brief's assertions");
+    });
   });
 
   it('counts what spec-guard places in the brief, however the path is written, or places nowhere, and nothing it places elsewhere', async () => {
@@ -274,6 +352,17 @@ describe('audit of a round', () => {
     expect(report.findings.filter((f) => f.rule === 'manifest-unread').map((f) => f.file)).toEqual(['deps.lock']);
     // Its name read, so the name is not reported.
     expect(report.findings.map((f) => f.rule)).not.toContain('manifest-name-unread');
+  });
+
+  it('reports a manifest renamed to a name no reader understands as unread, rather than skip it', async () => {
+    // Large enough that git calls the move a rename.
+    const dependencies = Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`dependency-${i}`, `^${i}.0.0`]));
+    const r = repository({ [BRIEF_FILE]: brief({ affected: ['**'] }), 'package.json': `${JSON.stringify({ dependencies }, null, 2)}\n` });
+    r.git('checkout', '-q', '-b', 'brief/1-x');
+    r.git('mv', 'package.json', 'package.json.orig');
+    r.commit('moved aside');
+    const report = parsed<Report>(await cli(['audit', '--format', 'json'], r.root));
+    expect(report.findings.filter((f) => f.rule === 'manifest-unread').map((f) => f.file)).toEqual(['package.json.orig']);
   });
 
   it('names a manifest name it cannot read, with spec-core\'s reason, and reads the manifests the other names name', async () => {

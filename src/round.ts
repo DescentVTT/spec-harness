@@ -28,7 +28,7 @@ import {
 import { readRules, renderContext, type CitedDocument, type ContextPacket, type Rules } from './context.js';
 import type { DocumentReader } from './document.js';
 import { readJsonObject, readText, repositoryPath, stateDirectory, writeAtomic } from './fs.js';
-import { blameLine, changes, mergeBase, remoteDefault, revision, show, verifyCommit } from './git.js';
+import { blameLine, changes, isUncommitted, mergeBase, remoteDefault, revision, show, verifyCommit } from './git.js';
 import { decide, type Decision, type VerifiedRuling } from './guard.js';
 import { diffManifest, ecosystemOf, readManifestNames, type DependencyChange } from './manifests.js';
 import {
@@ -83,7 +83,7 @@ export interface RulingCheck {
  * last changed its row must be signed by a principal the base branch's
  * allowed-signers file lists (ADR-0006).
  */
-export async function checkRulings(workspace: Workspace, brief: BriefRow, text: string, reader: DocumentReader, base: Base): Promise<RulingCheck> {
+export async function checkRulings(workspace: Workspace, brief: Pick<BriefRow, 'file'>, text: string, reader: DocumentReader, base: Base): Promise<RulingCheck> {
   const { rulings: rows, problems } = readRulings(reader.sectionTables(text, workspace.config.rulings.section).tables);
   const findings: Finding[] = problems.map((problem) => ({
     rule: 'ruling-unreadable',
@@ -94,6 +94,8 @@ export async function checkRulings(workspace: Workspace, brief: BriefRow, text: 
     line: problem.line,
   }));
   const allows = rows.filter((row) => row.decision === 'allow');
+  // Nothing below verifies a row that allows nothing, so this saves a git
+  // show and is equivalent to its mutants.
   if (allows.length === 0) return { rows, verified: [], unverified: [], problems: findings };
   if (base.kind === 'unresolved') {
     return { rows, verified: [], unverified: allows.map((row) => ({ id: row.id, reason: `no base to read the allowed signers from: ${base.reason}` })), problems: findings };
@@ -103,6 +105,8 @@ export async function checkRulings(workspace: Workspace, brief: BriefRow, text: 
     const reason = `${base.ref} has no ${workspace.config.rulings.allowedSigners}, so no signature can count`;
     return { rows, verified: [], unverified: allows.map((row) => ({ id: row.id, reason })), problems: findings };
   }
+  // Only verify-commit below reads this copy, so where it is kept, and under
+  // what name, is equivalent to its mutants.
   const directory = await stateDirectory(workspace.commonDir, 'signers');
   const file = join(directory, `${createHash('sha256').update(signers).digest('hex').slice(0, 16)}`);
   await writeAtomic(file, signers);
@@ -113,12 +117,12 @@ export async function checkRulings(workspace: Workspace, brief: BriefRow, text: 
     // HEAD the same number can be another line, one a signed commit wrote,
     // and an uncommitted row would borrow that commit's signature.
     const commit = await blameLine(null, brief.file, row.line, workspace.root);
-    if (commit === null || /^0+$/.test(commit)) {
+    if (commit === null || isUncommitted(commit)) {
       unverified.push({ id: row.id, reason: 'its row is not committed' });
       continue;
     }
     const signature = await verifyCommit(commit, file, workspace.root);
-    if (signature.good && signature.principal !== null) verified.push({ id: row.id, paths: row.paths, signer: signature.principal });
+    if (signature.good) verified.push({ id: row.id, paths: row.paths, signer: signature.principal });
     else unverified.push({ id: row.id, reason: `commit ${commit.slice(0, 12)} last changed its row, and ${signature.detail || 'it is not signed'}` });
   }
   return { rows, verified, unverified, problems: findings };
@@ -142,22 +146,18 @@ export async function checkPaths(
   reader: DocumentReader,
   baseFlag: string | undefined,
 ): Promise<Decision[]> {
-  let rulings: readonly VerifiedRuling[] = [];
   const resolved = given.map((path) => ({ given: path, path: repositoryPath(path, workspace.root, cwd) }));
-  if (brief !== null) {
-    // Rulings cost a blame and a signature check each, so they are read only
-    // when a write reaches a protected file.
-    const first = resolved.map(({ path, given: g }) =>
-      decide({ path, given: g, brief, noBrief, rulings: [], outOfScope: workspace.config.outOfScope }),
-    );
-    if (first.some((decision) => decision.reason === 'protected')) {
-      const base = await resolveBase(workspace, baseFlag);
-      rulings = (await checkRulings(workspace, brief, await briefText(workspace, brief), reader, base)).verified;
-    } else {
-      return first;
-    }
-  }
-  return resolved.map(({ path, given: g }) => decide({ path, given: g, brief, noBrief, rulings, outOfScope: workspace.config.outOfScope }));
+  const decideAll = (rulings: readonly VerifiedRuling[]): Decision[] =>
+    resolved.map(({ path, given: g }) => decide({ path, given: g, brief, noBrief, rulings, outOfScope: workspace.config.outOfScope }));
+  const first = decideAll([]);
+  // Rulings cost a blame and a signature check each, so they are read only
+  // when a write reaches a protected file. Read anyway, they decide the same,
+  // since a ruling allows only a protected path, so mutants that always read
+  // them are equivalent; and with no brief nothing is protected, so the null
+  // check is there for the type.
+  if (brief === null || !first.some((decision) => decision.reason === 'protected')) return first;
+  const base = await resolveBase(workspace, baseFlag);
+  return decideAll((await checkRulings(workspace, brief, await briefText(workspace, brief), reader, base)).verified);
 }
 
 /* ----------------------------------------------------------------- context */
@@ -226,13 +226,15 @@ async function citedDocuments(workspace: Workspace, brief: BriefRow, text: strin
       // A destination that is not valid percent-encoding is read as written.
     }
     const path = resolveInside(dirname(brief.file), target);
-    if (path === null || path === '' || path === brief.file || seen.has(path)) continue;
+    if (path === null || path === brief.file || seen.has(path)) continue;
     seen.add(path);
     const document = /\.(?:md|markdown|mdx|txt)$/i.test(path);
     // A link to code or a directory that exists is not a document to include,
     // and must not be reported as a link that resolves to nothing.
     if (!document && existsSync(join(workspace.root, path))) continue;
     const content = document ? await readText(join(workspace.root, path)) : null;
+    // A document that cannot be read is listed by its path alone, so its
+    // title and status are never read, and an empty object is equivalent.
     const meta = content === null ? { title: null, status: null } : reader.titleAndStatus(content);
     out.push({ path, ...meta, text: content });
   }
@@ -259,14 +261,9 @@ export async function buildContext(
     dependencies: brief.dependsOn.map(
       (id) =>
         // spec-brief reports a dependency as its front matter spells it, `7` for brief 007.
-        briefs.find((candidate) => sameId(candidate.id, id)) ?? {
-          ...brief,
-          id,
-          title: '(no such brief)',
-          file: '',
-          phase: 'live',
-          status: 'unknown',
-        },
+        // The context reads a dependency's id, title, status and phase, and
+        // the brief copied here is live.
+        briefs.find((candidate) => sameId(candidate.id, id)) ?? { ...brief, id, title: '(no such brief)', status: 'unknown' },
     ),
     cited,
     rules,
@@ -294,8 +291,10 @@ async function dependencyChanges(workspace: Workspace, base: Base): Promise<Audi
       unread.push(change.path);
       continue;
     }
-    const before = change.status === 'A' ? null : await show(base.mergeBase, change.from ?? change.path, workspace.root);
-    const after = change.status === 'D' ? null : await show(base.head, change.path, workspace.root);
+    // git shows nothing where a file is not: an added manifest has no before,
+    // and a deleted one no after.
+    const before = await show(base.mergeBase, change.from ?? change.path, workspace.root);
+    const after = await show(base.head, change.path, workspace.root);
     const diff = diffManifest(change.path, ecosystem, before, after);
     if ('error' in diff) unread.push(change.path);
     else out.push(...diff.changes);
@@ -347,6 +346,8 @@ export async function specBriefPlugin(root: string): Promise<PluginState> {
   const file = SPEC_BRIEF_CONFIGS.find((name) => existsSync(join(root, name)));
   if (file === undefined) return { kind: 'unconfigured' };
   const config = await readJsonObject(join(root, file));
+  // The file was found a moment ago, so null is one removed in between, and
+  // reads as the unreadable one it has become.
   if (config === null || config === 'unreadable') return { kind: 'unreadable', file };
   return { kind: loadsPlugin(config, pluginFile(root)) ? 'loaded' : 'not-loaded', file };
 }
@@ -389,6 +390,8 @@ async function archiveReasons(workspace: Workspace, brief: BriefRow, base: Base)
   const args = ['archive', brief.id, '--dry-run', '--format', 'json', '--no-color'];
   if (base.kind === 'resolved') args.push('--base', base.ref);
   const answer = await workspace.siblings.json('spec-brief', args);
+  // The audit listed the briefs through spec-brief before it asks this, so
+  // an absent one stopped it there; the check is for the type.
   if ('absent' in answer) return { unavailable: answer.absent };
   if (answer.code === 2) return { unavailable: 'spec-brief could not plan the archive' };
   const plan = (answer.document as { plan?: { blocking?: ArchiveReason[]; warnings?: ArchiveReason[] } }).plan;
@@ -519,6 +522,8 @@ export async function recordRuling(
   const id = nextId('R', request.brief, taken);
   const row = renderRow(id, request.paths, decision, note);
   await writeAtomic(path, addRulingRow(text, workspace.config.rulings.section, row, where));
+  // Listed a moment ago; forced, a request another process retired in
+  // between is not an error, so the option is equivalent to its mutants.
   await rm(join(await escalationDirectory(workspace), `${request.id}.json`), { force: true });
   return { id, file: request.briefFile, row };
 }

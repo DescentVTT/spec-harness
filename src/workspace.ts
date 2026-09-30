@@ -160,6 +160,8 @@ export async function openWorkspace(options: Options, io: CliIO): Promise<Worksp
   const cwd = options.root ?? io.cwd;
   const root = await workTreeRoot(cwd);
   if (root === null) throw new UsageError(`${cwd} is not inside a git work tree; spec-harness measures rounds by their commits`);
+  // Inside a work tree git always names the common directory; the fallback
+  // is there for the type.
   const commonDir = (await commonDirectory(root)) ?? `${root}/.git`;
   const { config } = await loadConfig(root);
   // A branch checked out is the branch; only a head on none, as CI checks
@@ -175,19 +177,29 @@ export function namedId(workspace: Workspace, options: Options, env: CliIO['env'
   if (options.brief !== undefined && options.brief.trim() !== '') return options.brief.trim();
   const environment = env['SPEC_BRIEF'];
   if (environment !== undefined && environment.trim() !== '') return environment.trim();
-  return workspace.branch === null ? null : briefIdFromBranch(workspace.config.branches, workspace.branch);
+  return briefIdFromBranch(workspace.config.branches, workspace.branch);
 }
 
 export async function activeBrief(workspace: Workspace, options: Options, env: CliIO['env']): Promise<ActiveBrief> {
+  // Nothing names a brief, so spec-brief is not asked (ADR-0004): the answer
+  // is none whatever the briefs are, and so the empty list is equivalent to
+  // its mutant.
   if (namedId(workspace, options, env) === null) {
     return findActive([], {});
   }
   const briefs = await workspace.siblings.briefs();
-  const fromBranch = workspace.branch === null ? null : briefIdFromBranch(workspace.config.branches, workspace.branch);
+  const fromBranch = briefIdFromBranch(workspace.config.branches, workspace.branch);
   return findActive(briefs, { flag: options.brief, environment: env['SPEC_BRIEF'], branch: fromBranch });
 }
 
-export function describeActive(active: ActiveBrief): { brief: BriefRow | null; note: string | undefined; problem: string | null } {
+/**
+ * The brief a command acts on, or why there is none: a note when nothing names
+ * one, which a command that needs a brief refuses with, or a problem when what
+ * names one is wrong.
+ */
+export function describeActive(
+  active: ActiveBrief,
+): { brief: BriefRow; note: undefined; problem: null } | { brief: null; note: string; problem: null } | { brief: null; note: undefined; problem: string } {
   switch (active.kind) {
     case 'found':
       return { brief: active.brief, note: undefined, problem: null };

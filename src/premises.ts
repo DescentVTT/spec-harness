@@ -54,7 +54,7 @@ export async function premisesCommand(options: Options, io: CliIO): Promise<numb
   const reader = createReader();
   const briefs = await workspace.siblings.briefs();
   const live = briefs.filter((brief) => brief.phase === 'live');
-  const fromBranch = workspace.branch === null ? null : briefIdFromBranch(workspace.config.branches, workspace.branch);
+  const fromBranch = briefIdFromBranch(workspace.config.branches, workspace.branch);
   const active = findActive(briefs, { flag: options.brief, environment: io.env['SPEC_BRIEF'], branch: fromBranch });
   const round = active.kind === 'found' ? active.brief.file : null;
   if (live.length === 0) {

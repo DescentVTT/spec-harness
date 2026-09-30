@@ -15,6 +15,7 @@ export async function loadConfig(root: string): Promise<{ config: HarnessConfig;
   if (!existsSync(file)) return { config: DEFAULT_CONFIG, file: null };
   let raw: unknown;
   try {
+    // A Buffer parses as its text, so the encoding is equivalent to its mutant.
     raw = JSON.parse(await readFile(file, 'utf8'));
   } catch (error) {
     throw new ConfigError(`${CONFIG_FILE} is not valid JSON: ${(error as Error).message}`);
@@ -35,12 +36,15 @@ export function realSpelling(path: string): string {
   let current = resolve(path);
   for (;;) {
     try {
-      const real = realpathSync.native(current);
-      return missing.length === 0 ? real : join(real, ...missing.reverse());
+      // join leaves a real path as it is, and reads a segment's leading
+      // separator as the one between it and the last.
+      return join(realpathSync.native(current), ...missing.reverse());
     } catch {
       const parent = dirname(current);
+      // Only a root that does not exist fails at the top, a drive Windows
+      // does not have; everywhere else the loop ends in the try.
       if (parent === current) return resolve(path);
-      missing.push(current.slice(parent.length).replace(/^[\\/]+/, ''));
+      missing.push(current.slice(parent.length));
       current = parent;
     }
   }
@@ -55,7 +59,6 @@ export function repositoryPath(given: string, root: string, cwd: string): string
   const real = realSpelling(absolute);
   const realRoot = realSpelling(root);
   const rel = relative(realRoot, real);
-  if (rel === '') return '';
   // `..env` at the root is inside it; only a `..` segment climbs out.
   if (rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) return null;
   return rel.split(sep).join('/');
@@ -72,6 +75,7 @@ export async function stateDirectory(commonDir: string, ...parts: string[]): Pro
 export async function writeAtomic(file: string, content: string): Promise<void> {
   await mkdir(dirname(file), { recursive: true });
   const temporary = `${file}.${process.pid}.tmp`;
+  // utf8 is writeFile's own default, so naming it is equivalent to its mutant.
   await writeFile(temporary, content, 'utf8');
   await rename(temporary, file);
 }

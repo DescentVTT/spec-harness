@@ -107,12 +107,11 @@ async function decisionsFor(
   io: CliIO,
   given: readonly string[],
   cwd: string,
-): Promise<{ decisions: Decision[]; problem: string | null }> {
+): Promise<{ readonly decisions: Decision[] } | { readonly problem: string }> {
   const active = await activeBrief(workspace, options, io.env);
   const { brief, note, problem } = describeActive(active);
-  if (problem !== null) return { decisions: [], problem };
-  const decisions = await checkPaths(workspace, brief, note, given, cwd, reader, options.base);
-  return { decisions, problem: null };
+  if (problem !== null) return { problem };
+  return { decisions: await checkPaths(workspace, brief, note, given, cwd, reader, options.base) };
 }
 
 const SYMBOL: Record<Decision['verdict'], string> = { allow: 'ok     ', warn: 'warning', ask: 'ask    ', deny: 'refused' };
@@ -120,11 +119,12 @@ const SYMBOL: Record<Decision['verdict'], string> = { allow: 'ok     ', warn: 'w
 async function guardCommand(options: Options, io: CliIO): Promise<number> {
   if (options.positionals.length === 0) throw new UsageError('guard needs at least one path');
   const workspace = await openWorkspace(options, io);
-  const { decisions, problem } = await decisionsFor(workspace, options, io, options.positionals, io.cwd);
-  if (problem !== null) {
-    io.stderr.write(`spec-harness: ${problem}\n`);
+  const decided = await decisionsFor(workspace, options, io, options.positionals, io.cwd);
+  if ('problem' in decided) {
+    io.stderr.write(`spec-harness: ${decided.problem}\n`);
     return EXIT_ERROR;
   }
+  const { decisions } = decided;
   if (options.format === 'json') {
     io.stdout.write(json('guard', { decisions }));
   } else {
@@ -141,6 +141,9 @@ async function guardCommand(options: Options, io: CliIO): Promise<number> {
 /* -------------------------------------------------------------------- hook */
 
 async function readStdin(io: CliIO): Promise<string> {
+  // Only the built command line reads process.stdin, and the suite spawns it
+  // from dist/, outside the sweep (tests/integration/claude-code.test.ts): the
+  // lines below survive it untested in-process.
   if (io.stdin !== undefined) return io.stdin();
   const chunks: Buffer[] = [];
   for await (const chunk of process.stdin) chunks.push(chunk as Buffer);
@@ -167,13 +170,13 @@ async function hookCommand(options: Options, io: CliIO): Promise<number> {
       throw error;
     }
     try {
-      const { decisions, problem } = await decisionsFor(workspace, options, io, request.paths, cwd);
-      if (problem !== null) {
+      const decided = await decisionsFor(workspace, options, io, request.paths, cwd);
+      if ('problem' in decided) {
         // Exit 2 blocks the tool call, and its stderr reaches the model.
-        io.stderr.write(`spec-harness: ${problem}. Fix the brief or the branch before writing.\n`);
+        io.stderr.write(`spec-harness: ${decided.problem}. Fix the brief or the branch before writing.\n`);
         return EXIT_ERROR;
       }
-      const response = claudeResponse(request.event, decisions);
+      const response = claudeResponse(request.event, decided.decisions);
       io.stdout.write(response.stdout);
       return response.exitCode;
     } catch (error) {
@@ -189,12 +192,12 @@ async function hookCommand(options: Options, io: CliIO): Promise<number> {
     const staged = await stagedChanges(workspace.root);
     const paths = staged.flatMap((change) => (change.from === undefined ? [change.path] : [change.from, change.path]));
     if (paths.length === 0) return EXIT_OK;
-    const { decisions, problem } = await decisionsFor(workspace, options, io, paths, workspace.root);
-    if (problem !== null) {
-      io.stderr.write(`spec-harness: ${problem}\n`);
+    const decided = await decisionsFor(workspace, options, io, paths, workspace.root);
+    if ('problem' in decided) {
+      io.stderr.write(`spec-harness: ${decided.problem}\n`);
       return EXIT_ERROR;
     }
-    const response = gitResponse(decisions);
+    const response = gitResponse(decided.decisions);
     io.stderr.write(response.text);
     return response.exitCode;
   }
@@ -275,7 +278,7 @@ async function doctorCommand(options: Options, io: CliIO): Promise<number> {
         `root    ${workspace.root}`,
         `branch  ${branch}`,
         `brief   ${named ?? '(none named)'}`,
-        `base    ${describeBase(base.kind === 'resolved' ? base : { reason: base.reason })}`,
+        `base    ${describeBase(base)}`,
         `signers ${signers}`,
         ...more(signerNotes),
         `plugin  ${describePlugin(plugin)}`,
@@ -331,7 +334,7 @@ export async function run(argv: readonly string[], io: CliIO): Promise<number> {
   }
   if (options.help || options.command === undefined) {
     io.stdout.write(HELP);
-    return options.command === undefined && !options.help ? EXIT_ERROR : EXIT_OK;
+    return options.help ? EXIT_OK : EXIT_ERROR;
   }
   const command = COMMANDS[options.command];
   if (command === undefined) {
@@ -349,6 +352,9 @@ export async function run(argv: readonly string[], io: CliIO): Promise<number> {
   }
 }
 
+// What bin/spec-harness.js runs; the suite spawns the built one, from dist/,
+// outside the sweep (tests/integration/cli.test.ts), so it survives untested
+// in-process.
 export async function main(argv: readonly string[] = process.argv.slice(2)): Promise<number> {
   return run(argv, { stdout: process.stdout, stderr: process.stderr, cwd: process.cwd(), env: process.env });
 }
