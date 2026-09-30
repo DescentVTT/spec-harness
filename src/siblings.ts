@@ -143,7 +143,7 @@ export function createSiblings(root: string, config: HarnessConfig): Siblings {
     async briefs() {
       const run = await runSibling(found('spec-brief'), ['list', '--archived', '--format', 'json', '--no-color'], root);
       if (run.code === 2) {
-        throw new SiblingError(`spec-brief could not list the briefs: ${run.stderr.trim().split('\n')[0] ?? 'exit 2'}`);
+        throw new SiblingError(`spec-brief could not list the briefs: ${run.stderr.trim().split('\n')[0] || 'exit 2'}`);
       }
       try {
         return parseBriefList(parseJson('spec-brief', run));

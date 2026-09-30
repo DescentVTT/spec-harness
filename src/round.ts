@@ -61,8 +61,9 @@ export async function resolveBase(workspace: Workspace, flag: string | undefined
     return { kind: 'unresolved', reason: 'no base is named and the remote has no default branch; pass --base <ref> or set "base"' };
   }
   const sha = await revision(ref, workspace.root);
+  if (sha === null) return { kind: 'unresolved', reason: `"${ref}" names no commit` };
   const head = await revision('HEAD', workspace.root);
-  if (sha === null || head === null) return { kind: 'unresolved', reason: `"${ref}" names no commit` };
+  if (head === null) return { kind: 'unresolved', reason: 'HEAD names no commit: nothing is committed on this branch yet' };
   const common = await mergeBase(sha, head, workspace.root);
   if (common === null) return { kind: 'unresolved', reason: `"${ref}" and HEAD share no history` };
   return { kind: 'resolved', ref, source, sha, mergeBase: common, head };
