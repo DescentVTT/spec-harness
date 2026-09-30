@@ -123,13 +123,20 @@ describe('which files are manifests', () => {
   });
 
   it('names a name rooted in every alternative as rooted whole, and one written anywhere else as not rooted', () => {
-    expect(readManifestNames(['{/package.json,/Gemfile}', '/{a,b}/Cargo.toml', './/go.mod']).rooted).toEqual([
+    expect(readManifestNames(['{/package.json,/Gemfile}', '/{a,b}/Cargo.toml', '//go.mod']).rooted).toEqual([
       { name: '{/package.json,/Gemfile}', whole: true },
       { name: '/{a,b}/Cargo.toml', whole: true },
-      { name: './/go.mod', whole: true },
+      { name: '//go.mod', whole: true },
     ]);
     // A slash after a segment, a name at any depth and one under a directory are the repository's.
     expect(readManifestNames([...DEFAULT_MANIFESTS, 'tools/package.json', 'a/{/b,c}.toml', '{tools/,Gemfile}', './Gemfile']).rooted).toEqual([]);
+  });
+
+  it('reads the slashes after a leading ./ as going with it, as POSIX does: .//go.mod is go.mod, at any depth', () => {
+    // .//go.mod was /go.mod, rooted, and named no manifest in the repository.
+    const dotted = readManifestNames(['.//go.mod', '{.//Gemfile,x}']);
+    expect(dotted.rooted).toEqual([]);
+    for (const path of ['go.mod', 'a/go.mod', 'Gemfile', 'a/Gemfile']) expect(dotted.match(path), path).toBe(true);
   });
 });
 

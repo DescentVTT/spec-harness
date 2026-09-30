@@ -189,7 +189,7 @@ describe('the guard', () => {
       // Readable, it is not named as a pattern the guard passes over.
       expect(check('docs/a.md', { brief: braced })).toMatchObject({ verdict: 'warn', because: [] });
       expect(check('docs/a.md', { brief: braced }).message).toBe("docs/a.md is outside brief 012's scope, which covers {/docs,src/**}");
-      for (const pattern of ['{/docs}', '{/docs,/src/**}', '{//docs,src/**}', '{/./docs,src/**}', '{.//docs,src/**}', '{/docs/,src/**}', '{/*,src/**}']) {
+      for (const pattern of ['{/docs}', '{/docs,/src/**}', '{//docs,src/**}', '{/./docs,src/**}', '{/docs/,src/**}', '{/*,src/**}']) {
         expect(check('docs/a.md', { brief: row({ affectedFiles: [pattern], protectedFiles: [] }) }).reason, pattern).toBe('out-of-scope');
       }
     });
@@ -214,6 +214,15 @@ describe('the guard', () => {
       expect(reasons(row({ affectedFiles: ['a/{/b,c}'], protectedFiles: [] }), ['a/b', 'a/c', 'b'])).toEqual(['in-scope', 'in-scope', 'out-of-scope']);
       expect(reasons(row({ affectedFiles: ['/{docs,src}'], protectedFiles: [] }), ['docs/a.md', 'src/a.ts'])).toEqual(['out-of-scope', 'out-of-scope']);
       expect(reasons(row({ affectedFiles: ['{docs,src}'], protectedFiles: [] }), ['docs/a.md', 'src/a.ts'])).toEqual(['in-scope', 'in-scope']);
+    });
+
+    it('reads the slashes after a leading ./ as going with it, as POSIX does: .//docs is docs, inside braces too', () => {
+      // .//docs was /docs, rooted, and so was the /docs of {.//docs,x} and ./{/docs,x}.
+      for (const pattern of ['.//docs', '././/docs', '{.//docs,src/**}', './{/docs,src/**}']) {
+        expect(check('docs/a.md', { brief: row({ affectedFiles: [pattern], protectedFiles: [] }) }).reason, pattern).toBe('in-scope');
+        expect(check('docs/a.md', { brief: row({ affectedFiles: ['**'], protectedFiles: [pattern] }) }).reason, pattern).toBe('protected');
+      }
+      expect(check('src/db/schema.ts', { rulings: [{ id: 'R-1', paths: ['.//src/db/schema.ts'], signer: 's' }] }).reason).toBe('ruled');
     });
   });
 
@@ -260,11 +269,15 @@ describe('the guard', () => {
 
 describe('a rooted pattern', () => {
   it('is rooted whole when a leading slash roots every alternative, and in part when it roots some', () => {
-    for (const pattern of ['/docs', '/src/**', '{/docs,/src/**}', '/{docs,src}', './/docs']) expect(rooted(pattern), pattern).toBe('whole');
-    for (const pattern of ['{/docs,src/**}', '{src/**,/docs}', '{/a,/b,c}']) expect(rooted(pattern), pattern).toBe('part');
+    for (const pattern of ['/docs', '/src/**', '{/docs,/src/**}', '/{docs,src}', '//docs', '/./docs']) expect(rooted(pattern), pattern).toBe('whole');
+    for (const pattern of ['{/docs,src/**}', '{src/**,/docs}', '{/a,/b,c}', '{//docs,src/**}']) expect(rooted(pattern), pattern).toBe('part');
   });
 
   it('is not a pattern the repository roots, a slash after a segment, or a pattern the guard cannot read', () => {
     for (const pattern of ['docs', 'src/**', './docs', 'a/{/b,c}', '{docs,src}/', '**/x.ts', 'src/[a', '{./,src}']) expect(rooted(pattern), pattern).toBeNull();
+  });
+
+  it('is not a pattern whose slashes follow a leading ./, which they go with', () => {
+    for (const pattern of ['.//docs', '././/docs', './/{docs,src}', '{.//docs,src/**}', './{/docs,src/**}']) expect(rooted(pattern), pattern).toBeNull();
   });
 });

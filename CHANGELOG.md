@@ -51,6 +51,19 @@ cannot turn a run red. The family's policy is
 
 ### Changed
 
+- spec-core at 5666c96. A leading `./` goes with the slashes after it, as
+  POSIX reads them, so `.//docs` is `docs`, and so are the `.//docs` of
+  `{.//docs,src/**}` and the `/docs` of `./{/docs,src/**}`, where each was
+  `/docs`, rooted at the filesystem's root. In `affectedFiles`,
+  `protectedFiles`, a ruling's paths, `dependencies.manifests` and
+  spec-graph's `patterns` it names what `docs` names: the guard puts it in
+  the scope, protects it or allows it, `context` asks spec-guard about it
+  and marks nothing, and `audit` warns neither `protection-rooted`,
+  `ruling-path-rooted` nor `manifest-name-rooted` for it. `//docs` and
+  `/./docs` are rooted as before. See
+  [spec-core's ADR-0003](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0003-glob-dialects.md).
+  Upgrading: a pattern written `.//x` now reads as `./x`; check that is what
+  it should put in the scope, protect or allow.
 - `audit` reports an assertion in the brief that spec-guard cannot read as
   `assertion-unreadable`, a warning on its line with spec-guard's reason. It
   was dropped, and the audit passed on assertions it never ran. It fails
