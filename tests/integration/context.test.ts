@@ -359,4 +359,24 @@ describe('context', () => {
     expect(closed.unclosedFrontMatter).toEqual([]);
     expect(closed.markdown).toContain('### `docs/adr/0003-tokens.md` - ADR-0003: Tokens (accepted)\n');
   });
+
+  it('names a line of a cited document\'s front matter that is not `key: value`, and still exits 0', async () => {
+    const unread = repository({
+      [BRIEF_FILE]: brief({ body: 'See [the ADR](../docs/adr/0003-tokens.md).\n' }),
+      'docs/adr/0003-tokens.md': '---\ntitle: Tokens\nstatus accepted\n---\n\n# ADR-0003: Tokens\n',
+    });
+    const result = await cli(['context', '1', '--format', 'json'], unread.root);
+    expect(result.code).toBe(0);
+    const packet = parsed<{ markdown: string; included: string[]; unclosedFrontMatter: string[]; unreadableFrontMatter: unknown[] }>(result);
+    expect(packet).toMatchObject({ included: ['docs/adr/0003-tokens.md'], unclosedFrontMatter: [] });
+    expect(packet.unreadableFrontMatter).toEqual([{ path: 'docs/adr/0003-tokens.md', line: 3, text: 'status accepted', reason: 'not a "key: value" line' }]);
+    expect(packet.markdown).toContain('### `docs/adr/0003-tokens.md` - ADR-0003: Tokens\n');
+    expect(packet.markdown.endsWith(
+      'Front matter lines that are not `key: value` were not read, so a status written on one, if any, was not read either:\n- `docs/adr/0003-tokens.md`, line 3, `status accepted`: not a "key: value" line\n',
+    )).toBe(true);
+    unread.write('docs/adr/0003-tokens.md', '---\ntitle: Tokens\nstatus: accepted\n---\n\n# ADR-0003: Tokens\n');
+    const fixed = parsed<{ markdown: string; unreadableFrontMatter: unknown[] }>(await cli(['context', '1', '--format', 'json'], unread.root));
+    expect(fixed.unreadableFrontMatter).toEqual([]);
+    expect(fixed.markdown).toContain('### `docs/adr/0003-tokens.md` - ADR-0003: Tokens (accepted)\n');
+  });
 });

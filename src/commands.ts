@@ -79,6 +79,7 @@ export async function contextCommand(options: Options, io: CliIO): Promise<numbe
         omitted: packet.omitted,
         unresolved: packet.unresolved,
         unclosedFrontMatter: packet.unclosedFrontMatter,
+        unreadableFrontMatter: packet.unreadableFrontMatter,
         unreadableScope: packet.unreadableScope,
         unreadableProtections: packet.unreadableProtections,
         unreadableRulingPaths: packet.unreadableRulingPaths,

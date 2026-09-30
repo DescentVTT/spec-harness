@@ -118,6 +118,18 @@ audit warns about each, `protection-rooted` and `ruling-path-rooted`, which
 fail it under `--strict`: a protection that protects nothing may have let
 the round change what the person meant to keep.
 
+*Amended 2026-09-30.* Front matter that closes can still hide a status. A
+line that is not `key: value` - `status accepted` without its colon, an
+indented line with no key above it - is one spec-core's reader passes over
+and reports (spec-core ADR-0004), and the packet showed the document as one
+without a status and said nothing. The packet now names each such line: the
+document, the line number and the line as written, with spec-core's reason,
+and says a status written on it, if any, was not read. `--format json` and
+`start_round` list them as `unreadableFrontMatter`, beside
+`unclosedFrontMatter`. The line is named whether or not a status was read
+from another line, since the reader cannot tell what it held; a line the
+reader did read, such as a key declared twice, is not named.
+
 ## Consequences
 
 Every command gives the same answer for the same repository. What the plan

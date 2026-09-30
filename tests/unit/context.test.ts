@@ -542,5 +542,47 @@ describe('the cited documents and the budget', () => {
     const packet = renderContext(input({ cited: [doc('docs/a.md', '---\nstatus: draft\n---\n\n# A\n', 'A', 'draft'), doc('docs/b.md', '# B\n', 'B')] }));
     expect(packet.unclosedFrontMatter).toEqual([]);
     expect(packet.markdown).not.toContain('never closed');
+    expect(packet.unreadableFrontMatter).toEqual([]);
+    expect(packet.markdown).not.toContain('not `key: value`');
+  });
+
+  it('names each line of front matter that is not `key: value`: its status, if any, was not read', () => {
+    const adr: CitedDocument = {
+      ...doc('docs/adr/0003.md', '---\nstatus accepted\n---\n\n# Tokens\n', 'Tokens'),
+      unreadableFrontMatter: [{ line: 2, text: 'status accepted', reason: 'not a "key: value" line' }],
+    };
+    const design: CitedDocument = {
+      ...doc('docs/design.md', '---\n  status: draft\n---\n', null, null),
+      unreadableFrontMatter: [{ line: 2, text: '  status: draft', reason: 'an indented line belongs to no key' }],
+    };
+    const packet = renderContext(input({ cited: [adr, doc('docs/a.md', 'a', 'A', 'draft'), design] }));
+    // Still included whole: the note is about the status, and fails nothing.
+    expect(packet).toMatchObject({ included: ['docs/adr/0003.md', 'docs/a.md', 'docs/design.md'], omitted: [], unresolved: [], unclosedFrontMatter: [] });
+    expect(packet.unreadableFrontMatter).toEqual([
+      { path: 'docs/adr/0003.md', line: 2, text: 'status accepted', reason: 'not a "key: value" line' },
+      { path: 'docs/design.md', line: 2, text: '  status: draft', reason: 'an indented line belongs to no key' },
+    ]);
+    expect(packet.markdown).toContain('### `docs/adr/0003.md` - Tokens\n');
+    expect(packet.markdown.endsWith(
+      [
+        '````',
+        '',
+        'Front matter lines that are not `key: value` were not read, so a status written on one, if any, was not read either:',
+        '- `docs/adr/0003.md`, line 2, `status accepted`: not a "key: value" line',
+        '- `docs/design.md`, line 2, `  status: draft`: an indented line belongs to no key',
+        '',
+      ].join('\n'),
+    )).toBe(true);
+  });
+
+  it('names an unread line of a document the budget leaves out, after every other note', () => {
+    const adr: CitedDocument = { ...doc('docs/adr/0003.md', '---\nstatus accepted\n---\n'), unreadableFrontMatter: [{ line: 2, text: 'status accepted', reason: 'not a "key: value" line' }] };
+    const unclosed = doc('docs/b.md', '---\nstatus: accepted\n', null, null, true);
+    const packet = renderContext(input({ cited: [adr, unclosed], budget: fixedLength(input()) }));
+    expect(packet).toMatchObject({ included: [], omitted: ['docs/adr/0003.md', 'docs/b.md'], unclosedFrontMatter: ['docs/b.md'] });
+    expect(packet.unreadableFrontMatter).toEqual([{ path: 'docs/adr/0003.md', line: 2, text: 'status accepted', reason: 'not a "key: value" line' }]);
+    expect(packet.markdown.endsWith(
+      'on a line of its own:\n- `docs/b.md`\n\nFront matter lines that are not `key: value` were not read, so a status written on one, if any, was not read either:\n- `docs/adr/0003.md`, line 2, `status accepted`: not a "key: value" line\n',
+    )).toBe(true);
   });
 });

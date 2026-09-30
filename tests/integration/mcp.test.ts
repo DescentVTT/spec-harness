@@ -17,8 +17,15 @@ let workspace: Workspace;
 beforeAll(async () => {
   repo = repository({
     [BRIEF_FILE]: brief({ affected: ['src/auth/**'], protected: ['src/db/**'] }),
-    'briefs/002_next.md': brief({ title: '002 - Next', affected: ['"src/[a"'], protected: ['"{./,lib}"'], dependsOn: ['1'], body: 'See [the ADR](../docs/adr/0003.md).\n' }),
+    'briefs/002_next.md': brief({
+      title: '002 - Next',
+      affected: ['"src/[a"'],
+      protected: ['"{./,lib}"'],
+      dependsOn: ['1'],
+      body: 'See [the ADR](../docs/adr/0003.md) and [the next](../docs/adr/0004.md).\n',
+    }),
     'docs/adr/0003.md': '---\nstatus: accepted\n\n# ADR-0003\n',
+    'docs/adr/0004.md': '---\nstatus draft\n---\n\n# ADR-0004\n',
     'briefs/archive/003_old.md': brief({ title: '003 - Old', status: 'archived' }),
     'src/db/schema.ts': 'table;\n',
   });
@@ -51,6 +58,7 @@ describe('the tools', () => {
       omitted: [],
       unresolved: [],
       unclosedFrontMatter: [],
+      unreadableFrontMatter: [],
       unreadableScope: [],
       unreadableProtections: [],
       unreadableRulingPaths: [],
@@ -58,10 +66,11 @@ describe('the tools', () => {
     const next = await tool('start_round').call({ brief: '2' });
     expect(next.structured).toEqual({
       brief: '002',
-      included: ['docs/adr/0003.md'],
+      included: ['docs/adr/0003.md', 'docs/adr/0004.md'],
       omitted: [],
       unresolved: [],
       unclosedFrontMatter: ['docs/adr/0003.md'],
+      unreadableFrontMatter: [{ path: 'docs/adr/0004.md', line: 2, text: 'status draft', reason: 'not a "key: value" line' }],
       unreadableScope: [{ pattern: 'src/[a', reason: 'a "[" is never closed' }],
       unreadableProtections: [{ pattern: '{./,lib}', reason: 'the braces expand to "./", which names no path' }],
       unreadableRulingPaths: [],
@@ -72,6 +81,9 @@ describe('the tools', () => {
       'Must not change without a ruling:\n- `{./,lib}`, which the guard cannot read: the braces expand to "./", which names no path; until it is fixed, the guard refuses every write but to the brief\n',
     );
     expect(next.text).toContain('Front matter opened on line 1 and never closed, so the status was not read; close the block with `---` on a line of its own:\n- `docs/adr/0003.md`\n');
+    expect(next.text).toContain(
+      'Front matter lines that are not `key: value` were not read, so a status written on one, if any, was not read either:\n- `docs/adr/0004.md`, line 2, `status draft`: not a "key: value" line\n',
+    );
   });
 
   it('check_path decides each path, relative to the project, with the next step', async () => {

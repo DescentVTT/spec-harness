@@ -248,13 +248,13 @@ describe('citations', () => {
 
 describe('title and status', () => {
   it('reads the first level-one heading and the front matter\'s status', () => {
-    expect(reader.titleAndStatus('---\nstatus: accepted\n---\n\n## Not the title\n\n# The Title\n\n# Second\n')).toEqual({ title: 'The Title', status: 'accepted', unclosedFrontMatter: false });
-    expect(reader.titleAndStatus('---\nstatus: "superseded"\n---\n\nSetext\n======\n')).toEqual({ title: 'Setext', status: 'superseded', unclosedFrontMatter: false });
+    expect(reader.titleAndStatus('---\nstatus: accepted\n---\n\n## Not the title\n\n# The Title\n\n# Second\n')).toEqual({ title: 'The Title', status: 'accepted', unclosedFrontMatter: false, unreadableFrontMatter: [] });
+    expect(reader.titleAndStatus('---\nstatus: "superseded"\n---\n\nSetext\n======\n')).toEqual({ title: 'Setext', status: 'superseded', unclosedFrontMatter: false, unreadableFrontMatter: [] });
   });
 
   it('reads the status under 狀態 or 状态 when the front matter has no status key, as a Chinese ADR writes it', () => {
-    expect(reader.titleAndStatus('---\n狀態: 已接受\n---\n\n# ADR-0003：令牌輪換\n')).toEqual({ title: 'ADR-0003：令牌輪換', status: '已接受', unclosedFrontMatter: false });
-    expect(reader.titleAndStatus('---\n状态: "已废弃"\n---\n')).toEqual({ title: null, status: '已废弃', unclosedFrontMatter: false });
+    expect(reader.titleAndStatus('---\n狀態: 已接受\n---\n\n# ADR-0003：令牌輪換\n')).toEqual({ title: 'ADR-0003：令牌輪換', status: '已接受', unclosedFrontMatter: false, unreadableFrontMatter: [] });
+    expect(reader.titleAndStatus('---\n状态: "已废弃"\n---\n')).toEqual({ title: null, status: '已废弃', unclosedFrontMatter: false, unreadableFrontMatter: [] });
   });
 
   it('reads status first, then 狀態, then 状态, wherever each is written', () => {
@@ -271,19 +271,19 @@ describe('title and status', () => {
   });
 
   it('reads nothing that is not there, or not a word', () => {
-    expect(reader.titleAndStatus('no heading\n')).toEqual({ title: null, status: null, unclosedFrontMatter: false });
-    expect(reader.titleAndStatus('---\nstatus:\n---\n# T\n')).toEqual({ title: 'T', status: null, unclosedFrontMatter: false });
-    expect(reader.titleAndStatus('---\nstatus: [a, b]\n---\n')).toEqual({ title: null, status: null, unclosedFrontMatter: false });
-    expect(reader.titleAndStatus('---\ntitle: x\n---\n')).toEqual({ title: null, status: null, unclosedFrontMatter: false });
-    expect(reader.titleAndStatus('```\n# In code\n```\n')).toEqual({ title: null, status: null, unclosedFrontMatter: false });
+    expect(reader.titleAndStatus('no heading\n')).toEqual({ title: null, status: null, unclosedFrontMatter: false, unreadableFrontMatter: [] });
+    expect(reader.titleAndStatus('---\nstatus:\n---\n# T\n')).toEqual({ title: 'T', status: null, unclosedFrontMatter: false, unreadableFrontMatter: [] });
+    expect(reader.titleAndStatus('---\nstatus: [a, b]\n---\n')).toEqual({ title: null, status: null, unclosedFrontMatter: false, unreadableFrontMatter: [] });
+    expect(reader.titleAndStatus('---\ntitle: x\n---\n')).toEqual({ title: null, status: null, unclosedFrontMatter: false, unreadableFrontMatter: [] });
+    expect(reader.titleAndStatus('```\n# In code\n```\n')).toEqual({ title: null, status: null, unclosedFrontMatter: false, unreadableFrontMatter: [] });
   });
 
   it('says when front matter opened on line 1 is never closed, which gives no status, and still reads the title', () => {
     // spec-core reads the opening line as a thematic break and the rest as
     // Markdown, so the author's status is text, and the document would read
     // as one that has none.
-    expect(reader.titleAndStatus('---\nstatus: accepted\n\n# ADR-0003: Tokens\n\nRotate them.\n')).toEqual({ title: 'ADR-0003: Tokens', status: null, unclosedFrontMatter: true });
-    expect(reader.titleAndStatus('---\nstatus: accepted\n')).toEqual({ title: null, status: null, unclosedFrontMatter: true });
+    expect(reader.titleAndStatus('---\nstatus: accepted\n\n# ADR-0003: Tokens\n\nRotate them.\n')).toEqual({ title: 'ADR-0003: Tokens', status: null, unclosedFrontMatter: true, unreadableFrontMatter: [] });
+    expect(reader.titleAndStatus('---\nstatus: accepted\n')).toEqual({ title: null, status: null, unclosedFrontMatter: true, unreadableFrontMatter: [] });
     expect(reader.titleAndStatus('---  \r\nstatus: accepted\r\n\r\n# T\r\n').unclosedFrontMatter).toBe(true);
   });
 
@@ -298,6 +298,50 @@ describe('title and status', () => {
     // TOML front matter gives no status even when it closes, so closing it
     // would show no status either.
     expect(unclosed('+++\nstatus = "accepted"\n\n# T\n')).toBe(false);
+  });
+
+  it('names a line of front matter that is not `key: value`, which is passed over with the status written on it', () => {
+    // spec-core reports such a line as unreadable front matter and reads
+    // past it, never guessing at what it meant (spec-core ADR-0004).
+    expect(reader.titleAndStatus('---\nstatus accepted\n---\n\n# ADR-0003\n')).toEqual({
+      title: 'ADR-0003',
+      status: null,
+      unclosedFrontMatter: false,
+      unreadableFrontMatter: [{ line: 2, text: 'status accepted', reason: 'not a "key: value" line' }],
+    });
+    // An indented line with no key above it belongs to none, so its status is not read either.
+    expect(reader.titleAndStatus('---\n  status: accepted\ntitle: Tokens\n---\n').unreadableFrontMatter).toEqual([
+      { line: 2, text: '  status: accepted', reason: 'an indented line belongs to no key' },
+    ]);
+  });
+
+  it('names every unread line, in order, beside a status read from another', () => {
+    expect(reader.titleAndStatus('---\nnotes\nstatus: accepted\ntitle: T\n= draft\n---\n')).toEqual({
+      title: null,
+      status: 'accepted',
+      unclosedFrontMatter: false,
+      unreadableFrontMatter: [
+        { line: 2, text: 'notes', reason: 'not a "key: value" line' },
+        { line: 5, text: '= draft', reason: 'not a "key: value" line' },
+      ],
+    });
+  });
+
+  it('counts the lines of the document and gives each as written, after a byte-order mark and with CRLF', () => {
+    expect(reader.titleAndStatus('﻿---\r\ntitle: T\r\nstatus accepted\r\n---\r\n').unreadableFrontMatter).toEqual([
+      { line: 3, text: 'status accepted', reason: 'not a "key: value" line' },
+    ]);
+  });
+
+  it('names no line that was read, nor one of front matter it does not read line by line', () => {
+    const unread = (text: string): unknown => reader.titleAndStatus(text).unreadableFrontMatter;
+    // spec-core reports a key declared twice, on a line it read.
+    expect(unread('---\nstatus: draft\nstatus: accepted\n---\n')).toEqual([]);
+    // TOML is reported on its opening line; unclosed front matter is not read at all.
+    expect(unread('+++\nstatus = "accepted"\n+++\n')).toEqual([]);
+    expect(unread('---\nstatus accepted\n\n# T\n')).toEqual([]);
+    expect(unread('# T\n\nstatus accepted\n')).toEqual([]);
+    expect(unread('---\n# a comment\n\nstatus: accepted\n---\n')).toEqual([]);
   });
 });
 
