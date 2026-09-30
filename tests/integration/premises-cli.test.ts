@@ -164,6 +164,8 @@ describe('premises in a CI run on a detached head', () => {
     expect(result.code).toBe(0);
     expect(parsed<{ findings: { rule: string }[] }>(result).findings.map((f) => f.rule)).toEqual(['premise-retired']);
     expect(parsed<{ brief: string }>(await cli(['doctor', '--format', 'json'], repo.root, { env: { SPEC_BRIEF: ' 1 ' } })).brief).toBe('1');
+    // A blank one names nothing.
+    expect(parsed<{ brief: string | null }>(await cli(['doctor', '--format', 'json'], repo.root, { env: { SPEC_BRIEF: ' ' } })).brief).toBeNull();
   });
 
   it('names no brief without them, as before, and the premise is stale', async () => {

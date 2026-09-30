@@ -186,6 +186,8 @@ export async function rulingsCommand(options: Options, io: CliIO): Promise<numbe
     for (const row of check.rows) {
       const verified = check.verified.find((ruling) => ruling.id === row.id);
       const unverified = check.unverified.find((ruling) => ruling.id === row.id);
+      // An allow row that does not verify is among the unverified, with its
+      // reason, so the fallback for none is equivalent to its mutants.
       const state = row.decision === 'deny' ? 'refused' : verified !== undefined ? `signed by ${verified.signer}` : `not verified: ${unverified?.reason ?? ''}`;
       io.stdout.write(`${row.id}  ${row.decision}  ${row.paths.join(', ')}  ${state}\n`);
     }
@@ -202,6 +204,8 @@ async function runProbe(directory: string, probe: ProbeSpec, runs: number, timeo
     const report = probe.junit === null ? null : join(directory, probe.junit);
     if (report !== null) await rm(report, { force: true });
     const run = await runCommand(probe.run, directory, timeout);
+    // existsSync answers false for null, so the null check is there for the
+    // type, and its mutant is equivalent.
     const junit = report === null || !existsSync(report) ? null : readJUnit(await readFile(report, 'utf8'));
     classified.push(classify(probe, { exitCode: run.exitCode, output: run.output, junit }));
   }

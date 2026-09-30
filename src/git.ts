@@ -166,8 +166,9 @@ export async function verifyCommit(sha: string, allowedSignersFile: string, cwd:
   const text = `${run.stderr}\n${run.stdout}`;
   const principal = /Good "git" signature for (\S+)/.exec(text)?.[1];
   // git writes the check to stderr, so the trim changes the first line only
-  // for output on stdout alone, which verify-commit does not print.
-  const detail = text.trim().split('\n')[0] ?? '';
+  // for output on stdout alone, which verify-commit does not print; and split
+  // always answers a first part.
+  const detail = text.trim().split('\n')[0] as string;
   // git exits 0 only for a signature by a listed principal, which it names:
   // either condition alone is equivalent to both, and both trust neither.
   return run.code === 0 && principal !== undefined ? { good: true, principal, detail } : { good: false, principal: null, detail };

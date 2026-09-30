@@ -281,12 +281,20 @@ describe.skipIf(!hasSshKeygen())('a ruling is a row whose commit a person signed
     const other = round({ '.github/allowed_signers': signers });
     await cli(['escalate', '--path', 'src/db/schema.ts', '--path', 'src/db/other.ts', '--reason', 'r'], other.root);
     await cli(['escalate', '--path', 'src/db/other.ts', '--reason', 'r'], other.root);
+    await cli(['escalate', '--path', 'src/auth/a.ts', '--reason', 'r'], other.root);
     await cli(['rule', 'E-001-1', '--allow', '--note', 'n'], other.root);
     commitSigned(other, key, 'ruling R-001-1: allow');
     await cli(['rule', 'E-001-2', '--allow', '--note', 'n'], other.root);
+    const unsigned = other.commit('ruling R-001-2, unsigned');
+    await cli(['rule', 'E-001-3', '--allow', '--note', 'n'], other.root);
     expect(await cli(['rulings'], other.root)).toMatchObject({
       code: 1,
-      stdout: 'R-001-1  allow  src/db/schema.ts, src/db/other.ts  signed by t@example.com\nR-001-2  allow  src/db/other.ts  not verified: its row is not committed\n',
+      stdout: [
+        'R-001-1  allow  src/db/schema.ts, src/db/other.ts  signed by t@example.com',
+        `R-001-2  allow  src/db/other.ts  not verified: commit ${unsigned.slice(0, 12)} last changed its row, and it is not signed`,
+        'R-001-3  allow  src/auth/a.ts  not verified: its row is not committed',
+        '',
+      ].join('\n'),
     });
   });
 
