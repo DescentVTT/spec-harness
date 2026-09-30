@@ -10,7 +10,7 @@
  * and so is a configured name it cannot read.
  */
 
-import { parseGlob, type Glob } from './vendor/spec-core/pattern/index.js';
+import { globAlternatives, parseGlob, type Glob, type GlobAlternative } from './vendor/spec-core/pattern/index.js';
 
 export type Ecosystem = 'npm' | 'cargo' | 'go' | 'pip' | 'python' | 'nuget' | 'bundler';
 
@@ -74,9 +74,11 @@ export function readManifestNames(patterns: readonly string[]): ManifestNames {
       continue;
     }
     globs.push(parsed.glob);
-    // A rooted alternative's base starts at the root, `/` itself at the least.
-    const roots = parsed.glob.bases.filter((base) => base.startsWith('/'));
-    if (roots.length > 0) rooted.push({ name: pattern, whole: roots.length === parsed.glob.bases.length });
+    // spec-core refuses here only what parseGlob refuses, so a name read
+    // above always has its alternatives read.
+    const { alternatives } = globAlternatives(pattern) as { readonly alternatives: readonly GlobAlternative[] };
+    const roots = alternatives.filter((alternative) => alternative.rooted).length;
+    if (roots > 0) rooted.push({ name: pattern, whole: roots === alternatives.length });
   }
   return { match: (path) => globs.some((glob) => glob.match(path)), unread, rooted };
 }

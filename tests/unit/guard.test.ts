@@ -275,6 +275,8 @@ describe('a rooted pattern', () => {
 
   it('is not a pattern the repository roots, a slash after a segment, or a pattern the guard cannot read', () => {
     for (const pattern of ['docs', 'src/**', './docs', 'a/{/b,c}', '{docs,src}/', '**/x.ts', 'src/[a', '{./,src}']) expect(rooted(pattern), pattern).toBeNull();
+    // Named as unreadable where it is listed, never as rooted too.
+    for (const pattern of ['/src/[a', '{/,src}', '{/docs,src/[a}']) expect(rooted(pattern), pattern).toBeNull();
   });
 
   it('is not a pattern whose slashes follow a leading ./, which they go with', () => {
