@@ -9,46 +9,38 @@ only fixes, reports less or documents, so `^0.7.0` takes only releases that
 cannot turn a run red. The family's policy is
 [spec-core's ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
-## Unreleased
+## 0.8.0
+
+The context packet names front matter lines it could not read, `doctor`
+reads the release of a Claude Code installed with npm on Windows, and
+spec-harness reads status words in English only again.
 
 ### Added
 
 - `context` names each line of a cited document's front matter that is not
-  `key: value`, such as `status accepted` without its colon, with the line
-  number, the line and spec-core's reason, and says a status written on it
-  was not read; before, the document showed no status and no note.
-  `--format json` and `start_round` gain `unreadableFrontMatter` beside
-  `unclosedFrontMatter`; no `schemaVersion` moves
+  `key: value`, with its line number and reason, and says a status on it was
+  not read; `--format json` and `start_round` gain `unreadableFrontMatter`
   ([ADR-0001](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0001-the-harness-decides-the-agent-writes.md)).
 
 ### Removed
 
 - `context` no longer reads a cited document's status under `狀態` or
-  `状态`, as 0.7.0 did without a `status` key: the spec-* tools read status
-  words in English only, so such a document shows no status.
-  Upgrading: write the status in English, e.g. `status: superseded`.
+  `状态`. Upgrading: write the status in English, e.g. `status: superseded`.
 
 ### Fixed
 
-- `doctor` reads the release of a Claude Code npm installed on Windows,
-  where it said it could not tell and `--strict` failed: the `claude.cmd`
-  shim, which Node will not start without a shell, is read rather than run,
-  and the release is the `version` in the package.json of the
-  `@anthropic-ai/claude-code` package it runs, which doctor names
+- `doctor` reads the release of an npm-installed Claude Code on Windows from
+  the package its `claude.cmd` shim runs, without running the shim, where it
+  could not tell and failed `--strict`
   ([ADR-0012](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0012-one-way-into-claude-code.md)).
-- `doctor` says it cannot tell the release of a `claude.exe` on Windows that
-  is no program Windows starts, where it stopped with `spawn UNKNOWN`.
-- `doctor` reads the allowed-signers file's quotes as OpenSSH does: a
-  principals field quoted in part, such as `a@example.com,"b@example.com"`,
-  names both people, and a line OpenSSH refuses - an option it does not read,
-  or an option's value without its double quotes - is noted as no signer,
-  with why, where it was listed as one
+- `doctor` says it cannot tell the release of a `claude.exe` Windows cannot
+  start, where it stopped with `spawn UNKNOWN`.
+- `doctor` reads the allowed-signers file's quotes and options as OpenSSH
+  does, and notes a line OpenSSH refuses as no signer
   ([ADR-0006](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0006-a-ruling-is-a-signed-commit.md)).
-- `init` and `doctor` read the file the installed package's
-  `./spec-brief-plugin` export names as Node does: the first condition an
-  import meets in the order it is written, a `null` target as not exported,
-  and a target Node refuses as none, where they tried `import`, `node` and
-  `default` in that order and went past a `null`.
+- `init` and `doctor` resolve the spec-brief plugin export as Node does: the
+  first matching condition in written order, and a `null` target as not
+  exported.
 
 ## 0.7.0
 
