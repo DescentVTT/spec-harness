@@ -9,13 +9,16 @@
  * they fill what the budget leaves, in the order the brief cites them, and
  * the rest are named rather than dropped silently. So is a document whose
  * front matter is never closed, whose status cannot be read, rather than
- * shown as one without a status, and a pattern in the scope, a protection or
- * a ruling's path the guard cannot read, with spec-core's reason and what the
- * guard does without it, rather than listed as one it can; and one a leading
- * `/` roots, which names no path the guard decides.
+ * shown as one without a status, and a line of front matter that is not
+ * `key: value`, passed over with any status written on it; and a pattern in
+ * the scope, a protection or a ruling's path the guard cannot read, with
+ * spec-core's reason and what the guard does without it, rather than listed
+ * as one it can; and one a leading `/` roots, which names no path the guard
+ * decides.
  */
 
 import { sameId } from './branch.js';
+import type { UnreadableFrontMatterLine } from './document.js';
 import { rooted, whyUnreadable } from './guard.js';
 import type { BriefRow } from './types.js';
 
@@ -27,6 +30,8 @@ export interface CitedDocument {
   readonly text: string | null;
   /** YAML front matter opened on line 1 and never closed, so no status was read from it. */
   readonly unclosedFrontMatter?: boolean | undefined;
+  /** Lines of its front matter that are not `key: value`, passed over with any status written on them. */
+  readonly unreadableFrontMatter?: readonly UnreadableFrontMatterLine[] | undefined;
 }
 
 export interface RuleInForce {
@@ -103,6 +108,11 @@ export interface UnreadablePattern {
   readonly reason: string;
 }
 
+/** A line of a cited document's front matter that is not `key: value`, with spec-core's reason. */
+export interface UnreadableFrontMatter extends UnreadableFrontMatterLine {
+  readonly path: string;
+}
+
 /** A path of a ruling in force that the guard cannot read, with the ruling's id and spec-core's reason. */
 export interface UnreadableRulingPath extends UnreadablePattern {
   readonly ruling: string;
@@ -118,6 +128,8 @@ export interface ContextPacket {
   readonly unresolved: readonly string[];
   /** Cited documents whose front matter opens on line 1 and is never closed, so no status was read from them. */
   readonly unclosedFrontMatter: readonly string[];
+  /** Lines of cited documents' front matter that are not `key: value`, in the order the brief cites them: a status written on one was not read. */
+  readonly unreadableFrontMatter: readonly UnreadableFrontMatter[];
   /** Patterns in `affectedFiles` the guard cannot read, in the brief's order: each puts no path in the scope. */
   readonly unreadableScope: readonly UnreadablePattern[];
   /** Patterns in `protectedFiles` the guard cannot read, in the brief's order: while one stands, the guard refuses every write but to the brief. */
@@ -128,6 +140,11 @@ export interface ContextPacket {
 
 function list(items: readonly string[]): string {
   return items.map((item) => `- \`${item}\``).join('\n');
+}
+
+/** An unread line of front matter: where it is, as written, and spec-core's reason. */
+function unreadLine(found: UnreadableFrontMatter): string {
+  return `- \`${found.path}\`, line ${found.line}, \`${found.text}\`: ${found.reason}`;
 }
 
 /**
@@ -303,6 +320,7 @@ export function renderContext(input: ContextInput): ContextPacket {
   const omitted: string[] = [];
   const unresolved: string[] = [];
   const unclosed: string[] = [];
+  const unreadableFrontMatter: UnreadableFrontMatter[] = [];
   const documents: string[] = [];
   let used = fixed.length;
   for (const cited of input.cited) {
@@ -313,6 +331,7 @@ export function renderContext(input: ContextInput): ContextPacket {
     // Named whether or not the budget leaves room for it: the status is
     // unread either way, and the fix is the same.
     if (cited.unclosedFrontMatter === true) unclosed.push(cited.path);
+    for (const line of cited.unreadableFrontMatter ?? []) unreadableFrontMatter.push({ path: cited.path, ...line });
     const heading = `### \`${cited.path}\`${cited.title === null ? '' : ` - ${cited.title}`}${cited.status === null ? '' : ` (${cited.status})`}`;
     const block = [heading, '', '````markdown', cited.text.trimEnd(), '````', ''].join('\n');
     if (used + block.length > input.budget) {
@@ -333,6 +352,13 @@ export function renderContext(input: ContextInput): ContextPacket {
   if (unclosed.length > 0) {
     citedSection.push('Front matter opened on line 1 and never closed, so the status was not read; close the block with `---` on a line of its own:', list(unclosed), '');
   }
+  // The last note: the section is trimmed at its end, so no blank line follows it.
+  if (unreadableFrontMatter.length > 0) {
+    citedSection.push(
+      'Front matter lines that are not `key: value` were not read, so a status written on one, if any, was not read either:',
+      unreadableFrontMatter.map(unreadLine).join('\n'),
+    );
+  }
 
   return {
     markdown: `${fixed}\n${citedSection.join('\n').trimEnd()}\n`,
@@ -340,6 +366,7 @@ export function renderContext(input: ContextInput): ContextPacket {
     omitted,
     unresolved,
     unclosedFrontMatter: unclosed,
+    unreadableFrontMatter,
     unreadableScope,
     unreadableProtections,
     unreadableRulingPaths,

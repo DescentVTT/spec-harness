@@ -9,6 +9,18 @@ only fixes, reports less or documents, so `^0.7.0` takes only releases that
 cannot turn a run red. The family's policy is
 [spec-core's ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
+## Unreleased
+
+### Added
+
+- `context` names each line of a cited document's front matter that is not
+  `key: value`, such as `status accepted` without its colon, with the line
+  number, the line and spec-core's reason, and says a status written on it
+  was not read; before, the document showed no status and no note.
+  `--format json` and `start_round` gain `unreadableFrontMatter` beside
+  `unclosedFrontMatter`; no `schemaVersion` moves
+  ([ADR-0001](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0001-the-harness-decides-the-agent-writes.md)).
+
 ## 0.7.0
 
 The audit and `premises` no longer pass on what they could not read, the

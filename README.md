@@ -80,7 +80,7 @@ The packet an agent starts a round with: the brief in full - it is the contract 
 
 Rules spec-guard could not read are named as unread, with what it said, never as none; a repository where no spec file matches spec-guard's patterns has none.
 
-**What it could not read is named, never left out.** A cited document whose front matter opens on its first line and is never closed is one spec-core's scanner reads as having no front matter: its status was not read, and the packet says so, with the fix - close the block with `---` on a line of its own - rather than showing a document without one. The note fails nothing; `context` exits 0.
+**What it could not read is named, never left out.** A cited document whose front matter opens on its first line and is never closed is one spec-core's scanner reads as having no front matter: its status was not read, and the packet says so, with the fix - close the block with `---` on a line of its own - rather than showing a document without one. So is each line of closed front matter that is not `key: value`, such as `status accepted` without its colon, or an indented line with no key above it: spec-core's reader passes over it, so a status written on it was not read, and the packet names the document, the line as written and spec-core's reason. `context --format json` and `start_round` list them as `unreadableFrontMatter`, each with its `path`, `line`, `text` and `reason`. The notes fail nothing; `context` exits 0.
 
 A pattern the guard cannot read - malformed, too large to compile, or naming no path, such as `{./,src}` - is named as unread where it is listed, with spec-core's reason, the one the guard gives when it passes over it:
 

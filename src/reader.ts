@@ -3,10 +3,11 @@
  * or a comment is ever taken for a section, a table, a link or a probe.
  */
 
-import type { Citation, DocumentReader, SectionTables } from './document.js';
+import type { Citation, DocumentReader, SectionTables, UnreadableFrontMatterLine } from './document.js';
 import type { CodeBlock } from './probe.js';
 import type { TableView } from './rulings.js';
-import { findEntry, readFrontMatter, scanMarkdown, type MarkdownScan } from './vendor/spec-core/markdown/index.js';
+import { findEntry, readFrontMatter, scanMarkdown, type FrontMatter, type MarkdownScan } from './vendor/spec-core/markdown/index.js';
+import { splitLines } from './vendor/spec-core/text/index.js';
 
 /**
  * The front matter keys a cited document's status is read under, the first
@@ -27,6 +28,23 @@ export function sameSection(heading: string, name: string): boolean {
       .trim()
       .toLowerCase();
   return normal(heading) === normal(name);
+}
+
+/**
+ * The lines of closed YAML front matter spec-core's reader passes over, since
+ * none is `key: value`, each with its reason. The reader reports a problem on
+ * a line it read too - a key declared twice - and one on the opening line for
+ * TOML front matter; neither is a line passed over, and only these are. A
+ * byte-order mark, which the reader leaves out, sits on the opening line,
+ * never one of these, so the text's own lines give each as written.
+ */
+function unreadLines(text: string, front: FrontMatter | null): UnreadableFrontMatterLine[] {
+  if (front === null) return [];
+  const read = new Set(front.entries.map((entry) => entry.line));
+  const lines = splitLines(text);
+  return front.problems
+    .filter((problem) => problem.line > 0 && !read.has(problem.line))
+    .map((problem) => ({ line: problem.line + 1, text: lines[problem.line] as string, reason: problem.message }));
 }
 
 function scanOf(text: string, cache: { text: string; scan: MarkdownScan } | null): MarkdownScan {
@@ -107,7 +125,12 @@ export function createReader(): DocumentReader {
         .map((link) => ({ target: link.target, line: link.line }));
     },
 
-    titleAndStatus(text: string): { title: string | null; status: string | null; unclosedFrontMatter: boolean } {
+    titleAndStatus(text: string): {
+      title: string | null;
+      status: string | null;
+      unclosedFrontMatter: boolean;
+      unreadableFrontMatter: UnreadableFrontMatterLine[];
+    } {
       const scanned = scan(text);
       const title = scanned.headings.find((heading) => heading.level === 1)?.text ?? null;
       const front = readFrontMatter(text);
@@ -116,7 +139,12 @@ export function createReader(): DocumentReader {
       if (entry !== undefined && entry.value.kind === 'scalar') status = entry.value.scalar.text || null;
       // TOML front matter gives no status, closed or not, so closing it would
       // change nothing the context packet shows; only YAML's is worth saying.
-      return { title, status, unclosedFrontMatter: scanned.unclosedFrontMatter?.kind === 'yaml' };
+      return {
+        title,
+        status,
+        unclosedFrontMatter: scanned.unclosedFrontMatter?.kind === 'yaml',
+        unreadableFrontMatter: unreadLines(text, front),
+      };
     },
   };
 }
