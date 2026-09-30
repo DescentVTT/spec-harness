@@ -74,6 +74,13 @@ describe('premises on the command line', () => {
     ]);
   });
 
+  it('cannot be trusted when spec-guard prints a document of another shape, and says which field', async () => {
+    const fake = temp();
+    write(fake, 'guard.js', 'process.stdout.write(JSON.stringify({ results: [], errors: { message: "m" } }));\n');
+    const repo = repository({ [BRIEF_FILE]: brief() }, { tools: { 'spec-brief': ['node', SPEC_BRIEF], 'spec-guard': ['node', join(fake, 'guard.js')] } });
+    expect(await cli(['premises'], repo.root)).toEqual({ code: 2, stdout: '', stderr: 'spec-harness: spec-guard printed errors that is not a list\n' });
+  });
+
   it('cannot be trusted when spec-guard cannot run the assertions', async () => {
     const fake = temp();
     write(fake, 'guard.js', 'process.stdout.write("{}"); process.exit(2);\n');

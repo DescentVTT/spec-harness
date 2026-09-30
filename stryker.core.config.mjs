@@ -22,6 +22,7 @@ export default {
   ...base,
   vitest: { configFile: 'vitest.core.config.ts', related: false },
   mutate: [
+    'src/answers.ts',
     'src/audit.ts',
     'src/branch.ts',
     'src/briefs.ts',

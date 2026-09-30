@@ -409,7 +409,8 @@ describe('the rules in force', () => {
       { document: 'docs/adr/0002.md', line: 5, kind: 'assert-absence', description: 'd5', reason: null },
     ]);
     expect(readRules({ code: 0, document: {}, stderr: '' })).toEqual([]);
-    expect(readRules({ code: 0, document: null, stderr: '' })).toEqual([]);
+    // A document of another shape is refused, never read as no rules (answers.ts).
+    expect(() => readRules({ code: 0, document: null, stderr: '' })).toThrow('spec-guard query printed a document that is not an object');
   });
 
   it('tells a repository whose patterns match no spec from specs that could not be read', () => {

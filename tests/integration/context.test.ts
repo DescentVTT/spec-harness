@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { brief, BRIEF_FILE, cleanup, cli, parsed, repository, SPEC_BRIEF, type Repository } from './helpers.js';
+import { join } from 'node:path';
+
+import { brief, BRIEF_FILE, cleanup, cli, parsed, repository, SPEC_BRIEF, temp, write, type Repository } from './helpers.js';
 
 afterAll(cleanup);
 
@@ -359,6 +361,16 @@ describe('context', () => {
   it('names the brief SPEC_BRIEF names when the branch names none', async () => {
     const r = repository({ [BRIEF_FILE]: brief() });
     expect(parsed<{ brief: string }>(await cli(['context', '--format', 'json'], r.root, { env: { SPEC_BRIEF: '1' } })).brief).toBe('001');
+  });
+
+  it('says the rules could not be read when spec-guard answers a query with a document of another shape, and gives the rest of the packet', async () => {
+    const fake = temp();
+    write(fake, 'guard.js', 'process.stdout.write(JSON.stringify({ results: 5 }));\n');
+    const r = repository({ [BRIEF_FILE]: brief({ affected: ['src/**'] }) }, { tools: { 'spec-brief': ['node', SPEC_BRIEF], 'spec-guard': ['node', join(fake, 'guard.js')] } });
+    const result = await cli(['context', '1'], r.root);
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain('The rules spec-guard holds this code to could not be read: spec-guard query printed results that is not a list');
+    expect(result.stdout).toContain('## The contract');
   });
 
   it('refuses to guess a brief when none is named', async () => {

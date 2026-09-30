@@ -260,6 +260,30 @@ describe('audit of a round', () => {
       expect((await cli(['audit', '1'], r.root)).stdout).toContain('\nerror    the archive has no base  archive/no-base\n         name one\n');
     });
 
+    it('stops with exit 2, naming the tool and the field, when spec-guard or spec-brief prints a document of another shape', async () => {
+      const printing = (json: string): string[] => {
+        const fake = temp();
+        write(fake, 'guard.js', `process.stdout.write(${JSON.stringify(json)});\n`);
+        return ['node', join(fake, 'guard.js')];
+      };
+      const run = async (tools: Record<string, string[]>) => {
+        const r = repository({ [BRIEF_FILE]: brief({ affected: ['src/**'] }) }, { tools: { ...siblings(), ...tools } });
+        return cli(['audit', '1', '--format', 'json'], r.root);
+      };
+      expect(await run({ 'spec-guard': printing('{"results":5}') })).toEqual({ code: 2, stdout: '', stderr: 'spec-harness: spec-guard printed results that is not a list\n' });
+      expect(await run({ 'spec-guard': printing('{"results":[{"ok":"no","description":"d","message":"m"}]}') })).toEqual({
+        code: 2,
+        stdout: '',
+        stderr: 'spec-harness: spec-guard printed results[0].ok that is not true or false\n',
+      });
+      const plan = JSON.stringify({ plan: { blocking: [{ rule: 'open-task', severity: 'fatal', message: 'm' }] } });
+      expect(await run({ 'spec-brief': fakeBrief(plan, 1) })).toEqual({
+        code: 2,
+        stdout: '',
+        stderr: 'spec-harness: spec-brief archive printed plan.blocking[0].severity that is not error, warning or note\n',
+      });
+    });
+
     it('reads an archive plan that lists nothing as refusing nothing', async () => {
       const report = await audited({ 'spec-brief': fakeBrief('{}', 0) });
       expect(report.measured['archive']).toBe('asked');

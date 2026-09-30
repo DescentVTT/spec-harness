@@ -20,6 +20,7 @@
  * as it is in the audit: `--strict` fails the run on it.
  */
 
+import { readGuardRun, type Spec } from './answers.js';
 import { isPremise, premiseFinding, unreadablePremiseFinding } from './audit.js';
 import { briefIdFromBranch } from './branch.js';
 import { findActive } from './briefs.js';
@@ -29,25 +30,6 @@ import { createReader } from './reader.js';
 import { briefText } from './round.js';
 import type { Finding } from './types.js';
 import { EXIT_ERROR, EXIT_FAILED, EXIT_OK, json, openWorkspace, version, type CliIO, type Options } from './workspace.js';
-
-/** Where spec-guard places a directive. */
-interface Spec {
-  readonly file: string;
-  readonly line: number;
-}
-
-interface GuardResult {
-  readonly ok: boolean;
-  readonly description: string;
-  readonly message: string;
-  readonly spec?: Spec;
-}
-
-interface GuardError {
-  readonly message: string;
-  readonly raw?: string;
-  readonly spec?: Spec;
-}
 
 export async function premisesCommand(options: Options, io: CliIO): Promise<number> {
   const workspace = await openWorkspace(options, io);
@@ -72,17 +54,12 @@ export async function premisesCommand(options: Options, io: CliIO): Promise<numb
     io.stderr.write('spec-harness: spec-guard could not run the briefs\' assertions\n');
     return EXIT_ERROR;
   }
-  const document = answer.document as { results?: GuardResult[]; errors?: GuardError[] };
-  // A missing list is an empty one. A list that holds a string instead, the
-  // mutant, sorts nothing to a brief either, since a string has no spec, so
-  // it is equivalent; so is the one for errors.
-  const results = document.results ?? [];
-  // A directive spec-guard cannot read is listed apart from the results; one
-  // in a premise section is a premise nothing checks.
-  const errors = document.errors ?? [];
+  // A directive spec-guard cannot read is listed apart from the results, as
+  // errors; one in a premise section is a premise nothing checks.
+  const { results, errors } = readGuardRun(answer.document);
   // A directive is a brief's when spec-guard places it in the brief's file;
   // one it places nowhere is no brief's.
-  const inBrief = <T extends { readonly spec?: Spec }>(item: T, file: string): item is T & { readonly spec: Spec } =>
+  const inBrief = <T extends { readonly spec?: Spec | undefined }>(item: T, file: string): item is T & { readonly spec: Spec } =>
     item.spec?.file.replace(/\\/g, '/') === file;
   const findings: Finding[] = [];
   let premises = 0;
@@ -102,7 +79,7 @@ export async function premisesCommand(options: Options, io: CliIO): Promise<numb
     }
     for (const error of unread) {
       const { line } = error.spec;
-      if (premise(line)) findings.push(unreadablePremiseFinding(brief, { message: error.message, line, raw: error.raw ?? '' }));
+      if (premise(line)) findings.push(unreadablePremiseFinding(brief, { message: error.message, line, raw: error.raw }));
     }
   }
   const stale = findings.filter((finding) => finding.severity === 'error').length;

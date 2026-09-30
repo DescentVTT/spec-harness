@@ -11,7 +11,9 @@ import { readdir, readFile, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { readArchivePlan, readGuardRun } from './answers.js';
 import { audit, tally, type ArchiveReason, type AssertionOutcome, type AuditInput, type AuditReport, type UnreadableAssertion } from './audit.js';
+import { SiblingOutputError } from './briefs.js';
 import { sameId } from './branch.js';
 import {
   enabledPlugin,
@@ -207,9 +209,10 @@ async function rulesFor(workspace: Workspace, brief: BriefRow): Promise<Rules> {
     const answer = await workspace.siblings.json('spec-guard', ['query', ...paths, '--json']);
     return 'absent' in answer ? { unavailable: answer.absent } : readRules(answer);
   } catch (error) {
-    // spec-guard printed no JSON: what it said instead is the reason, and
-    // the rest of the packet stands without the rules.
-    if (error instanceof SiblingError) return { unavailable: error.message };
+    // spec-guard printed no JSON, or a document of another shape: what it
+    // said instead, or what was wrong, is the reason, and the rest of the
+    // packet stands without the rules.
+    if (error instanceof SiblingError || error instanceof SiblingOutputError) return { unavailable: error.message };
     throw error;
   }
 }
@@ -394,13 +397,7 @@ async function archiveReasons(workspace: Workspace, brief: BriefRow, base: Base)
   // an absent one stopped it there; the check is for the type.
   if ('absent' in answer) return { unavailable: answer.absent };
   if (answer.code === 2) return { unavailable: 'spec-brief could not plan the archive' };
-  const plan = (answer.document as { plan?: { blocking?: ArchiveReason[]; warnings?: ArchiveReason[] } }).plan;
-  return { blocking: plan?.blocking ?? [], warnings: plan?.warnings ?? [] };
-}
-
-interface GuardRun {
-  readonly results?: readonly { readonly ok: boolean; readonly description: string; readonly message: string; readonly spec?: { readonly file: string; readonly line: number } }[];
-  readonly errors?: readonly { readonly message: string; readonly raw?: string; readonly spec?: { readonly file: string; readonly line: number } }[];
+  return readArchivePlan(answer.document);
 }
 
 /** The brief's assertions as spec-guard ran them, and those it could not read, which it lists apart as `errors`. */
@@ -413,15 +410,15 @@ async function briefAssertions(
   const answer = await workspace.siblings.json('spec-guard', [brief.file, '--ignore-status', '--json']);
   if ('absent' in answer) return { unavailable: answer.absent };
   if (answer.code === 2) return { unavailable: 'spec-guard could not run the brief\'s assertions' };
-  const report = answer.document as GuardRun;
+  const report = readGuardRun(answer.document);
   const own = (spec: { readonly file: string } | undefined): boolean => spec === undefined || spec.file.replace(/\\/g, '/') === brief.file;
-  const outcomes = (report.results ?? [])
+  const outcomes = report.results
     .filter((result) => own(result.spec))
     .map((result) => {
       const line = result.spec?.line ?? 0;
       return { ok: result.ok, description: result.description, message: result.message, line, section: reader.sectionAt(text, line), enclosing: reader.sectionsAt(text, line) };
     });
-  const unreadable = (report.errors ?? []).filter((error) => own(error.spec)).map((error) => ({ message: error.message, line: error.spec?.line ?? 0, raw: error.raw ?? '' }));
+  const unreadable = report.errors.filter((error) => own(error.spec)).map((error) => ({ message: error.message, line: error.spec?.line ?? 0, raw: error.raw }));
   return { outcomes, unreadable };
 }
 
