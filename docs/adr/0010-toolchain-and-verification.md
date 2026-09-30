@@ -56,6 +56,13 @@ and shards that ran different tests, matching tests by file and name. An
 unset or unknown shard is an error when the shard configuration loads, never
 a run over everything, and a file no shard lists is mutated by the last.
 
+*Amended again 2026-10-01.* After the survivors of the full sweep were
+worked through, main's sharded sweep of c385f19 (run 36743578103) measured
+**97.42% over 7,717 mutants**: 7,438 killed, 80 by timeout, 168 survived and
+31 without coverage. Losing every timeout kill would leave 96.38%, so the full
+sweep's `break` rises from 89 to 95, under that worst case as before, and
+still moves only up. The shards took from 5m54s to 24m47s.
+
 One runner took 69 to 130 minutes for the full sweep. Before any sharded
 sweep ran, the report of eb39599 was cut into shards the way Stryker writes
 them and put back by the merge: all 7,507 verdicts came back with their

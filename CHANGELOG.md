@@ -9,7 +9,11 @@ only fixes, reports less or documents, so `^0.7.0` takes only releases that
 cannot turn a run red. The family's policy is
 [spec-core's ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
-## Unreleased
+## 0.9.0
+
+spec-harness refuses sibling JSON of a shape it does not read, with exit 2,
+where it stopped with a stack trace or read the document halfway, and two
+messages name what is really missing.
 
 ### Fixed
 
