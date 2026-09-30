@@ -35,27 +35,42 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { minimatch } from 'minimatch';
 import { calculateMutationTestMetrics } from 'mutation-testing-metrics';
 
-// Minutes each file took in the full sweep of eb39599 on one runner (run
-// 36673408129, 123 minutes), read off its log with scripts/mutation-timeline.mjs.
-// A shard instruments only its own files, so these overstate each file.
+// Minutes each file took in the first sharded sweep, of 82d1817 in eight
+// shards (run 36709265748), read off the shards' logs with
+// scripts/mutation-timeline.mjs:
 //
+//   server 13.2   round 11.6   siblings 10.1   git 8.5   branch 8.1
+//   commands 8.1   workspace 6.8   sandbox 5.0   rulings 4.8   reader 4.4
+//   signers 4.2   config 4.0   cli 3.9   manifests 3.4   setup 2.9
+//   configure 2.6   fs 2.4   host 2.0   probe 2.0   hooks 1.7   junit 1.6
+//   formats 1.4   briefs 1.4   versions 1.2   premises 1.1   guard 0.9
+//   context 0.7   audit 0.6   plugin 0.1
+//
+// 119 minutes in all, where one run took 123 over nearly the same mutants
+// (eb39599, run 36673408129) and each file took what it took there. Stryker
+// instruments only a shard's own files, but here that saves nothing: the
+// suite ran in 61 seconds in every shard as in the single run, its time spent
+// in git and the sibling tools rather than in the harness's own code. So a
+// file's minutes add up wherever it goes, and a shard is balanced by adding
+// them. Most of them are static mutants, each of which runs the whole suite.
+//
+// A file cannot be split, so no shard takes less time than server.ts. The
+// last mutates everything else the base configuration mutates, so a file
+// added later is still mutated without anyone remembering to list it here.
 // A file listed here must have mutants: the merge refuses a listed file its
 // shard did not report, and document.ts, which holds only types, has none, so
-// it stays in the last shard.
-// The last mutates everything else the base configuration mutates, so a file
-// added later is still mutated without anyone remembering to list it here.
-// When a shard passes the others by more than runner variance, re-measure and
-// move files or add a shard, and add it to the workflow's matrix, which a test
-// checks.
+// it stays in the last shard. When a shard passes the others by more than
+// runner variance, re-measure and move files or add a shard, and add it to
+// the workflow's matrix, which a test checks. Minutes in eight shards:
 export const ASSIGNED = [
-  ['src/server.ts', 'src/formats.ts', 'src/guard.ts'], // 14.4
-  ['src/round.ts', 'src/host.ts'], // 14.8
+  ['src/server.ts', 'src/guard.ts', 'src/audit.ts'], // 14.7
+  ['src/round.ts', 'src/host.ts', 'src/premises.ts'], // 14.7
+  ['src/siblings.ts', 'src/rulings.ts'], // 14.9
   ['src/git.ts', 'src/workspace.ts'], // 15.3
-  ['src/branch.ts', 'src/commands.ts'], // 14.8
-  ['src/siblings.ts', 'src/sandbox.ts', 'src/premises.ts'], // 15.3
-  ['src/audit.ts', 'src/rulings.ts', 'src/reader.ts'], // 15.3
-  ['src/briefs.ts', 'src/config.ts', 'src/cli.ts', 'src/configure.ts'], // 15.7
-]; // and the rest: 16.2
+  ['src/branch.ts', 'src/sandbox.ts', 'src/hooks.ts'], // 14.8
+  ['src/commands.ts', 'src/reader.ts', 'src/probe.ts'], // 14.5
+  ['src/signers.ts', 'src/config.ts', 'src/cli.ts', 'src/junit.ts', 'src/briefs.ts'], // 15.1
+]; // and the rest: 14.7
 
 export const SHARD_COUNT = ASSIGNED.length + 1;
 
