@@ -98,6 +98,22 @@ plugin's manifest to it. The `claude` on `PATH` may not be the one an editor
 or the desktop app runs, which doctor cannot see; the README says to check
 that one there.
 
+*Amended 2026-09-30.* npm installs Claude Code on Windows as a `claude.cmd`
+shim, and Node refuses to start a `.cmd` without a shell since the fix for
+CVE-2024-27980, so doctor told most Windows users it could not tell, and
+`doctor --strict` failed them. doctor now reads the shim rather than run
+it: the path it runs, from the shim's own directory, as npm's cmd-shim
+writes it (`"%dp0%\node_modules\@anthropic-ai\claude-code\..."`) and pnpm's
+(`"%~dp0\..."`), names the `@anthropic-ai/claude-code` package, whose
+package.json declares the release, which is measured against the minimum
+as `claude --version`'s answer is, and named as read from that file. Nothing
+is run, through cmd.exe or otherwise. A shim that names no such package -
+another package's, one by an absolute path, which pnpm writes only across
+drives, or none - and a package.json with no version are *cannot tell*, as
+before. Which `claude`
+is measured is still the one Windows finds first on `PATH`, and a
+`claude.exe`, as the native installer puts one, is asked, as before.
+
 ## Consequences
 
 - A plugin turned on by managed settings or `--settings` is invisible to

@@ -78,17 +78,30 @@ export function checkVersion(name: SiblingName, declared: unknown): VersionCheck
  */
 export const CLAUDE_CODE_MINIMUM = '2.1.139';
 
-/** What `claude --version` printed, or why nothing could be asked. */
-export type ClaudeCodeAnswer = { readonly output: string } | { readonly missing: string };
+/**
+ * What `claude --version` printed; the version the package.json of the
+ * Claude Code a Windows shim runs declares, which is `file`; or why neither
+ * could be had.
+ */
+export type ClaudeCodeAnswer = { readonly output: string } | { readonly declared: string; readonly file: string } | { readonly missing: string };
 
 export type ClaudeCodeCheck =
-  | { readonly state: 'ok' | 'outdated'; readonly version: string }
+  /** `file` is the package.json the version was read from, when a shim was read rather than claude run. */
+  | { readonly state: 'ok' | 'outdated'; readonly version: string; readonly file?: string }
   /** Never read as fine: an older release lets every write through. */
   | { readonly state: 'unknown'; readonly reason: string };
 
-/** The release `claude --version` names in its first word, `2.1.235 (Claude Code)`, against the minimum. */
+/**
+ * The release `claude --version` names in its first word, `2.1.235 (Claude
+ * Code)`, or the one a package.json declares, against the minimum.
+ */
 export function checkClaudeCode(answer: ClaudeCodeAnswer): ClaudeCodeCheck {
   if ('missing' in answer) return { state: 'unknown', reason: answer.missing };
+  if ('declared' in answer) {
+    const declared = parseVersion(answer.declared);
+    if (declared === null) return { state: 'unknown', reason: `${answer.file} declares "${answer.declared}", which is not a version` };
+    return { state: meets(declared, parseVersion(CLAUDE_CODE_MINIMUM) as Version) ? 'ok' : 'outdated', version: answer.declared, file: answer.file };
+  }
   const said = answer.output.trim().split('\n')[0]?.trim() ?? '';
   if (said === '') return { state: 'unknown', reason: 'claude --version printed nothing' };
   const first = said.split(/\s+/)[0] as string;

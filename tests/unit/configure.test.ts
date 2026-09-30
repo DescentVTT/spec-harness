@@ -420,6 +420,12 @@ describe("what doctor says of the keys, the Claude Code release and git's hook",
     expect(describeClaudeRelease({ state: 'outdated', version: '2.1.100' })).toBe(
       "Claude Code 2.1.100 is older than 2.1.139, which the hooks need: it ignores a hook's args and runs a bare node, which fails, and a PreToolUse hook that fails blocks nothing, so every write passes unguarded: update Claude Code, with claude update",
     );
+    // Read from the package a Windows shim runs, rather than asked: the file says where.
+    const file = 'C:\\npm\\node_modules\\@anthropic-ai\\claude-code\\package.json';
+    expect(describeClaudeRelease({ state: 'ok', version: '2.1.285', file })).toBe(`Claude Code 2.1.285 (as ${file} declares) runs the hooks, which need 2.1.139 or later`);
+    expect(describeClaudeRelease({ state: 'outdated', version: '2.1.100', file })).toBe(
+      `Claude Code 2.1.100 (as ${file} declares) is older than 2.1.139, which the hooks need: it ignores a hook's args and runs a bare node, which fails, and a PreToolUse hook that fails blocks nothing, so every write passes unguarded: update Claude Code, with claude update`,
+    );
     expect(describeClaudeRelease({ state: 'unknown', reason: 'no claude is on PATH' })).toBe(
       'whether Claude Code is 2.1.139 or later, which the hooks need, cannot be told: no claude is on PATH; an older release lets every write pass unguarded, so check claude --version where Claude Code runs',
     );
