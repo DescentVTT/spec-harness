@@ -228,6 +228,13 @@ describe('the siblings', () => {
     expect((await cli(['guard', 'a.ts', '--brief', '1'], silent.root)).stderr).toBe('spec-harness: spec-brief exited 1 without JSON\n');
   });
 
+  it('says why spec-brief could not list the briefs, or its exit code when it says nothing', async () => {
+    const said = repository({}, { tools: { 'spec-brief': fake("process.stderr.write('\\nno briefs directory\\nmore'); process.exit(2);") } });
+    expect((await cli(['guard', 'a.ts', '--brief', '1'], said.root)).stderr).toBe('spec-harness: spec-brief could not list the briefs: no briefs directory\n');
+    const mute = repository({}, { tools: { 'spec-brief': fake('process.exit(2);') } });
+    expect((await cli(['guard', 'a.ts', '--brief', '1'], mute.root)).stderr).toBe('spec-harness: spec-brief could not list the briefs: exit 2\n');
+  });
+
   it('says to name a script when a command cannot be started without a shell', async () => {
     const repo = repository({}, { tools: { 'spec-brief': ['no-such-program-for-spec-harness', 'list'] } });
     const result = await cli(['guard', 'a.ts', '--brief', '1'], repo.root);

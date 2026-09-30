@@ -181,6 +181,20 @@ describe('audit of a round', () => {
     expect(none.findings.filter((f) => dependencyRules.includes(f.rule))).toEqual([]);
   });
 
+  it('says which commit is missing when HEAD has none yet, and when the base and HEAD share no history', async () => {
+    const r = repository({ [BRIEF_FILE]: brief({ affected: ['src/**'] }) });
+    r.git('checkout', '-q', '--orphan', 'brief/001-fresh');
+    const unborn = parsed<Report>(await cli(['audit', '--format', 'json'], r.root));
+    expect(unborn.findings[0]).toMatchObject({
+      rule: 'unmeasured',
+      message: "the round's changes were not measured: HEAD names no commit: nothing is committed on this branch yet",
+    });
+    r.commit('a history of its own');
+    const apart = parsed<Report>(await cli(['audit', '--format', 'json'], r.root));
+    expect(apart.base).toBeNull();
+    expect(apart.findings[0]).toMatchObject({ rule: 'unmeasured', message: 'the round\'s changes were not measured: "main" and HEAD share no history' });
+  });
+
   it('counts what spec-guard places in the brief, however the path is written, or places nowhere, and nothing it places elsewhere', async () => {
     const report = {
       results: [

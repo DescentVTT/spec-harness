@@ -9,6 +9,16 @@ only fixes, reports less or documents, so `^0.7.0` takes only releases that
 cannot turn a run red. The family's policy is
 [spec-core's ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
+## Unreleased
+
+### Fixed
+
+- On a branch with nothing committed yet, `audit`, `context`, `doctor`
+  and the MCP tools say HEAD names no commit, where they said the base named
+  none.
+- When spec-brief exits 2 while listing the briefs and says nothing, the
+  error ends in `exit 2`, where it ended with the colon before a reason.
+
 ## 0.8.0
 
 The context packet names front matter lines it could not read, `doctor`
