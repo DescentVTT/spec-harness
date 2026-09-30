@@ -63,7 +63,8 @@ describe('init', () => {
     const repo = installed();
     const first = await cli(['init', '--write', '--format', 'json'], repo.root);
     expect(first.code).toBe(0);
-    const steps = parsed<{ written: boolean; steps: Step[] }>(first);
+    const steps = parsed<{ command: string; written: boolean; steps: Step[] }>(first);
+    expect(steps.command).toBe('init');
     expect(steps.written).toBe(true);
     expect(steps.steps.map((s) => [s.file, s.action])).toEqual([
       ['.spec-brief.json', 'run'],
@@ -259,6 +260,12 @@ describe('init', () => {
     expect(JSON.parse(repo.read('.spec-harness.json'))).toEqual({ base: 'trunk' });
   });
 
+  it('names the branch of a repository with no commit yet, the only branch there will be', async () => {
+    const root = temp();
+    execFileSync('git', ['init', '-q', '-b', 'trunk'], { cwd: root });
+    expect((await cli(['init'], root)).stdout).toContain('create  .spec-harness.json\n        rounds are measured from trunk, the only branch:');
+  });
+
   it('asks the person for the base when it cannot tell one, and writes nothing for it', async () => {
     const repo = repository({}, null);
     repo.git('checkout', '-q', '-b', 'brief/001-x');
@@ -275,6 +282,77 @@ describe('init', () => {
     const result = await cli(['init', '--write'], repo.root);
     expect(result.stdout).toContain('update  .spec-harness.json\n        rounds are measured from main, the branch init runs on');
     expect(JSON.parse(repo.read('.spec-harness.json'))).toEqual({ outOfScope: 'ask', base: 'main' });
+  });
+
+  it('adds the base to a configuration without the key, as to one that names none', async () => {
+    const repo = repository({ '.spec-brief.json': '{}' }, null);
+    repo.write('.spec-harness.json', '{ "outOfScope": "ask" }\n');
+    const result = await cli(['init', '--write'], repo.root);
+    expect(result.stdout).toContain('update  .spec-harness.json\n        rounds are measured from main, the branch init runs on');
+    expect(JSON.parse(repo.read('.spec-harness.json'))).toEqual({ outOfScope: 'ask', base: 'main' });
+  });
+
+  it('says only what spec-brief lacks: the base alone once it loads the plugin, the plugin alone with no base to name', async () => {
+    const loaded = repository({ '.spec-brief.json': JSON.stringify({ plugins: [PLUGIN] }) });
+    expect((await cli(['init'], loaded.root)).stdout).toContain(
+      "update  .spec-brief.json\n        measure the archive from main, as spec-harness does: without a base, spec-brief's archive warns that the scope went unmeasured and checks no protected file\n",
+    );
+    const unbased = repository({ '.spec-brief.json': '{}' }, null);
+    unbased.git('checkout', '-q', '-b', 'brief/001-x');
+    expect((await cli(['init'], unbased.root)).stdout).toContain(
+      `update  .spec-brief.json\n        load spec-harness's plugin, "${PLUGIN}": spec-brief's archive asks it whether a signed ruling allows a protected file, and refuses the file without it\n`,
+    );
+    const kept = repository({ '.spec-brief.json': JSON.stringify({ plugins: [PLUGIN] }) }, null);
+    kept.git('checkout', '-q', '-b', 'brief/001-x');
+    expect((await cli(['init'], kept.root)).stdout).toContain("keep    .spec-brief.json\n        spec-harness's plugin is loaded\n");
+    const unreadable = repository({ '.spec-brief.json': '{' }, null);
+    unreadable.git('checkout', '-q', '-b', 'brief/001-x');
+    expect((await cli(['init'], unreadable.root)).stdout).toContain(`advise  .spec-brief.json\n        cannot be read as JSON; add "plugins": ["${PLUGIN}"] by hand\n`);
+  });
+
+  it('reads the default directories past a spec-brief setting that is not a path', async () => {
+    const repo = repository({ '.spec-brief.json': JSON.stringify({ briefs: 7, archive: ['x'] }) });
+    expect((await cli(['init'], repo.root)).stdout).toContain('keep    .spec-brief.json\n        briefs in briefs/, the archive in briefs/archive/\n');
+  });
+
+  describe('with what spec-brief init writes', () => {
+    /** A spec-brief whose init writes `content` as its configuration, or nothing when it is `null`. */
+    const writing = (content: string | null): Repository => {
+      const fake = temp();
+      const script = content === null ? '' : `require('node:fs').writeFileSync('.spec-brief.json', ${JSON.stringify(content)});`;
+      write(fake, 'spec-brief.cjs', `${script}\n`);
+      return repository({}, { tools: { ...siblings(), 'spec-brief': ['node', join(fake, 'spec-brief.cjs')] } });
+    };
+
+    it('stops with exit 2 when it writes nothing JSON can read', async () => {
+      for (const content of [null, '{ briefs']) {
+        const result = await cli(['init', '--write'], writing(content).root);
+        expect(result, String(content)).toMatchObject({ code: 2, stderr: 'spec-harness: .spec-brief.json: spec-brief init wrote no configuration JSON can read\n' });
+      }
+    });
+
+    it('leaves it as written when it already loads the plugin and measures from the base', async () => {
+      const written = `${JSON.stringify({ plugins: [PLUGIN], archiving: { base: 'main' } })}\n`;
+      const repo = writing(written);
+      expect((await cli(['init', '--write'], repo.root)).code).toBe(0);
+      expect(repo.read('.spec-brief.json')).toBe(written);
+    });
+  });
+
+  it('merges into the file spec-graph reads over the key in package.json, and reads a package.json that is not JSON as holding no key', async () => {
+    const graph = { tools: { ...siblings(), 'spec-graph': ['node', 'graph.js'] } };
+    const both = repository({ '.spec-graph.json': '{}', 'package.json': JSON.stringify({ 'spec-graph': { patterns: ['docs/**/*.md'] } }) }, graph);
+    expect((await cli(['init'], both.root)).stdout).toContain('update  .spec-graph.json\n');
+    const broken = repository({ 'package.json': '{ "name": ' }, graph);
+    expect((await cli(['init'], broken.root)).stdout).toContain('create  .spec-graph.json\n');
+  });
+
+  it('says nothing was changed only when something would be, and only without --write', async () => {
+    const repo = installed();
+    const written = await cli(['init', '--write'], repo.root);
+    expect(written.code).toBe(0);
+    expect(written.stdout).not.toContain('Nothing was changed');
+    expect((await cli(['init'], repo.root)).stdout).not.toContain('Nothing was changed');
   });
 
   it('cannot say where git\'s hooks are outside a work tree', async () => {
@@ -469,7 +547,7 @@ describe('init', () => {
   });
 
   it('stops with exit 2 when a step it applies fails', async () => {
-    const repo = repository({}, { tools: { 'spec-brief': ['node', '-e', 'process.stderr.write("init refused"); process.exit(1)'] } });
+    const repo = repository({}, { tools: { 'spec-brief': ['node', '-e', 'process.stderr.write("init refused\\n"); process.exit(1)'] } });
     const result = await cli(['init', '--write'], repo.root);
     expect(result).toMatchObject({ code: 2, stderr: 'spec-harness: .spec-brief.json: spec-brief init failed: init refused\n' });
   });

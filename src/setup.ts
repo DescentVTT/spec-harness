@@ -109,14 +109,13 @@ export async function plan(workspace: Workspace, options: Options, env: CliIO['e
   // The base rounds merge into, decided once: spec-harness verifies rulings
   // against the allowed signers on it, and spec-brief's archive measures the
   // round from it. A base a person wrote, in either file, is kept.
+  // openWorkspace loaded this file and refused one that is not a JSON object,
+  // so here it is one, or there is none.
   const harnessFile = join(root, CONFIG_FILE);
-  const harness = await readJson(harnessFile);
-  const namedBase = harness !== null && harness !== 'unreadable' && typeof harness['base'] === 'string' ? harness['base'] : null;
-  const choice =
-    harness === 'unreadable' || namedBase !== null
-      ? null
-      : chooseBase({ remoteDefault: await remoteDefault(root), branch: workspace.branch, branches: await localBranches(root) });
-  const base = namedBase ?? choice?.base ?? null;
+  const harness = (await readJson(harnessFile)) as Json | null;
+  const namedBase = harness !== null && typeof harness['base'] === 'string' ? harness['base'] : null;
+  const choice = namedBase === null ? chooseBase({ remoteDefault: await remoteDefault(root), branch: workspace.branch, branches: await localBranches(root) }) : null;
+  const base = choice === null ? namedBase : choice.base;
 
   // spec-brief first: every other setting is derived from its directories.
   const briefConfig = SPEC_BRIEF_CONFIGS.find((name) => existsSync(join(root, name)));
@@ -153,6 +152,8 @@ export async function plan(workspace: Workspace, options: Options, env: CliIO['e
   } else {
     const file = join(root, briefConfig);
     const config = await readJson(file);
+    // The file was found a moment ago, so null is one removed in between; and
+    // a string has neither key, so these checks are there for the type.
     if (config !== null && config !== 'unreadable') {
       if (typeof config['briefs'] === 'string') briefs = config['briefs'];
       archive = typeof config['archive'] === 'string' ? config['archive'] : `${briefs}/archive`;
@@ -203,15 +204,14 @@ export async function plan(workspace: Workspace, options: Options, env: CliIO['e
   }
 
   // spec-harness's own file, naming the base the rounds merge into: every
-  // ruling is verified against the allowed signers on it.
-  if (harness === 'unreadable') {
-    steps.push({ file: CONFIG_FILE, action: 'advise', detail: 'cannot be read as JSON; name the base rounds merge into as "base" by hand' });
-  } else if (namedBase !== null) {
+  // ruling is verified against the allowed signers on it. No choice was made
+  // only where the file names a base.
+  if (choice === null) {
     steps.push({ file: CONFIG_FILE, action: 'keep', detail: `rounds are measured from ${namedBase}` });
-  } else if (base === null || choice === null) {
-    steps.push({ file: CONFIG_FILE, action: 'advise', detail: choice?.detail ?? 'name the base rounds merge into as "base"' });
+  } else if (choice.base === null) {
+    steps.push({ file: CONFIG_FILE, action: 'advise', detail: choice.detail });
   } else {
-    const content: Json = { ...harness, base };
+    const content: Json = { ...harness, base: choice.base };
     steps.push({ file: CONFIG_FILE, action: harness === null ? 'create' : 'update', detail: choice.detail, apply: () => writeAtomic(harnessFile, stringify(content)) });
   }
 
