@@ -239,6 +239,45 @@ export const PLUGIN = '@descent-vtt/spec-harness/spec-brief-plugin';
 /** spec-brief's configuration files, in the order spec-brief looks for them in a directory. */
 export const SPEC_BRIEF_CONFIGS: readonly string[] = ['.spec-brief.json', 'spec-brief.json'];
 
+/** The conditions an import meets in Node, its `defaultConditions`, and `default`, which every one meets. */
+const IMPORT_CONDITIONS: readonly string[] = ['node', 'import', 'default'];
+
+/** A target Node refuses as invalid, which an array passes over and anything else stops at. */
+const INVALID = Symbol('invalid target');
+
+function resolveTarget(target: unknown): string | null | undefined | typeof INVALID {
+  if (typeof target === 'string') return target.startsWith('./') ? target : INVALID;
+  if (Array.isArray(target)) {
+    for (const item of target) {
+      const resolved = resolveTarget(item);
+      if (resolved !== undefined && resolved !== INVALID) return resolved;
+    }
+    return null;
+  }
+  if (typeof target !== 'object' || target === null) return target === null ? null : INVALID;
+  for (const [condition, value] of Object.entries(target)) {
+    if (!IMPORT_CONDITIONS.includes(condition)) continue;
+    const resolved = resolveTarget(value);
+    if (resolved !== undefined) return resolved;
+  }
+  return undefined;
+}
+
+/**
+ * The file a package's `exports` target names for an import, as Node's
+ * PACKAGE_TARGET_RESOLVE finds it, or `null` when it names none: a string
+ * that starts with `./`; in an object, the target of the first key, in the
+ * object's own order, that an import meets - `node`, `import` or
+ * `default` - and that resolves to anything, a `null` included; in an
+ * array, the first item that resolves, one Node refuses passed over. A
+ * `null` target is not exported, and ends the search there, where a
+ * condition an import does not meet lets it go on.
+ */
+export function exportedFile(target: unknown): string | null {
+  const resolved = resolveTarget(target);
+  return typeof resolved === 'string' ? resolved : null;
+}
+
 /**
  * Whether spec-brief's configuration loads the plugin, by name or as
  * `{ module, options }`. spec-brief also loads a plugin by a path, one that

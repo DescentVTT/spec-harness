@@ -44,6 +44,11 @@ cannot turn a run red. The family's policy is
   or an option's value without its double quotes - is noted as no signer,
   with why, where it was listed as one
   ([ADR-0006](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0006-a-ruling-is-a-signed-commit.md)).
+- `init` and `doctor` read the file the installed package's
+  `./spec-brief-plugin` export names as Node does: the first condition an
+  import meets in the order it is written, a `null` target as not exported,
+  and a target Node refuses as none, where they tried `import`, `node` and
+  `default` in that order and went past a `null`.
 
 ## 0.7.0
 

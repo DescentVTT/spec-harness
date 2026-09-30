@@ -13,6 +13,7 @@ import {
   describeSigners,
   describeSkipped,
   enabledPlugin,
+  exportedFile,
   graphReadsBriefs,
   GUARD_HOOK,
   holdsGuard,
@@ -35,6 +36,47 @@ import {
 } from '../../src/configure.js';
 
 const SCRIPT = '${CLAUDE_PROJECT_DIR}/node_modules/@descent-vtt/spec-harness/bin/spec-harness.js';
+
+describe('the file an exports target names for an import, as Node resolves it', () => {
+  it('is a string that starts with ./, and nothing else', () => {
+    expect(exportedFile('./dist/plugin.js')).toBe('./dist/plugin.js');
+    for (const target of ['dist/plugin.js', '../plugin.js', '/plugin.js', 7, true, undefined]) expect(exportedFile(target), String(target)).toBeNull();
+  });
+
+  it('is the target of the first key an import meets, node, import or default, in the object\'s own order', () => {
+    expect(exportedFile({ types: './a.d.ts', require: './a.cjs', import: './a.mjs', default: './a.js' })).toBe('./a.mjs');
+    expect(exportedFile({ default: './a.js', import: './a.mjs' })).toBe('./a.js');
+    expect(exportedFile({ node: './n.js', import: './a.mjs' })).toBe('./n.js');
+    expect(exportedFile({ require: './a.cjs', browser: './b.js' })).toBeNull();
+    // A key whose own conditions an import does not meet lets the search go on.
+    expect(exportedFile({ node: { require: './a.cjs' }, default: './a.js' })).toBe('./a.js');
+    expect(exportedFile({ node: { import: './n.mjs' }, default: './a.js' })).toBe('./n.mjs');
+  });
+
+  it('stops at a null target, which is not exported, as Node stops', () => {
+    expect(exportedFile({ import: null, default: './a.js' })).toBeNull();
+    expect(exportedFile({ node: { import: null }, default: './a.js' })).toBeNull();
+    expect(exportedFile(null)).toBeNull();
+  });
+
+  it('is the first item of an array that resolves, one Node refuses passed over', () => {
+    expect(exportedFile(['a.js', './b.js'])).toBe('./b.js');
+    // A number is a target Node refuses too, where null is one it resolves, to nothing.
+    expect(exportedFile([7, './b.js'])).toBe('./b.js');
+    expect(exportedFile([{ require: './a.cjs' }, './b.js'])).toBe('./b.js');
+    expect(exportedFile([{ import: 'a.mjs' }, './b.js'])).toBe('./b.js');
+    expect(exportedFile({ import: ['a.mjs', './b.mjs'] })).toBe('./b.mjs');
+    expect(exportedFile([null, './b.js'])).toBeNull();
+    expect(exportedFile([])).toBeNull();
+    // An empty array is not exported either, and ends the search as null does.
+    expect(exportedFile({ import: [], default: './a.js' })).toBeNull();
+    expect(exportedFile(['a.js'])).toBeNull();
+  });
+
+  it('refuses the whole target when a key an import meets names one Node refuses', () => {
+    expect(exportedFile({ import: 'a.mjs', default: './a.js' })).toBeNull();
+  });
+});
 const HOOK = { type: 'command', command: 'node', args: [SCRIPT, 'hook', 'claude'], timeout: 60 };
 const GUARD = { matcher: 'Edit|Write|MultiEdit|NotebookEdit', hooks: [HOOK] };
 const LEGACY = 'npx --no-install spec-harness hook claude';
