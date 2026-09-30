@@ -64,6 +64,14 @@ cannot turn a run red. The family's policy is
   [spec-core's ADR-0003](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0003-glob-dialects.md).
   Upgrading: a pattern written `.//x` now reads as `./x`; check that is what
   it should put in the scope, protect or allow.
+- `context` and `start_round` head a document the brief links to with the
+  status its front matter gives under `狀態` or `状态` when it has no
+  `status` key, as a Chinese ADR writes it: `(已接受)` after its title,
+  where the heading showed no status. `status` is read first, and
+  `狀態：已接受`, with a full-width colon, is no YAML key and gives none. See
+  [spec-core's ADR-0005](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0005-the-family-contract.md).
+  Upgrading: nothing to change; for the status to show, write the key with
+  an ASCII colon, `狀態: 已接受`.
 - `audit` reports an assertion in the brief that spec-guard cannot read as
   `assertion-unreadable`, a warning on its line with spec-guard's reason. It
   was dropped, and the audit passed on assertions it never ran. It fails
