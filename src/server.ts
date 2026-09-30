@@ -6,7 +6,8 @@
  * brief the next answer uses.
  */
 
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
+import { Readable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 
 import { describeMeasured } from './audit.js';
@@ -53,11 +54,11 @@ function baseOf(args: JsonObject): { base: string | undefined } | ToolOutcome {
 async function round(workspace: Workspace, env: CliIO['env'], id: unknown): Promise<{ brief: BriefRow; briefs: BriefRow[] } | ToolOutcome> {
   if (id !== undefined && typeof id !== 'string') return toolError('"brief" must be a string.');
   const briefs = await workspace.siblings.briefs();
-  const fromBranch = workspace.branch === null ? null : briefIdFromBranch(workspace.config.branches, workspace.branch);
+  const fromBranch = briefIdFromBranch(workspace.config.branches, workspace.branch);
   const active = findActive(briefs, { flag: id, environment: env['SPEC_BRIEF'], branch: fromBranch });
   const { brief, note, problem } = describeActive(active);
   if (problem !== null) return toolError(problem);
-  if (brief === null) return toolError(note ?? 'no brief is named');
+  if (brief === null) return toolError(note);
   return { brief, briefs };
 }
 
@@ -232,8 +233,12 @@ const SKILLS: readonly { name: string; title: string; argument: string; descript
 ];
 
 function skillText(name: string): string {
-  const file = fileURLToPath(new URL(`../skills/${name}/SKILL.md`, import.meta.url));
-  const text = existsSync(file) ? readFileSync(file, 'utf8') : '';
+  // The package ships the skills beside dist/ (package.json's files), so one
+  // that cannot be read is a broken install, and the request fails saying so
+  // rather than serving an empty prompt.
+  const text = readFileSync(fileURLToPath(new URL(`../skills/${name}/SKILL.md`, import.meta.url)), 'utf8');
+  // Every skill opens with its front matter (tests/source.test.ts), so the
+  // anchor is equivalent to its mutant here.
   return text.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, '').trim();
 }
 
@@ -257,6 +262,11 @@ export async function mcpCommand(options: Options, io: CliIO): Promise<number> {
   // the project in CLAUDE_PROJECT_DIR; the server answers for the project.
   const workspace = await openWorkspace({ ...options, root: options.root ?? (io.env['CLAUDE_PROJECT_DIR'] || undefined) }, io);
   const handle = createMcpServer({ name: 'spec-harness', version: version(), instructions: INSTRUCTIONS, tools: tools(workspace, io.env), prompts: prompts() });
-  await serveLines(process.stdin, (line) => process.stdout.write(`${line}\n`), handle);
+  // A session handed over whole, as a test hands it, is served as a client
+  // would stream it on stdin. Only the built command line serves
+  // process.stdin, and the suite spawns it from dist/, outside the sweep
+  // (tests/integration/mcp.test.ts), so a mutant that ignores it survives.
+  const input = io.stdin === undefined ? process.stdin : Readable.from([Buffer.from(await io.stdin())]);
+  await serveLines(input, (line) => io.stdout.write(`${line}\n`), handle);
   return 0;
 }

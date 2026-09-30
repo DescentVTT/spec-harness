@@ -1,13 +1,13 @@
 import { spawn } from 'node:child_process';
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { INSTRUCTIONS, prompts, tools } from '../../src/server.js';
 import { createMcpServer, type JsonObject, type ToolDefinition } from '../../src/vendor/spec-core/jsonrpc/index.js';
-import { openWorkspace, parseOptions, type Workspace } from '../../src/workspace.js';
-import { BIN, brief, BRIEF_FILE, cleanup, repository, ROOT, type Repository } from './helpers.js';
+import { openWorkspace, parseOptions, version, type Workspace } from '../../src/workspace.js';
+import { BIN, brief, BRIEF_FILE, cleanup, cli, repository, ROOT, temp, type Repository } from './helpers.js';
 
 afterAll(cleanup);
 
@@ -46,6 +46,65 @@ describe('the tools', () => {
     for (const t of list) expect(t.descriptor['inputSchema']).toMatchObject({ type: 'object', additionalProperties: false });
     expect(list.find((t) => t.descriptor.name === 'request_escalation')?.descriptor['annotations']).toMatchObject({ readOnlyHint: false });
     expect(list.find((t) => t.descriptor.name === 'check_path')?.descriptor['annotations']).toMatchObject({ readOnlyHint: true });
+  });
+
+  it('describe themselves and every argument they take, and refuse any other by the same names', async () => {
+    for (const t of tools(workspace, {})) {
+      const { name, title, description, inputSchema } = t.descriptor as unknown as {
+        name: string;
+        title: string;
+        description: string;
+        inputSchema: { properties: Record<string, { description: string }> };
+      };
+      // A model picks a tool, and fills in its arguments, from these words alone.
+      expect(title.length, name).toBeGreaterThan(0);
+      expect(description.length, name).toBeGreaterThan(0);
+      const names = Object.keys(inputSchema.properties);
+      for (const argument of names) expect(inputSchema.properties[argument]?.description.length, `${name}.${argument}`).toBeGreaterThan(0);
+      const takes = names.length === 0 ? 'no arguments' : names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
+      expect((await t.call({ zzz: 1 })).text, name).toBe(`Unknown argument "zzz"; this tool takes ${takes}.`);
+    }
+  });
+
+  it('declare the type of every argument, and require the ones a call is refused without', () => {
+    const shape = (value: unknown): unknown =>
+      Array.isArray(value)
+        ? value.map(shape)
+        : typeof value === 'object' && value !== null
+          ? Object.fromEntries(Object.entries(value).filter(([key]) => key !== 'description').map(([key, inner]) => [key, shape(inner)]))
+          : value;
+    const schemas = Object.fromEntries(tools(workspace, {}).map((t) => [t.descriptor.name, shape(t.descriptor['inputSchema'])]));
+    const text = { type: 'string' };
+    const paths = { type: 'array', items: text };
+    expect(schemas).toEqual({
+      start_round: { type: 'object', properties: { brief: text, base: text }, additionalProperties: false },
+      check_path: { type: 'object', properties: { paths, brief: text, base: text }, required: ['paths'], additionalProperties: false },
+      request_escalation: {
+        type: 'object',
+        properties: {
+          paths,
+          reason: text,
+          options: { type: 'array', items: { type: 'object', properties: { label: text, consequence: text }, required: ['label', 'consequence'] } },
+          recommendation: text,
+          brief: text,
+        },
+        required: ['paths', 'reason'],
+        additionalProperties: false,
+      },
+      audit_round: { type: 'object', properties: { brief: text, base: text }, additionalProperties: false },
+      list_rounds: { type: 'object', properties: {}, additionalProperties: false },
+    });
+  });
+
+  it('tell a client which only read, and that each request for a ruling records another', () => {
+    const reads = { readOnlyHint: true, idempotentHint: true, openWorldHint: false };
+    expect(Object.fromEntries(tools(workspace, {}).map((t) => [t.descriptor.name, t.descriptor['annotations']]))).toEqual({
+      start_round: reads,
+      check_path: reads,
+      request_escalation: { readOnlyHint: false, idempotentHint: false, openWorldHint: false },
+      audit_round: reads,
+      list_rounds: reads,
+    });
   });
 
   it('start_round gives the context packet of the brief the branch names', async () => {
@@ -101,6 +160,7 @@ describe('the tools', () => {
     expect(await tool('check_path').call({ paths: [] })).toEqual({ text: '"paths" must be a non-empty array of strings.', isError: true });
     expect(await tool('check_path').call({ paths: 'a.ts' })).toEqual({ text: '"paths" must be a non-empty array of strings.', isError: true });
     expect(await tool('check_path').call({ paths: [1] })).toEqual({ text: '"paths" must be a non-empty array of strings.', isError: true });
+    expect(await tool('check_path').call({ paths: ['a', 1] })).toEqual({ text: '"paths" must be a non-empty array of strings.', isError: true });
     expect(await tool('check_path').call({ paths: ['a'], path: 'b' })).toEqual({ text: 'Unknown argument "path"; this tool takes paths, brief and base.', isError: true });
     expect(await tool('check_path').call({ paths: ['a'], brief: 1 })).toEqual({ text: '"brief" must be a string.', isError: true });
     expect(await tool('check_path').call({ paths: ['a'], base: 1 })).toEqual({ text: '"base" must be a string.', isError: true });
@@ -121,6 +181,7 @@ describe('the tools', () => {
     expect(outcome.structured).toEqual({ id: 'E-001-1' });
     expect(outcome.text).toContain('# Escalation E-001-1');
     expect(outcome.text).toContain('1. **Allow** - one column\n2. **Refuse** - \n');
+    expect(outcome.text).toContain('## The agent recommends\n\nAllow.\n');
     expect(outcome.text.endsWith('\nStop here until a person rules on E-001-1.')).toBe(true);
     const state = join(workspace.commonDir, 'spec-harness', 'escalations');
     expect(existsSync(state) ? readdirSync(state) : []).toContain('E-001-1.json');
@@ -129,6 +190,9 @@ describe('the tools', () => {
   it('request_escalation refuses what it cannot record', async () => {
     const call = (args: JsonObject) => tool('request_escalation').call(args);
     expect(await call({ reason: 'r' })).toEqual({ text: '"paths" must be a non-empty array of strings.', isError: true });
+    expect(await call({ paths: [], reason: 'r' })).toEqual({ text: '"paths" must be a non-empty array of strings.', isError: true });
+    expect(await call({ paths: [1], reason: 'r' })).toEqual({ text: '"paths" must be a non-empty array of strings.', isError: true });
+    expect(await call({ paths: ['a', 2], reason: 'r' })).toEqual({ text: '"paths" must be a non-empty array of strings.', isError: true });
     expect(await call({ paths: ['a'], reason: ' ' })).toEqual({ text: '"reason" is required.', isError: true });
     expect(await call({ paths: ['a'] })).toEqual({ text: '"reason" is required.', isError: true });
     expect(await call({ paths: ['a'], reason: 'r', options: 'x' })).toEqual({ text: '"options" must be an array.', isError: true });
@@ -187,6 +251,82 @@ describe('the tools', () => {
     expect((await start({ SPEC_BRIEF: '1' }))?.structured).toMatchObject({ brief: '001' });
     expect((await start({}))?.text).toContain('no brief is named');
   });
+
+  it('request_escalation records a request with no options and no recommendation, and says neither', async () => {
+    const outcome = await tool('request_escalation').call({ paths: ['src/db/schema.ts'], reason: 'A column.' });
+    expect(outcome.isError).toBeUndefined();
+    expect(outcome.text).toContain('## Why\n\nA column.\n\n## To rule\n');
+    expect(outcome.text).not.toContain('## Options');
+    expect(outcome.text).not.toContain('## The agent recommends');
+  });
+
+  it('request_escalation records an option however little it says, rather than refuse to ask', async () => {
+    const outcome = await tool('request_escalation').call({ paths: ['src/db/schema.ts'], reason: 'A column.', options: [{ consequence: 'no column' }] });
+    expect(outcome.text).toContain('## Options\n\n1. **** - no column\n');
+  });
+
+  it('request_escalation and audit_round act on the brief they are given', async () => {
+    const other = await tool('request_escalation').call({ paths: ['lib/x.ts'], reason: 'r', brief: '2' });
+    expect(other.structured).toEqual({ id: 'E-002-1' });
+    expect(other.text).toContain('Brief 002 (`briefs/002_next.md`)');
+    const nowhere = { text: 'the flag names brief 404, and spec-brief knows no such brief', isError: true };
+    expect(await tool('request_escalation').call({ paths: ['a'], reason: 'r', brief: '404' })).toEqual(nowhere);
+    expect(await tool('audit_round').call({ brief: '404' })).toEqual(nowhere);
+    const audited = await tool('audit_round').call({ brief: '2' });
+    expect((audited.structured as { findings: { file?: string }[] }).findings.map((f) => f.file).filter((file) => file !== undefined)).toContain('briefs/002_next.md');
+    expect((await tool('audit_round').call({})).text).not.toContain('briefs/002_next.md');
+  });
+
+  it('audit_round gives each finding a line of its own', async () => {
+    const outcome = await tool('audit_round').call({ brief: '2' });
+    const findings = (outcome.structured as { findings: { severity: string; rule: string }[] }).findings;
+    expect(findings.length).toBeGreaterThanOrEqual(2);
+    const lines = (outcome.text.split('\n\n')[0] ?? '').split('\n');
+    expect(lines.map((line) => line.slice(0, line.indexOf(':')))).toEqual(findings.map((f) => `${f.severity} ${f.rule}`));
+  });
+
+  it('start_round names the documents the budget leaves out and those it cannot find', async () => {
+    const small = repository(
+      { [BRIEF_FILE]: brief({ body: 'See [a](../docs/a.md) and [gone](../docs/gone.md).\n' }), 'docs/a.md': `# A\n\n${'text '.repeat(40)}\n` },
+      { context: { budget: 100 } },
+    );
+    const other = await openWorkspace(parseOptions(['mcp']), { stdout: { write: () => true }, stderr: { write: () => true }, cwd: small.root, env: {} });
+    const outcome = await tools(other, { SPEC_BRIEF: '1' }).find((t) => t.descriptor.name === 'start_round')?.call({});
+    expect(outcome?.structured).toMatchObject({ included: [], omitted: ['docs/a.md'], unresolved: ['docs/gone.md'] });
+  });
+
+  it('list_rounds lists a brief without a title by its id, one without a status as unknown, and every brief one waits on', async () => {
+    const untitled = [
+      '---',
+      'status: draft',
+      'dependsOn: [1, 2]',
+      '---',
+      '',
+      '## Intent',
+      '',
+      'x',
+      '',
+      '## Negative Scope',
+      '',
+      '- none',
+      '',
+      '## Invariants',
+      '',
+      '- [ ] y',
+      '',
+    ].join('\n');
+    const unstated = untitled.replace('status: draft\ndependsOn: [1, 2]\n', '').replace('## Intent', '# 004 - Unstated\n\n## Intent');
+    const many = repository({
+      [BRIEF_FILE]: brief(),
+      'briefs/002_other.md': brief({ title: '002 - Other' }),
+      'briefs/003_untitled.md': untitled,
+      'briefs/004_unstated.md': unstated,
+    });
+    const other = await openWorkspace(parseOptions(['mcp']), { stdout: { write: () => true }, stderr: { write: () => true }, cwd: many.root, env: {} });
+    const listed = await tools(other, {}).find((t) => t.descriptor.name === 'list_rounds')?.call({});
+    expect(listed?.text.split('\n')).toContain('003 - draft, wave -, waits on 1, 2');
+    expect(listed?.text.split('\n')).toContain('004 Unstated - unknown, wave -, ready');
+  });
 });
 
 describe('the prompts', () => {
@@ -203,6 +343,25 @@ describe('the prompts', () => {
     expect(text.endsWith('\n\nbrief: 012')).toBe(true);
     const bare = (await run?.get({ brief: '' })) as { messages: { content: { text: string } }[] };
     expect(bare.messages[0]?.content.text.endsWith('brief: ')).toBe(false);
+  });
+
+  it('each take one optional argument, named for what it appends, and serve the skill alone without it', async () => {
+    const skills = { 'draft-brief': 'request', 'split-goal': 'goal', 'run-round': 'brief', 'close-round': 'brief' };
+    const titles = new Set<string>();
+    for (const prompt of prompts()) {
+      const { name, title, arguments: args } = prompt.descriptor as unknown as { name: keyof typeof skills; title: string; arguments: { name: string; description: string; required: boolean }[] };
+      expect(title.length, name).toBeGreaterThan(0);
+      titles.add(title);
+      expect(args.map((a) => ({ name: a.name, required: a.required })), name).toEqual([{ name: skills[name], required: false }]);
+      expect(args[0]?.description.length, name).toBeGreaterThan(0);
+      const skill = readFileSync(join(ROOT, 'skills', name, 'SKILL.md'), 'utf8');
+      const body = skill.slice(skill.indexOf('\n---\n', 4) + '\n---\n'.length).trim();
+      const bare = (await prompt.get({})) as { description: string; messages: { role: string; content: { type: string; text: string } }[] };
+      expect(bare).toEqual({ description: title, messages: [{ role: 'user', content: { type: 'text', text: body } }] });
+      const given = (await prompt.get({ [skills[name]]: 'x' })) as { messages: { content: { text: string } }[] };
+      expect(given.messages[0]?.content.text, name).toBe(`${body}\n\n${skills[name]}: x`);
+    }
+    expect(titles.size).toBe(4);
   });
 });
 
@@ -245,6 +404,41 @@ describe('the server', () => {
     });
     const answer = (await server({ jsonrpc: '2.0', id: 5, method: 'tools/call', params: { name: 'list_rounds', arguments: {} } })) as unknown as { result: { isError: boolean; content: { text: string }[] } };
     expect(answer.result).toMatchObject({ isError: true, content: [{ type: 'text', text: 'spec-harness failed: spec-brief is gone' }] });
+  });
+});
+
+describe('the mcp command', () => {
+  const session = `${[
+    { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 't', version: '1' } } },
+    { jsonrpc: '2.0', method: 'notifications/initialized' },
+    { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'check_path', arguments: { paths: ['src/db/schema.ts'] } } },
+  ]
+    .map((message) => JSON.stringify(message))
+    .join('\n')}\n`;
+
+  const answers = (stdout: string) =>
+    stdout
+      .split('\n')
+      .filter((line) => line !== '')
+      .map((line) => JSON.parse(line) as { id: number; result: { serverInfo?: unknown; structuredContent?: { decisions: { verdict: string }[] } } })
+      .sort((a, b) => a.id - b.id);
+
+  it('answers for the project CLAUDE_PROJECT_DIR names, one line per answer, as spec-harness at its version', async () => {
+    const served = await cli(['mcp'], temp(), { env: { CLAUDE_PROJECT_DIR: repo.root }, stdin: session });
+    expect(served).toMatchObject({ code: 0, stderr: '' });
+    expect(served.stdout.endsWith('}\n')).toBe(true);
+    const [initialized, called] = answers(served.stdout);
+    expect(initialized?.result.serverInfo).toEqual({ name: 'spec-harness', version: version() });
+    expect(called?.result.structuredContent?.decisions.map((d) => d.verdict)).toEqual(['deny']);
+  });
+
+  it('answers for --root over CLAUDE_PROJECT_DIR, and for where it runs when that is empty', async () => {
+    const rooted = await cli(['mcp', '--root', repo.root], temp(), { env: { CLAUDE_PROJECT_DIR: temp() }, stdin: session });
+    expect(rooted.code).toBe(0);
+    expect(answers(rooted.stdout)[1]?.result.structuredContent?.decisions.map((d) => d.verdict)).toEqual(['deny']);
+    const here = await cli(['mcp'], repo.root, { env: { CLAUDE_PROJECT_DIR: '' }, stdin: session });
+    expect(here.code).toBe(0);
+    expect(answers(here.stdout)).toHaveLength(2);
   });
 });
 
