@@ -9,8 +9,11 @@ name: Mutation
 # The full sweep mutates the edges as well - the command line, init, the
 # server, git and the siblings - against the whole suite. Its tests spawn git
 # and the sibling tools for every mutant they reach, so it is slower by an
-# order of magnitude: it runs weekly and on request, and gates nothing until a
-# hosted run has been measured.
+# order of magnitude: it runs weekly and on request. One runner took 69 to 123
+# minutes for it, so it runs in shards, each mutating its own files against
+# every test (scripts/mutation-shards.mjs), and the job after them merges the
+# reports and applies the `break` in stryker.config.mjs once, to the merged
+# score.
 on:
   schedule:
     # An hour after spec-guard's and two after spec-brief's and spec-graph's,
@@ -34,13 +37,23 @@ permissions:
   contents: read
 
 jobs:
-  full:
-    name: mutation (full)
+  shard:
+    name: mutation (full, shard ${{ matrix.shard }} of ${{ strategy.job-total }})
     if: github.event_name == 'schedule' || inputs.full
     runs-on: ubuntu-latest
-    # Stryker writes its report only when the sweep ends, so a sweep cut short
-    # measures nothing; a hosted job may run for six hours.
-    timeout-minutes: 350
+    # Headroom for a bad runner, not a budget. Stryker writes a shard's report
+    # only when the shard ends, so a shard cut short measures nothing, and the
+    # merge refuses the sweep.
+    timeout-minutes: 60
+    strategy:
+      # One broken shard should not hide what the others found. The merge
+      # refuses to score a sweep with a shard missing either way.
+      fail-fast: false
+      matrix:
+        # One entry per shard in scripts/mutation-shards.mjs; a test checks.
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
+    env:
+      MUTATION_SHARD: ${{ matrix.shard }}
     steps:
       # Pinned to commits, with the tag beside each, as in ci.yml.
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -60,12 +73,53 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Full mutation sweep
-        run: npm run test:mutation:full
+      - name: Full mutation sweep, one shard
+        run: |
+          started=$SECONDS
+          npx stryker run stryker.shard.config.mjs
+          echo "{\"seconds\": $((SECONDS - started))}" > "reports/mutation/shard-$MUTATION_SHARD.timing.json"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: mutation-full-shard-${{ matrix.shard }}
+          path: reports/mutation/shard-${{ matrix.shard }}*.json
+          if-no-files-found: error
+          retention-days: 14
+
+  full:
+    name: mutation (full)
+    needs: shard
+    # Runs when a shard failed too, so the failure is reported as an incomplete
+    # sweep rather than as a skipped check.
+    if: ${{ !cancelled() && (github.event_name == 'schedule' || inputs.full) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: '24'
+          cache: npm
+
+      # The merge scores with Stryker's own metrics library.
+      - run: npm ci
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: mutation-full-shard-*
+          path: reports/shards
+
+      - name: Merge the shards and apply the gate
+        run: node scripts/mutation-shards.mjs merge reports/shards
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
           name: mutation-full
-          path: reports/mutation/
+          path: |
+            reports/mutation/index.html
+            reports/mutation/mutation.json
           if-no-files-found: ignore
