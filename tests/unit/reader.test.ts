@@ -252,22 +252,13 @@ describe('title and status', () => {
     expect(reader.titleAndStatus('---\nstatus: "superseded"\n---\n\nSetext\n======\n')).toEqual({ title: 'Setext', status: 'superseded', unclosedFrontMatter: false, unreadableFrontMatter: [] });
   });
 
-  it('reads the status under 狀態 or 状态 when the front matter has no status key, as a Chinese ADR writes it', () => {
-    expect(reader.titleAndStatus('---\n狀態: 已接受\n---\n\n# ADR-0003：令牌輪換\n')).toEqual({ title: 'ADR-0003：令牌輪換', status: '已接受', unclosedFrontMatter: false, unreadableFrontMatter: [] });
-    expect(reader.titleAndStatus('---\n状态: "已废弃"\n---\n')).toEqual({ title: null, status: '已废弃', unclosedFrontMatter: false, unreadableFrontMatter: [] });
-  });
-
-  it('reads status first, then 狀態, then 状态, wherever each is written', () => {
+  it('reads the status under `status` alone, however it is cased: a key in another language is another key', () => {
+    expect(reader.titleAndStatus('---\nStatus: accepted\n---\n').status).toBe('accepted');
+    // The tools read English only: a document in any language writes its status as `status`.
+    expect(reader.titleAndStatus('---\n狀態: 已接受\n---\n\n# ADR-0003\n')).toEqual({ title: 'ADR-0003', status: null, unclosedFrontMatter: false, unreadableFrontMatter: [] });
+    expect(reader.titleAndStatus('---\n状态: "已废弃"\n---\n').status).toBeNull();
     expect(reader.titleAndStatus('---\n狀態: 草稿\nstatus: accepted\n---\n').status).toBe('accepted');
-    expect(reader.titleAndStatus('---\n状态: 草案\n狀態: 已接受\n---\n').status).toBe('已接受');
-    // The first key the document holds decides, even with no word under it.
-    expect(reader.titleAndStatus('---\nstatus:\n狀態: 已接受\n---\n').status).toBeNull();
-  });
-
-  it('reads no status under a full-width colon, which YAML does not separate a key with, or under another key', () => {
-    expect(reader.titleAndStatus('---\n狀態：已接受\n---\n').status).toBeNull();
-    expect(reader.titleAndStatus('---\n状态 ： 已接受\n---\n').status).toBeNull();
-    expect(reader.titleAndStatus('---\n狀況: 已接受\n標題: 令牌\n---\n').status).toBeNull();
+    expect(reader.titleAndStatus('---\nstate: accepted\n---\n').status).toBeNull();
   });
 
   it('reads nothing that is not there, or not a word', () => {

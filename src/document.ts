@@ -41,8 +41,7 @@ export interface DocumentReader {
   sectionTables(text: string, section: string): SectionTables;
   citations(text: string): Citation[];
   /**
-   * The first level-one heading, and the front matter's status, under
-   * `status`, `狀態` or `状态`, the first the document holds. YAML front
+   * The first level-one heading, and the front matter's `status`. YAML front
    * matter opened on line 1 and never closed is `unclosedFrontMatter`: none
    * of it is read, so a status its author wrote there reads as none. A line
    * of closed YAML front matter that is not `key: value` is in
