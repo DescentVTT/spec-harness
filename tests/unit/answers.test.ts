@@ -19,11 +19,12 @@ describe('spec-guard query', () => {
 
   it('reads each result\'s rules, a missing list as an empty one, a missing reason as none and a missing inForce as in force', () => {
     const document = {
-      results: [{ path: 'src', rules: [rule({ reason: 'gone', inForce: false, bounds: { max: 0 } }), rule({ reason: null })] }, { path: 'lib' }],
+      results: [{ path: 'src', rules: [rule({ reason: 'gone', inForce: false, bounds: { max: 0 } }), rule({ reason: null }), rule()] }, { path: 'lib' }],
     };
     expect(readQueryRules(document)).toEqual([
       [
         { document: 'docs/adr/0001.md', line: 5, kind: 'assert-absence', description: 'd', reason: 'gone', inForce: false },
+        { document: 'docs/adr/0001.md', line: 5, kind: 'assert-absence', description: 'd', reason: null, inForce: true },
         { document: 'docs/adr/0001.md', line: 5, kind: 'assert-absence', description: 'd', reason: null, inForce: true },
       ],
       [],
