@@ -511,6 +511,9 @@ describe('spec-graph\'s history', () => {
     expect(graphReadsBriefs({ patterns: ['{/briefs/**/*.md,docs/**/*.md}'] }, 'briefs')).toBe(false);
     expect(graphReadsBriefs({ patterns: ['/briefs/**/*.md'] }, 'briefs')).toBe(false);
     expect(graphReadsBriefs({ patterns: ['{/briefs/**/*.md,docs/**/*.md}'] }, 'docs/briefs')).toBe(true);
+    // The slashes after a leading ./ go with it, where .//briefs/**/*.md read as /briefs/**/*.md.
+    expect(graphReadsBriefs({ patterns: ['.//briefs/**/*.md'] }, 'briefs')).toBe(true);
+    expect(graphReadsBriefs({ patterns: ['{.//briefs/**/*.md,docs/**/*.md}'] }, 'briefs')).toBe(true);
   });
 
   it('says what the history entry does, and when it does nothing yet', () => {
