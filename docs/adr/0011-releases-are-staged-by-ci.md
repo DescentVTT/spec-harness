@@ -82,6 +82,13 @@ publish. So `prepublishOnly` now refuses outside GitHub Actions, where
 nothing runs it - the release stages a tarball, and a tarball's scripts are
 not run.
 
+*Amended 2026-10-01.* `publish` installs npm at an exact version, 11.20.0, the
+one every staged release so far has used, rather than the newest 11.x: a range
+would bring a version published an hour earlier into the one job that can
+stage, past the cooldown Dependabot holds every other dependency to. Moving it
+is an edit made on purpose. `pack` restores no dependency cache, because other
+runs write it and the tarball comes from the lockfile and the registry alone.
+
 **Each sibling has a minimum version**, below which the harness does not run
 it:
 
