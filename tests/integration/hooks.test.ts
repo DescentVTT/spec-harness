@@ -79,6 +79,8 @@ describe('hook claude', () => {
     const broken = repository({}, { tools: { 'spec-brief': ['no-such-program-for-spec-harness'] } });
     expect(await claude(hookInput('PreToolUse', 'Bash', { command: 'rm -rf src' }, broken.root), { cwd: broken.root })).toEqual({ code: 0, stdout: '', stderr: '' });
     expect(await claude(hookInput('PreToolUse', 'Read', { file_path: 'src/db/schema.ts' }))).toEqual({ code: 0, stdout: '', stderr: '' });
+    // Nor blocks it over a brief it cannot name: a write it would check never comes.
+    expect(await claude(hookInput('PreToolUse', 'Bash', { command: 'ls' }), { env: { SPEC_BRIEF: '404' } })).toEqual({ code: 0, stdout: '', stderr: '' });
   });
 
   it('reports input it cannot read as a non-blocking error', async () => {
@@ -182,6 +184,8 @@ describe('hook git', () => {
 
   it('stops every commit while the named brief is unknown', async () => {
     const r = repository({ [BRIEF_FILE]: brief(), 'a.ts': 'a\n' });
+    // A commit that stages nothing changes nothing to check.
+    expect(await cli(['hook', 'git', '--brief', '404'], r.root)).toEqual({ code: 0, stdout: '', stderr: '' });
     r.write('a.ts', 'b\n');
     r.git('add', '-A');
     const result = await cli(['hook', 'git', '--brief', '404'], r.root);

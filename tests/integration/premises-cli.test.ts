@@ -27,6 +27,14 @@ describe('premises on the command line', () => {
     expect(parsed<{ premises: number; findings: { rule: string }[] }>(result)).toMatchObject({ premises: 1, findings: [{ rule: 'stale-premise' }] });
   });
 
+  it('checks the premises of a live brief whatever its status says', async () => {
+    const body = ['## The Defect, Measured', '', '<!-- @assert-count target="src" symbol="legacyCall" min="1" -->', ''].join('\n');
+    const repo = repository({ [BRIEF_FILE]: brief({ status: 'draft', affected: ['src/**'], body }), 'src/a.ts': 'modernCall();\n' });
+    const result = await cli(['premises', '--format', 'json'], repo.root);
+    expect(result.code).toBe(1);
+    expect(parsed<{ findings: { rule: string }[] }>(result).findings.map((f) => f.rule)).toEqual(['stale-premise']);
+  });
+
   it('passes --strict when every premise holds and spec-guard reads them all', async () => {
     const body = ['## The Defect, Measured', '', '<!-- @assert-count target="src" symbol="legacyCall" min="1" -->', ''].join('\n');
     const repo = repository({ [BRIEF_FILE]: brief({ affected: ['src/**'], body }), 'src/a.ts': 'legacyCall();\n' });
@@ -148,6 +156,14 @@ describe('premises in a CI run on a detached head', () => {
       expect(result.code, JSON.stringify(env)).toBe(0);
       expect(parsed<{ findings: { rule: string }[] }>(result).findings.map((f) => f.rule), JSON.stringify(env)).toEqual(['premise-retired']);
     }
+  });
+
+  it('reads the brief SPEC_BRIEF names, trimmed, as doctor does', async () => {
+    const repo = detached();
+    const result = await cli(['premises', '--format', 'json'], repo.root, { env: { SPEC_BRIEF: ' 1 ' } });
+    expect(result.code).toBe(0);
+    expect(parsed<{ findings: { rule: string }[] }>(result).findings.map((f) => f.rule)).toEqual(['premise-retired']);
+    expect(parsed<{ brief: string }>(await cli(['doctor', '--format', 'json'], repo.root, { env: { SPEC_BRIEF: ' 1 ' } })).brief).toBe('1');
   });
 
   it('names no brief without them, as before, and the premise is stale', async () => {

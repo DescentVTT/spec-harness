@@ -200,6 +200,39 @@ describe.skipIf(!hasSshKeygen())('the spec-brief plugin', () => {
     expect(waivers).toEqual([{ rule: 'protected-file', path: 'src/db/schema.ts', reason: 'ruling R-001-1, signed by t@example.com, allows it' }]);
   });
 
+  it('waives a path a finding lists among others, and nothing a finding of another rule names', async () => {
+    const { root, key } = signedRepository();
+    const text = ruling(BRIEF);
+    write(root, 'briefs/001_remove.md', text);
+    git(root, '-c', 'gpg.format=ssh', '-c', `user.signingkey=${key}`, 'commit', '-q', '-S', '-am', 'ruling R-001-1');
+    const asked = (findings: { rule: string; path?: string; paths?: string[] }[]) =>
+      waive({ root, brief: { id: '001', file: 'briefs/001_remove.md', text }, findings, base: 'main', commit: null });
+    expect(await asked([{ rule: 'protected-file', paths: ['src/db/other.ts', 'src/db/schema.ts'] }])).toEqual([
+      { rule: 'protected-file', path: 'src/db/schema.ts', reason: 'ruling R-001-1, signed by t@example.com, allows it' },
+    ]);
+    expect(await asked([{ rule: 'open-task', path: 'src/db/schema.ts' }])).toEqual([]);
+  });
+
+  it('reads the signers from the base spec-brief measures from, over the configuration\'s, and from a linked worktree', async () => {
+    const { root, key } = signedRepository();
+    const text = ruling(BRIEF);
+    write(root, 'briefs/001_remove.md', text);
+    git(root, '-c', 'gpg.format=ssh', '-c', `user.signingkey=${key}`, 'commit', '-q', '-S', '-am', 'ruling R-001-1');
+    const expected = [{ rule: 'protected-file', path: 'src/db/schema.ts', reason: 'ruling R-001-1, signed by t@example.com, allows it' }];
+    const configured = JSON.parse(readFileSync(join(root, '.spec-harness.json'), 'utf8')) as Record<string, unknown>;
+    write(root, '.spec-harness.json', `${JSON.stringify({ ...configured, base: 'no-such-branch' })}\n`);
+    const asked = (at: string, base: string | null) =>
+      waive({ root: at, brief: { id: '001', file: 'briefs/001_remove.md', text }, findings: [{ rule: 'protected-file', path: 'src/db/schema.ts' }], base, commit: null });
+    expect(await asked(root, 'main')).toEqual(expected);
+    expect(await asked(root, null)).toEqual([]);
+    // A linked worktree keeps its state, the copy of the signers among it, in the repository's common directory.
+    const linked = join(root, '..', `${root.split(/[\\/]/).pop() as string}-linked`);
+    made.push(linked);
+    git(root, 'worktree', 'add', '-q', '--detach', linked, 'HEAD');
+    write(linked, '.spec-harness.json', `${JSON.stringify({ ...configured, base: 'no-such-branch' })}\n`);
+    expect(await asked(linked, 'main')).toEqual(expected);
+  });
+
   it('waives nothing for a ruling nobody signed', async () => {
     const { root } = signedRepository();
     const text = ruling(BRIEF);

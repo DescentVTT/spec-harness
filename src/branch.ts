@@ -93,8 +93,9 @@ export function ciBranch(env: Readonly<Record<string, string | undefined>>): { r
   );
 }
 
-/** The first template that yields an id, in order. */
-export function briefIdFromBranch(templates: readonly string[], name: string): string | null {
+/** The first template that yields an id, in order; `null` for a head on no branch, which names no brief. */
+export function briefIdFromBranch(templates: readonly string[], name: string | null): string | null {
+  if (name === null) return null;
   for (const template of templates) {
     const id = idFromBranch(template, name);
     if (id !== null) return id;

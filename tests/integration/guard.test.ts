@@ -47,6 +47,8 @@ describe('guard on a brief branch', () => {
     expect(warned.code).toBe(0);
     expect(warned.stdout).toContain("warning  README.md is outside brief 001's scope, which covers src/auth/**");
     expect((await cli(['guard', 'README.md', '--strict'], repo.root)).code).toBe(1);
+    expect((await cli(['guard', 'src/auth/a.ts', 'README.md', '--strict'], repo.root)).code).toBe(1);
+    expect((await cli(['guard', 'src/auth/a.ts', '--strict'], repo.root)).code).toBe(0);
   });
 
   it('answers in JSON with every decision', async () => {
@@ -99,6 +101,13 @@ describe('guard with no brief named', () => {
     expect(parsed<{ decisions: Decision[] }>(result).decisions[0]?.message).toContain('pass --brief <id>, set SPEC_BRIEF');
     // SPEC_BRIEF names one on a branch that does not.
     expect((await decisions(['src/db/schema.ts'], plain.root, { SPEC_BRIEF: '1' }))[0]).toMatchObject({ verdict: 'deny', reason: 'protected' });
+  });
+
+  it('asks spec-brief nothing when no brief is named, so a spec-brief that cannot run blocks nothing', async () => {
+    const broken = repository({}, { tools: { 'spec-brief': ['no-such-program-for-spec-harness'] } });
+    const result = await cli(['guard', 'src/a.ts'], broken.root);
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain('no brief governs src/a.ts: no brief is named');
   });
 
   it('needs a path', async () => {

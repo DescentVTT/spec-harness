@@ -1,14 +1,14 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { afterAll, describe, expect, it } from 'vitest';
 
 import { ConfigError, DEFAULT_CONFIG } from '../../src/config.js';
-import { loadConfig, readText, realSpelling, repositoryPath, stateDirectory, writeAtomic } from '../../src/fs.js';
-import { blameLine, changes, GitError, mergeBase, revision, show, stagedChanges, workTreeRoot } from '../../src/git.js';
+import { loadConfig, readJsonObject, readText, realSpelling, repositoryPath, stateDirectory, writeAtomic } from '../../src/fs.js';
+import { addWorktree, blameLine, changes, GitError, mergeBase, revision, show, stagedChanges, workTreeRoot } from '../../src/git.js';
 import { runCommand, withWorktree } from '../../src/sandbox.js';
 import { createSiblings, locate, runSibling, SiblingError } from '../../src/siblings.js';
-import { cleanup, ignoresCase, install, installFake, repository, ROOT, temp } from './helpers.js';
+import { brief, BRIEF_FILE, cleanup, cli, ignoresCase, install, installFake, parsed, repository, ROOT, temp } from './helpers.js';
 
 afterAll(cleanup);
 
@@ -18,6 +18,14 @@ describe('paths as the filesystem spells them', () => {
     mkdirSync(join(root, 'src'));
     expect(realSpelling(join(root, 'src', 'new', 'file.ts'))).toBe(join(root, 'src', 'new', 'file.ts'));
     expect(realSpelling(root)).toBe(root);
+  });
+
+  it('resolves a link on the way to a path that does not exist yet', () => {
+    const root = temp();
+    mkdirSync(join(root, 'target'));
+    // A junction on Windows, which needs no privilege; a symbolic link elsewhere.
+    symlinkSync(join(root, 'target'), join(root, 'link'), 'junction');
+    expect(realSpelling(join(root, 'link', 'new', 'file.ts'))).toBe(join(realpathSync.native(join(root, 'target')), 'new', 'file.ts'));
   });
 
   it('corrects the case of what exists, on a filesystem that ignores case', () => {
@@ -70,6 +78,16 @@ describe('state and files', () => {
     expect(await readText(join(root, 'missing.txt'))).toBeNull();
   });
 
+  it('reads a JSON object, no file as none, and anything else as unreadable', async () => {
+    const root = temp();
+    expect(await readJsonObject(join(root, 'missing.json'))).toBeNull();
+    const cases: [string, unknown][] = [['{"a":1}', { a: 1 }], ['null', 'unreadable'], ['5', 'unreadable'], ['[]', 'unreadable'], ['{', 'unreadable']];
+    for (const [content, expected] of cases) {
+      writeFileSync(join(root, 'x.json'), content);
+      expect(await readJsonObject(join(root, 'x.json')), content).toEqual(expected);
+    }
+  });
+
   it('loads the configuration, the defaults without one, and refuses one that is not JSON', async () => {
     const root = temp();
     expect(await loadConfig(root)).toEqual({ config: DEFAULT_CONFIG, file: null });
@@ -95,6 +113,28 @@ describe('git', () => {
     expect(await mergeBase('HEAD', 'no-such-ref', repo.root)).toBeNull();
     await expect(changes('no-such-ref', 'HEAD', repo.root)).rejects.toBeInstanceOf(GitError);
     await expect(stagedChanges(outside)).rejects.toBeInstanceOf(GitError);
+  });
+
+  it('says which git command failed, and what git said, on one line', async () => {
+    const repo = repository({ 'a.txt': 'a\n' });
+    const failure = async (work: Promise<unknown>): Promise<Error> => work.then(() => new Error('it did not fail'), (error: Error) => error);
+    const diff = await failure(changes('no-such-ref', 'HEAD', repo.root));
+    expect(diff.name).toBe('GitError');
+    expect(diff.message).toMatch(/^git diff no-such-ref HEAD failed: \S/);
+    const staged = await failure(stagedChanges(temp()));
+    expect(staged.message).toMatch(/^git diff --cached failed: \S/);
+    const added = await failure(addWorktree(join(temp(), 'wt'), 'no-such-ref', repo.root));
+    expect(added.message).toMatch(/^git worktree add failed: \S/);
+    for (const error of [diff, staged, added]) expect(error.message.endsWith('\n')).toBe(false);
+  });
+
+  it('keeps the harness\'s state where every worktree of the repository shares it (ADR-0003)', async () => {
+    const repo = repository({ [BRIEF_FILE]: brief({ protected: ['src/db/**'] }) });
+    const linked = join(temp(), 'linked');
+    repo.git('worktree', 'add', '-q', '-b', 'brief/001-rotate', linked);
+    expect((await cli(['escalate', '--path', 'src/db/x.ts', '--reason', 'r'], linked)).code).toBe(1);
+    const listed = parsed<{ waiting: { id: string }[] }>(await cli(['escalate', '--list', '--format', 'json'], repo.root));
+    expect(listed.waiting.map((request) => request.id)).toEqual(['E-001-1']);
   });
 
   it('blames the working tree, where a line nobody committed belongs to no commit', async () => {
@@ -208,11 +248,41 @@ describe('finding the siblings', () => {
     expect(run.stdout.trim()).toBe(process.execPath);
   });
 
+  it('runs "node" as this Node even where PATH finds none', async () => {
+    const path = process.env['PATH'];
+    process.env['PATH'] = temp();
+    try {
+      expect((await runSibling(['node', '-e', 'process.stdout.write("ran")'], [], temp())).stdout).toBe('ran');
+    } finally {
+      process.env['PATH'] = path;
+    }
+  });
+
+  it('runs a sibling with colour off and the rest of the environment as it is', async () => {
+    process.env['SPEC_HARNESS_TEST_KEPT'] = 'kept';
+    try {
+      const run = await runSibling(['node', '-e', 'process.stdout.write(JSON.stringify([process.env.NO_COLOR, process.env.FORCE_COLOR, process.env.SPEC_HARNESS_TEST_KEPT]))'], [], temp());
+      expect(JSON.parse(run.stdout)).toEqual(['1', '0', 'kept']);
+    } finally {
+      delete process.env['SPEC_HARNESS_TEST_KEPT'];
+    }
+  });
+
+  it('answers a sibling stopped at its time limit, or one that cannot start, with -1 and what went wrong', async () => {
+    expect((await runSibling(['node', '-e', 'setTimeout(() => {}, 20000)'], [], temp(), 200)).code).toBe(-1);
+    expect(await runSibling(['no-such-program-for-spec-harness'], [], temp())).toEqual({
+      code: -1,
+      stdout: '',
+      stderr: 'cannot start "no-such-program-for-spec-harness": name the tool\'s script, such as ["node", "node_modules/@descent-vtt/<tool>/bin/<tool>.js"]',
+    });
+  });
+
   it('answers "absent" for JSON from a sibling that is not there', async () => {
     const siblings = createSiblings(temp(), DEFAULT_CONFIG);
     expect(await siblings.json('spec-guard', ['query'])).toEqual({
       absent: 'spec-guard is not installed here: npm install --save-dev @descent-vtt/spec-guard, or name its command under "tools" in .spec-harness.json',
     });
     await expect(siblings.briefs()).rejects.toBeInstanceOf(SiblingError);
+    await expect(siblings.briefs()).rejects.toMatchObject({ name: 'SiblingError' });
   });
 });

@@ -56,9 +56,12 @@ export function locate(name: SiblingName, root: string, config: HarnessConfig): 
 
 /** The `version` a package.json declares, or `undefined` when there is no such file or it is not JSON. */
 export function declaredVersion(file: string): unknown {
+  // A manifest that holds null throws on the read, and any other value that
+  // is not an object has no version, so the catch answers for both. Falling
+  // out of it answers undefined as well, and a Buffer parses as its text:
+  // the empty catch and the encoding are equivalent to their mutants.
   try {
-    const manifest: unknown = JSON.parse(readFileSync(file, 'utf8'));
-    return typeof manifest === 'object' && manifest !== null ? (manifest as { version?: unknown }).version : undefined;
+    return (JSON.parse(readFileSync(file, 'utf8')) as { version?: unknown }).version;
   } catch {
     return undefined;
   }
@@ -84,6 +87,8 @@ export function runSibling(command: readonly string[], args: readonly string[], 
         cwd: root,
         maxBuffer: 256 * 1024 * 1024,
         encoding: 'utf8',
+        // Keeps a console window from opening on Windows; the sweep runs on
+        // Linux, where the mutant is equivalent.
         windowsHide: true,
         timeout: timeoutMs,
         shell: false,
@@ -148,6 +153,9 @@ export function createSiblings(root: string, config: HarnessConfig): Siblings {
       try {
         return parseBriefList(parseJson('spec-brief', run));
       } catch (error) {
+        // parseJson throws a SiblingError, which this would copy, and
+        // parseBriefList nothing but its own: the check is equivalent to its
+        // mutant, and keeps any other error the stack trace it needs.
         if (error instanceof SiblingOutputError) throw new SiblingError(error.message);
         throw error;
       }

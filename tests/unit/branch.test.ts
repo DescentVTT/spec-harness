@@ -89,6 +89,8 @@ describe('the id a branch carries', () => {
     expect(briefIdFromBranch(['brief-{id}', '*-{id}'], 'x-brief-5')).toBe('brief');
     expect(briefIdFromBranch(templates, 'main')).toBeNull();
     expect(briefIdFromBranch([], 'brief/3')).toBeNull();
+    // A detached head with no CI branch: no name, so no brief, whatever the templates.
+    expect(briefIdFromBranch(['{id}'], null)).toBeNull();
   });
 });
 

@@ -47,11 +47,11 @@ const reader = createReader();
 /** The brief a command acts on: a positional id, else the active one. A command that needs one and has none is a usage error. */
 export async function targetBrief(workspace: Workspace, options: Options, io: CliIO, positional: string | undefined): Promise<{ brief: BriefRow; briefs: BriefRow[] }> {
   const briefs = await workspace.siblings.briefs();
-  const fromBranch = workspace.branch === null ? null : briefIdFromBranch(workspace.config.branches, workspace.branch);
+  const fromBranch = briefIdFromBranch(workspace.config.branches, workspace.branch);
   const active = findActive(briefs, { flag: positional ?? options.brief, environment: io.env['SPEC_BRIEF'], branch: fromBranch });
   const { brief, note, problem } = describeActive(active);
   if (problem !== null) throw new UsageError(problem);
-  if (brief === null) throw new UsageError(note ?? 'no brief is named');
+  if (brief === null) throw new UsageError(note);
   return { brief, briefs };
 }
 

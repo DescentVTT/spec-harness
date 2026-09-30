@@ -23,7 +23,6 @@ import { rulingFor } from './guard.js';
 import { createReader } from './reader.js';
 import { checkRulings, resolveBase } from './round.js';
 import { createSiblings } from './siblings.js';
-import type { BriefRow } from './types.js';
 import type { Workspace } from './workspace.js';
 
 export interface WaiveContext {
@@ -41,7 +40,11 @@ export interface Waiver {
   readonly reason: string;
 }
 
-/** Paths a finding names, in either of the shapes spec-brief reports them. */
+/**
+ * Paths a finding names, in either of the shapes spec-brief reports them. A
+ * finding with neither names none, and a path no ruling names is waived for
+ * none, so the empty list is equivalent to its mutant.
+ */
 function pathsOf(finding: WaiveContext['findings'][number]): string[] {
   if (finding.path !== undefined) return [finding.path];
   return [...(finding.paths ?? [])];
@@ -49,10 +52,14 @@ function pathsOf(finding: WaiveContext['findings'][number]): string[] {
 
 export async function waive(context: WaiveContext): Promise<Waiver[]> {
   const protectedPaths = context.findings.filter((finding) => finding.rule === 'protected-file').flatMap(pathsOf);
+  // Asking git about nothing waives nothing: this saves the asking, and its
+  // mutant is equivalent.
   if (protectedPaths.length === 0) return [];
   const { config } = await loadConfig(context.root);
   const workspace: Workspace = {
     root: context.root,
+    // spec-brief runs in a work tree, where git always names the common
+    // directory; the fallback is there for the type.
     commonDir: (await commonDirectory(context.root)) ?? `${context.root}/.git`,
     config,
     siblings: createSiblings(context.root, config),
@@ -60,22 +67,7 @@ export async function waive(context: WaiveContext): Promise<Waiver[]> {
     cwd: context.root,
   };
   const base = await resolveBase(workspace, context.base ?? undefined);
-  const brief: BriefRow = {
-    id: context.brief.id ?? context.brief.file,
-    file: context.brief.file,
-    title: null,
-    phase: 'live',
-    status: null,
-    type: null,
-    wave: null,
-    dependsOn: [],
-    affectedFiles: [],
-    protectedFiles: [],
-    tasks: { total: 0, checked: 0 },
-    ready: false,
-    waitingOn: [],
-  };
-  const { verified } = await checkRulings(workspace, brief, context.brief.text, createReader(), base);
+  const { verified } = await checkRulings(workspace, { file: context.brief.file }, context.brief.text, createReader(), base);
   const waivers: Waiver[] = [];
   for (const path of protectedPaths) {
     const ruling = rulingFor(verified, path);

@@ -328,6 +328,39 @@ describe('context', () => {
     expect(result.stdout).toContain('## The contract');
   });
 
+  it('reads a percent-encoded link, and skips a link out of the repository, to its root, or to code whose name holds a document\'s extension', async () => {
+    const body = 'See [notes](../docs/my%20notes.md), [out](../../outside.md), [root](../) and [the linter](../tools/lint.markdown.js).\n';
+    const r = repository({ [BRIEF_FILE]: brief({ body }), 'docs/my notes.md': '# Notes\n', 'tools/lint.markdown.js': 'export {};\n' });
+    const packet = parsed<{ included: string[]; omitted: string[]; unresolved: string[] }>(await cli(['context', '1', '--format', 'json'], r.root));
+    expect(packet).toMatchObject({ included: ['docs/my notes.md'], omitted: [], unresolved: [] });
+  });
+
+  it('gives the same rules in the same order however the scope orders its patterns', async () => {
+    const rule = (target: string, symbol: string) => `---\nstatus: accepted\n---\n\n# Rule\n\n<!-- @assert-absence target="${target}" symbol="${symbol}" -->\n`;
+    const files = { 'docs/adr/0001-z.md': rule('src', 'Zed'), 'docs/adr/0002-a.md': rule('lib', 'Alpha'), 'src/a.ts': 'a\n', 'lib/b.ts': 'b\n' };
+    const rulesOf = async (affected: string[]) => {
+      const r = repository({ [BRIEF_FILE]: brief({ affected }), ...files });
+      const packet = (await cli(['context', '1'], r.root)).stdout;
+      return packet.slice(packet.indexOf('## Rules in force'), packet.indexOf('\n## ', packet.indexOf('## Rules in force') + 1));
+    };
+    const forward = await rulesOf(['src/**', 'lib/**']);
+    expect(forward).toContain('Zed');
+    expect(forward).toContain('Alpha');
+    expect(await rulesOf(['lib/**', 'src/**'])).toBe(forward);
+  });
+
+  it('says what the round is measured from only when the base names a commit', async () => {
+    const r = repository({ [BRIEF_FILE]: brief() });
+    const header = async (args: string[]) => ((await cli(['context', '1', ...args], r.root)).stdout.split('\n\n')[1] ?? '');
+    expect(await header([])).toBe('Status active · branch `main` · measured from `main`');
+    expect(await header(['--base', 'nowhere'])).toBe('Status active · branch `main`');
+  });
+
+  it('names the brief SPEC_BRIEF names when the branch names none', async () => {
+    const r = repository({ [BRIEF_FILE]: brief() });
+    expect(parsed<{ brief: string }>(await cli(['context', '--format', 'json'], r.root, { env: { SPEC_BRIEF: '1' } })).brief).toBe('001');
+  });
+
   it('refuses to guess a brief when none is named', async () => {
     const result = await cli(['context'], repository({ [BRIEF_FILE]: brief() }).root);
     expect(result.code).toBe(2);
