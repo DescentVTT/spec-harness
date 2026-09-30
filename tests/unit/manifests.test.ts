@@ -132,6 +132,12 @@ describe('which files are manifests', () => {
     expect(readManifestNames([...DEFAULT_MANIFESTS, 'tools/package.json', 'a/{/b,c}.toml', '{tools/,Gemfile}', './Gemfile']).rooted).toEqual([]);
   });
 
+  it('names a rooted name it cannot read as unread, and not as rooted too', () => {
+    const names = readManifestNames(['/[a', '{/,Gemfile}']);
+    expect(names.rooted).toEqual([]);
+    expect(names.unread.map((entry) => entry.name)).toEqual(['/[a', '{/,Gemfile}']);
+  });
+
   it('reads the slashes after a leading ./ as going with it, as POSIX does: .//go.mod is go.mod, at any depth', () => {
     // .//go.mod was /go.mod, rooted, and named no manifest in the repository.
     const dotted = readManifestNames(['.//go.mod', '{.//Gemfile,x}']);

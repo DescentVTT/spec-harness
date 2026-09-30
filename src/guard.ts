@@ -9,7 +9,7 @@
  * gates, and this is what keeps an honest agent from needing them (ADR-0005).
  */
 
-import { parseGlob, type Glob } from './vendor/spec-core/pattern/index.js';
+import { globAlternatives, parseGlob, type Glob, type GlobAlternative } from './vendor/spec-core/pattern/index.js';
 import type { OutOfScope } from './config.js';
 import type { BriefRow } from './types.js';
 
@@ -77,12 +77,13 @@ export function whyUnreadable(pattern: string): string | null {
  * alternative matches none of them.
  */
 export function rooted(pattern: string): 'whole' | 'part' | null {
-  const glob = compile(pattern);
-  if (typeof glob === 'string') return null;
-  // A rooted alternative's base starts at the root, `/` itself at the least.
-  const roots = glob.bases.filter((base) => base.startsWith('/')).length;
+  if (typeof compile(pattern) === 'string') return null;
+  // spec-core refuses here only what its compile refuses, so a pattern the
+  // guard reads always has its alternatives read.
+  const { alternatives } = globAlternatives(pattern) as { readonly alternatives: readonly GlobAlternative[] };
+  const roots = alternatives.filter((alternative) => alternative.rooted).length;
   if (roots === 0) return null;
-  return roots === glob.bases.length ? 'whole' : 'part';
+  return roots === alternatives.length ? 'whole' : 'part';
 }
 
 function matching(patterns: readonly string[], path: string): { matched: string[]; unreadable: string[] } {
