@@ -80,7 +80,7 @@ exec npx --no-install spec-harness hook git
 /** A path as a person finds it: from the root when it is inside it, POSIX-separated, and as it is otherwise. */
 function shown(root: string, path: string): string {
   const inside = relative(root, path);
-  return inside === '' || inside.startsWith('..') || isAbsolute(inside) ? path : inside.split(sep).join('/');
+  return inside.startsWith('..') || isAbsolute(inside) ? path : inside.split(sep).join('/');
 }
 
 /**
@@ -93,9 +93,11 @@ export async function gitHook(root: string): Promise<{ readonly hook: GitHookSta
   if (path === null) return { hook: { state: 'unknown', reason: 'git does not say where they are; spec-harness needs git 2.31 or later' }, path };
   const file = shown(root, path);
   if (!existsSync(path)) return { hook: { state: 'absent', file }, path };
+  // A Buffer finds the text as a string does, so an encoding mutant is equivalent.
   if (!(await readFile(path, 'utf8')).includes('spec-harness')) return { hook: { state: 'other', file }, path };
   // git skips a hook it cannot execute, and says so only in a hint; Windows
   // has no executable bit, and runs it.
+  // The Windows job holds the platform check; the sweep runs on Linux, where it is always true.
   const inert = process.platform !== 'win32' && (statSync(path).mode & 0o111) === 0;
   return { hook: { state: inert ? 'inert' : 'runs', file }, path };
 }

@@ -2,7 +2,9 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import type { DependencyChange } from '../../src/manifests.js';
 import type { Finding } from '../../src/types.js';
-import { brief, BRIEF_FILE, cleanup, cli, parsed, repository, SPEC_BRIEF, type Repository } from './helpers.js';
+import { join } from 'node:path';
+
+import { brief, BRIEF_FILE, cleanup, cli, parsed, repository, SPEC_BRIEF, temp, write, type Repository } from './helpers.js';
 
 afterAll(cleanup);
 
@@ -174,6 +176,40 @@ describe('audit of a round', () => {
     const none = parsed<Report>(await cli(['audit', '1', '--base', 'no-such-branch', '--format', 'json'], r.root));
     expect(none.base).toBeNull();
     expect(none.findings[0]).toMatchObject({ rule: 'unmeasured', message: 'the round\'s changes were not measured: "no-such-branch" names no commit' });
+    // With nothing measured, no dependency is reported, nor a manifest as unread.
+    const dependencyRules = ['manifest-unread', 'new-dependency', 'dependency-removed', 'dependency-changed'];
+    expect(none.findings.filter((f) => dependencyRules.includes(f.rule))).toEqual([]);
+  });
+
+  it('counts what spec-guard places in the brief, however the path is written, or places nowhere, and nothing it places elsewhere', async () => {
+    const report = {
+      results: [
+        { ok: false, description: 'd', message: 'placed in the brief', spec: { file: 'briefs\\001_rotate-tokens.md', line: 22 } },
+        { ok: false, description: 'd', message: 'placed in another document', spec: { file: 'docs/adr/0003.md', line: 5 } },
+        { ok: true, description: 'd', message: 'placed nowhere' },
+      ],
+      errors: [
+        { message: 'placed nowhere, written nowhere' },
+        { message: 'placed elsewhere', raw: '<!-- x -->', spec: { file: 'docs/adr/0003.md', line: 2 } },
+      ],
+    };
+    const fake = temp();
+    write(fake, 'guard.js', `process.stdout.write(${JSON.stringify(JSON.stringify(report))});\n`);
+    write(fake, 'empty.js', 'process.stdout.write("{}");\n');
+    const tools = (script: string): Record<string, string[]> => ({ 'spec-brief': ['node', SPEC_BRIEF], 'spec-guard': ['node', join(fake, script)] });
+    const r = repository({ [BRIEF_FILE]: brief({ affected: ['src/**'] }) }, { tools: tools('guard.js') });
+    const audited = parsed<Report & { measured: { goals: unknown } }>(await cli(['audit', '1', '--format', 'json'], r.root));
+    expect(audited.measured.goals).toEqual({ held: 1, failed: 1 });
+    const judged = audited.findings.filter((f) => f.rule === 'goal-failed' || f.rule === 'assertion-unreadable');
+    expect(judged.map((f) => ({ rule: f.rule, line: f.line, subject: f.subject }))).toEqual([
+      { rule: 'goal-failed', line: 22, subject: expect.any(String) },
+      { rule: 'assertion-unreadable', line: 0, subject: '' },
+    ]);
+    expect(judged[0]?.message).toContain('placed in the brief');
+    // No list is an empty one.
+    const empty = repository({ [BRIEF_FILE]: brief({ affected: ['src/**'] }) }, { tools: tools('empty.js') });
+    const none = parsed<Report & { measured: { goals: unknown; unreadableAssertions: unknown } }>(await cli(['audit', '1', '--format', 'json'], empty.root));
+    expect(none.measured).toMatchObject({ goals: { held: 0, failed: 0 }, unreadableAssertions: 0 });
   });
 
   it('fails on warnings alone under --strict', async () => {

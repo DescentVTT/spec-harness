@@ -179,6 +179,8 @@ function scopeBases(root: string, patterns: readonly string[]): string[] {
   const bases = new Set<string>();
   for (const pattern of patterns) {
     try {
+      // Case is read only in matching, which this compile never does: its
+      // bases are the same either way, so `caseSensitive: false` is equivalent.
       for (const base of compileGlob(pattern, { dialect: 'path', caseSensitive: true, literal }).bases) {
         // A rooted alternative's base, `/docs` or `/`, is outside the
         // repository: it puts no path in the scope, and spec-guard refuses
@@ -331,13 +333,19 @@ export function pluginFile(root: string): (path: string) => boolean {
   const installed = join(root, 'node_modules', '@descent-vtt', 'spec-harness');
   const candidates: string[] = [fileURLToPath(new URL('../dist/plugin.js', import.meta.url))];
   try {
+    // A manifest with no exports, or none for the plugin, throws in `join`
+    // or on the missing key inside this block, which the catch reads as no
+    // installed copy: `exports?.` and `target !== null` are equivalent to
+    // their mutants here.
     const manifest = JSON.parse(readFileSync(join(installed, 'package.json'), 'utf8')) as { exports?: Record<string, unknown> };
     const target = exportTarget(manifest.exports?.['./spec-brief-plugin']);
     if (target !== null) candidates.push(join(installed, target));
   } catch {
     // Not installed at the root, or its manifest cannot be read: this copy's file is the one to compare.
   }
-  const files = new Set(candidates.map(realFile).filter((file): file is string => file !== null));
+  // A candidate that names no file is `null` here, and so is a path that
+  // names none, which is never the plugin.
+  const files = new Set(candidates.map(realFile));
   return (path) => {
     const file = realFile(resolve(root, path));
     return file !== null && files.has(file);
@@ -449,6 +457,8 @@ export async function runAudit(workspace: Workspace, brief: BriefRow, reader: Do
     dependencies,
     archive,
     assertions: 'unavailable' in assertions ? assertions : assertions.outcomes,
+    // The audit reads no list as an empty one, and a run spec-guard could not
+    // make has none, so a mutant of this test reads the same.
     unreadableAssertions: 'unavailable' in assertions ? [] : assertions.unreadable,
     premiseSections: workspace.config.assertions.premises,
     unverifiedRulings: rulings.unverified,

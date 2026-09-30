@@ -244,7 +244,8 @@ export const SPEC_BRIEF_CONFIGS: readonly string[] = ['.spec-brief.json', 'spec-
  * `{ module, options }`. spec-brief also loads a plugin by a path, one that
  * starts with `.` or is absolute, read from the root; such a path is the
  * plugin when `isPluginFile` says it names the plugin's file, which only the
- * disk can tell.
+ * disk can tell. Without one, no path is: the default's `false` and an
+ * `undefined` read the same in `some`, so that mutant is equivalent.
  */
 export function loadsPlugin(config: Json, isPluginFile: (path: string) => boolean = () => false): boolean {
   const plugins = config['plugins'];

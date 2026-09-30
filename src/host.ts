@@ -36,6 +36,9 @@ const CLAUDE_CODE_PACKAGE = ['node_modules', '@anthropic-ai', 'claude-code'];
 
 /** The file `name` names on `PATH` as the environment gives it, or `null`. */
 export function onPath(name: string, env: Readonly<Record<string, string | undefined>>, platform: NodeJS.Platform = process.platform): string | null {
+  // With neither, any text names directories no test can have made; and an
+  // empty entry is passed over rather than read as the working directory,
+  // which a test cannot fill: both mutants are equivalent in the suite.
   const path = env['PATH'] ?? env['Path'] ?? '';
   const windows = platform === 'win32';
   const extensions = windows
@@ -86,10 +89,23 @@ export async function claudeVersion(env: Readonly<Record<string, string | undefi
   const file = onPath('claude', env, platform);
   if (file === null) return { missing: 'no claude is on PATH' };
   if (platform === 'win32' && !/\.(?:exe|com)$/i.test(file)) return shimVersion(file);
+  // Of the options, only `shell: false` and the encoding change an answer a
+  // test can see: `windowsHide` hides a console window, and the timeout
+  // stops a claude that never answers, which a test would wait on for its
+  // length, so their mutants are equivalent in the suite.
   return new Promise((resolve) => {
-    execFile(file, ['--version'], { encoding: 'utf8', windowsHide: true, timeout: 15_000, shell: false }, (error, stdout) => {
-      if (error !== null) resolve({ missing: `${file} --version failed: ${error.message.split('\n')[0] ?? ''}` });
-      else resolve({ output: stdout });
-    });
+    const failed = (error: Error): void => resolve({ missing: `${file} --version failed: ${error.message.split('\n')[0] as string}` });
+    try {
+      execFile(file, ['--version'], { encoding: 'utf8', windowsHide: true, timeout: 15_000, shell: false }, (error, stdout) => {
+        if (error !== null) failed(error);
+        else resolve({ output: stdout });
+      });
+    } catch (error) {
+      // Windows refuses a file that is no program before any callback, as
+      // spawn UNKNOWN, where Linux reports it to the callback: doctor says
+      // so rather than stop. The sweep runs on Linux, so this line is the
+      // Windows job's to hold.
+      failed(error as Error);
+    }
   });
 }

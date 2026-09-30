@@ -61,6 +61,28 @@ describe('the allowed-signers file', () => {
     expect(signers.map((signer) => signer.line)).toEqual([3]);
   });
 
+  it('reads fields apart at a tab as at a space, as OpenSSH does', () => {
+    expect(readAllowedSigners(`a@example.com\tnamespaces="git"\tssh-ed25519\t${ED}`)).toEqual({
+      signers: [{ line: 1, principals: ['a@example.com'], certAuthority: false, namespaces: ['git'], validAfter: null, validBefore: null, keyType: 'ssh-ed25519', key: ED }],
+      problems: [],
+    });
+  });
+
+  it('reads a key only as a whole field of base64 that starts with AAAA', () => {
+    const problem = 'a signer is its principals, any options, a key type and a key';
+    const { signers, problems } = readAllowedSigners([`a@example.com ssh-ed25519 x${ED}`, `b@example.com ssh-ed25519 ${ED}!`].join('\n'));
+    expect(signers).toEqual([]);
+    expect(problems).toEqual([
+      { line: 1, message: problem },
+      { line: 2, message: problem },
+    ]);
+  });
+
+  it('names no principal for an empty name, between commas or quoted', () => {
+    expect(readAllowedSigners(`a@example.com,,b@example.com, ssh-ed25519 ${ED}`).signers[0]?.principals).toEqual(['a@example.com', 'b@example.com']);
+    expect(readAllowedSigners(`"" ssh-ed25519 ${ED}`).signers[0]?.principals).toEqual([]);
+  });
+
   it('reads an empty file as no signer', () => {
     expect(readAllowedSigners('')).toEqual({ signers: [], problems: [] });
     expect(readAllowedSigners('# nobody yet\n\n')).toEqual({ signers: [], problems: [] });
