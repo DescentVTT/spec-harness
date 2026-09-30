@@ -384,11 +384,14 @@ export function describeSignerProblem(problem: { readonly line: number; readonly
 
 /** What doctor says of the Claude Code on `PATH`, which runs the guard's hooks only from the minimum on. */
 export function describeClaudeRelease(check: ClaudeCodeCheck): string {
+  // A version read from a package.json says so: nothing ran to tell it.
+  const release = (found: { readonly version: string; readonly file?: string }): string =>
+    `Claude Code ${found.version}${found.file === undefined ? '' : ` (as ${found.file} declares)`}`;
   switch (check.state) {
     case 'ok':
-      return `Claude Code ${check.version} runs the hooks, which need ${CLAUDE_CODE_MINIMUM} or later`;
+      return `${release(check)} runs the hooks, which need ${CLAUDE_CODE_MINIMUM} or later`;
     case 'outdated':
-      return `Claude Code ${check.version} is older than ${CLAUDE_CODE_MINIMUM}, which the hooks need: it ignores a hook's args and runs a bare node, which fails, and a PreToolUse hook that fails blocks nothing, so every write passes unguarded: update Claude Code, with claude update`;
+      return `${release(check)} is older than ${CLAUDE_CODE_MINIMUM}, which the hooks need: it ignores a hook's args and runs a bare node, which fails, and a PreToolUse hook that fails blocks nothing, so every write passes unguarded: update Claude Code, with claude update`;
     case 'unknown':
       return `whether Claude Code is ${CLAUDE_CODE_MINIMUM} or later, which the hooks need, cannot be told: ${check.reason}; an older release lets every write pass unguarded, so check claude --version where Claude Code runs`;
   }

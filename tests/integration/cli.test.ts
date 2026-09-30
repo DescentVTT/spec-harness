@@ -301,12 +301,29 @@ describe('doctor on the Claude Code that runs the guard (ADR-0012)', () => {
     expect(result.stdout).toContain(`cannot be told: claude --version printed "${process.version}", which is not a version`);
   });
 
-  it.runIf(process.platform === 'win32')('cannot tell from a claude.cmd shim, which only a shell can start', async () => {
+  it.runIf(process.platform === 'win32')('cannot tell from a claude.cmd that runs no Claude Code package, which only a shell can start', async () => {
     const directory = temp();
     write(directory, 'claude.cmd', '@echo 2.1.200 (Claude Code)\r\n');
     const result = await cli(['doctor', '--strict'], wired().root, { env: { PATH: directory, PATHEXT: '.COM;.EXE;.BAT;.CMD' } });
     expect(result.code).toBe(1);
-    expect(result.stdout).toContain(`cannot be told: claude on PATH is ${join(directory, 'claude.cmd')}, a script that cannot be started without a shell, which spec-harness does not use`);
+    expect(result.stdout).toContain(
+      `cannot be told: claude on PATH is ${join(directory, 'claude.cmd')}, a script that cannot be started without a shell, which spec-harness does not use, and it names no @anthropic-ai/claude-code package whose package.json gives a version`,
+    );
+  });
+
+  it.runIf(process.platform === 'win32')('reads the release of the Claude Code npm\'s claude.cmd runs from its package.json, and passes --strict on it', async () => {
+    // npm's shim for Claude Code's bin/claude.exe; the tests of host.ts hold the other layouts.
+    const directory = temp();
+    const shim = ['@ECHO off', 'GOTO start', ':find_dp0', 'SET dp0=%~dp0', 'EXIT /b', ':start', 'SETLOCAL', 'CALL :find_dp0', '"%dp0%\\node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe"   %*', ''];
+    write(directory, 'claude.cmd', shim.join('\r\n'));
+    write(directory, 'node_modules/@anthropic-ai/claude-code/package.json', '{ "name": "@anthropic-ai/claude-code", "version": "2.1.285" }\n');
+    const env = { PATH: directory, PATHEXT: '.COM;.EXE;.BAT;.CMD' };
+    const result = await cli(['doctor', '--strict'], wired().root, { env });
+    expect(result.code).toBe(0);
+    const manifest = join(directory, 'node_modules', '@anthropic-ai', 'claude-code', 'package.json');
+    expect(result.stdout).toContain(`\n        Claude Code 2.1.285 (as ${manifest} declares) runs the hooks, which need 2.1.139 or later\n`);
+    const json = parsed<{ claudeCode: { release: unknown } }>(await cli(['doctor', '--format', 'json'], wired().root, { env }));
+    expect(json.claudeCode.release).toMatchObject({ state: 'ok', version: '2.1.285', minimum: '2.1.139' });
   });
 
   it('asks nothing of Claude Code where nothing wires it to the guard', async () => {

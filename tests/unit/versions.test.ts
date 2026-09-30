@@ -146,4 +146,16 @@ describe('the Claude Code that runs the hooks', () => {
     expect(checkClaudeCode({ output: '' })).toEqual({ state: 'unknown', reason: 'claude --version printed nothing' });
     expect(checkClaudeCode({ output: 'Claude Code 2.1.200\nmore' })).toEqual({ state: 'unknown', reason: 'claude --version printed "Claude Code 2.1.200", which is not a version' });
   });
+
+  it('is read as a whole from the package.json a Windows shim runs, which it names, against the same minimum', () => {
+    const file = 'C:\\npm\\node_modules\\@anthropic-ai\\claude-code\\package.json';
+    expect(checkClaudeCode({ declared: '2.1.139', file })).toEqual({ state: 'ok', version: '2.1.139', file });
+    expect(checkClaudeCode({ declared: '2.1.285', file })).toEqual({ state: 'ok', version: '2.1.285', file });
+    expect(checkClaudeCode({ declared: '2.1.138', file })).toEqual({ state: 'outdated', version: '2.1.138', file });
+    expect(checkClaudeCode({ declared: '2.1.139-beta.1', file })).toEqual({ state: 'outdated', version: '2.1.139-beta.1', file });
+    // A package.json holds the version alone: nothing follows it to be passed over.
+    for (const declared of ['2.1.200 (Claude Code)', 'next', '']) {
+      expect(checkClaudeCode({ declared, file }), declared).toEqual({ state: 'unknown', reason: `${file} declares "${declared}", which is not a version` });
+    }
+  });
 });

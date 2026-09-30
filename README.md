@@ -301,7 +301,8 @@ The first thing to run when a hook refuses something unexpectedly. It reports:
 - **How Claude Code runs the guard**: the Claude Code plugin, with the settings file that turns it on; `init`'s hooks and server; both, which guards every write twice and exits 1, with how to keep one; or neither.
 - **Which Claude Code**, when Claude Code runs the guard: `claude --version`, found on `PATH` and run without a shell.
   - Older than 2.1.139 exits 1. An older release ignores a hook's `args` and runs a bare `node`, which reads the hook's input as a script and fails, and a PreToolUse hook that fails with anything but exit 2 blocks nothing: every write passes unguarded.
-  - A `claude` that is not found, a Windows `claude.cmd` shim, which cannot be run without a shell, and a version that cannot be read are *cannot tell*, never fine; `--strict` fails them.
+  - On Windows, npm installs Claude Code as a `claude.cmd` shim, which cannot be run without a shell, so it is read instead: the `node_modules\@anthropic-ai\claude-code` it runs, as npm's shim or pnpm's names it, and that package.json's `version`, which doctor says it read. Nothing is run.
+  - A `claude` that is not found, a Windows script that runs no `@anthropic-ai/claude-code` package whose package.json gives a version, and a version that cannot be read are *cannot tell*, never fine; `--strict` fails them.
   - The Claude Code in an editor or the desktop app may be another release than the one on `PATH`: check it there with `claude --version` or `/status`.
 - **git's pre-commit hook**: whether it runs spec-harness, where git runs it from: installed, missing, a hook of the repository's own without the line, or, outside Windows, one git skips because it is not executable.
 

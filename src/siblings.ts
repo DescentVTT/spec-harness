@@ -55,7 +55,7 @@ export function locate(name: SiblingName, root: string, config: HarnessConfig): 
 }
 
 /** The `version` a package.json declares, or `undefined` when there is no such file or it is not JSON. */
-function declaredVersion(file: string): unknown {
+export function declaredVersion(file: string): unknown {
   try {
     const manifest: unknown = JSON.parse(readFileSync(file, 'utf8'));
     return typeof manifest === 'object' && manifest !== null ? (manifest as { version?: unknown }).version : undefined;

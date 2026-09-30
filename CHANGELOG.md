@@ -28,6 +28,15 @@ cannot turn a run red. The family's policy is
   words in English only, so such a document shows no status.
   Upgrading: write the status in English, e.g. `status: superseded`.
 
+### Fixed
+
+- `doctor` reads the release of a Claude Code npm installed on Windows,
+  where it said it could not tell and `--strict` failed: the `claude.cmd`
+  shim, which Node will not start without a shell, is read rather than run,
+  and the release is the `version` in the package.json of the
+  `@anthropic-ai/claude-code` package it runs, which doctor names
+  ([ADR-0012](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0012-one-way-into-claude-code.md)).
+
 ## 0.7.0
 
 The audit and `premises` no longer pass on what they could not read, the
