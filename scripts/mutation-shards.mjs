@@ -3,7 +3,7 @@
  * as one report with one score.
  *
  * The full sweep mutates every module against the whole suite, git and the
- * sibling tools included, and one runner took 69 to 123 minutes for it
+ * sibling tools included, and one runner took 69 to 130 minutes for it
  * (ADR-0010). The amendment of 2026-10-01 to ADR-0010 has the measurements
  * behind the split and behind the table below. The core sweep, in ci.yml, is
  * not split.
@@ -35,23 +35,23 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { minimatch } from 'minimatch';
 import { calculateMutationTestMetrics } from 'mutation-testing-metrics';
 
-// Minutes each file took in the first two sharded sweeps, of 82d1817 in
-// eight shards each (runs 36709265748 and 36711848267), read off the
-// shards' logs with scripts/mutation-timeline.mjs:
+// Minutes each file took in the first three sharded sweeps, of 82d1817 in
+// eight shards each (runs 36709265748, 36711848267 and 36714214575), read
+// off the shards' logs with scripts/mutation-timeline.mjs:
 //
-//   server 13.2-13.4   round 10.4-11.6   siblings 8.1-10.1   branch 8.1-8.9
-//   git 8.4-8.5   commands 7.3-8.1   workspace 6.6-6.8   sandbox 5.0-6.6
-//   reader 4.4-5.0   signers 3.8-4.2   config 3.8-4.0   rulings 2.5-4.8
-//   cli 3.3-3.9   manifests 2.4-3.4   setup 1.9-2.9   host 2.0-2.6
-//   fs 2.0-2.4   configure 1.3-2.6   probe 1.3-2.0   hooks 1.3-1.7
-//   audit 0.6-2.3   junit 1.2-1.6   briefs 0.9-1.4   formats 0.4-1.4
-//   versions 0.9-1.2   guard 0.9-1.1   premises 0.9-1.1   context 0.6-0.7
+//   server 13.2-13.7   round 10.4-12.7   siblings 8.1-10.7   git 8.4-9.1
+//   branch 7.0-8.9   commands 6.7-8.1   workspace 6.6-7.7   sandbox 5.0-7.2
+//   reader 3.9-5.0   cli 3.3-4.8   rulings 2.5-4.8   signers 3.6-4.2
+//   config 3.3-4.0   manifests 2.4-3.4   host 2.0-2.9   setup 1.9-2.9
+//   configure 1.3-2.6   fs 2.0-2.5   audit 0.5-2.3   probe 1.3-2.0
+//   hooks 1.1-1.7   junit 0.7-1.6   briefs 0.5-1.4   formats 0.4-1.4
+//   versions 0.9-1.2   guard 0.8-1.1   premises 0.9-1.1   context 0.6-0.7
 //   plugin 0.1
 //
-// 110 to 119 minutes in all, where one run took 123 over nearly the same
-// mutants (eb39599, run 36673408129) and each file took what it took there.
-// Stryker instruments only a shard's own files, but here that saves nothing:
-// the suite ran in 61 seconds in every shard as in the single run, its time
+// 110 to 119 minutes in all, where one run took 130 over the same mutants
+// (run 36708096066) and each file took what it took there. Stryker
+// instruments only a shard's own files, but here that saves nothing: the
+// suite ran in 61 seconds in every shard as in the single run, its time
 // spent in git and the sibling tools rather than in the harness's own code.
 // So a file's minutes add up wherever it goes, and a shard is balanced by
 // adding them. Most of them are static mutants, each of which runs the whole
@@ -63,18 +63,19 @@ import { calculateMutationTestMetrics } from 'mutation-testing-metrics';
 // A file listed here must have mutants: the merge refuses a listed file its
 // shard did not report, and document.ts, which holds only types, has none, so
 // it stays in the last shard. When a shard passes the others by more than
-// runner variance, re-measure and move files or add a shard, and add it to
-// the workflow's matrix, which a test checks. Minutes in eight shards, the
-// mean of the two sweeps:
+// runner variance - the same shard moved by up to four minutes between runs -
+// re-measure and move files or add a shard, and add it to the workflow's
+// matrix, which a test checks. Minutes in eight shards, the mean of the first
+// two sweeps, and what the third measured:
 export const ASSIGNED = [
-  ['src/server.ts', 'src/guard.ts'], // 14.3
-  ['src/round.ts', 'src/host.ts', 'src/premises.ts'], // 14.3
-  ['src/siblings.ts', 'src/reader.ts', 'src/context.ts'], // 14.5
-  ['src/git.ts', 'src/sandbox.ts'], // 14.3
-  ['src/branch.ts', 'src/rulings.ts', 'src/hooks.ts'], // 13.7
-  ['src/commands.ts', 'src/workspace.ts'], // 14.4
-  ['src/signers.ts', 'src/config.ts', 'src/cli.ts', 'src/probe.ts', 'src/briefs.ts'], // 14.3
-]; // and the rest: 14.4
+  ['src/server.ts', 'src/guard.ts'], // 14.3 (14.5)
+  ['src/round.ts', 'src/host.ts', 'src/premises.ts'], // 14.3 (16.7)
+  ['src/siblings.ts', 'src/reader.ts', 'src/context.ts'], // 14.5 (15.3)
+  ['src/git.ts', 'src/sandbox.ts'], // 14.3 (16.3)
+  ['src/branch.ts', 'src/rulings.ts', 'src/hooks.ts'], // 13.7 (11.7)
+  ['src/commands.ts', 'src/workspace.ts'], // 14.4 (14.4)
+  ['src/signers.ts', 'src/config.ts', 'src/cli.ts', 'src/probe.ts', 'src/briefs.ts'], // 14.3 (14.0)
+]; // and the rest: 14.4 (12.4)
 
 export const SHARD_COUNT = ASSIGNED.length + 1;
 

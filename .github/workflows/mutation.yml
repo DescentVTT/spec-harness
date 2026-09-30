@@ -9,7 +9,7 @@ name: Mutation
 # The full sweep mutates the edges as well - the command line, init, the
 # server, git and the siblings - against the whole suite. Its tests spawn git
 # and the sibling tools for every mutant they reach, so it is slower by an
-# order of magnitude: it runs weekly and on request. One runner took 69 to 123
+# order of magnitude: it runs weekly and on request. One runner took 69 to 130
 # minutes for it, so it runs in shards, each mutating its own files against
 # every test (scripts/mutation-shards.mjs), and the job after them merges the
 # reports and applies the `break` in stryker.config.mjs once, to the merged
@@ -41,9 +41,13 @@ jobs:
     name: mutation (full, shard ${{ matrix.shard }} of ${{ strategy.job-total }})
     if: github.event_name == 'schedule' || inputs.full
     runs-on: ubuntu-latest
-    # Headroom for a bad runner, not a budget. Stryker writes a shard's report
-    # only when the shard ends, so a shard cut short measures nothing, and the
-    # merge refuses the sweep.
+    # Headroom for a bad runner, not a budget: the shards took 11 to 22
+    # minutes. Stryker writes a shard's report only when the shard ends, so a
+    # shard cut short measures nothing and the merge refuses the sweep; Re-run
+    # failed jobs runs that shard again, and the merge takes the other shards'
+    # reports from the first attempt. A shard that keeps passing 30 means the
+    # table in scripts/mutation-shards.mjs needs re-measuring, not this number
+    # raising.
     timeout-minutes: 60
     strategy:
       # One broken shard should not hide what the others found. The merge
