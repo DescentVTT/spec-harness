@@ -27,6 +27,45 @@ describe('premises on the command line', () => {
     expect(parsed<{ premises: number; findings: { rule: string }[] }>(result)).toMatchObject({ premises: 1, findings: [{ rule: 'stale-premise' }] });
   });
 
+  it('passes --strict when every premise holds and spec-guard reads them all', async () => {
+    const body = ['## The Defect, Measured', '', '<!-- @assert-count target="src" symbol="legacyCall" min="1" -->', ''].join('\n');
+    const repo = repository({ [BRIEF_FILE]: brief({ affected: ['src/**'], body }), 'src/a.ts': 'legacyCall();\n' });
+    const result = await cli(['premises', '--strict', '--format', 'json'], repo.root);
+    expect(result.code).toBe(0);
+    expect(parsed(result)).toMatchObject({ command: 'premises', ok: true, briefs: 1, premises: 1, unreadable: 0, findings: [] });
+  });
+
+  it('sorts what spec-guard reports to the brief whose file it names, however the path is written, and nothing it places nowhere', async () => {
+    // Lines 23 and 24 are under the premise heading of both briefs.
+    const body = ['## The Defect, Measured', '', 'first', 'second', ''].join('\n');
+    const report = {
+      results: [
+        { ok: false, description: 'd', message: 'placed in brief 001', spec: { file: 'briefs\\001_rotate-tokens.md', line: 23 } },
+        { ok: false, description: 'd', message: 'placed nowhere' },
+      ],
+      errors: [
+        { message: 'unreadable in brief 002', raw: '<!-- @assert-count -->', spec: { file: 'briefs/002_next.md', line: 23 } },
+        { message: 'placed nowhere' },
+        { message: 'written nowhere', spec: { file: 'briefs/002_next.md', line: 24 } },
+      ],
+    };
+    const fake = temp();
+    write(fake, 'guard.js', `process.stdout.write(${JSON.stringify(JSON.stringify(report))});\n`);
+    const repo = repository(
+      { [BRIEF_FILE]: brief({ body }), 'briefs/002_next.md': brief({ title: '002 - Next', body }) },
+      { tools: { 'spec-brief': ['node', SPEC_BRIEF], 'spec-guard': ['node', join(fake, 'guard.js')] } },
+    );
+    const result = await cli(['premises', '--format', 'json'], repo.root, { env: {} });
+    expect(result.code).toBe(1);
+    const read = parsed<{ premises: number; unreadable: number; findings: { rule: string; file: string; line: number; subject?: string }[] }>(result);
+    expect(read).toMatchObject({ premises: 1, unreadable: 2 });
+    expect(read.findings.map(({ rule, file, line, subject }) => ({ rule, file, line, subject }))).toEqual([
+      { rule: 'stale-premise', file: BRIEF_FILE, line: 23, subject: expect.any(String) },
+      { rule: 'assertion-unreadable', file: 'briefs/002_next.md', line: 23, subject: '<!-- @assert-count -->' },
+      { rule: 'assertion-unreadable', file: 'briefs/002_next.md', line: 24, subject: '' },
+    ]);
+  });
+
   it('cannot be trusted when spec-guard cannot run the assertions', async () => {
     const fake = temp();
     write(fake, 'guard.js', 'process.stdout.write("{}"); process.exit(2);\n');
@@ -84,6 +123,8 @@ describe('premises for a forge', () => {
     const repo = repository({ 'briefs/archive/001_done.md': brief({ status: 'archived' }) });
     expect(await cli(['premises', '--format', 'gitlab'], repo.root)).toEqual({ code: 0, stdout: '[]\n', stderr: '' });
     expect(await cli(['premises', '--format', 'github'], repo.root)).toEqual({ code: 0, stdout: '', stderr: '' });
+    const sarif = JSON.parse((await cli(['premises', '--format', 'sarif'], repo.root)).stdout) as { runs: { invocations: { toolExecutionNotifications: { message: { text: string } }[] }[] }[] };
+    expect(sarif.runs[0]?.invocations[0]?.toolExecutionNotifications[0]?.message.text).toBe('no live brief');
   });
 });
 

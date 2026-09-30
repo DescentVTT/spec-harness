@@ -102,7 +102,8 @@ export function checkClaudeCode(answer: ClaudeCodeAnswer): ClaudeCodeCheck {
     if (declared === null) return { state: 'unknown', reason: `${answer.file} declares "${answer.declared}", which is not a version` };
     return { state: meets(declared, parseVersion(CLAUDE_CODE_MINIMUM) as Version) ? 'ok' : 'outdated', version: answer.declared, file: answer.file };
   }
-  const said = answer.output.trim().split('\n')[0]?.trim() ?? '';
+  // split() gives at least one string, so the first line is always there.
+  const said = (answer.output.trim().split('\n')[0] as string).trim();
   if (said === '') return { state: 'unknown', reason: 'claude --version printed nothing' };
   const first = said.split(/\s+/)[0] as string;
   const parsed = parseVersion(first);

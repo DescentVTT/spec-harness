@@ -30,17 +30,23 @@ import { briefText } from './round.js';
 import type { Finding } from './types.js';
 import { EXIT_ERROR, EXIT_FAILED, EXIT_OK, json, openWorkspace, version, type CliIO, type Options } from './workspace.js';
 
+/** Where spec-guard places a directive. */
+interface Spec {
+  readonly file: string;
+  readonly line: number;
+}
+
 interface GuardResult {
   readonly ok: boolean;
   readonly description: string;
   readonly message: string;
-  readonly spec?: { readonly file: string; readonly line: number };
+  readonly spec?: Spec;
 }
 
 interface GuardError {
   readonly message: string;
   readonly raw?: string;
-  readonly spec?: { readonly file: string; readonly line: number };
+  readonly spec?: Spec;
 }
 
 export async function premisesCommand(options: Options, io: CliIO): Promise<number> {
@@ -67,34 +73,43 @@ export async function premisesCommand(options: Options, io: CliIO): Promise<numb
     return EXIT_ERROR;
   }
   const document = answer.document as { results?: GuardResult[]; errors?: GuardError[] };
-  const results = (document.results ?? []).filter((result) => result.spec !== undefined);
+  // A missing list is an empty one. A list that holds a string instead, the
+  // mutant, sorts nothing to a brief either, since a string has no spec, so
+  // it is equivalent; so is the one for errors.
+  const results = document.results ?? [];
   // A directive spec-guard cannot read is listed apart from the results; one
   // in a premise section is a premise nothing checks.
-  const errors = (document.errors ?? []).filter((error) => error.spec !== undefined);
-  const inBrief = (spec: { readonly file: string } | undefined, file: string): boolean => spec?.file.replace(/\\/g, '/') === file;
+  const errors = document.errors ?? [];
+  // A directive is a brief's when spec-guard places it in the brief's file;
+  // one it places nowhere is no brief's.
+  const inBrief = <T extends { readonly spec?: Spec }>(item: T, file: string): item is T & { readonly spec: Spec } =>
+    item.spec?.file.replace(/\\/g, '/') === file;
   const findings: Finding[] = [];
   let premises = 0;
   for (const brief of live) {
-    const own = results.filter((result) => inBrief(result.spec, brief.file));
-    const unread = errors.filter((error) => inBrief(error.spec, brief.file));
+    const own = results.filter((result) => inBrief(result, brief.file));
+    const unread = errors.filter((error) => inBrief(error, brief.file));
+    // Only saves reading a brief with nothing to judge: going on finds nothing, so that mutant is equivalent.
     if (own.length === 0 && unread.length === 0) continue;
     const text = await briefText(workspace, brief);
     const premise = (line: number): boolean => isPremise(reader.sectionsAt(text, line), workspace.config.assertions.premises);
     for (const result of own) {
-      const line = result.spec?.line ?? 0;
+      const { line } = result.spec;
       if (!premise(line)) continue;
       premises += 1;
       if (result.ok) continue;
       findings.push(premiseFinding(brief, { description: result.description, message: result.message, line }, brief.file === round));
     }
     for (const error of unread) {
-      const line = error.spec?.line ?? 0;
+      const { line } = error.spec;
       if (premise(line)) findings.push(unreadablePremiseFinding(brief, { message: error.message, line, raw: error.raw ?? '' }));
     }
   }
   const stale = findings.filter((finding) => finding.severity === 'error').length;
   const retired = findings.filter((finding) => finding.severity === 'note').length;
   const unreadable = findings.filter((finding) => finding.severity === 'warning').length;
+  // Only the round on the active brief retires a premise, so with one retired
+  // there is an active brief, and dropping the second test is equivalent.
   const intended = retired === 0 || active.kind !== 'found' ? '' : `, and ${retired} retired by the round on brief ${active.brief.id}, as it intends`;
   const unchecked = unreadable === 0 ? '' : `; ${unreadable} premise(s) spec-guard cannot read, so not checked`;
   const summary = `${premises} premise(s) in ${live.length} live brief(s), ${stale} no longer hold${intended}${unchecked}`;

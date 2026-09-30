@@ -151,24 +151,23 @@ function unreadLine(found: UnreadableFrontMatter): string {
  * Each pattern a line, as the guard reads it: as written, or with spec-core's
  * reason the guard cannot read it and what the guard does without it. The
  * guard's own compile decides, so the packet and the guard cannot disagree.
- * With `rootedNote`, a pattern a leading `/` roots, or one of whose
- * alternatives it roots, is marked too, and counted when every alternative
- * is rooted.
+ * A pattern a leading `/` roots, or one of whose alternatives it roots, is
+ * marked with `rootedNote`, and counted when every alternative is rooted.
  */
 function patternLines(
   patterns: readonly string[],
   consequence: string,
-  rootedNote?: { readonly whole: string; readonly part: string },
+  rootedNote: { readonly whole: string; readonly part: string },
 ): { lines: string[]; unreadable: UnreadablePattern[]; rootedWhole: number } {
   const unreadable: UnreadablePattern[] = [];
   let rootedWhole = 0;
   const lines = patterns.map((pattern) => {
     const reason = whyUnreadable(pattern);
     if (reason === null) {
-      const root = rootedNote === undefined ? null : rooted(pattern);
+      const root = rooted(pattern);
       if (root === null) return `- \`${pattern}\``;
       if (root === 'whole') rootedWhole += 1;
-      return `- \`${pattern}\`, ${(rootedNote as { whole: string; part: string })[root]}`;
+      return `- \`${pattern}\`, ${rootedNote[root]}`;
     }
     unreadable.push({ pattern, reason });
     return `- \`${pattern}\`, which the guard cannot read: ${reason}; ${consequence}`;

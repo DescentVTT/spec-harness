@@ -110,6 +110,13 @@ describe('a fingerprint', () => {
     // Another identity between them leaves the count of the first alone.
     expect(fingerprints([open, goal, open])[2]).toBe(pair[1]);
   });
+
+  it('counts the repeats of one identity from 1, each with a fingerprint of its own', () => {
+    const sha = (text: string): string => createHash('sha256').update(text).digest('hex');
+    const open = { rule: 'archive/open-task', severity: 'error' as const, message: '"a" is open', hint: 'tick it', file: BRIEF, line: 7 };
+    const identity = `archive/open-task\u0000${BRIEF}\u0000`;
+    expect(fingerprints([open, open, open])).toEqual([sha(identity), sha(`${identity}\u00001`), sha(`${identity}\u00002`)]);
+  });
 });
 
 interface Sarif {

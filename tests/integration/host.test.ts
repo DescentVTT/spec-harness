@@ -1,4 +1,4 @@
-import { copyFileSync, linkSync } from 'node:fs';
+import { chmodSync, copyFileSync, linkSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { afterAll, describe, expect, it } from 'vitest';
@@ -120,6 +120,51 @@ describe('the release of the Claude Code a Windows shim runs', () => {
     const batch = temp();
     write(batch, 'claude.bat', '@echo 2.1.200 (Claude Code)\r\n');
     expect(await claudeVersion(windows(batch), 'win32')).toEqual(cannot(batch, 'claude.bat'));
+  });
+
+  it('is looked for under Windows\' own extensions, in their order, without PATHEXT, and under PATHEXT\'s with it', async () => {
+    const directory = installed(NPM_SHIM, { [MANIFEST]: '{ "version": "2.1.285" }' });
+    const read = { declared: '2.1.285', file: join(directory, ...MANIFEST.split('/')) };
+    // .COM, .EXE, .BAT, then .CMD: the shim, never the shell script npm writes beside it.
+    expect(await claudeVersion({ PATH: directory }, 'win32')).toEqual(read);
+    // Windows spells the variable Path as often as PATH.
+    expect(await claudeVersion({ Path: directory }, 'win32')).toEqual(read);
+    // An empty entry in PATHEXT is no extension: the shell script is not a program Windows runs.
+    expect(await claudeVersion({ PATH: directory, PATHEXT: ';.CMD' }, 'win32')).toEqual(read);
+    // PATHEXT's own list, not Windows' default: with .CMD alone, a claude.exe beside the shim is not found.
+    write(directory, 'claude.exe', 'not a program\n');
+    expect(await claudeVersion({ PATH: directory, PATHEXT: '.CMD' }, 'win32')).toEqual(read);
+  });
+
+  it('reads a shim by its own extension, in a directory whose name ends as a program\'s does', async () => {
+    const directory = join(temp(), 'tools.com');
+    write(directory, 'claude.cmd', NPM_SHIM);
+    write(directory, MANIFEST, '{ "version": "2.1.285" }');
+    expect(await claudeVersion(windows(directory), 'win32')).toEqual({ declared: '2.1.285', file: join(directory, ...MANIFEST.split('/')) });
+  });
+
+  it('asks a claude.exe without a shell, from a directory whose name a shell would split', async () => {
+    const directory = join(temp(), 'Claude Code');
+    write(directory, 'README', 'a directory with a space in its name\n');
+    try {
+      linkSync(process.execPath, join(directory, 'claude.exe'));
+    } catch {
+      copyFileSync(process.execPath, join(directory, 'claude.exe'));
+    }
+    const answer = await claudeVersion(windows(directory), 'win32');
+    expect('output' in answer ? answer.output.trim() : answer).toBe(process.version);
+  });
+
+  it('says what failed, in its first line, when claude.exe does not answer', async () => {
+    const directory = temp();
+    const file = join(directory, 'claude.exe');
+    write(directory, 'claude.exe', '#!/bin/sh\necho second line >&2\nexit 3\n');
+    chmodSync(file, 0o755);
+    const answer = await claudeVersion(windows(directory), 'win32');
+    const said = 'missing' in answer ? answer.missing : '';
+    expect(said.startsWith(`${file} --version failed: `), said).toBe(true);
+    expect(said.slice(`${file} --version failed: `.length)).toMatch(/^\S[^\n]{3,}$/);
+    expect(said).not.toContain('second line');
   });
 
   it('is asked of a claude.exe, as the native installer puts one, before a shim beside it', async () => {

@@ -6,6 +6,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 
 import { GUARD_HOOK, mcpServer, mergeMcp, PLUGIN, PROJECT_DIR_OR_HERE } from '../../src/configure.js';
 import { claudeSettingsFiles } from '../../src/round.js';
+import { gitHook } from '../../src/setup.js';
 import { cleanup, cli, install, installFake, installHarness, parsed, repository, siblings, temp, write, type Repository } from './helpers.js';
 
 afterAll(cleanup);
@@ -274,6 +275,18 @@ describe('init', () => {
     const result = await cli(['init', '--write'], repo.root);
     expect(result.stdout).toContain('update  .spec-harness.json\n        rounds are measured from main, the branch init runs on');
     expect(JSON.parse(repo.read('.spec-harness.json'))).toEqual({ outOfScope: 'ask', base: 'main' });
+  });
+
+  it('cannot say where git\'s hooks are outside a work tree', async () => {
+    expect(await gitHook(temp())).toEqual({ hook: { state: 'unknown', reason: 'git does not say where they are; spec-harness needs git 2.31 or later' }, path: null });
+  });
+
+  it.skipIf(process.platform === 'win32')('advises making a hook that runs spec-harness executable, since git skips it, and writes nothing over it', async () => {
+    const repo = repository({});
+    repo.write('.git/hooks/pre-commit', '#!/bin/sh\nexec npx --no-install spec-harness hook git\n');
+    const result = await cli(['init', '--git-hook', '--write'], repo.root);
+    expect(result.stdout).toContain('advise  .git/hooks/pre-commit\n        .git/hooks/pre-commit runs spec-harness, but is not executable, so git skips it: chmod +x .git/hooks/pre-commit\n');
+    expect(repo.read('.git/hooks/pre-commit')).toBe('#!/bin/sh\nexec npx --no-install spec-harness hook git\n');
   });
 
   it('advises git\'s pre-commit hook when not asked to add it, adds it when asked, and never over one that exists', async () => {

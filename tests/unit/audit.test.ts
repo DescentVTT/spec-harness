@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { audit, describeMeasured, isPremise, premiseFinding, unreadablePremiseFinding, type AssertionOutcome, type AuditInput } from '../../src/audit.js';
+import { audit, describeMeasured, isPremise, premiseFinding, RULES, unreadablePremiseFinding, type AssertionOutcome, type AuditInput } from '../../src/audit.js';
 import { DEFAULT_CONFIG } from '../../src/config.js';
 import type { DependencyChange } from '../../src/manifests.js';
 import { row } from './helpers.js';
@@ -62,6 +62,48 @@ describe('a clean round', () => {
 });
 
 describe('what the audit measured', () => {
+  it('counts premises and rulings that balance as counted, never as none', () => {
+    const measured = {
+      changes: 'measured',
+      archive: 'asked',
+      assertions: 'run',
+      goals: { held: 1, failed: 0 },
+      premises: { retired: 1, holding: 1 },
+      unreadableAssertions: 0,
+      rulings: { verified: 2, unverified: 2 },
+      dependencies: { changed: 0, unread: 0 },
+    } as const;
+    expect(describeMeasured(measured)).toBe(
+      'measured: goals: 1 held, 0 failed · premises: 1 retired, 1 holding · archive: asked · rulings: 2 verified, 2 unverified · dependencies: 0 changed, 0 unread',
+    );
+  });
+
+  it('describes each rule it and premises report, for a reader of SARIF, in a sentence of its own', () => {
+    expect(Object.keys(RULES)).toEqual([
+      'unmeasured',
+      'archive-unchecked',
+      'assertions-unchecked',
+      'assertion-unreadable',
+      'goal-failed',
+      'premise-holds',
+      'premise-retired',
+      'stale-premise',
+      'ruling-unverified',
+      'ruling-unreadable',
+      'protection-rooted',
+      'ruling-path-rooted',
+      'manifest-name-unread',
+      'manifest-name-rooted',
+      'manifest-unread',
+      'new-dependency',
+      'dependency-removed',
+      'dependency-changed',
+    ]);
+    const sentences = Object.values(RULES);
+    for (const [rule, sentence] of Object.entries(RULES)) expect(sentence, rule).toMatch(/^\S.* .*\.$/);
+    expect(new Set(sentences).size).toBe(sentences.length);
+  });
+
   it('tells an audit that ran nothing from one that found nothing', () => {
     const report = audit(input({ unmeasured: 'no base', archive: { unavailable: 'x' }, assertions: { unavailable: 'y' } }));
     expect(report.measured).toMatchObject({ changes: 'unmeasured', archive: 'unavailable', assertions: 'unavailable' });

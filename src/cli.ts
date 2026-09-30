@@ -219,6 +219,8 @@ async function doctorCommand(options: Options, io: CliIO): Promise<number> {
   // on the base, and only once spec-brief's archive asks the plugin about it.
   const base = await resolveBase(workspace, options.base);
   const signersFile = workspace.config.rulings.allowedSigners;
+  // An unresolved base has no commit: git shows nothing for one, so asking
+  // anyway reads as no file, and that mutant is equivalent.
   const signersText = base.kind === 'resolved' ? await show(base.sha, signersFile, workspace.root) : null;
   const onBase = base.kind === 'resolved' ? signersText !== null : null;
   const signers = describeSigners(signersFile, base.kind === 'resolved' ? base.ref : null, onBase === true);

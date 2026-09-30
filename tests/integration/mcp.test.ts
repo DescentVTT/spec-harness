@@ -143,6 +143,9 @@ describe('the tools', () => {
       /\n\nmeasured: goals: none declared · premises: none declared · archive: asked · rulings: none · dependencies: not measured\n\n\d+ error\(s\), \d+ warning\(s\), \d+ note\(s\)$/,
     );
     expect((outcome.structured as { counts: Record<string, number> }).counts.warning).toBeGreaterThanOrEqual(1);
+    expect((outcome.structured as { findings: unknown[] }).findings).toContainEqual(
+      expect.objectContaining({ rule: 'unmeasured', severity: 'warning', message: expect.stringContaining('main and HEAD are the same commit') }),
+    );
     expect((outcome.structured as { measured: unknown }).measured).toMatchObject({ changes: 'unmeasured', archive: 'asked', assertions: 'run', goals: { held: 0, failed: 0 } });
     expect(await tool('audit_round').call({ base: 7 })).toEqual({ text: '"base" must be a string.', isError: true });
     const unbased = await tool('audit_round').call({ base: 'nowhere' });

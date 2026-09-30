@@ -127,6 +127,19 @@ describe('the siblings', () => {
     expect(based.stdout).toContain('\nplugin  spec-brief does not load spec-harness\'s plugin');
   });
 
+  it('says in JSON what it could not read - no base, no signers file, no branch named - and adds no line about a Claude Code nothing wires', async () => {
+    const bare = repository({}, null);
+    bare.git('checkout', '-q', '--detach');
+    const json = parsed<{ branch: unknown; branchSource: unknown; base: unknown; allowedSigners: unknown }>(await cli(['doctor', '--format', 'json'], bare.root));
+    expect(json).toMatchObject({ branch: null, branchSource: null, base: { unresolved: expect.any(String) } });
+    // No base, so no file was read from it: nothing is on it, nothing is wrong with it.
+    expect(json.allowedSigners).toMatchObject({ onBase: null, notFido2: [], problems: [] });
+    expect((await cli(['doctor'], bare.root)).stdout).toMatch(/\nclaude  [^\n]*\ngit     /);
+    // CI names the branch of a detached head, and the JSON says which variable did.
+    const named = parsed<{ branch: unknown; branchSource: unknown }>(await cli(['doctor', '--format', 'json'], bare.root, { env: { GITHUB_HEAD_REF: 'brief/001-x' } }));
+    expect(named).toMatchObject({ branch: 'brief/001-x', branchSource: 'GITHUB_HEAD_REF' });
+  });
+
   it('reports the Claude Code plugin beside init\'s hooks and server as a double install, with exit 1 (ADR-0012)', async () => {
     const local = JSON.stringify({ enabledPlugins: { 'spec-harness@spec-tools': true } });
     const repo = repository({
@@ -413,6 +426,21 @@ describe('doctor on the rest of what a ruling and a commit need', () => {
     repo.write('.spec-brief.json', JSON.stringify({ plugins: [join(ROOT, 'dist', 'plugin.js')] }));
     expect((await cli(['doctor'], repo.root)).stdout).toContain("\nplugin  spec-brief loads spec-harness's plugin (.spec-brief.json)");
     repo.write('.spec-brief.json', JSON.stringify({ plugins: ['./node_modules/@descent-vtt/spec-harness/package.json', './missing.js'] }));
+    expect((await cli(['doctor'], repo.root)).stdout).toContain("\nplugin  spec-brief does not load spec-harness's plugin");
+  });
+
+  it('reads the plugin\'s file under the import or the node condition, and no missing file as it', async () => {
+    const repo = repository({ '.spec-brief.json': JSON.stringify({ plugins: ['./node_modules/@descent-vtt/spec-harness/plugin.js'] }) });
+    installHarness(repo.root);
+    const exported = (target: unknown): void =>
+      repo.write('node_modules/@descent-vtt/spec-harness/package.json', JSON.stringify({ name: '@descent-vtt/spec-harness', type: 'module', exports: { './spec-brief-plugin': target } }));
+    for (const conditions of [{ import: './plugin.js' }, { node: './plugin.js' }]) {
+      exported(conditions);
+      expect((await cli(['doctor'], repo.root)).stdout, JSON.stringify(conditions)).toContain("\nplugin  spec-brief loads spec-harness's plugin (.spec-brief.json)");
+    }
+    // The installed copy names a file it does not have, and the configuration one that is not there: neither is the plugin.
+    exported('./gone.js');
+    repo.write('.spec-brief.json', JSON.stringify({ plugins: ['./missing.js'] }));
     expect((await cli(['doctor'], repo.root)).stdout).toContain("\nplugin  spec-brief does not load spec-harness's plugin");
   });
 });

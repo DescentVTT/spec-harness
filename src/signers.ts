@@ -44,7 +44,12 @@ export interface SignersRead {
  */
 const KEY = /^AAAA[A-Za-z0-9+/]+={0,2}$/;
 
-/** The next field and what follows it: up to the first space outside double quotes. */
+/**
+ * The next field and what follows it: up to the first space outside double
+ * quotes. Reading one character past the end changes nothing, since
+ * `charAt` gives the empty string there, so `<=` for `<` is equivalent,
+ * here and in `commas`.
+ */
 function field(text: string): { value: string; rest: string } {
   let quoted = false;
   let i = 0;
@@ -73,6 +78,11 @@ function commas(text: string): string[] {
   return parts;
 }
 
+/**
+ * A field quoted as a whole, without its quotes. A lone `"` never reaches
+ * here - `field` reads it as opening a quote that runs to the end of the
+ * line - so the length check matters only for `""`.
+ */
 function unquote(value: string): string {
   return value.length >= 2 && value.startsWith('"') && value.endsWith('"') ? value.slice(1, -1) : value;
 }
@@ -87,13 +97,16 @@ export function readAllowedSigners(text: string): SignersRead {
     if (content === '' || content.startsWith('#')) return;
     const principals = field(content);
     let type = field(principals.rest);
+    // Replaced whenever the line has options; with none, a list holding a
+    // name no option has reads the same, so that mutant is equivalent.
     let options: string[] = [];
     if (!KEY.test(field(type.rest).value)) {
       options = commas(type.value);
       type = field(type.rest);
     }
     const key = field(type.rest).value;
-    if (type.value === '' || !KEY.test(key)) {
+    // With no key type, nothing follows it either, and no key is a key.
+    if (!KEY.test(key)) {
       problems.push({ line, message: 'a signer is its principals, any options, a key type and a key' });
       return;
     }

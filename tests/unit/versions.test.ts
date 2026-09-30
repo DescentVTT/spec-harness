@@ -147,6 +147,11 @@ describe('the Claude Code that runs the hooks', () => {
     expect(checkClaudeCode({ output: 'Claude Code 2.1.200\nmore' })).toEqual({ state: 'unknown', reason: 'claude --version printed "Claude Code 2.1.200", which is not a version' });
   });
 
+  it('reads the first line with text on it, and names it without the blanks around it', () => {
+    expect(checkClaudeCode({ output: '\n  \n2.1.139 (Claude Code)\n' })).toEqual({ state: 'ok', version: '2.1.139' });
+    expect(checkClaudeCode({ output: 'Claude Code 2.1.200 \r\nmore' })).toEqual({ state: 'unknown', reason: 'claude --version printed "Claude Code 2.1.200", which is not a version' });
+  });
+
   it('is read as a whole from the package.json a Windows shim runs, which it names, against the same minimum', () => {
     const file = 'C:\\npm\\node_modules\\@anthropic-ai\\claude-code\\package.json';
     expect(checkClaudeCode({ declared: '2.1.139', file })).toEqual({ state: 'ok', version: '2.1.139', file });

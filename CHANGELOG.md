@@ -36,6 +36,8 @@ cannot turn a run red. The family's policy is
   and the release is the `version` in the package.json of the
   `@anthropic-ai/claude-code` package it runs, which doctor names
   ([ADR-0012](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0012-one-way-into-claude-code.md)).
+- `doctor` says it cannot tell the release of a `claude.exe` on Windows that
+  is no program Windows starts, where it stopped with `spawn UNKNOWN`.
 
 ## 0.7.0
 
