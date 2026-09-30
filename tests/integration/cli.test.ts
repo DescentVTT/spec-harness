@@ -438,6 +438,11 @@ describe('doctor on the rest of what a ruling and a commit need', () => {
       exported(conditions);
       expect((await cli(['doctor'], repo.root)).stdout, JSON.stringify(conditions)).toContain("\nplugin  spec-brief loads spec-harness's plugin (.spec-brief.json)");
     }
+    // Node takes the first key an import meets, in the object's order, and stops at a null one.
+    exported({ default: './plugin.js', import: './other.js' });
+    expect((await cli(['doctor'], repo.root)).stdout).toContain("\nplugin  spec-brief loads spec-harness's plugin (.spec-brief.json)");
+    exported({ import: null, default: './plugin.js' });
+    expect((await cli(['doctor'], repo.root)).stdout).toContain("\nplugin  spec-brief does not load spec-harness's plugin");
     // The installed copy names a file it does not have, and the configuration one that is not there: neither is the plugin.
     exported('./gone.js');
     repo.write('.spec-brief.json', JSON.stringify({ plugins: ['./missing.js'] }));

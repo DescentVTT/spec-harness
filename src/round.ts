@@ -15,6 +15,7 @@ import { audit, tally, type ArchiveReason, type AssertionOutcome, type AuditInpu
 import { sameId } from './branch.js';
 import {
   enabledPlugin,
+  exportedFile,
   holdsGuard,
   loadsPlugin,
   registersServer,
@@ -310,18 +311,6 @@ function realFile(path: string): string | null {
   }
 }
 
-/** The file a package's `exports` entry names for an import, as spec-brief resolves its plugins. */
-function exportTarget(entry: unknown): string | null {
-  if (typeof entry === 'string') return entry;
-  if (typeof entry !== 'object' || entry === null) return null;
-  const conditions = entry as Record<string, unknown>;
-  for (const condition of ['import', 'node', 'default']) {
-    const target = exportTarget(conditions[condition]);
-    if (target !== null) return target;
-  }
-  return null;
-}
-
 /**
  * Whether a path spec-brief's `plugins` names, read from the root, is this
  * package's plugin: the file its `./spec-brief-plugin` export names, as the
@@ -338,7 +327,7 @@ export function pluginFile(root: string): (path: string) => boolean {
     // installed copy: `exports?.` and `target !== null` are equivalent to
     // their mutants here.
     const manifest = JSON.parse(readFileSync(join(installed, 'package.json'), 'utf8')) as { exports?: Record<string, unknown> };
-    const target = exportTarget(manifest.exports?.['./spec-brief-plugin']);
+    const target = exportedFile(manifest.exports?.['./spec-brief-plugin']);
     if (target !== null) candidates.push(join(installed, target));
   } catch {
     // Not installed at the root, or its manifest cannot be read: this copy's file is the one to compare.
