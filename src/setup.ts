@@ -261,6 +261,9 @@ export async function plan(workspace: Workspace, options: Options, env: CliIO['e
   // hooks never see, one through a shell, so it is advised when not asked
   // for; it is configuration outside the tree, so it is written only then.
   const { hook, path: hookFile } = await gitHook(root);
+  // Only a git older than 2.31, which the README states as the harness's
+  // floor, cannot name its hooks, and init runs only in a work tree, where
+  // any later git names them: no test reaches this advice, by that decision.
   if (hook.state === 'unknown' || hookFile === null) {
     steps.push({ file: 'pre-commit', action: 'advise', detail: describeGitHook(hook) });
   } else if (hook.state === 'runs') {
