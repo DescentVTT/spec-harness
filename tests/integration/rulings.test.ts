@@ -206,6 +206,16 @@ describe('rule', () => {
     expect(second).toMatchObject({ ruling: 'R-001-2', row: '| R-001-2 | `src/db/schema.ts` | deny | n |' });
   });
 
+  it('rules on a request of a brief whose id has lowercase letters, by the id as it is written', async () => {
+    // spec-brief reads the id from the front matter when its configuration says so.
+    const text = brief({ affected: ['src/auth/**'], protected: ['src/db/**'] }).replace('---\n', '---\nid: rt-7\n');
+    const repo = repository({ '.spec-brief.json': JSON.stringify({ files: '*.md', id: { source: 'frontmatter' } }), 'briefs/rotate.md': text, ...FILES });
+    expect(parsed<{ request: EscalationRequest }>(await cli(['escalate', '--brief', 'rt-7', '--path', 'src/db/schema.ts', '--reason', 'r', '--format', 'json'], repo.root)).request.id).toBe('E-rt-7-1');
+    const ruled = await cli(['rule', 'E-rt-7-1', '--deny', '--note', 'n', '--format', 'json'], repo.root);
+    expect(ruled.code).toBe(0);
+    expect(parsed(ruled)).toMatchObject({ ruling: 'R-rt-7-1', file: 'briefs/rotate.md' });
+  });
+
   it('lists the requests in order, and nothing a write left half done beside them', async () => {
     const repo = round();
     for (const path of ['src/db/schema.ts', 'src/db/other.ts', 'src/db/third.ts']) await cli(['escalate', '--path', path, '--reason', 'r'], repo.root);
