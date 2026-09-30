@@ -9,137 +9,81 @@ only fixes, reports less or documents, so `^0.7.0` takes only releases that
 cannot turn a run red. The family's policy is
 [spec-core's ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
-## Unreleased
+## 0.7.0
+
+The audit and `premises` no longer pass on what they could not read, the
+audit says what it measured, both write GitLab, SARIF and GitHub reports,
+`doctor` checks the Claude Code that runs the guard, and a rooted pattern is
+marked wherever it protects, allows or scopes nothing. spec-core is at
+5666c96.
 
 ### Added
 
-- `audit` and `premises` take `--format gitlab`, `sarif` and `github`: a
-  GitLab Code Quality report, SARIF 2.1.0, or GitHub workflow commands, each
-  finding with its hint, on its file and line, or on the brief and line 1.
-  An error is `major` in GitLab, a warning `minor`, a note `info`. The
-  fingerprint is made of the rule, the file and the finding's subject, never
-  its message or line, so a reworded message or a moved line is not a new
-  finding in a merge request. Every other command refuses the three, exit 2.
-  See [ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)'s
-  second amendment of 2026-09-30.
-- `audit` says what it measured beside what it found, so nothing found can
-  be told from nothing checked: a line above the counts, which stay the last
-  line, such as `measured: goals: 2 held, 0 failed · premises: 1 retired, 0
-  holding · archive: asked · rulings: none · dependencies: 3 changed, 0
-  unread`, and `measured` beside `counts` in `--format json` and in
-  `audit_round`'s result. A brief with no assertion says `goals: none
-  declared`, and draws no warning. `audit_round` answers "The audit found
-  nothing in what it measured." and the line, where it said "The audit found
-  nothing." The fields are added, so no `schemaVersion` moves.
-- Each finding in `--format json` carries its `subject`: the assertion, the
-  ruling, the dependency or the name it is about.
-- `doctor` notes each signer in the allowed-signers file whose key is not a
-  FIDO2 key, and each line that is not a signer. A note, never a failure: a
-  key the agent's account cannot read is fine too, and a PIV or PKCS#11
-  hardware key reads as a plain one. A `cert-authority` line is left out.
-- `doctor` says whether git's pre-commit hook runs spec-harness, where git
-  runs it from, and `init` advises the hook when `--git-hook` is not given:
-  it is the guard for a write through a shell, which the agent's hooks never
-  see.
-- `doctor --format json` gains `branchSource`, `allowedSigners.notFido2` and
-  `allowedSigners.problems`, `claudeCode.release` and `gitHook`, fields
-  added, so no `schemaVersion` moves.
-- The README says how a .NET or other non-Node repository installs the
-  tools, how to merge a round so its signed rulings still count on GitHub and
-  GitLab, how to add the plugin's marketplace from a GitLab mirror, and that
-  spec-harness needs git 2.31 or later, which it has since 0.1.
+- `audit` and `premises` take `--format gitlab`, `sarif` and `github`. A
+  fingerprint is the rule, the file and the finding's subject, never its
+  message or line ([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
+- `audit` prints what it measured above the counts line, which stays last,
+  and `--format json` and `audit_round` gain `measured`. A brief with no
+  assertion says `goals: none declared`.
+- `--format json` findings carry a `subject`; `doctor --format json` gains
+  `branchSource`, `allowedSigners.notFido2`, `allowedSigners.problems`,
+  `claudeCode.release` and `gitHook`. No `schemaVersion` moves.
+- `doctor` notes signers whose key is not a FIDO2 key (a note, never a
+  failure), and says whether git's pre-commit hook runs spec-harness; `init`
+  advises that hook when `--git-hook` is not given.
+- The README covers non-Node repositories, merge settings that keep signed
+  rulings valid on GitHub and GitLab, a marketplace from a GitLab mirror, and
+  the git 2.31 the harness has always needed.
 
 ### Changed
 
-- spec-core at 5666c96. A leading `./` goes with the slashes after it, as
-  POSIX reads them, so `.//docs` is `docs`, and so are the `.//docs` of
-  `{.//docs,src/**}` and the `/docs` of `./{/docs,src/**}`, where each was
-  `/docs`, rooted at the filesystem's root. In `affectedFiles`,
-  `protectedFiles`, a ruling's paths, `dependencies.manifests` and
-  spec-graph's `patterns` it names what `docs` names: the guard puts it in
-  the scope, protects it or allows it, `context` asks spec-guard about it
-  and marks nothing, and `audit` warns neither `protection-rooted`,
-  `ruling-path-rooted` nor `manifest-name-rooted` for it. `//docs` and
-  `/./docs` are rooted as before. See
-  [spec-core's ADR-0003](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0003-glob-dialects.md).
-  Upgrading: a pattern written `.//x` now reads as `./x`; check that is what
-  it should put in the scope, protect or allow.
-- `context` and `start_round` head a document the brief links to with the
-  status its front matter gives under `狀態` or `状态` when it has no
-  `status` key, as a Chinese ADR writes it: `(已接受)` after its title,
-  where the heading showed no status. `status` is read first, and
-  `狀態：已接受`, with a full-width colon, is no YAML key and gives none. See
-  [spec-core's ADR-0005](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0005-the-family-contract.md).
-  Upgrading: nothing to change; for the status to show, write the key with
-  an ASCII colon, `狀態: 已接受`.
-- `audit` reports an assertion in the brief that spec-guard cannot read as
-  `assertion-unreadable`, a warning on its line with spec-guard's reason. It
-  was dropped, and the audit passed on assertions it never ran. It fails
-  `audit --strict`. Upgrading: fix the directive spec-guard names.
-- `premises` reports a premise spec-guard cannot read as the same
-  `assertion-unreadable` warning, where it was dropped and the brief passed
-  unchecked, and `premises --strict` now fails on it, as `audit --strict`
-  does. The summary line counts it, and `--format json` gains `unreadable`.
-  Without `--strict`, only a stale premise fails the run, as before.
-  Upgrading: fix the directive, or run `premises` without `--strict`.
-- `audit` warns about a name in `dependencies.manifests` a leading `/`
-  roots, alone or on a brace alternative, such as `/package.json` or
-  `{/Gemfile,Cargo.toml}`, as `manifest-name-rooted`: every path it reads is
-  repository-relative, so the rooted part named no manifest, in silence. It
-  fails `audit --strict`. Upgrading: write the name without the slash; a
-  name is matched at any depth.
-- A pattern in `protectedFiles`, or a path of a signed ruling, that a
-  leading `/` roots, such as `/src/db/schema.ts` or `{/docs,migrations/**}`,
-  protects no path, or allows nothing, since every path the guard decides is
-  repository-relative. `context` and `start_round` mark it so where they
-  listed it as written, and `audit` warns about it as `protection-rooted`
-  or `ruling-path-rooted`, which fail `audit --strict`. Upgrading: write
-  the protection without the slash, and check what the round changed there;
-  for a ruling's path, escalate again for a ruling on the path without it.
-- `doctor` runs `claude --version` when the plugin or `init`'s hooks wire
-  Claude Code to the guard, and exits 1 when it is older than 2.1.139: an
-  older Claude Code runs every write unguarded. One it cannot find or read,
-  or a Windows `claude.cmd` it cannot start without a shell, is said to be
-  unknown, never fine, and fails `doctor --strict`. See
-  [ADR-0012](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0012-one-way-into-claude-code.md)'s
-  amendment. Upgrading: update Claude Code, `claude update`.
+- spec-core at 5666c96: `.//docs` is `docs`, as POSIX reads it, in every
+  scope, protection, ruling path and manifest name, where it was rooted.
+  Upgrading: check any pattern written `.//x`; `//x` is still rooted.
+- `audit` reports an assertion spec-guard cannot read as
+  `assertion-unreadable`, where it dropped it and passed; it fails
+  `--strict`. Upgrading: fix the directive spec-guard names.
+- `premises` reports an unreadable premise the same way, counts it, and
+  `premises --strict` fails on it. Upgrading: fix the directive, or run
+  without `--strict`.
+- A leading `/` roots a pattern, so a rooted protection or ruling path
+  protects or allows nothing and a rooted manifest name names nothing: the
+  packet marks them, and `audit` warns `protection-rooted`,
+  `ruling-path-rooted` or `manifest-name-rooted`, failing `--strict`.
+  Upgrading: write the pattern without the leading slash.
+- `doctor` exits 1 when the Claude Code wired to the guard is older than
+  2.1.139, which runs every write unguarded; one it cannot find or run is
+  unknown, never fine, and fails `--strict`
+  ([ADR-0012](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0012-one-way-into-claude-code.md)).
+  Upgrading: `claude update`.
+- `context` shows a cited document's status under `狀態` or `状态` when it
+  has no `status` key. Upgrading: nothing; write the key with an ASCII colon.
 
 ### Fixed
 
-- On a detached HEAD, as CI checks out, the branch is the one the forge's CI
-  names: `GITHUB_HEAD_REF`, `GITHUB_REF_NAME` on a branch push,
-  `CI_MERGE_REQUEST_SOURCE_BRANCH_NAME`, then `CI_COMMIT_BRANCH`. A round's
-  own CI run named no brief, and `premises` failed it for the premise the
-  round retires. A branch checked out still wins. See
-  [ADR-0004](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0004-the-active-brief-is-named-not-guessed.md)'s
-  amendment.
-- `context` and `start_round` keep the rules over the rest of the scope when
-  a pattern in `affectedFiles` is rooted, such as `/docs` or
-  `{/docs,src/**}`: spec-guard was asked about `/docs` and refused the whole
-  question. The packet marks such a pattern as putting no path in the scope,
-  and says so when no pattern puts one.
-- `init --git-hook` writes the hook where git runs it from: an absolute
-  `core.hooksPath`, or one under `~`, was joined to the work tree.
-- `init` names the allowed-signers file `rulings.allowedSigners` names,
-  where it named `.github/allowed_signers`, with a FIDO2 key, and says how
-  each forge protects the rule files, GitLab Free included, where it said
-  CODEOWNERS alone.
-- `doctor`, `audit` and `init` read a spec-brief plugin loaded by a path to
-  this package's plugin file as the plugin, where they said spec-brief did
-  not load it and `init` added it a second time.
-- The error for a `tools` command that is not a list suggests `["node",
-  "node_modules/@descent-vtt/<tool>/bin/<tool>.js"]`, which runs on every
-  host, where it suggested `npx`, which Windows cannot start without a shell.
-- The title of a brief loses its id before a full-width colon, and before an
-  em or en dash or a colon without spaces, as spec-brief reads it; a hyphen
-  still needs a space on each side, so `001-2 migration` is kept.
+- On a detached HEAD, as in CI, the brief is found from the forge's branch
+  variable (`GITHUB_HEAD_REF`, `GITHUB_REF_NAME` on a branch push,
+  `CI_MERGE_REQUEST_SOURCE_BRANCH_NAME`, `CI_COMMIT_BRANCH`), so `premises`
+  no longer fails a round's own CI run
+  ([ADR-0004](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0004-the-active-brief-is-named-not-guessed.md)).
+- A rooted pattern in `affectedFiles` no longer makes spec-guard refuse the
+  whole scope; the rules over the other patterns come back.
+- `init --git-hook` writes the hook where git runs it, for an absolute or
+  `~` `core.hooksPath` too.
+- `init` names the configured allowed-signers file, suggests a FIDO2 key,
+  and says how GitHub, GitLab Premium and GitLab Free protect the rule files.
+- A spec-brief plugin loaded by path is recognised, so `init` no longer adds
+  it twice.
+- The `tools` error suggests a `node` command, which Windows can start
+  without a shell, where it suggested `npx`.
+- A brief's id is dropped from its title before a full-width colon or an
+  unspaced dash too, as spec-brief does.
 
 ### Documentation
 
-- README reorganised: each long paragraph is a lead sentence with a list or
-  a table, the commands sit under their own heading, and the spec-brief
-  plugin is named apart from the Claude Code plugin; nothing was removed.
-  SECURITY.md says how to report a vulnerability privately.
+- The README is reorganised into lists and tables, and names the spec-brief
+  plugin apart from the Claude Code plugin; SECURITY.md says how to report a
+  vulnerability privately.
 
 ## 0.6.0
 
