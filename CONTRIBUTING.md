@@ -14,7 +14,7 @@ and the module layout are in [`CLAUDE.md`](CLAUDE.md); the decisions and what
 they cost are in [`docs/adr/`](docs/adr/README.md). Mutation testing runs in
 GitHub Actions, not on a workstation: the core sweep is a CI job on every
 change, and the full sweep runs weekly and on request (Actions, Mutation,
-Run workflow).
+Run workflow), in eight parallel shards merged into one score.
 
 `src/vendor/spec-core/` is spec-core's, copied by its `scripts/vendor.mjs` and
 verified by hash. It is never edited here.

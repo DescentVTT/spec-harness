@@ -41,3 +41,60 @@ theirs: `sandbox.ts` 33.33, 43 of its mutants reached by no test on Linux,
 `plugin.ts` 62.22, `server.ts` 70.65, `git.ts` 77.63 and `round.ts` 79.95.
 Those, the 116 mutants no test reaches and the 483 survivors are where the
 number moves up from.
+
+*Amended 2026-10-01.* `mutation.yml` runs the full sweep in eight shards,
+each mutating its own files against every test, and a job after them merges
+the reports and applies the `break` once, to the merged score; a shard is
+not a score. It is still the sweep a single run would make: every test but
+`tests/source.test.ts` and the merge's own, in every shard, with the same
+`timeoutMS` and `break`, and `npm run test:mutation:full` still runs it in
+one process. The merge, `scripts/mutation-shards.mjs`, is spec-core's (its
+ADR-0007), with its tests: it refuses a missing shard, a shard reported
+twice, a file mutated by two shards or by one it does not belong to, a
+listed file its shard did not report, a shard that ran with other patterns,
+and shards that ran different tests, matching tests by file and name. An
+unset or unknown shard is an error when the shard configuration loads, never
+a run over everything, and a file no shard lists is mutated by the last.
+
+One runner took 69 to 130 minutes for the full sweep. Before any sharded
+sweep ran, the report of eb39599 was cut into shards the way Stryker writes
+them and put back by the merge: all 7,507 verdicts came back with their
+tests, and its 91.18%.
+
+**Where the minutes went.** spec-core's shards were quicker than its single
+run because a shard instruments only its own files, and its suite spent most
+of its time in instrumented code. This suite spends it in git and the
+sibling tools: it ran in 61 seconds in every shard, as in the single run, so
+a file took the same minutes in a shard as in the single run, and a shard's
+minutes are its files' added up (`scripts/mutation-timeline.mjs` reads them
+off a log). `server.ts` takes 13 to 14 minutes on its own, most of them
+static mutants, each of which runs the whole suite, so no shard finishes
+sooner; eight shards come within a few minutes of it, and more would wait on
+it. The table is balanced on the mean of the first two sharded sweeps, at
+13.7 to 14.5 minutes a shard; the same shard moved by up to four minutes
+between runners.
+
+| Run | Layout | Score | Mutants | Killed | Timed out | Survived | No coverage | Took |
+| --- | --- | --- | --- | --- | --- | --- | --- | ---: |
+| 36708096066 | one job | 92.94% | 7,665 | 7,041 | 83 | 455 | 86 | 2h10m |
+| 36709265748 | eb39599's minutes | 92.95% | 7,665 | 7,045 | 80 | 454 | 86 | 22m10s |
+| 36711848267 | the first sharded sweep's | 92.95% | 7,665 | 7,047 | 78 | 454 | 86 | 19m52s |
+| 36714214575 | the mean of the two | 92.95% | 7,665 | 7,046 | 79 | 454 | 86 | see below |
+
+All four are of 82d1817's code and tests, the sharded ones dispatched on the
+branch that brought the shards and timed from the first shard starting to
+the merged score. Mutant by mutant the sharded sweeps differ from the single
+run only by three to five mutants that timed out there and were killed in a
+shard, and one survivor killed in each, as a faster runner differs from a
+slower one. In the third, one shard's runner lost contact with GitHub after
+49 minutes, and the merge refused the sweep, as it should; re-running that
+job alone took 16 minutes, and the merge scored the sweep from its report
+and the other seven shards' of the first attempt, whose slowest had ended
+18 minutes after the start.
+
+The core sweep in `ci.yml` stays one job. It takes 6 to 8 minutes, the
+longest of CI's jobs, of which a minute and a half is the start every
+shard would pay again; split, it would add jobs to every change to save a
+few minutes.
+
+**The `break` stays 89.**
