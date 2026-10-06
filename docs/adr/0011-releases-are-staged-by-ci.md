@@ -111,6 +111,24 @@ under `tools` in `.spec-harness.json` is run as named: which package it runs,
 and so its version, is the configuration's to say, and `doctor` says its
 version was not checked.
 
+*Amended 2026-10-07.* The suite runs at both ends of that range, as a library
+tests the range of a peer. `devDependencies` and the lockfile hold each
+sibling at its newest release, so `npm test`, CI's matrix and a release's CI
+run what a user installing today runs, and Dependabot proposes a sibling's
+release in its next weekly run, with no cooldown. CI's
+`test (minimum siblings)` job then installs each of those siblings at its
+minimum over the lockfile's, with `npm install --no-save`, checks that
+`node_modules` holds exactly the minimums, and runs the suite again. The
+versions it installs are `MINIMUM_VERSIONS`, read from `src/versions.ts` by
+`scripts/minimum-siblings.ts`, so the workflow names no version of its own.
+Until then the lockfile held spec-brief and spec-guard at exactly their
+minimums, 0.2.0 and 0.12.0, and nothing ran the 0.4.1 and 0.18.1 a new install
+gets. When that job fails where the matrix passes, the harness relies on
+something the minimum does not have: either the harness stops relying on it,
+or the minimum is raised, as the consequences below say how. The suite runs
+spec-brief and spec-guard; spec-graph it only stands in for, so neither end of
+spec-graph's range is run, and its minimum rests on the reason in the table.
+
 ## Consequences
 
 - A maintainer sets up npmjs.com once: publish the placeholder; in the

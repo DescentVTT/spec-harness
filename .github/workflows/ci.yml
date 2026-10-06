@@ -55,6 +55,44 @@ jobs:
       - name: Pack
         run: npm pack --dry-run
 
+  # The lockfile holds each sibling's newest release, so the matrix above runs
+  # what a user installing today runs. This job holds the other end of the
+  # range package.json promises: the suite again, with each sibling it runs
+  # at the oldest release MINIMUM_VERSIONS says this one runs (ADR-0011). One
+  # leg, since what differs from the matrix is the siblings, not the platform.
+  minimum:
+    name: test (minimum siblings)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # 24, whose node runs the script below as it is written, as the release
+      # runs scripts/release.ts.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      # The versions are read from src/versions.ts, so none is written here.
+      # Assigned first, because a script that fails inside the install's own
+      # arguments would leave `npm install --no-save` with none, which
+      # installs nothing and exits 0. --no-save leaves package.json and the
+      # lockfile as they are; the last line fails unless node_modules now
+      # holds exactly the minimums, so the suite below cannot pass on the
+      # newest by mistake.
+      - name: Install each sibling at its minimum
+        run: |
+          specs="$(node scripts/minimum-siblings.ts)"
+          npm install --no-save $specs
+          node scripts/minimum-siblings.ts --installed
+      # A few integration tests spawn bin/spec-harness.js, which runs dist/.
+      - name: Build
+        run: npm run build
+      - name: Test
+        run: npm test
+
   coverage:
     name: coverage
     runs-on: ubuntu-latest

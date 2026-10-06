@@ -28,6 +28,22 @@ change to both. Raising a minimum asks every repository with the older
 sibling to upgrade it; say so in the changelog, and why
 ([ADR-0011](docs/adr/0011-releases-are-staged-by-ci.md)).
 
+`devDependencies` and the lockfile hold spec-brief and spec-guard at their
+newest releases, so `npm test` runs what a user installs today. CI's
+`test (minimum siblings)` job runs the suite again at the minimums. To do the
+same here:
+
+```bash
+npm install --no-save $(node scripts/minimum-siblings.ts)
+node scripts/minimum-siblings.ts --installed   # exits 1 unless those are installed
+npm test
+npm ci                                         # the newest again
+```
+
+When the suite fails at the minimums and passes at the newest, the harness
+relies on something the minimum lacks: change the harness, or raise the
+minimum.
+
 ## Releasing
 
 Versions are staged by CI from a tag and released by a maintainer with a
