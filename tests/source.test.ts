@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
+import { minimumsOf } from '../scripts/minimum-siblings.js';
 import { pluginDrift, releaseOf } from '../scripts/release.js';
 import { ConfigError, parseConfig, SIBLINGS } from '../src/config.js';
 import { GUARD_HOOK, mcpServer, mergeClaudeSettings, mergeMcp, PROJECT_DIR, PROJECT_DIR_OR_HERE } from '../src/configure.js';
@@ -49,6 +50,22 @@ describe('dependencies', () => {
     expect(pkg['peerDependencies']).toEqual(Object.fromEntries(SIBLINGS.map((name) => [`@descent-vtt/${name}`, `>=${MINIMUM_VERSIONS[name]}`])));
     // A missing spec-graph or spec-guard is reported, never required (ADR-0002).
     expect(pkg['peerDependenciesMeta']).toEqual({ '@descent-vtt/spec-graph': { optional: true }, '@descent-vtt/spec-guard': { optional: true } });
+  });
+
+  it('has a minimum for each sibling the suite installs, for CI to run the suite at (ADR-0011)', () => {
+    // spec-brief and spec-guard are run for real. spec-graph is a script that
+    // stands in for it in every test, so there is none to install at either end.
+    expect(minimumsOf(json('package.json')['devDependencies'] as Record<string, string>, MINIMUM_VERSIONS)).toEqual(
+      (['spec-brief', 'spec-guard'] as const).map((name) => ({ name: `@descent-vtt/${name}`, version: MINIMUM_VERSIONS[name] })),
+    );
+  });
+
+  it('has CI install those minimums, check that they are what is installed, and only then run the suite', () => {
+    const job = (text('.github/workflows/ci.yml').split('\n  minimum:\n')[1] ?? '').split(/\n  [a-z-]+:\n/)[0] as string;
+    const steps = ['specs="$(node scripts/minimum-siblings.ts)"', 'npm install --no-save $specs', 'node scripts/minimum-siblings.ts --installed', 'run: npm test'];
+    const found = steps.map((step) => job.indexOf(`${step}\n`));
+    expect(found.every((at) => at !== -1), job).toBe(true);
+    expect(found).toEqual([...found].sort((a, b) => a - b));
   });
 
   it('imports nothing but its own modules and Node\'s', () => {

@@ -23,7 +23,12 @@ updates:
       semver-minor-days: 14
       semver-major-days: 30
       # The sibling tools are released from this family, reviewed and
-      # approved with a second factor, and this package's minimums follow them.
+      # approved with a second factor, so a release of one waits out no
+      # cooldown. The suite runs each at the version the lockfile holds, and
+      # merging these bumps is what keeps that the version a user installs
+      # today. The minimums do not follow them: those are MINIMUM_VERSIONS in
+      # src/versions.ts, which CI's `test (minimum siblings)` job installs
+      # over the lockfile's and runs the suite at (ADR-0011).
       exclude:
         - '@descent-vtt/*'
     # Stryker's packages and vitest's move together or not at all: a runner
