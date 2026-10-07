@@ -6,6 +6,8 @@ import {
   describeClaudeCode,
   describeClaudeRelease,
   describeGitHook,
+  GIT_HOOK_LINE,
+  gitHookNote,
   describePlugin,
   describeSignerKeys,
   describeSignerProblem,
@@ -26,6 +28,7 @@ import {
   mergeSpecGraph,
   missingGitHook,
   PLUGIN,
+  PRE_COMMIT,
   PROTECT_RULE_FILES,
   PROJECT_DIR,
   PROJECT_DIR_OR_HERE,
@@ -479,7 +482,7 @@ describe("what doctor says of the keys, the Claude Code release and git's hook",
       '.githooks/pre-commit runs spec-harness, but is not executable, so git skips it: chmod +x .githooks/pre-commit',
     );
     expect(describeGitHook({ state: 'other', file: '.git/hooks/pre-commit' })).toBe(
-      '.git/hooks/pre-commit does not run spec-harness: add the line "npx --no-install spec-harness hook git" to it',
+      '.git/hooks/pre-commit does not run spec-harness: add the line "node node_modules/@descent-vtt/spec-harness/bin/spec-harness.js hook git" to it',
     );
     expect(describeGitHook({ state: 'absent', file: '.git/hooks/pre-commit' })).toBe(missingGitHook('.git/hooks/pre-commit'));
     expect(missingGitHook('.git/hooks/pre-commit')).toBe(
@@ -489,6 +492,73 @@ describe("what doctor says of the keys, the Claude Code release and git's hook",
       "no pre-commit hook runs spec-harness: one refuses a commit that changes what the active brief protects, for any agent or none, a shell's writes included; run spec-harness init --git-hook --write to add it",
     );
     expect(describeGitHook({ state: 'unknown', reason: 'r' })).toBe('where git runs its hooks cannot be told: r');
+  });
+
+  it('runs git\'s hook with node and the script in the project\'s install, as it runs Claude Code\'s, read from the top of the work tree', () => {
+    expect(GIT_HOOK_LINE).toBe('node node_modules/@descent-vtt/spec-harness/bin/spec-harness.js hook git');
+    // The script the Claude Code hooks name under the project, here under the directory git starts the hook in.
+    expect(`${PROJECT_DIR}/${GIT_HOOK_LINE.split(' ')[1]}`).toBe(SCRIPT);
+  });
+
+  it('writes a pre-commit hook in POSIX sh that says what is missing where the install is not, and otherwise runs it', () => {
+    expect(PRE_COMMIT).toBe(
+      [
+        '#!/bin/sh',
+        '# spec-harness: refuse a commit that changes what the active brief protects.',
+        "# git runs this at the top of the work tree it commits in, a linked worktree's",
+        "# own, wherever the hook is kept: the project's install is read from there.",
+        'bin=node_modules/@descent-vtt/spec-harness/bin/spec-harness.js',
+        'if [ ! -f "$bin" ]; then',
+        `  printf '%s\\n' "spec-harness: $bin is not in $PWD, the work tree git commits in: install the project's dependencies there, as with npm ci, and commit again" >&2`,
+        '  exit 2',
+        'fi',
+        'exec node "$bin" hook git',
+        '',
+      ].join('\n'),
+    );
+    // What it runs is the line advised for a hook of the repository's own, the script by the name it checked.
+    expect(PRE_COMMIT.endsWith(`\nexec ${GIT_HOOK_LINE.replace('node_modules/@descent-vtt/spec-harness/bin/spec-harness.js', '"$bin"')}\n`)).toBe(true);
+    // doctor and init find the harness in it by name, and no npx.
+    expect(PRE_COMMIT).toContain('spec-harness');
+    expect(gitHookNote(PRE_COMMIT)).toBeNull();
+  });
+
+  describe('a hook that runs the harness through npx', () => {
+    const NOTE =
+      'it runs spec-harness through npx, which starts npm to start node on every commit, and under npm 12 prints two "npm notice run" lines each time: ' +
+      'to run it with node from the project\'s install, as Claude Code\'s hooks are, replace the npx command there with "node node_modules/@descent-vtt/spec-harness/bin/spec-harness.js hook git"';
+
+    it.each([
+      ['the hook init wrote through 0.9.1', '#!/bin/sh\n# spec-harness: refuse a commit that changes what the active brief protects.\nexec npx --no-install spec-harness hook git\n'],
+      ['the line init advised, in a hook of the repository\'s own', '#!/bin/sh\nnpm test || exit 1\nnpx --no-install spec-harness hook git\n'],
+      ['npx without --no-install', '#!/bin/sh\nnpx spec-harness hook git\n'],
+      ['the package by its full name', '#!/bin/sh\nexec npx --no-install @descent-vtt/spec-harness hook git\n'],
+      ['a comment after the command', '#!/bin/sh\nnpx --no-install spec-harness hook git # the guard\n'],
+      ['an indented line, and more spaces than one', '#!/bin/sh\nif true; then\n  npx  --no-install  spec-harness  hook  git\nfi\n'],
+      ['Windows line endings', '#!/bin/sh\r\nexec npx --no-install spec-harness hook git\r\n'],
+      ['no newline at its end', 'npx --no-install spec-harness hook git'],
+    ])('is noted, with the line that runs it with node: %s', (_, text) => {
+      expect(gitHookNote(text)).toBe(NOTE);
+    });
+
+    it.each([
+      ['the hook init writes', PRE_COMMIT],
+      ['the line init advises, in a hook of the repository\'s own', `#!/bin/sh\nnpm test || exit 1\n${GIT_HOOK_LINE}\n`],
+      ['a comment that names the npx command', '#!/bin/sh\n# was: npx --no-install spec-harness hook git\nexec node node_modules/@descent-vtt/spec-harness/bin/spec-harness.js hook git\n'],
+      ['npx running something else, and the harness run with node', '#!/bin/sh\nnpx --no-install lint-staged\nnode node_modules/@descent-vtt/spec-harness/bin/spec-harness.js hook git\n'],
+      ['npx running the harness\'s other hook', '#!/bin/sh\nnpx --no-install spec-harness hook claude\n'],
+      ['npx running another of its commands', '#!/bin/sh\nnpx --no-install spec-harness doctor\n'],
+      ['another runner, which is the repository\'s to choose', '#!/bin/sh\npnpm exec spec-harness hook git\nyarn spec-harness hook git\nbunx spec-harness hook git\n'],
+      ['a word that only holds npx', '#!/bin/sh\nmynpx spec-harness hook git\nnpxx spec-harness hook git\n'],
+      ['npx after the command', '#!/bin/sh\nnode node_modules/@descent-vtt/spec-harness/bin/spec-harness.js hook git || npx --no-install lint-staged\n'],
+      ['a command whose name only starts as the hook\'s does', '#!/bin/sh\nnpx --no-install spec-harness hook gitlab\n'],
+      ['a tool whose name only starts as the harness\'s does', '#!/bin/sh\nnpx --no-install spec-harness-hook git\nnpx --no-install spec-harnesshook git\n'],
+      ['a tool whose name only ends as the harness\'s does', '#!/bin/sh\nnpx --no-install inspec-harness hook git\n'],
+      ['a hook that does not run it', '#!/bin/sh\nnpm test\n'],
+      ['an empty hook', ''],
+    ])('is not noted: %s', (_, text) => {
+      expect(gitHookNote(text)).toBeNull();
+    });
   });
 
   it('says how each forge protects the rule files, GitLab Free without Code Owners (spec-core ADR-0005)', () => {

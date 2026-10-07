@@ -24,6 +24,7 @@ import {
   describeSkipped,
   enabledPlugin,
   GIT_HOOK_LINE,
+  gitHookNote,
   type GitHookState,
   graphReadsBriefs,
   GUARD_HOOK,
@@ -36,6 +37,7 @@ import {
   mergeSpecGraph,
   missingGitHook,
   PLUGIN,
+  PRE_COMMIT,
   PROTECT_RULE_FILES,
   registersServer,
   SPEC_BRIEF_CONFIGS,
@@ -72,11 +74,6 @@ function specBriefDetail(plugin: boolean, base: string | null): string {
   return parts.join('; ');
 }
 
-const PRE_COMMIT = `#!/bin/sh
-# spec-harness: refuse a commit that changes what the active brief protects.
-exec npx --no-install spec-harness hook git
-`;
-
 /** A path as a person finds it: from the root when it is inside it, POSIX-separated, and as it is otherwise. */
 function shown(root: string, path: string): string {
   const inside = relative(root, path);
@@ -86,20 +83,21 @@ function shown(root: string, path: string): string {
 /**
  * git's pre-commit hook, where git runs it from, and what is there: init and
  * doctor both read it. `path` is `null` when git cannot say where its hooks
- * are.
+ * are. `note` is what there is to say of how a hook that runs the harness
+ * runs it, or `null`.
  */
-export async function gitHook(root: string): Promise<{ readonly hook: GitHookState; readonly path: string | null }> {
+export async function gitHook(root: string): Promise<{ readonly hook: GitHookState; readonly path: string | null; readonly note: string | null }> {
   const path = await hookPath('pre-commit', root);
-  if (path === null) return { hook: { state: 'unknown', reason: 'git does not say where they are; spec-harness needs git 2.31 or later' }, path };
+  if (path === null) return { hook: { state: 'unknown', reason: 'git does not say where they are; spec-harness needs git 2.31 or later' }, path, note: null };
   const file = shown(root, path);
-  if (!existsSync(path)) return { hook: { state: 'absent', file }, path };
-  // A Buffer finds the text as a string does, so an encoding mutant is equivalent.
-  if (!(await readFile(path, 'utf8')).includes('spec-harness')) return { hook: { state: 'other', file }, path };
+  if (!existsSync(path)) return { hook: { state: 'absent', file }, path, note: null };
+  const text = await readFile(path, 'utf8');
+  if (!text.includes('spec-harness')) return { hook: { state: 'other', file }, path, note: null };
   // git skips a hook it cannot execute, and says so only in a hint; Windows
   // has no executable bit, and runs it.
   // The Windows job holds the platform check; the sweep runs on Linux, where it is always true.
   const inert = process.platform !== 'win32' && (statSync(path).mode & 0o111) === 0;
-  return { hook: { state: inert ? 'inert' : 'runs', file }, path };
+  return { hook: { state: inert ? 'inert' : 'runs', file }, path, note: gitHookNote(text) };
 }
 
 export async function plan(workspace: Workspace, options: Options, env: CliIO['env']): Promise<Step[]> {
@@ -260,14 +258,16 @@ export async function plan(workspace: Workspace, options: Options, env: CliIO['e
   // a linked worktree's shared hooks. It is the guard for a write the agent's
   // hooks never see, one through a shell, so it is advised when not asked
   // for; it is configuration outside the tree, so it is written only then.
-  const { hook, path: hookFile } = await gitHook(root);
+  const { hook, path: hookFile, note: hookNote } = await gitHook(root);
   // Only a git older than 2.31, which the README states as the harness's
   // floor, cannot name its hooks, and init runs only in a work tree, where
   // any later git names them: no test reaches this advice, by that decision.
   if (hook.state === 'unknown' || hookFile === null) {
     steps.push({ file: 'pre-commit', action: 'advise', detail: describeGitHook(hook) });
   } else if (hook.state === 'runs') {
-    steps.push({ file: hook.file, action: 'keep', detail: 'already runs spec-harness' });
+    // A hook that runs it through npx is kept, as any hook that exists is,
+    // with the line that runs it as init writes the hook now.
+    steps.push({ file: hook.file, action: 'keep', detail: hookNote === null ? 'already runs spec-harness' : `already runs spec-harness; ${hookNote}` });
   } else if (hook.state === 'inert') {
     steps.push({ file: hook.file, action: 'advise', detail: describeGitHook(hook) });
   } else if (hook.state === 'other') {

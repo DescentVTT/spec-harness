@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 import { afterAll, describe, expect, it } from 'vitest';
 
-import { GUARD_HOOK, mcpServer, mergeMcp, PLUGIN, PROJECT_DIR_OR_HERE } from '../../src/configure.js';
+import { GUARD_HOOK, mcpServer, mergeMcp, PLUGIN, PRE_COMMIT, PROJECT_DIR_OR_HERE } from '../../src/configure.js';
 import { claudeSettingsFiles } from '../../src/round.js';
 import { gitHook } from '../../src/setup.js';
 import { cleanup, cli, install, installFake, installHarness, parsed, repository, siblings, temp, write, type Repository } from './helpers.js';
@@ -356,7 +356,7 @@ describe('init', () => {
   });
 
   it('cannot say where git\'s hooks are outside a work tree', async () => {
-    expect(await gitHook(temp())).toEqual({ hook: { state: 'unknown', reason: 'git does not say where they are; spec-harness needs git 2.31 or later' }, path: null });
+    expect(await gitHook(temp())).toEqual({ hook: { state: 'unknown', reason: 'git does not say where they are; spec-harness needs git 2.31 or later' }, path: null, note: null });
   });
 
   it.skipIf(process.platform === 'win32')('advises making a hook that runs spec-harness executable, since git skips it, and writes nothing over it', async () => {
@@ -377,9 +377,9 @@ describe('init', () => {
     expect(existsSync(hook)).toBe(false);
     const planned = await cli(['init', '--git-hook', '--write'], repo.root);
     expect(planned.stdout).toContain('create  .git/hooks/pre-commit\n        refuse a commit that changes what the active brief protects\n');
-    expect(repo.read('.git/hooks/pre-commit')).toBe(
-      '#!/bin/sh\n# spec-harness: refuse a commit that changes what the active brief protects.\nexec npx --no-install spec-harness hook git\n',
-    );
+    // node and the script in the project's install, as the Claude Code hooks init writes are run; tests/integration/git-hook.test.ts has git run it.
+    expect(repo.read('.git/hooks/pre-commit')).toBe(PRE_COMMIT);
+    expect(repo.read('.git/hooks/pre-commit')).toContain('\nexec node "$bin" hook git\n');
     expect(existsSync(hook)).toBe(true);
     // Once there, it is kept, asked for or not.
     expect((await cli(['init', '--git-hook'], repo.root)).stdout).toContain('keep    .git/hooks/pre-commit\n        already runs spec-harness\n');
@@ -387,7 +387,7 @@ describe('init', () => {
 
     const other = repository({});
     other.write('.git/hooks/pre-commit', '#!/bin/sh\nnpm test\n');
-    const line = 'advise  .git/hooks/pre-commit\n        a pre-commit hook exists; add the line "npx --no-install spec-harness hook git" to it\n';
+    const line = 'advise  .git/hooks/pre-commit\n        a pre-commit hook exists; add the line "node node_modules/@descent-vtt/spec-harness/bin/spec-harness.js hook git" to it\n';
     expect((await cli(['init', '--git-hook', '--write'], other.root)).stdout).toContain(line);
     expect((await cli(['init', '--write'], other.root)).stdout).toContain(line);
     expect(other.read('.git/hooks/pre-commit')).toBe('#!/bin/sh\nnpm test\n');
@@ -398,7 +398,7 @@ describe('init', () => {
     repo.git('config', 'core.hooksPath', '.githooks');
     const result = await cli(['init', '--git-hook', '--write'], repo.root);
     expect(result.stdout).toContain('create  .githooks/pre-commit\n');
-    expect(repo.read('.githooks/pre-commit')).toContain('spec-harness hook git');
+    expect(repo.read('.githooks/pre-commit')).toBe(PRE_COMMIT);
   });
 
   it('writes the hook where an absolute core.hooksPath points, which it joined to the work tree', async () => {
@@ -409,7 +409,7 @@ describe('init', () => {
     const step = result.steps.find((candidate) => candidate.file.endsWith('pre-commit'));
     expect(step?.action).toBe('create');
     expect(realpathSync.native(step?.file ?? '')).toBe(realpathSync.native(join(hooks, 'pre-commit')));
-    expect(readFileSync(join(hooks, 'pre-commit'), 'utf8')).toContain('spec-harness hook git');
+    expect(readFileSync(join(hooks, 'pre-commit'), 'utf8')).toBe(PRE_COMMIT);
     expect(existsSync(join(repo.root, hooks.replace(/^[A-Za-z]:/, ''), 'pre-commit'))).toBe(false);
   });
 
@@ -427,10 +427,10 @@ describe('init', () => {
     const linked = join(temp(), 'linked');
     main.git('worktree', 'add', '-q', '-b', 'brief/001-linked', linked);
     await cli(['init', '--git-hook', '--write'], linked);
-    expect(main.read('.git/hooks/pre-commit')).toContain('spec-harness hook git');
+    expect(main.read('.git/hooks/pre-commit')).toBe(PRE_COMMIT);
     main.git('config', 'core.hooksPath', '.githooks');
     await cli(['init', '--git-hook', '--write'], linked);
-    expect(readFileSync(join(linked, '.githooks', 'pre-commit'), 'utf8')).toContain('spec-harness hook git');
+    expect(readFileSync(join(linked, '.githooks', 'pre-commit'), 'utf8')).toBe(PRE_COMMIT);
     expect(existsSync(join(main.root, '.githooks', 'pre-commit'))).toBe(false);
   });
 
