@@ -9,78 +9,67 @@ only fixes, reports less or documents, so `^0.7.0` takes only releases that
 cannot turn a run red. The family's policy is
 [spec-core's ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
-## Unreleased
+## 0.10.0
+
+The skills and the README gave `npx` the tools' bare command names, which on
+npm are not this project's packages; the audit sees a dependency a round
+allowed to run install scripts; and git's hook runs `node`, not `npx`.
 
 ### Security
 
-- **The skills and the README gave `npx` the tools' command names, which on
-  npm are not this project's.** `spec-harness` without the `@descent-vtt`
-  scope is another publisher's package, with a command of the same name, and
-  `spec-brief`, `spec-guard` and `spec-graph` without it belonged to nobody
-  on 2026-10-07. `npx` given a name the project has not installed fetches
-  the package of that name and runs it, unasked when no terminal is
-  attached, as under an agent. The four skills, which an agent follows to
-  the letter in whatever tree it stands in - a fresh clone, a linked
-  worktree before `npm ci` - told it to run fifteen such commands, and one
-  of them named spec-guard, which a project need not have installed at all.
-  Every command in the skills, in the MCP prompts that serve the same text,
-  and in the README now gives the package's full name behind `--no-install`,
-  as in `npx --no-install @descent-vtt/spec-harness audit --format json`: it
-  runs the project's install, or stops with an error that names this
-  package. Each skill opens by saying what to do then - install the
-  project's dependencies there, as with `npm ci` - and never to drop the
-  flag or the scope; the spec-guard step runs only where the project lists
-  spec-guard. [Names](README.md#names) says whose the names are. The hooks,
-  the MCP server and git's hook already ran `node` with the path of the
-  installed file, and are unchanged. What was measured, under npm 10.9.9,
-  11.20.0 and 12.2.0, is in the family's
-  [adopting guide](https://github.com/DescentVTT/spec-core/blob/main/docs/adopting.md#names);
-  ADR-0009 records the decision for the skills, and `tests/names.test.ts`
-  holds every file here to the rule.
+- Every command in the four skills, in the MCP prompts that serve the same
+  text, and in the README gives `npx` the package's full name behind
+  `--no-install`, as in
+  `npx --no-install @descent-vtt/spec-harness audit --format json`.
+  `spec-harness` without the scope is another publisher's package on npm,
+  and `spec-brief`, `spec-guard` and `spec-graph` without it belonged to
+  nobody on 2026-10-07. `npx` given a name the project has not installed
+  fetches the package of that name and runs it, unasked when no terminal is
+  attached, as under an agent: the skills told an agent to run fifteen such
+  commands in whatever tree it stood in. Each skill now opens by saying what
+  to do when a command stops for a missing package - install the project's
+  dependencies, as with `npm ci` - and never to drop the flag or the scope
+  ([Names](README.md#names), ADR-0009, and the family's
+  [adopting guide](https://github.com/DescentVTT/spec-core/blob/main/docs/adopting.md#names)).
+  The hooks, the MCP server and git's hook run `node` with the installed
+  file's path and were not exposed.
   Upgrading: update the Claude Code plugin, or the package, to get the
-  skills as they are now. In a CI job, a script or a prompt of your own
-  that gives `npx` a tool's command name alone, write
-  `npx --no-install @descent-vtt/<name>`. `--no-install` in front of the
-  bare name is not enough: it stops a download, and npm still runs a copy
-  of the other package that an earlier fetch left in its cache. If
-  the bare name was ever run through `npx` on a machine, in a tree where the
-  harness was not installed, empty npm's cache of fetched commands there:
-  the `_npx` directory below the path `npm config get cache` prints.
+  skills as they are now. Where a CI job, a script or a prompt of your own
+  runs `npx <tool>`, write `npx --no-install @descent-vtt/<tool>`;
+  `--no-install` before the bare name is not enough, since npm still runs a
+  copy an earlier fetch left in its cache. If a bare name was ever run
+  through `npx` where the harness was not installed, empty that cache: the
+  `_npx` directory below the path `npm config get cache` prints.
 
 ### Added
 
-- `doctor` and `init` note a pre-commit hook that runs spec-harness through
-  `npx`, with the line that runs it with `node`; `doctor --format json`
-  gains `gitHook.note`. A note, never a failure.
+- `doctor` and `init` note a pre-commit hook that still runs spec-harness
+  through `npx`, with the line that runs it with `node`;
+  `doctor --format json` gains `gitHook.note`. A note, never a failure.
 - `readManifest` and `diffManifest` in the programmatic API give a
-  `package.json`'s install-script entries, and what changed in them, as
-  `installScripts`, beside the dependencies. `AuditInput.dependencies` takes
-  the changes as `installScripts`, optional.
+  `package.json`'s install-script entries and what changed in them, as
+  `installScripts`.
 
 ### Changed
 
-- `init --git-hook` writes a pre-commit hook that runs `node` and the
-  script in the project's install, as the Claude Code hooks are run, where
-  it ran <!-- bare-name: the hook as it was -->
-  `npx --no-install spec-harness hook git`: a commit starts no npm,
-  and npm 12's two `npm notice run` lines on every commit are gone. Where
-  the harness is not installed in the work tree git commits in, the hook
-  says so and stops the commit. The line advised for a hook of your own is
-  `node node_modules/@descent-vtt/spec-harness/bin/spec-harness.js hook git`
-  ([ADR-0012](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0012-one-way-into-claude-code.md)).
-  Upgrading: a hook written before keeps working. To move it, replace its
-  `npx` command with the line `doctor` names, or delete the hook and run
-  `init --git-hook --write`.
-- `audit` reports a package a round allowed to run install scripts: an
-  entry it added to `allowScripts` in a `package.json`, where npm 12 keeps
-  its approvals, or turned from `false` to `true`. It is
-  `install-script-allowed`, a warning as a new dependency is, which fails
-  `--strict`; a denial and a removed entry are notes. `--format json` gains
-  `installScripts`, and `measured` a count of the same name
+- `audit` reports a package a round allowed to run install scripts - an
+  entry added to `allowScripts` in a `package.json`, where npm 12 keeps its
+  approvals, or turned from `false` to `true` - as `install-script-allowed`,
+  a warning as a new dependency is; a denial and a removed entry are notes.
+  `--format json` gains `installScripts`
   ([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
   Upgrading: a round that approves a dependency's install script now fails
-  `audit --strict`; say in the brief why the script must run, and run the
-  audit without `--strict`, or remove the entry.
+  `audit --strict`; say in the brief why it must run and audit without
+  `--strict`, or remove the entry.
+- `init --git-hook` writes a pre-commit hook that runs `node` and the script
+  in the project's install, as the Claude Code hooks are run, where it ran
+  <!-- bare-name: the hook as it was -->
+  `npx --no-install spec-harness hook git`: a commit starts no npm. Where
+  the harness is not installed in the work tree, the hook says so and stops
+  the commit
+  ([ADR-0012](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0012-one-way-into-claude-code.md)).
+  Upgrading: a hook written before keeps working; to move it, use the line
+  `doctor` names, or delete the hook and run `init --git-hook --write`.
 
 ## 0.9.1
 
