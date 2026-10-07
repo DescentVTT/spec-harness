@@ -10,6 +10,11 @@ export default defineConfig({
     // an audit or a probe is a few dozen processes.
     testTimeout: 300_000,
     hookTimeout: 300_000,
+    // A temporary directory of the run's own, removed with all a failed test
+    // left in it when the run ends, and the end of what stopped runs left
+    // behind. The mutation sweeps run without it, on a runner that is thrown
+    // away.
+    globalSetup: ['tests/temporary.ts'],
     coverage: {
       provider: 'v8',
       include: ['src/**/*.ts'],

@@ -180,12 +180,17 @@ export async function addWorktree(path: string, rev: string, cwd: string): Promi
 }
 
 /**
- * Forgets the worktree at `path`, and no other, once its directory is
- * deleted. Git refuses to remove a worktree whose directory has lost its
- * `.git` file, and removes its record of one whose directory is gone, found by
- * the path it was added at: `git worktree prune` would also forget every other
- * worktree git has lost track of, the person's among them.
+ * Has git remove the worktree at `path`, and no other, with its record of it,
+ * and answers whether git did. Git deletes what it can of the worktree's
+ * directory and forgets the worktree even when it cannot delete it all. It
+ * refuses a worktree whose directory has lost its `.git` file, and removes
+ * its record of one whose directory is gone, found by the path it was added
+ * at: `git worktree prune` would also forget every other worktree git has
+ * lost track of, the person's among them.
  */
-export async function removeWorktree(path: string, cwd: string): Promise<void> {
-  await git(['worktree', 'remove', '--force', path], cwd);
+export async function removeWorktree(path: string, cwd: string): Promise<boolean> {
+  // The sandbox asks again when this answers false, and git, asked again
+  // about a worktree it has forgotten, changes nothing: the mutant that
+  // always answers false is equivalent.
+  return (await git(['worktree', 'remove', '--force', path], cwd)).code === 0;
 }

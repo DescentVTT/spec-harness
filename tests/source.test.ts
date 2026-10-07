@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { join, posix } from 'node:path';
+import { tmpdir } from 'node:os';
+import { basename, join, posix } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
@@ -11,6 +12,7 @@ import { ConfigError, parseConfig, SIBLINGS } from '../src/config.js';
 import { GUARD_HOOK, mcpServer, mergeClaudeSettings, mergeMcp, PROJECT_DIR, PROJECT_DIR_OR_HERE } from '../src/configure.js';
 import { scanMarkdown } from '../src/vendor/spec-core/markdown/index.js';
 import { CLAUDE_CODE_MINIMUM, MINIMUM_VERSIONS } from '../src/versions.js';
+import { PREFIX, VARIABLES } from './temporary.js';
 
 /**
  * Claims the repository makes about itself, checked rather than trusted. This
@@ -291,6 +293,17 @@ describe('the README', () => {
     }
     expect(documented.length).toBeGreaterThanOrEqual(11);
     expect(documented.filter((key) => !table.includes(`\`${key}\``))).toEqual([]);
+  });
+});
+
+describe('the suite', () => {
+  it('works in a temporary directory of its own, and everything it starts is told that it is the temporary directory', () => {
+    // Claimed before the first test file, as vitest.config.ts has every run
+    // do (tests/temporary.ts), and removed when the run ends: what a test
+    // leaves behind, the sandbox's worktrees among it, is left in there.
+    const own = tmpdir();
+    expect(basename(own).startsWith(PREFIX)).toBe(true);
+    expect(VARIABLES.map((name) => process.env[name])).toEqual([own, own, own]);
   });
 });
 

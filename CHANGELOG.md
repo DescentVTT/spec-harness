@@ -25,6 +25,21 @@ cannot turn a run red. The family's policy is
   a tool through one of the project's scripts, or through
   `npx --no-install <tool>`. `probe` itself runs a line as it is written.
 
+### Fixed
+
+- `probe` keeps its verdict when a worktree's directory cannot be deleted,
+  as on Windows while something a probe's command started is still running
+  in it. It ended in a Node stack trace with exit 1 before, the whole
+  checkout left in the temporary directory and git's record of the worktree
+  left in the repository. Git now forgets the worktree first, `probe` prints
+  and exits by its verdict, and it names the directory it left on the
+  standard error as it exits
+  ([ADR-0003](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0003-state-outside-the-work-tree.md)).
+- Ctrl+Break on Windows, which GitHub's runner also sends a step it
+  cancels, stops a `probe`'s commands and removes its worktree, as Ctrl+C
+  does, and exits 149. It ended the harness at once before, with the
+  worktree in place and the commands running on.
+
 ## 0.10.0
 
 The skills and the README gave `npx` the tools' bare command names, which on
