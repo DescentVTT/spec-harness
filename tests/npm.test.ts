@@ -289,7 +289,10 @@ describe('a tool run through npx, in a tree that may not have it installed', () 
  * unasked (0.10.0 on Windows under npm 11.16.0, with a made-up name served
  * from a loopback registry; ADR-0007). A person, or an agent drafting a brief,
  * writes a probe after the one a document shows, so each one shown starts its
- * tool through a script of the project's or says `--no-install`.
+ * tool through a script of the project's or says `--no-install`. The harness
+ * has since had npm stop there, with `npm_config_yes=false`, and the line
+ * still says so itself: the flag holds where a person's environment says
+ * `npm_config_yes=true`, which the harness leaves as it finds it.
  */
 
 interface ProbeLine {

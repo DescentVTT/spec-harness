@@ -24,6 +24,32 @@ cannot turn a run red. The family's policy is
   Upgrading: a script that took exit 1 after a crash for a refusal now sees
   2, "the answer cannot be trusted"; `run()` and `main()` from the package
   resolve to 2 where their promise rejected.
+- `probe` runs a probe's `setup` and `run` lines with `npm_config_yes=false`,
+  so `npx <tool>` given a name the project has not installed stops and names
+  the package, where it fetched the registry's package of that name and ran
+  it, unasked. A probe that passed by fetching is now `invalid`
+  ([ADR-0007](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0007-probes-declare-their-failure.md)).
+  Upgrading: install the tool in the probe's `setup`, as `setup: npm ci`
+  does, and start it through one of the project's scripts or
+  `npx --no-install <tool>`. To have npm fetch as before, say `--yes` on the
+  probe's line, or set `npm_config_yes=true` in the environment `probe` runs
+  in, which it leaves as it finds it; `yes=true` in an `.npmrc` no longer
+  does it, since the environment outranks the file.
+
+### Added
+
+- A probe's run that proves nothing - it failed for another reason than the
+  probe declares, was stopped at its timeout or left no report - shows the
+  last 2,000 characters its command printed, where the reason is: on the
+  standard error beside the table, and with `--format json` as `output` on
+  that run. Colours are dropped and other control characters written as
+  their escapes, and a `setup` that fails shows its output by the same rule.
+
+### Fixed
+
+- A probe's command that reads its input is told at once that there is
+  none. Its input was a pipe nothing closed, so it waited until the probe's
+  timeout stopped it, ten minutes by default.
 
 ## 0.10.1
 

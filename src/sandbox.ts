@@ -22,6 +22,7 @@ import { constants, tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { addWorktree, removeWorktree } from './git.js';
+import { probeEnvironment } from './probe.js';
 
 const live = new Map<string, string>();
 const running = new Set<ChildProcess>();
@@ -218,6 +219,11 @@ export interface CommandRun {
  * repository's own brief - `npm test -- x` - which the person approved with
  * the brief, exactly as CI runs the repository's own scripts. Nothing from
  * outside the repository reaches it.
+ *
+ * The line is run as it is written. Its environment is the person's own as
+ * `probeEnvironment` hands it on: `CI` set, and npm told to fetch nothing for
+ * a command where neither that environment nor the line says what it may
+ * fetch (ADR-0007).
  */
 export function runCommand(line: string, cwd: string, timeoutSeconds: number): Promise<CommandRun> {
   install();
@@ -228,7 +234,18 @@ export function runCommand(line: string, cwd: string, timeoutSeconds: number): P
     // tests catch on Windows. Everywhere else `detached` is true already, so
     // the mutants that make it true are equivalent there, as are
     // `windowsHide`'s.
-    const child = spawn(line, { cwd, shell: true, windowsHide: true, detached: process.platform !== 'win32', env: { ...process.env, CI: '1' } });
+    //
+    // It is given no input: nobody is there to type any, and a pipe that is
+    // never written to and never closed kept a command that reads its input
+    // waiting until the timeout stopped it.
+    const child = spawn(line, {
+      cwd,
+      shell: true,
+      windowsHide: true,
+      detached: process.platform !== 'win32',
+      env: probeEnvironment(process.env),
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
     running.add(child);
     let output = '';
     const keep = (chunk: Buffer): void => {

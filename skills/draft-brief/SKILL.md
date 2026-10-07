@@ -66,8 +66,9 @@ the defect.
 The probe runs in a fresh worktree, where nothing is installed until its
 `setup` line installs it, as `setup: npm ci` does. Make `run` one of the
 project's own scripts, such as `npm test -- <file>`, and never `npx` with a
-tool's name alone: where the tool is not installed, npm fetches whatever the
-registry has under that name and runs it. Then:
+tool's name alone: where the tool is not installed, npm would fetch whatever
+the registry has under that name, so `probe` has it stop there and the probe
+is `invalid`. Never add `--yes` to get past that. Then:
 
 ```bash
 npx --no-install @descent-vtt/spec-harness probe <id> --at base
@@ -75,7 +76,8 @@ npx --no-install @descent-vtt/spec-harness probe <id> --at base
 
 `measured` means the defect is real; paste the evidence table into the
 brief. `vacuous` means it is not there: say so to the person and stop.
-`invalid` or `flaky` means the probe proves nothing yet: fix the probe.
+`invalid` or `flaky` means the probe proves nothing yet: read the end of its
+command's output, printed after the table, and fix the probe.
 
 ## 4. Check, then hand over
 
