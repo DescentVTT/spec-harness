@@ -86,7 +86,9 @@ export function formatGitlab(findings: readonly Finding[], options: FormatOption
 /** How SARIF describes a rule: the audit's own words, or the archive rule spec-brief gave. */
 function describeRule(id: string): string {
   if (id.startsWith('archive/')) return `A reason spec-brief's archive gives: ${id.slice('archive/'.length)}.`;
-  return RULES[id] ?? id;
+  // Its own rules only: a finding a caller made may name any rule, and every
+  // object answers to `constructor`, which is no sentence.
+  return Object.hasOwn(RULES, id) ? (RULES[id] as string) : id;
 }
 
 /**

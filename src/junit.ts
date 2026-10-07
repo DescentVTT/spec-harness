@@ -21,7 +21,18 @@ export interface JUnitCase {
 
 export type JUnitRead = { readonly ok: true; readonly cases: readonly JUnitCase[] } | { readonly ok: false; readonly error: string };
 
-const ENTITIES: Readonly<Record<string, string>> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
+/**
+ * A map, because the name comes from a report and an object answers to more
+ * names than it was given: `&constructor;` in a test's name was replaced with
+ * the source of a function.
+ */
+const ENTITIES: ReadonlyMap<string, string> = new Map([
+  ['amp', '&'],
+  ['lt', '<'],
+  ['gt', '>'],
+  ['quot', '"'],
+  ['apos', "'"],
+]);
 
 /** Replaces the five named entities and numeric references. An unknown entity stays as written. */
 export function decodeEntities(text: string): string {
@@ -34,7 +45,7 @@ export function decodeEntities(text: string): string {
       const point = Number.parseInt(body.slice(1), 10);
       return point <= 0x10ffff ? String.fromCodePoint(point) : whole;
     }
-    return ENTITIES[body] ?? whole;
+    return ENTITIES.get(body) ?? whole;
   });
 }
 

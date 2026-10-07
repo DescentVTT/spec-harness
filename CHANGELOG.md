@@ -9,6 +9,22 @@ only fixes, reports less or documents, so `^0.7.0` takes only releases that
 cannot turn a run red. The family's policy is
 [spec-core's ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
+## Unreleased
+
+### Fixed
+
+- A command named as something every JavaScript object answers to -
+  `spec-harness constructor`, `toString`, `__proto__` - is the unknown
+  command it is: `unknown command "constructor"; see spec-harness --help`
+  with exit 2, where it ended on a stack trace with exit 1.
+- `probe` leaves an entity of such a name in a JUnit report as written, as
+  it leaves any entity XML does not name: `&constructor;` or `&toString;` in
+  a test's name, its class or a failure's message was replaced with the
+  source of a function, so a probe's `test:` could not name that test.
+- `formatSarif`, called with a finding whose rule is so named, describes the
+  rule by its name, as it does any rule the audit does not have; the
+  description had no text. No command makes such a finding.
+
 ## 0.9.0
 
 spec-harness refuses sibling JSON of a shape it does not read, with exit 2,
