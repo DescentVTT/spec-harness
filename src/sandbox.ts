@@ -8,6 +8,12 @@
  * succeeded, threw, or the process was interrupted (ADR-0003). The person's
  * branch, index, stash and working files are never touched; a failed round is
  * discarded by discarding its worktree, never by resetting theirs.
+ *
+ * Git forgets a worktree whatever becomes of its directory. A directory that
+ * cannot be deleted, as on Windows while something a command started still
+ * runs in it, costs the job nothing: its answer stands, the directory is
+ * tried again as the process exits, and one still there then is named on the
+ * standard error.
  */
 
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
@@ -63,21 +69,21 @@ function stop(child: ChildProcess): void {
 
 /**
  * Deletes a worktree's directory, trying again for up to `SETTLE_MS` while
- * something holds it. On Windows a command just stopped lets go of its
- * directory a moment after taskkill returns, and an exit handler, which runs
- * synchronously, has no other way to wait; elsewhere a directory in use is
- * deleted all the same.
+ * something holds it, and answers `null` once it is gone, or else why it is
+ * not. On Windows a command just stopped lets go of its directory a moment
+ * after taskkill returns, and an exit handler, which runs synchronously, has
+ * no other way to wait; elsewhere a directory in use is deleted all the same.
  */
-function discard(directory: string): void {
+function discard(directory: string): Error | null {
   const deadline = Date.now() + SETTLE_MS;
   for (;;) {
     try {
       rmSync(directory, { recursive: true, force: true });
-      return;
+      return null;
     } catch (error) {
       // `>=` would differ only in the millisecond the deadline falls on, so
       // that mutant is equivalent.
-      if (Date.now() > deadline) throw error;
+      if (Date.now() > deadline) return error as Error;
       // The pause only spares the processor between attempts: without it
       // the directory is deleted, or given up on, at the same moment, so
       // that mutant is equivalent.
@@ -87,25 +93,42 @@ function discard(directory: string): void {
 }
 
 /**
+ * Has git remove the worktree at `directory` with its record of it, as
+ * `removeWorktree` does and synchronously, and answers whether git did.
+ */
+function forget(directory: string, repository: string): boolean {
+  try {
+    execFileSync('git', ['worktree', 'remove', '--force', directory], { cwd: repository, stdio: 'ignore', windowsHide: true });
+    // Asked again about a worktree it has forgotten, git changes nothing, so
+    // the mutant that answers false here is equivalent.
+    return true;
+  } catch {
+    // Git refused a worktree its job broke, could not delete all of the
+    // directory, holds nothing of it any more, or cannot be run.
+    return false;
+  }
+}
+
+/**
  * Stops every command still running, then removes every live worktree:
  * synchronously, the only kind of work an exit handler may do, so at exit
- * nothing waits for the commands to end but `discard`'s retries.
+ * nothing waits for the commands to end but `discard`'s retries. A directory
+ * that outlasts those is named on the standard error and left: nothing
+ * thrown here could be caught, and the next worktree is still to remove.
  */
 function sweep(): void {
   for (const child of running) stop(child);
   for (const [directory, repository] of live) {
-    // Deleted first, as at the end of a job, so that git forgets it however
-    // the job left it (`removeWorktree` says why).
-    discard(directory);
-    try {
-      execFileSync('git', ['worktree', 'remove', '--force', directory], { cwd: repository, stdio: 'ignore', windowsHide: true });
-    } catch {
-      // Git holds nothing of it any more, or cannot be run; nothing more can
-      // be done from an exit handler.
-    }
+    // In the order a job's end takes, for the reasons `withWorktree` gives.
+    const forgotten = forget(directory, repository);
+    const kept = discard(directory);
+    if (kept !== null) process.stderr.write(`spec-harness: the temporary worktree at ${directory} could not be deleted and is left there: ${kept.message}\n`);
+    // The mutant that always asks again is equivalent, as in `forget`.
+    else if (!forgotten) forget(directory, repository);
   }
-  // A signal handler ends in an exit, which sweeps again over worktrees
-  // already gone and forgotten, so a mutant that keeps them changes nothing.
+  // A signal handler ends in an exit, which sweeps again: over worktrees
+  // already gone and forgotten, where keeping them would change nothing, and
+  // over one that could not be deleted, which would be named a second time.
   live.clear();
 }
 
@@ -139,7 +162,20 @@ function install(): void {
   for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) process.on(signal, interrupted);
 }
 
-/** Runs `work` in a detached worktree of `repository` at `revision`, and removes the worktree after. */
+/**
+ * Runs `work` in a detached worktree of `repository` at `revision`, and
+ * removes the worktree after.
+ *
+ * Git removes it first, while it is as the job left it: git then forgets the
+ * worktree whether or not all of its directory can be deleted. What git left
+ * of the directory is deleted next, which is all of it when the job broke the
+ * worktree, since git refuses one whose `.git` file is gone. Only then is
+ * git asked again, once the directory is gone, when it forgets what it finds
+ * missing (`removeWorktree`).
+ *
+ * A directory that cannot be deleted stays on the list for the exit to try
+ * again, and does not take the job's answer with it.
+ */
 export async function withWorktree<T>(repository: string, revision: string, work: (directory: string) => Promise<T>): Promise<T> {
   install();
   const directory = mkdtempSync(join(tmpdir(), 'spec-harness-'));
@@ -148,9 +184,13 @@ export async function withWorktree<T>(repository: string, revision: string, work
     await addWorktree(directory, revision, repository);
     return await work(directory);
   } finally {
-    discard(directory);
-    await removeWorktree(directory, repository);
-    live.delete(directory);
+    const forgotten = await removeWorktree(directory, repository);
+    if (discard(directory) === null) {
+      // Asked again about a worktree it has forgotten, git changes nothing,
+      // so the mutant that always asks again is equivalent.
+      if (!forgotten) await removeWorktree(directory, repository);
+      live.delete(directory);
+    }
   }
 }
 

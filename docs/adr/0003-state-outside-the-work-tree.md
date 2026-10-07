@@ -61,6 +61,34 @@ the end of a job, forgets every worktree git has lost track of: one of the
 person's on a drive that is not mounted, or another tool's. It is no longer
 run, and the sandbox touches `worktrees/` only through git.
 
+*Amended 2026-10-08.* **Git is asked first, and a directory that cannot be
+deleted costs its job nothing.** Measured with 0.10.0 on Windows (git 2.55.0,
+Node 24.18.1): a probe whose command left a process running in the worktree
+for longer than the three seconds lost its verdict to a Node stack trace,
+exited 1, and left the whole checkout in the temporary directory with git's
+record of it in the person's repository. Deleting the directory first is
+what left the record. Where a process runs in a directory, Node deletes
+nothing of it; where one runs in a directory inside it, Node deletes the
+`.git` file and stops there, and git refuses a worktree without one. Asked
+while the worktree is as its job left it, `git worktree remove --force`
+deletes what it can and forgets the worktree whether or not it could delete
+it all: it exits 255 with "failed to delete", the record is gone and the
+directory is left empty.
+
+So at the end of a job, at an exit and at an interrupt, git is asked first.
+What is left of the directory is deleted next, tried for the same three
+seconds. Git is asked a second time only when it refused the first, as it
+does a worktree whose job deleted its `.git` file, and by then the directory
+is gone. A directory still there after the three seconds is no longer an
+error thrown: the job's answer stands, or what the job threw; the directory
+stays on the sandbox's list and is tried once more when the process exits;
+and one still there then is named on the standard error, in one line that
+begins `spec-harness: the temporary worktree at`, where the exit ended in an
+uncaught error before. The same probe now prints its verdict, exits by it,
+and leaves an empty directory and nothing in git. A worktree whose job
+deleted its `.git` file and whose directory cannot be deleted either keeps
+git's record: git refuses it for as long as the directory is there.
+
 ## Consequences
 
 `git worktree add` is the one git write in the family, bounded to a directory

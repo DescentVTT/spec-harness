@@ -5,14 +5,16 @@ import { join } from 'node:path';
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 
 import { runCommand } from '../../src/sandbox.js';
-import { cleanup, repository, temp, type Repository } from './helpers.js';
+import { brief, BRIEF_FILE, cleanup, repository, spawnBin, temp, type Repository } from './helpers.js';
 
 /**
  * What the sandbox promises beyond a job that ends on its own, which
  * edges.test.ts covers: a worktree removed when the process is interrupted or
  * exits mid-job, and every command still running in it stopped first, with
- * everything it started (ADR-0003); and a probe's command run as CI runs it,
- * its output bounded, stopped whole at its timeout (ADR-0007).
+ * everything it started; a worktree git forgets, and a job whose answer
+ * stands, when the directory cannot be deleted (ADR-0003); and a probe's
+ * command run as CI runs it, its output bounded, stopped whole at its timeout
+ * (ADR-0007).
  */
 
 afterAll(cleanup);
@@ -224,15 +226,23 @@ async function holding(run: Sandbox['runCommand']): Promise<number> {
   return holder;
 }
 
+interface Pin {
+  /** Lets go of the directory, and leaves it as it is. */
+  free(): Promise<void>;
+  /** Lets go of the directory and deletes it. */
+  release(): Promise<void>;
+}
+
 /**
  * Keeps `directory` from being deleted for `ms` after this answers, from a
  * process of its own, and answers what lets go of it sooner. On Windows the
  * process runs in the directory, which cannot be deleted while in use, as in
  * the moment a stopped command takes to end. Elsewhere a directory in use can
  * be, so the process holds one inside it that its owner may not write, and
- * lets go by making it writable.
+ * lets go by making it writable. `at` is where the process runs, when that is
+ * to be a directory inside the one it pins.
  */
-async function pin(directory: string, ms: number): Promise<() => Promise<void>> {
+async function pin(directory: string, ms: number, at = directory): Promise<Pin> {
   const locked = process.platform === 'win32' ? '' : join(directory, 'locked');
   if (locked !== '') {
     mkdirSync(locked);
@@ -243,14 +253,35 @@ async function pin(directory: string, ms: number): Promise<() => Promise<void>> 
   const path = join(temp(), 'pin.cjs');
   const release = "setTimeout(() => { if (process.argv[4] !== '') require('node:fs').chmodSync(process.argv[4], 0o700); }, Number(process.argv[3]));";
   writeFileSync(path, [WRITE_IDS, 'write([process.pid]);', release, ''].join('\n'));
-  spawn(process.execPath, [path, file, String(ms), locked], { cwd: directory, stdio: 'ignore', windowsHide: true });
+  spawn(process.execPath, [path, file, String(ms), locked], { cwd: at, stdio: 'ignore', windowsHide: true });
   const [pid = 0] = await ids(file);
-  return async () => {
-    process.kill(pid, 'SIGKILL');
+  const free = async (): Promise<void> => {
+    try {
+      process.kill(pid, 'SIGKILL');
+    } catch {
+      // It let go on its own, after `ms`.
+    }
     await until(() => !alive(pid), 'the pinning process to end', 30);
-    if (locked !== '') chmodSync(locked, 0o700);
-    await until(() => removed(directory), `${directory} to be removed`, 30);
+    if (locked !== '' && existsSync(locked)) chmodSync(locked, 0o700);
   };
+  return {
+    free,
+    release: async () => {
+      await free();
+      await until(() => removed(directory), `${directory} to be removed`, 30);
+    },
+  };
+}
+
+/** What the sandbox wrote to the standard error since this was called, a line apiece. */
+function said(): () => string[] {
+  const write = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+  return () => write.mock.calls.flatMap(([text]) => String(text).split('\n')).filter((line) => line !== '');
+}
+
+/** How the one line begins that the sandbox writes for a worktree it had to leave: the system's reason follows. */
+function left(directory: string): string {
+  return `spec-harness: the temporary worktree at ${directory} could not be deleted and is left there: `;
 }
 
 function removed(directory: string): boolean {
@@ -490,24 +521,12 @@ describe('a command still running when the process is interrupted or exits', () 
     const repo = repository({ 'a.txt': 'a\n' });
     const directory = await midJob(withWorktree, repo);
     await pin(directory, 500);
+    const lines = said();
     only(handlers('exit'), 'exit')(0);
     expect(existsSync(directory)).toBe(false);
     expect(worktrees(repo)).toHaveLength(1);
-  });
-
-  // As root on Linux and macOS nothing keeps a directory from being deleted.
-  it.skipIf(process.getuid?.() === 0)('is given up at exit once a bound has passed, when its directory cannot be deleted, rather than keep the process from ending', async () => {
-    const { withWorktree, handlers } = await freshSandbox();
-    const repo = repository({ 'a.txt': 'a\n' });
-    const directory = await midJob(withWorktree, repo);
-    const release = await pin(directory, 600_000);
-    try {
-      const started = Date.now();
-      expect(() => only(handlers('exit'), 'exit')(0)).toThrow();
-      expect(Date.now() - started).toBeLessThan(15_000);
-    } finally {
-      await release();
-    }
+    // Nothing was left, so nothing is said.
+    expect(lines()).toEqual([]);
   });
 
   it('once ended, is neither stopped nor waited for again, so an interrupt with nothing running ends at once', async () => {
@@ -526,6 +545,210 @@ describe('a command still running when the process is interrupted or exits', () 
     // and the real process.exit is back.
     await within(exited, 60, 'exit');
     expect(early).toMatchObject({ code: 130 });
+  });
+});
+
+// As root on Linux and macOS nothing keeps a directory from being deleted.
+describe.skipIf(process.getuid?.() === 0)('a worktree whose directory cannot be deleted', () => {
+  it('is forgotten by git all the same, and its job still answers, once a bound has passed', async () => {
+    const { withWorktree } = await freshSandbox();
+    const repo = repository({ 'a.txt': 'a\n' });
+    let pinned: Pin | undefined;
+    let seen = '';
+    try {
+      let ended = 0;
+      const answer = await withWorktree(repo.root, 'HEAD', async (directory) => {
+        seen = directory;
+        // Inside it, as something a command started in a directory of the
+        // project runs: deleting the worktree's directory first would then
+        // take its .git file and stop at this one, and git refuses a
+        // worktree without its .git file.
+        mkdirSync(join(directory, 'inside'));
+        pinned = await pin(directory, 600_000, join(directory, 'inside'));
+        ended = Date.now();
+        return 7;
+      });
+      expect(answer).toBe(7);
+      // The three seconds a directory is tried for (ADR-0003), and git twice.
+      expect(Date.now() - ended).toBeLessThan(30_000);
+      expect(existsSync(seen)).toBe(true);
+      // The person's repository holds nothing of it: only its directory is left.
+      expect(worktrees(repo)).toHaveLength(1);
+    } finally {
+      await pinned?.release();
+    }
+  });
+
+  it('does not take its job\'s failure with it either: what the job threw is what is thrown', async () => {
+    const { withWorktree } = await freshSandbox();
+    const repo = repository({ 'a.txt': 'a\n' });
+    let pinned: Pin | undefined;
+    try {
+      await expect(
+        withWorktree(repo.root, 'HEAD', async (directory) => {
+          pinned = await pin(directory, 600_000);
+          throw new Error('the job failed');
+        }),
+      ).rejects.toThrow('the job failed');
+      expect(worktrees(repo)).toHaveLength(1);
+    } finally {
+      await pinned?.release();
+    }
+  });
+
+  it('is forgotten by git even when its job also deleted its .git file, once its directory can be deleted at exit', async () => {
+    // Git refuses a worktree whose .git file is gone for as long as its
+    // directory is there, and forgets it once the directory is not.
+    const { withWorktree, handlers } = await freshSandbox();
+    const repo = repository({ 'a.txt': 'a\n' });
+    let pinned: Pin | undefined;
+    let seen = '';
+    try {
+      await withWorktree(repo.root, 'HEAD', async (directory) => {
+        seen = directory;
+        rmSync(join(directory, '.git'));
+        pinned = await pin(directory, 600_000);
+      });
+      expect(existsSync(seen)).toBe(true);
+      expect(worktrees(repo)).toHaveLength(2);
+      await pinned?.free();
+      const lines = said();
+      only(handlers('exit'), 'exit')(0);
+      expect(existsSync(seen)).toBe(false);
+      expect(worktrees(repo)).toHaveLength(1);
+      expect(lines()).toEqual([]);
+    } finally {
+      await pinned?.release();
+    }
+  });
+
+  it('is deleted at exit, and nothing is said, when whatever kept it has let go by then', async () => {
+    const { withWorktree, handlers } = await freshSandbox();
+    const repo = repository({ 'a.txt': 'a\n' });
+    let pinned: Pin | undefined;
+    let seen = '';
+    try {
+      await withWorktree(repo.root, 'HEAD', async (directory) => {
+        seen = directory;
+        pinned = await pin(directory, 600_000);
+      });
+      expect(existsSync(seen)).toBe(true);
+      await pinned?.free();
+      const lines = said();
+      only(handlers('exit'), 'exit')(0);
+      expect(existsSync(seen)).toBe(false);
+      expect(lines()).toEqual([]);
+    } finally {
+      await pinned?.release();
+    }
+  });
+
+  it('is named on the standard error at exit when it is still there, once a bound has passed, and nothing is thrown where nothing could catch it', async () => {
+    const { withWorktree, handlers } = await freshSandbox();
+    const repo = repository({ 'a.txt': 'a\n' });
+    const directory = await midJob(withWorktree, repo);
+    const pinned = await pin(directory, 600_000);
+    try {
+      const lines = said();
+      const started = Date.now();
+      only(handlers('exit'), 'exit')(0);
+      expect(Date.now() - started).toBeLessThan(15_000);
+      expect(lines()).toHaveLength(1);
+      expect(lines()[0]?.startsWith(left(directory))).toBe(true);
+      // Why, in the system's words, after the colon.
+      expect(lines()[0]?.length).toBeGreaterThan(left(directory).length);
+      expect(existsSync(directory)).toBe(true);
+      expect(worktrees(repo)).toHaveLength(1);
+    } finally {
+      await pinned.release();
+    }
+  });
+
+  it('does not keep the worktrees after it from being removed at exit', async () => {
+    const { withWorktree, handlers } = await freshSandbox();
+    const repo = repository({ 'a.txt': 'a\n' });
+    const first = await midJob(withWorktree, repo);
+    const second = await midJob(withWorktree, repo);
+    const pinned = await pin(first, 600_000);
+    try {
+      const lines = said();
+      only(handlers('exit'), 'exit')(0);
+      expect(lines().map((line) => line.startsWith(left(first)))).toEqual([true]);
+      expect(existsSync(second)).toBe(false);
+      expect(worktrees(repo)).toHaveLength(1);
+    } finally {
+      await pinned.release();
+    }
+  });
+
+  it('is named once when the process is interrupted, not again by the exit the interrupt ends in', async () => {
+    const { withWorktree, handlers } = await freshSandbox();
+    const repo = repository({ 'a.txt': 'a\n' });
+    const directory = await midJob(withWorktree, repo);
+    const pinned = await pin(directory, 600_000);
+    try {
+      const lines = said();
+      expect((await interrupt(only(handlers('SIGINT'), 'SIGINT'), 'SIGINT')).code).toBe(130);
+      only(handlers('exit'), 'exit')(130);
+      expect(lines().map((line) => line.startsWith(left(directory)))).toEqual([true]);
+    } finally {
+      await pinned.release();
+    }
+  });
+
+  it('costs a probe nothing but a line: the verdict is printed, the exit is the verdict\'s, and git lists no worktree', async () => {
+    // The command line as a person runs it. The probe's command leaves the
+    // worktree as `pin` does: on Windows a process of its own still running
+    // in it, elsewhere a directory in it that its owner may not write.
+    const leave = [
+      "const { spawn } = require('node:child_process');",
+      "const { chmodSync, mkdirSync, writeFileSync } = require('node:fs');",
+      "if (process.platform === 'win32') {",
+      "  const holder = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 120000)'], { stdio: 'ignore', detached: true, windowsHide: true });",
+      '  holder.unref();',
+      '  writeFileSync(process.env.SPEC_HARNESS_TEST_HOLDER, String(holder.pid));',
+      '} else {',
+      "  mkdirSync('locked');",
+      "  writeFileSync('locked/kept', '');",
+      "  chmodSync('locked', 0o500);",
+      '}',
+      "console.log('expected fixed, got broken');",
+      'process.exit(1);',
+    ].join('\n');
+    const body = ['## Probes', '', '```probe', 'id: v', 'run: node leave.js', 'signature: expected fixed', '```', '', '```probe-file leave.js', leave, '```', ''].join('\n');
+    const repo = repository({ [BRIEF_FILE]: brief({ affected: ['src/**'], body }) }, { probes: { runs: 1 } });
+    repo.git('checkout', '-q', '-b', 'brief/001-fix');
+    const holder = join(temp(), 'holder');
+    process.env['SPEC_HARNESS_TEST_HOLDER'] = holder;
+    let directory = '';
+    try {
+      const result = spawnBin(['probe', '--at', 'base'], repo.root);
+      const lines = result.stderr.split('\n').filter((line) => line !== '');
+      directory = /^spec-harness: the temporary worktree at (.+) could not be deleted and is left there: ./.exec(lines[0] ?? '')?.[1] ?? '';
+      expect(lines, result.stderr).toHaveLength(1);
+      expect(directory, result.stderr).not.toBe('');
+      expect(result.stdout).toMatch(/\| v \| base `[0-9a-f]{12}` \| 1\/1 \| measured \| expected fixed, got broken \|/);
+      expect(result.code).toBe(0);
+      expect(existsSync(directory)).toBe(true);
+      expect(worktrees(repo)).toHaveLength(1);
+    } finally {
+      delete process.env['SPEC_HARNESS_TEST_HOLDER'];
+      // What the probe's command left is this test's to end and to delete.
+      if (existsSync(holder)) {
+        const pid = Number(readFileSync(holder, 'utf8'));
+        strays.push(pid);
+        try {
+          process.kill(pid, 'SIGKILL');
+        } catch {
+          // Already gone.
+        }
+        await until(() => !alive(pid), 'the process the command left to end', 30);
+      }
+      if (directory !== '') {
+        if (existsSync(join(directory, 'locked'))) chmodSync(join(directory, 'locked'), 0o700);
+        await until(() => removed(directory), `${directory} to be removed`, 30);
+      }
+    }
   });
 });
 
