@@ -47,6 +47,14 @@ where the core sweep read 3.83%: Dependabot proposes no major of it,
 `tests/source.test.ts` fails one made by hand, and ADR-0010 has the reason
 and where the steps that lift the hold are.
 
+Run a tool through `npm run <script>` or `npx --no-install <tool>`, never a
+bare `npx <name>`: before `npm ci` that fetches whatever the registry has
+under the name. `.npmrc` has npm stop there instead, and `tests/npm.test.ts`
+holds both. One of the family's own tools takes its package's full name
+(spec-core's
+[ADR-0005](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0005-the-family-contract.md#names),
+Names).
+
 ## Layout
 
 | Module | Responsibility |
