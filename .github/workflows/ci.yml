@@ -43,7 +43,10 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
           cache: npm
-      - run: npm ci
+      # No dependency's install script runs: the tree needs none, npm 12 runs
+      # none unless package.json allows the package, and the flag has npm 10 and
+      # 11 run none either (tests/npm.test.ts).
+      - run: npm ci --ignore-scripts
       - name: Type check
         run: npm run lint
       - name: Build
@@ -74,7 +77,7 @@ jobs:
         with:
           node-version: '24'
           cache: npm
-      - run: npm ci
+      - run: npm ci --ignore-scripts
       # The versions are read from src/versions.ts, so none is written here.
       # Assigned first, because a script that fails inside the install's own
       # arguments would leave `npm install --no-save` with none, which
@@ -105,7 +108,7 @@ jobs:
         with:
           node-version: '24'
           cache: npm
-      - run: npm ci
+      - run: npm ci --ignore-scripts
       # A few integration tests spawn bin/spec-harness.js, which runs dist/.
       - name: Build
         run: npm run build
@@ -125,7 +128,7 @@ jobs:
         with:
           node-version: '24'
           cache: npm
-      - run: npm ci
+      - run: npm ci --ignore-scripts
       - name: Core mutation sweep
         run: npm run test:mutation
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
