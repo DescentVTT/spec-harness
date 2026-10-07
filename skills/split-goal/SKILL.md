@@ -7,6 +7,22 @@ description: Split a goal too large for one round into briefs - each a small, se
 
 You decide what the pieces are; the tools decide whether the plan holds.
 
+## Before any command
+
+Run every command below as written, from the repository's root. Each gives
+`npx` the package's full name behind `--no-install`, so it runs the tool this
+project installed and fetches nothing.
+
+If one stops with `npx canceled due to missing packages`, the project's
+dependencies are not installed in this work tree - a fresh clone, a new
+worktree - or you are not at its root. Install them there, as with `npm ci`,
+and run the command again; if that fails, stop and tell the person.
+
+Never work around it by dropping `--no-install` or the `@descent-vtt/` in
+front of the name. Without the scope the names are not these tools: on npm
+`spec-harness` is another publisher's package, and `npx` would fetch it and
+run it.
+
 ## 1. Cut along files and decisions
 
 - One brief, one outcome a reviewer can judge on its own. Prefer rounds that
@@ -21,8 +37,8 @@ You decide what the pieces are; the tools decide whether the plan holds.
 ## 2. Let the tools place the waves
 
 ```bash
-npx spec-brief schedule --format json     # if this version has it
-npx spec-brief matrix --all-waves         # otherwise: which pairs collide
+npx --no-install @descent-vtt/spec-brief schedule --format json     # if this version has it
+npx --no-install @descent-vtt/spec-brief matrix --all-waves         # otherwise: which pairs collide
 ```
 
 A wave may run in parallel only if no two of its briefs can name the same
@@ -32,7 +48,7 @@ narrowing a scope, by adding a `dependsOn`, or by moving a brief to a later
 wave - never by leaving it for merge time.
 
 ```bash
-npx spec-brief lint --format json         # no cycles, waves in dependency order
+npx --no-install @descent-vtt/spec-brief lint --format json         # no cycles, waves in dependency order
 ```
 
 ## 3. Present the plan

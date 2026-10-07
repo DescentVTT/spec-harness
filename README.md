@@ -8,9 +8,23 @@ The family's words - brief, round, wave, ruling, premise, the two kinds of plugi
 
 ```bash
 npm install --save-dev @descent-vtt/spec-harness @descent-vtt/spec-brief
-npx spec-harness init            # the plan: what it would configure, and why
-npx spec-harness init --write    # apply it
+npx --no-install @descent-vtt/spec-harness init            # the plan: what it would configure, and why
+npx --no-install @descent-vtt/spec-harness init --write    # apply it
 ```
+
+## Names
+
+The package is `@descent-vtt/spec-harness`, and the command it installs is `spec-harness`. The name without the scope is not this project: on npm, `spec-harness` is another publisher's package, and it installs a command of the same name.
+
+`npx` fetches and runs the package of whatever name it is given when the project has none installed - a fresh clone, a worktree before `npm ci`, a CI job without the install step - and without a terminal, as under an agent, it does not ask first. So give `npx` the full name:
+
+- `npx --no-install @descent-vtt/spec-harness` in a project that installed it: it runs that install, the version the lockfile pins, and where there is none it stops with an error that names this package. Every command in this README and in the skills is written so.
+- `npx @descent-vtt/spec-harness`, without `--no-install`, fetches this package where nothing is installed. The harness works from a project's install, its own and spec-brief's, so that is for a look at `--help` and little else.
+
+<!-- bare-name: the two forms in the next sentence are shown as what not to write -->
+Never `npx spec-harness`, and not `npx --no-install spec-harness` either: `--no-install` stops a download, and npm still runs a copy of the other package that an earlier fetch left in its cache, and where nothing is installed it reports that package, by its own version, as the one to install. If the bare name was ever run through `npx` on a machine, in a tree without the install, empty npm's cache of fetched commands there: the `_npx` directory below the path `npm config get cache` prints.
+
+The same holds for the siblings: `@descent-vtt/spec-brief`, `@descent-vtt/spec-guard` and `@descent-vtt/spec-graph`, whose names without the scope belonged to nobody on npm on 2026-10-07. The hooks, the MCP server and git's hook go through no `npx` at all: they run `node` with the path of the installed file ([ADR-0012](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0012-one-way-into-claude-code.md)). The family's [adopting guide](https://github.com/DescentVTT/spec-core/blob/main/docs/adopting.md#names) has what was measured, under npm 10, 11 and 12.
 
 ## Requirements
 
@@ -117,14 +131,14 @@ A guard is a guardrail - an agent that writes through a shell passes it - so the
 
 ```bash
 # the agent, when the round cannot be done without a protected file
-npx spec-harness escalate --path src/db/schema.ts \
+npx --no-install @descent-vtt/spec-harness escalate --path src/db/schema.ts \
   --reason "Rotation needs a rotated_at column." \
   --option "Allow: one additive column" --option "Refuse: rotation keeps no timestamp" \
   --recommend "Allow; the column is additive."
 
 # the person
-npx spec-harness escalate --show E-012-1
-npx spec-harness rule E-012-1 --allow --note "Add rotated_at only."
+npx --no-install @descent-vtt/spec-harness escalate --show E-012-1
+npx --no-install @descent-vtt/spec-harness rule E-012-1 --allow --note "Add rotated_at only."
 git commit -S -m "ruling R-012-1: allow" -- briefs/012_rotate-tokens.md
 ```
 
@@ -234,7 +248,7 @@ spec-harness:
   image: node:22
   script:
     - npm ci
-    - npx spec-harness audit --format gitlab > gl-spec-harness.json
+    - npx --no-install @descent-vtt/spec-harness audit --format gitlab > gl-spec-harness.json
   artifacts:
     when: always
     reports:
@@ -362,7 +376,7 @@ The Claude Code plugin's hooks and server are the ones `init` writes into `.clau
 
 So after installing the plugin where `init` has run:
 
-1. Run `npx spec-harness doctor`: a double install exits 1.
+1. Run `npx --no-install @descent-vtt/spec-harness doctor`: a double install exits 1.
 2. Take the `spec-harness` entries out of those two files, or turn the plugin off for the project.
 
 ## In a repository that is not Node
@@ -382,7 +396,7 @@ The hooks name `${CLAUDE_PROJECT_DIR}/node_modules/@descent-vtt/spec-harness/bin
 
 git's hook names the same script, `node_modules/@descent-vtt/spec-harness/bin/spec-harness.js`, from the top of the work tree, where git starts it. `npx` would start npm to start node on every commit.
 
-A person who runs the tools by hand runs `npx spec-harness`, from the root.
+A person who runs the tools by hand runs `npx --no-install @descent-vtt/spec-harness`, from the root, giving `npx` the package's [full name](#names).
 
 ## Configuration
 

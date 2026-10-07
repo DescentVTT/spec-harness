@@ -115,7 +115,8 @@ is measured is still the one Windows finds first on `PATH`, and a
 `claude.exe`, as the native installer puts one, is asked, as before.
 
 *Amended 2026-10-07.* git's pre-commit hook is run as Claude Code's hooks
-are: `node` and the script in the project's install. `init --git-hook` wrote
+are: `node` and the script in the project's install. `init --git-hook`
+wrote <!-- bare-name: the hook as it was -->
 `exec npx --no-install spec-harness hook git`, which starts npm to start
 node on every commit. Under npm 12, npx says on stderr what it runs, two
 `npm notice run` lines a commit, where npm 10 and 11 print none (measured

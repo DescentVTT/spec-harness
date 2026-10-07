@@ -10,10 +10,26 @@ must not do, which files it may write and which it may not touch. You write
 it; `spec-brief` checks it; a person approves it before anyone starts. Never
 start implementing from a brief the person has not approved.
 
+## Before any command
+
+Run every command below as written, from the repository's root. Each gives
+`npx` the package's full name behind `--no-install`, so it runs the tool this
+project installed and fetches nothing.
+
+If one stops with `npx canceled due to missing packages`, the project's
+dependencies are not installed in this work tree - a fresh clone, a new
+worktree - or you are not at its root. Install them there, as with `npm ci`,
+and run the command again; if that fails, stop and tell the person.
+
+Never work around it by dropping `--no-install` or the `@descent-vtt/` in
+front of the name. Without the scope the names are not these tools: on npm
+`spec-harness` is another publisher's package, and `npx` would fetch it and
+run it.
+
 ## 1. Scaffold from the repository's own rules
 
 ```bash
-npx spec-brief new "<short title>" --type <feature|defect|refactor|chore> --wave <n>
+npx --no-install @descent-vtt/spec-brief new "<short title>" --type <feature|defect|refactor|chore> --wave <n>
 ```
 
 The scaffold holds every section this repository requires, each with a hint
@@ -29,8 +45,10 @@ Press hardest on the two that keep a round from wandering:
 ## 2. Measure the scope, do not guess it
 
 - Find the files the change touches: search the code, read `git log` for
-  files that change together, and ask spec-guard which rules govern them:
-  `npx spec-guard query <path> --json`.
+  files that change together, and, where the project's `package.json` lists
+  `@descent-vtt/spec-guard`, ask it which rules govern them:
+  `npx --no-install @descent-vtt/spec-guard query <path> --json`. A project
+  that does not list it has no such rules to ask about.
 - Write `affectedFiles` as narrow globs (`src/auth/**`, not `src/**`). A scope
   too wide makes rounds that could run in parallel wait for each other; one
   too narrow stops you mid-round. A new directory ends with `/`.
@@ -46,7 +64,7 @@ must contain - or a JUnit `test` name, so a compile error is never taken for
 the defect. Then:
 
 ```bash
-npx spec-harness probe <id> --at base
+npx --no-install @descent-vtt/spec-harness probe <id> --at base
 ```
 
 `measured` means the defect is real; paste the evidence table into the
@@ -56,8 +74,8 @@ brief. `vacuous` means it is not there: say so to the person and stop.
 ## 4. Check, then hand over
 
 ```bash
-npx spec-brief lint <id> --format json    # until it reports nothing
-npx spec-brief matrix                     # no collision with its wave
+npx --no-install @descent-vtt/spec-brief lint <id> --format json    # until it reports nothing
+npx --no-install @descent-vtt/spec-brief matrix                     # no collision with its wave
 ```
 
 Show the person the brief, the scope and the protections, and wait for their

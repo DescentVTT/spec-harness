@@ -5,13 +5,29 @@ description: Carry out one approved brief as a contract - load its context, stay
 
 # Run a round
 
+## Before any command
+
+Run every command below as written, from the repository's root. Each gives
+`npx` the package's full name behind `--no-install`, so it runs the tool this
+project installed and fetches nothing.
+
+If one stops with `npx canceled due to missing packages`, the project's
+dependencies are not installed in this work tree - a fresh clone, a new
+worktree - or you are not at its root. Install them there, as with `npm ci`,
+and run the command again; if that fails, stop and tell the person.
+
+Never work around it by dropping `--no-install` or the `@descent-vtt/` in
+front of the name. Without the scope the names are not these tools: on npm
+`spec-harness` is another publisher's package, and `npx` would fetch it and
+run it.
+
 ## 1. Start from the contract
 
 Work on a branch named after the brief, `brief/<id>-<topic>`, or pass
 `--brief <id>`. Then:
 
 ```bash
-npx spec-harness context <id>
+npx --no-install @descent-vtt/spec-harness context <id>
 ```
 
 It gives you the brief in full, the scope as the guard reads it, the rulings
@@ -21,13 +37,14 @@ scope's code to, and the documents the brief cites. Read it before the code.
 ## 2. Stay inside the lines
 
 - Write the files in `affectedFiles`. If the hook is installed, every edit is
-  checked; otherwise ask first: `npx spec-harness guard <path>`.
+  checked; otherwise ask first:
+  `npx --no-install @descent-vtt/spec-harness guard <path>`.
 - A protected file is not yours to change. If the round cannot be finished
   without it, stop and escalate - do not work around it, do not edit through
   a shell to avoid the hook:
 
   ```bash
-  npx spec-harness escalate --path <file> --reason "<why the round needs it>" \
+  npx --no-install @descent-vtt/spec-harness escalate --path <file> --reason "<why the round needs it>" \
     --option "<option>: <what it costs>" --option "<other option>: <cost>" \
     --recommend "<which, and why>"
   ```
