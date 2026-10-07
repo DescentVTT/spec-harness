@@ -40,7 +40,9 @@ jobs:
   shard:
     name: mutation (full, shard ${{ matrix.shard }} of ${{ strategy.job-total }})
     if: github.event_name == 'schedule' || inputs.full
-    runs-on: ubuntu-latest
+    # The image the hosted sweeps in ADR-0010 were measured on. Another image
+    # is another measurement: spec-core's ADR-0008 says what moving takes.
+    runs-on: ubuntu-24.04
     # Headroom for a bad runner, not a budget: the shards took 11 to 22
     # minutes. Stryker writes a shard's report only when the shard ends, so a
     # shard cut short measures nothing and the merge refuses the sweep; Re-run
@@ -103,7 +105,7 @@ jobs:
     # Runs when a shard failed too, so the failure is reported as an incomplete
     # sweep rather than as a skipped check.
     if: ${{ !cancelled() && (github.event_name == 'schedule' || inputs.full) }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
