@@ -8,6 +8,11 @@
  * declares dependencies and nothing more - no resolver, no lockfile, no
  * network. A manifest it cannot read is reported as unread, never as clean,
  * and so is a configured name it cannot read.
+ *
+ * The same holds for the one line that lets a dependency run code when it is
+ * installed. npm 12 runs a dependency's install scripts only where the root
+ * package's `allowScripts` allows the package, so an entry a round adds
+ * there turns on code that is nowhere in its diff.
  */
 
 import { globAlternatives, parseGlob, type Glob, type GlobAlternative } from './vendor/spec-core/pattern/index.js';
@@ -32,7 +37,34 @@ export interface DependencyChange {
   readonly after: string | null;
 }
 
-export type ManifestRead = { readonly ok: true; readonly dependencies: readonly Dependency[] } | { readonly ok: false; readonly error: string };
+/** What an entry of an install-script policy says of the package it names. */
+export type InstallScriptVerdict = 'allowed' | 'denied';
+
+export interface InstallScriptEntry {
+  /** The field that holds the policy, `allowScripts`. */
+  readonly section: string;
+  /** The entry's key as written: a package, or a package at the versions it names. */
+  readonly name: string;
+  readonly verdict: InstallScriptVerdict;
+}
+
+export interface InstallScriptChange {
+  readonly file: string;
+  readonly ecosystem: Ecosystem;
+  readonly section: string;
+  readonly name: string;
+  /** `null` when the policy had no such entry. */
+  readonly before: InstallScriptVerdict | null;
+  /** `null` when the entry was removed. */
+  readonly after: InstallScriptVerdict | null;
+}
+
+/** A format read for its dependencies alone: it has no install-script policy. */
+type DependencyRead = { readonly ok: true; readonly dependencies: readonly Dependency[] } | { readonly ok: false; readonly error: string };
+
+export type ManifestRead =
+  | { readonly ok: true; readonly dependencies: readonly Dependency[]; readonly installScripts: readonly InstallScriptEntry[] }
+  | { readonly ok: false; readonly error: string };
 
 /** The ecosystem a manifest file name belongs to, or `null`. */
 export function ecosystemOf(path: string): Ecosystem | null {
@@ -107,7 +139,34 @@ function readNpm(text: string): ManifestRead {
     if (typeof table !== 'object' || table === null || Array.isArray(table)) return { ok: false, error: `"${section}" is not an object` };
     for (const [name, version] of Object.entries(table)) out.push({ section, name, version: String(version) });
   }
-  return { ok: true, dependencies: out };
+  return { ok: true, dependencies: out, installScripts: npmInstallScripts(value as Record<string, unknown>) };
+}
+
+/**
+ * npm 12's install-script policy, where `npm install-scripts approve` and
+ * `deny` write it: a package, or a package at exact versions, to `true` or
+ * `false`.
+ */
+const NPM_INSTALL_SCRIPTS = 'allowScripts';
+
+/**
+ * The entries of `allowScripts`, read as npm reads them. It takes the field
+ * only when it is an object and an entry only when its value is `true` or
+ * `false`: anything else approves nothing and denies nothing, so it is no
+ * entry here either, and never a manifest that cannot be read. Each key is
+ * kept as written. Telling `canvas@1.2.3` from `canvas@^1`, which npm
+ * passes over, is npm's own reading of a package spec, and the audit names
+ * the entry for a person to read.
+ */
+function npmInstallScripts(manifest: Record<string, unknown>): InstallScriptEntry[] {
+  const policy = manifest[NPM_INSTALL_SCRIPTS];
+  if (typeof policy !== 'object' || policy === null) return [];
+  const out: InstallScriptEntry[] = [];
+  for (const [name, value] of Object.entries(policy)) {
+    if (value === true) out.push({ section: NPM_INSTALL_SCRIPTS, name, verdict: 'allowed' });
+    else if (value === false) out.push({ section: NPM_INSTALL_SCRIPTS, name, verdict: 'denied' });
+  }
+  return out;
 }
 
 /* -------------------------------------------------------------------- TOML */
@@ -229,7 +288,7 @@ function balanced(value: string): boolean {
 
 const CARGO_TABLE = /^(?:target\..+\.)?((?:workspace\.)?(?:dev-|build-)?dependencies)(?:\.(.+))?$/;
 
-function readCargo(text: string): ManifestRead {
+function readCargo(text: string): DependencyRead {
   const entries = tomlEntries(text);
   if (typeof entries === 'string') return { ok: false, error: entries };
   const out = new Map<string, Dependency>();
@@ -252,7 +311,7 @@ function readCargo(text: string): ManifestRead {
   return { ok: true, dependencies: [...out.values()] };
 }
 
-function readPyproject(text: string): ManifestRead {
+function readPyproject(text: string): DependencyRead {
   const entries = tomlEntries(text);
   if (typeof entries === 'string') return { ok: false, error: entries };
   const out: Dependency[] = [];
@@ -270,7 +329,7 @@ function readPyproject(text: string): ManifestRead {
 
 /* ------------------------------------------------------------ line formats */
 
-function readGoMod(text: string): ManifestRead {
+function readGoMod(text: string): DependencyRead {
   const out: Dependency[] = [];
   let block = false;
   for (const raw of text.split(/\r?\n/)) {
@@ -297,7 +356,7 @@ function readGoMod(text: string): ManifestRead {
   return { ok: true, dependencies: out };
 }
 
-function readRequirements(text: string): ManifestRead {
+function readRequirements(text: string): DependencyRead {
   const out: Dependency[] = [];
   for (const raw of text.split(/\r?\n/)) {
     const line = raw.replace(/(^|\s)#.*$/, '').trim();
@@ -307,7 +366,7 @@ function readRequirements(text: string): ManifestRead {
   return { ok: true, dependencies: out };
 }
 
-function readNuget(text: string): ManifestRead {
+function readNuget(text: string): DependencyRead {
   const out: Dependency[] = [];
   const element = /<(PackageReference|PackageVersion)\b([^>]*?)\/?>/g;
   for (let match = element.exec(text); match !== null; match = element.exec(text)) {
@@ -320,7 +379,7 @@ function readNuget(text: string): ManifestRead {
   return { ok: true, dependencies: out };
 }
 
-function readGemfile(text: string): ManifestRead {
+function readGemfile(text: string): DependencyRead {
   const out: Dependency[] = [];
   for (const raw of text.split(/\r?\n/)) {
     const match = /^\s*gem\s+(["'])([^"']+)\1\s*(?:,\s*(["'])([^"']*)\3)?/.exec(raw);
@@ -329,11 +388,15 @@ function readGemfile(text: string): ManifestRead {
   return { ok: true, dependencies: out };
 }
 
-/** Reads the dependencies a manifest declares. */
+/** Reads the dependencies a manifest declares, and the entries of its install-script policy where its format has one. */
 export function readManifest(ecosystem: Ecosystem, text: string): ManifestRead {
+  if (ecosystem === 'npm') return readNpm(text);
+  const read = readDependencies(ecosystem, text);
+  return read.ok ? { ...read, installScripts: [] } : read;
+}
+
+function readDependencies(ecosystem: Exclude<Ecosystem, 'npm'>, text: string): DependencyRead {
   switch (ecosystem) {
-    case 'npm':
-      return readNpm(text);
     case 'cargo':
       return readCargo(text);
     case 'go':
@@ -349,38 +412,56 @@ export function readManifest(ecosystem: Ecosystem, text: string): ManifestRead {
   }
 }
 
+/** One entry of a section, by what it says: a dependency's version, or a policy's verdict. */
+interface Entry<V> {
+  readonly section: string;
+  readonly name: string;
+  readonly value: V;
+}
+
+/** The entries added or said differently, in the order written, then those removed. */
+function moved<V>(old: readonly Entry<V>[], now: readonly Entry<V>[]): { section: string; name: string; before: V | null; after: V | null }[] {
+  const key = (entry: Entry<V>): string => `${entry.section}\u0000${entry.name}`;
+  const was = new Map(old.map((entry) => [key(entry), entry]));
+  const is = new Map(now.map((entry) => [key(entry), entry]));
+  const out: { section: string; name: string; before: V | null; after: V | null }[] = [];
+  for (const [id, entry] of is) {
+    const previous = was.get(id);
+    if (previous === undefined || previous.value !== entry.value) {
+      out.push({ section: entry.section, name: entry.name, before: previous?.value ?? null, after: entry.value });
+    }
+  }
+  for (const [id, entry] of was) {
+    if (!is.has(id)) out.push({ section: entry.section, name: entry.name, before: entry.value, after: null });
+  }
+  return out;
+}
+
 /**
- * What changed between two versions of one manifest. `null` text is a file
- * that does not exist on that side. Returns the error instead when either
- * side cannot be read.
+ * What changed between two versions of one manifest: its dependencies, and
+ * the entries of its install-script policy. `null` text is a file that does
+ * not exist on that side. Returns the error instead when either side cannot
+ * be read.
  */
 export function diffManifest(
   file: string,
   ecosystem: Ecosystem,
   before: string | null,
   after: string | null,
-): { readonly changes: readonly DependencyChange[] } | { readonly error: string } {
-  const read = (text: string | null, side: string): readonly Dependency[] | string => {
-    if (text === null) return [];
+): { readonly changes: readonly DependencyChange[]; readonly installScripts: readonly InstallScriptChange[] } | { readonly error: string } {
+  const read = (text: string | null, side: string): Pick<ManifestRead & { ok: true }, 'dependencies' | 'installScripts'> | string => {
+    if (text === null) return { dependencies: [], installScripts: [] };
     const result = readManifest(ecosystem, text);
-    return result.ok ? result.dependencies : `${file} (${side}): ${result.error}`;
+    return result.ok ? result : `${file} (${side}): ${result.error}`;
   };
   const old = read(before, 'before');
   if (typeof old === 'string') return { error: old };
   const now = read(after, 'after');
   if (typeof now === 'string') return { error: now };
-  const key = (d: Dependency): string => `${d.section}\u0000${d.name}`;
-  const was = new Map(old.map((d) => [key(d), d]));
-  const is = new Map(now.map((d) => [key(d), d]));
-  const changes: DependencyChange[] = [];
-  for (const [id, dependency] of is) {
-    const previous = was.get(id);
-    if (previous === undefined || previous.version !== dependency.version) {
-      changes.push({ file, ecosystem, section: dependency.section, name: dependency.name, before: previous?.version ?? null, after: dependency.version });
-    }
-  }
-  for (const [id, dependency] of was) {
-    if (!is.has(id)) changes.push({ file, ecosystem, section: dependency.section, name: dependency.name, before: dependency.version, after: null });
-  }
-  return { changes };
+  const versions = (side: typeof old): Entry<string>[] => side.dependencies.map((d) => ({ section: d.section, name: d.name, value: d.version }));
+  const verdicts = (side: typeof old): Entry<InstallScriptVerdict>[] => side.installScripts.map((e) => ({ section: e.section, name: e.name, value: e.verdict }));
+  return {
+    changes: moved(versions(old), versions(now)).map((change) => ({ file, ecosystem, ...change })),
+    installScripts: moved(verdicts(old), verdicts(now)).map((change) => ({ file, ecosystem, ...change })),
+  };
 }

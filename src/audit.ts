@@ -15,7 +15,8 @@
  * - The rulings: each one whose signature does not verify is reported, since
  *   an unverified ruling allows nothing.
  * - And the one question nobody else asks: which dependencies the round
- *   added. A dependency is code no reviewer read.
+ *   added, and which packages it allowed to run install scripts. Either is
+ *   code no reviewer read.
  *
  * A part that could not be measured is a finding, never a silence, and what
  * was measured is reported beside what was found: an audit that finds nothing
@@ -26,7 +27,7 @@
 import { CONFIG_FILE } from './config.js';
 import { PLUGIN } from './configure.js';
 import { rooted, rulingFor, type VerifiedRuling } from './guard.js';
-import type { DependencyChange } from './manifests.js';
+import type { DependencyChange, InstallScriptChange } from './manifests.js';
 import { sameSection } from './reader.js';
 import type { BriefRow, Finding, Severity } from './types.js';
 
@@ -60,6 +61,8 @@ export interface AuditInput {
   readonly unmeasured: string | null;
   readonly dependencies: {
     readonly changes: readonly DependencyChange[];
+    /** The entries of an install-script policy the round added, removed or turned; none when not given. */
+    readonly installScripts?: readonly InstallScriptChange[] | undefined;
     readonly unread: readonly string[];
     /** Names in `dependencies.manifests` that could not be read, with spec-core's reason; none when not given. */
     readonly unreadNames?: readonly { readonly name: string; readonly reason: string }[] | undefined;
@@ -99,6 +102,8 @@ export interface Measured {
   readonly rulings: { readonly verified: number; readonly unverified: number };
   /** Dependencies the round added, removed or moved, and manifests it changed that could not be read. */
   readonly dependencies: { readonly changed: number; readonly unread: number };
+  /** Entries of an install-script policy the round added, removed or turned, in the manifests read for dependencies. */
+  readonly installScripts: { readonly changed: number };
 }
 
 export interface AuditReport {
@@ -130,6 +135,9 @@ export const RULES: Readonly<Record<string, string>> = {
   'new-dependency': 'A dependency the round added: code no reviewer read.',
   'dependency-removed': 'A dependency the round removed.',
   'dependency-changed': 'A dependency the round moved to another version.',
+  'install-script-allowed': 'A package the round allowed to run install scripts: code no reviewer read, run on every install.',
+  'install-script-denied': 'A package the round denied its install scripts.',
+  'install-script-entry-removed': "An entry the round removed from a manifest's install-script policy.",
 };
 
 function finding(rule: string, severity: Severity, message: string, hint: string, file?: string, line?: number, subject?: string): Finding {
@@ -404,6 +412,37 @@ export function audit(input: AuditInput): AuditReport {
       out.push(finding('dependency-changed', 'note', `the round moved "${change.name}" from ${change.before} to ${change.after} in ${where}`, 'nothing to do, if the brief meant it', change.file, undefined, subject));
     }
   }
+  // An entry is named as written, a version with it: npm pins an approval to
+  // the version a person reviewed, so another version is another approval.
+  // Only an approval is a grant. A denial and a removed approval stop a
+  // script, and a removed denial approves nothing by itself: notes, as a
+  // removed dependency is.
+  const installScripts = input.dependencies.installScripts ?? [];
+  for (const change of installScripts) {
+    const where = `${change.file} (${change.section})`;
+    const subject = `${change.name} (${change.section})`;
+    if (change.after === 'allowed') {
+      out.push(
+        finding(
+          'install-script-allowed',
+          'warning',
+          `the round allowed "${change.name}" to run install scripts in ${where}${change.before === 'denied' ? ', which denied it before' : ''}`,
+          'say in the brief why its install scripts must run, or remove the entry; an install script is code no reviewer read, run on every install',
+          change.file,
+          undefined,
+          subject,
+        ),
+      );
+    } else if (change.after === 'denied') {
+      const was = change.before === 'allowed' ? ', which allowed them before' : '';
+      out.push(finding('install-script-denied', 'note', `the round denied "${change.name}" its install scripts in ${where}${was}`, 'nothing to do, if the brief meant it', change.file, undefined, subject));
+    } else {
+      const was = change.before === 'allowed' ? 'allowed' : 'denied';
+      out.push(
+        finding('install-script-entry-removed', 'note', `the round removed "${change.name}" from ${where}, which ${was} its install scripts`, 'nothing to do, if the brief meant it', change.file, undefined, subject),
+      );
+    }
+  }
 
   const measured: Measured = {
     changes: input.unmeasured === null ? 'measured' : 'unmeasured',
@@ -414,6 +453,7 @@ export function audit(input: AuditInput): AuditReport {
     unreadableAssertions: unreadable.length,
     rulings: { verified: input.verifiedRulings.length, unverified: input.unverifiedRulings.length },
     dependencies: { changed: input.dependencies.changes.length, unread: input.dependencies.unread.length },
+    installScripts: { changed: installScripts.length },
   };
   return { findings: out, counts: tally(out), measured };
 }
@@ -443,5 +483,8 @@ export function describeMeasured(measured: Measured): string {
   parts.push(measured.archive === 'asked' ? 'archive: asked' : 'archive: not asked');
   parts.push(rulings.verified + rulings.unverified === 0 ? 'rulings: none' : `rulings: ${rulings.verified} verified, ${rulings.unverified} unverified`);
   parts.push(measured.changes === 'unmeasured' ? 'dependencies: not measured' : `dependencies: ${dependencies.changed} changed, ${dependencies.unread} unread`);
+  // Said only when a policy changed, as an assertion that cannot be read is:
+  // most repositories have no such policy, and the line is a person's.
+  if (measured.installScripts.changed > 0) parts.push(`install scripts: ${measured.installScripts.changed} changed`);
   return `measured: ${parts.join(' · ')}`;
 }

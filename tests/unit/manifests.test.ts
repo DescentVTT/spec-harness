@@ -28,6 +28,13 @@ function error(ecosystem: Ecosystem, text: string): string {
   return result.error;
 }
 
+/** The entries of a manifest's install-script policy, as `section name verdict`. */
+function policy(ecosystem: Ecosystem, manifest: string | object): string[] {
+  const result = readManifest(ecosystem, typeof manifest === 'string' ? manifest : JSON.stringify(manifest));
+  if (!result.ok) throw new Error(result.error);
+  return result.installScripts.map((entry) => `${entry.section} ${entry.name} ${entry.verdict}`);
+}
+
 describe('which files are manifests', () => {
   it.each([
     ['package.json', 'npm'],
@@ -183,6 +190,61 @@ describe('npm', () => {
     expect(error('npm', '{"devDependencies":["a"]}')).toBe('"devDependencies" is not an object');
     expect(error('npm', '{"dependencies":"a"}')).toBe('"dependencies" is not an object');
     expect(error('npm', '{"peerDependencies":null}')).toBe('"peerDependencies" is not an object');
+  });
+});
+
+describe('npm install scripts', () => {
+  it('reads each entry of allowScripts as npm 12 writes it: a package, or a package at exact versions, allowed by true and denied by false', () => {
+    const manifest = {
+      name: 'x',
+      dependencies: { canvas: '^3.0.0' },
+      allowScripts: { 'canvas@3.1.0': true, '@scope/native@1.0.0 || 1.0.1': true, sharp: true, 'core-js': false, 'git+ssh://git@example.com/org/tool.git#abc1234': true },
+    };
+    expect(policy('npm', manifest)).toEqual([
+      'allowScripts canvas@3.1.0 allowed',
+      'allowScripts @scope/native@1.0.0 || 1.0.1 allowed',
+      'allowScripts sharp allowed',
+      'allowScripts core-js denied',
+      'allowScripts git+ssh://git@example.com/org/tool.git#abc1234 allowed',
+    ]);
+    // The policy is read beside the dependencies, never as one of them.
+    expect(names('npm', JSON.stringify(manifest))).toEqual(['dependencies canvas ^3.0.0']);
+  });
+
+  it('reads no entry from a value that is neither true nor false, which npm reads as neither approval nor denial', () => {
+    expect(policy('npm', { allowScripts: { a: 'true', b: 'false', c: 1, d: 0, e: null, f: '^1.0.0', g: {}, h: [true] } })).toEqual([]);
+    expect(policy('npm', { allowScripts: { a: 'true', kept: true, b: 0, gone: false } })).toEqual(['allowScripts kept allowed', 'allowScripts gone denied']);
+  });
+
+  it('reads a manifest with no allowScripts, or one that is not an object, as no policy, and still reads its dependencies', () => {
+    for (const allowScripts of [undefined, null, 'canvas', true, 7]) {
+      const manifest = JSON.stringify({ dependencies: { a: '1' }, allowScripts });
+      expect(policy('npm', manifest), manifest).toEqual([]);
+      expect(names('npm', manifest), manifest).toEqual(['dependencies a 1']);
+    }
+  });
+
+  it('reads no policy from another field: the package\'s own scripts, or a field another tool reads', () => {
+    const manifest = {
+      scripts: { preinstall: 'node setup.js', install: 'node-gyp rebuild', postinstall: 'node build.js', prepare: 'husky' },
+      pnpm: { onlyBuiltDependencies: ['esbuild'], allowBuilds: { esbuild: true } },
+      trustedDependencies: ['esbuild'],
+      lavamoat: { allowScripts: { esbuild: true } },
+      dependenciesMeta: { esbuild: { built: true } },
+    };
+    expect(policy('npm', manifest)).toEqual([]);
+  });
+
+  it('reads none from a manifest of another format', () => {
+    expect(policy('cargo', '[dependencies]\nserde = "1"\n[allowScripts]\nserde = true\n')).toEqual([]);
+    expect(policy('go', 'require x v1\n')).toEqual([]);
+    expect(policy('python', '[project]\ndependencies = ["a"]\n')).toEqual([]);
+    expect(policy('pip', 'a==1\n')).toEqual([]);
+    expect(policy('nuget', '<PackageReference Include="A" Version="1.0" />')).toEqual([]);
+    expect(policy('bundler', "gem 'a'\n")).toEqual([]);
+    // One it cannot read is refused as it was, with no policy beside the reason.
+    expect(readManifest('go', 'require (')).toEqual({ ok: false, error: 'a require block is never closed' });
+    expect(readManifest('npm', '[]')).toEqual({ ok: false, error: 'not a JSON object' });
   });
 });
 
@@ -538,28 +600,101 @@ describe('what a round changed', () => {
         { file: 'package.json', ecosystem: 'npm', section: 'dependencies', name: 'moved', before: '1', after: null },
         { file: 'package.json', ecosystem: 'npm', section: 'devDependencies', name: 'c', before: '3', after: null },
       ],
+      installScripts: [],
     });
   });
 
   it('reads a new manifest as every dependency added, and a deleted one as every dependency removed', () => {
     expect(diffManifest('go.mod', 'go', null, 'require x v1\n')).toEqual({
       changes: [{ file: 'go.mod', ecosystem: 'go', section: 'require', name: 'x', before: null, after: 'v1' }],
+      installScripts: [],
     });
     expect(diffManifest('Gemfile', 'bundler', "gem 'y'\n", null)).toEqual({
       changes: [{ file: 'Gemfile', ecosystem: 'bundler', section: 'gem', name: 'y', before: '', after: null }],
+      installScripts: [],
     });
-    expect(diffManifest('Gemfile', 'bundler', null, null)).toEqual({ changes: [] });
+    expect(diffManifest('Gemfile', 'bundler', null, null)).toEqual({ changes: [], installScripts: [] });
   });
 
   it('reports nothing for a manifest that changed around its dependencies', () => {
     const one = '{"name":"x","dependencies":{"a":"1"}}';
     const two = '{"name":"y","version":"2.0.0","dependencies":{"a":"1"}}';
-    expect(diffManifest('package.json', 'npm', one, two)).toEqual({ changes: [] });
+    expect(diffManifest('package.json', 'npm', one, two)).toEqual({ changes: [], installScripts: [] });
   });
 
   it('refuses to guess when either side cannot be read, and says which', () => {
     expect(diffManifest('package.json', 'npm', '{', after)).toEqual({ error: 'package.json (before): not valid JSON' });
     expect(diffManifest('package.json', 'npm', before, '[]')).toEqual({ error: 'package.json (after): not a JSON object' });
     expect(diffManifest('go.mod', 'go', null, 'require (\n')).toEqual({ error: 'go.mod (after): a require block is never closed' });
+  });
+});
+
+describe('what a round changed in an install-script policy', () => {
+  const manifest = (allowScripts: Record<string, unknown> | undefined, rest: object = {}): string => JSON.stringify({ name: 'x', ...rest, ...(allowScripts === undefined ? {} : { allowScripts }) });
+  const entry = (name: string, before: 'allowed' | 'denied' | null, after: 'allowed' | 'denied' | null) => ({ file: 'package.json', ecosystem: 'npm', section: 'allowScripts', name, before, after });
+  const scripts = (before: string | null, after: string | null) => {
+    const result = diffManifest('package.json', 'npm', before, after);
+    if ('error' in result) throw new Error(result.error);
+    return result.installScripts;
+  };
+
+  it('reports an entry added, by what it says, and one removed, by what it said', () => {
+    const before = manifest({ kept: true, 'approved@1.0.0': true, refused: false });
+    const after = manifest({ kept: true, 'canvas@3.1.0': true, 'core-js': false });
+    expect(scripts(before, after)).toEqual([
+      entry('canvas@3.1.0', null, 'allowed'),
+      entry('core-js', null, 'denied'),
+      entry('approved@1.0.0', 'allowed', null),
+      entry('refused', 'denied', null),
+    ]);
+  });
+
+  it('reports an entry turned, either way, and not one that says what it said', () => {
+    const before = manifest({ lifted: false, withdrawn: true, same: true, still: false });
+    const after = manifest({ lifted: true, withdrawn: false, same: true, still: false });
+    expect(scripts(before, after)).toEqual([entry('lifted', 'denied', 'allowed'), entry('withdrawn', 'allowed', 'denied')]);
+  });
+
+  it('reads an approval moved to another version as the entry added and the entry removed, since the key is the approval', () => {
+    expect(scripts(manifest({ 'canvas@3.1.0': true }), manifest({ 'canvas@3.2.0': true }))).toEqual([entry('canvas@3.2.0', null, 'allowed'), entry('canvas@3.1.0', 'allowed', null)]);
+    // A name alone and the name at a version are two entries, as npm reads two keys.
+    expect(scripts(manifest({ canvas: true }), manifest({ canvas: true, 'canvas@3.1.0': true }))).toEqual([entry('canvas@3.1.0', null, 'allowed')]);
+  });
+
+  it('reads a policy that appears as every entry added, and one that is gone as every entry removed', () => {
+    expect(scripts(manifest(undefined), manifest({ sharp: true, 'core-js': false }))).toEqual([entry('sharp', null, 'allowed'), entry('core-js', null, 'denied')]);
+    expect(scripts(manifest({ sharp: true, 'core-js': false }), manifest(undefined))).toEqual([entry('sharp', 'allowed', null), entry('core-js', 'denied', null)]);
+    expect(scripts(null, manifest({ sharp: true }))).toEqual([entry('sharp', null, 'allowed')]);
+    expect(scripts(manifest({ sharp: true }), null)).toEqual([entry('sharp', 'allowed', null)]);
+  });
+
+  it('reads a value that stops being true or false as the entry removed, and one that becomes so as the entry added', () => {
+    expect(scripts(manifest({ sharp: true }), manifest({ sharp: '^0.33.0' }))).toEqual([entry('sharp', 'allowed', null)]);
+    expect(scripts(manifest({ sharp: 'yes' }), manifest({ sharp: true }))).toEqual([entry('sharp', null, 'allowed')]);
+  });
+
+  it('reports nothing for a manifest whose policy did not change, whatever else did', () => {
+    const before = manifest({ sharp: true, 'core-js': false }, { dependencies: { sharp: '1' }, scripts: { test: 'vitest' } });
+    const after = manifest({ 'core-js': false, sharp: true }, { dependencies: { sharp: '2', added: '1' }, scripts: { test: 'vitest', postinstall: 'node build.js', prepare: 'husky' } });
+    const result = diffManifest('package.json', 'npm', before, after);
+    expect(result).toEqual({
+      changes: [
+        { file: 'package.json', ecosystem: 'npm', section: 'dependencies', name: 'sharp', before: '1', after: '2' },
+        { file: 'package.json', ecosystem: 'npm', section: 'dependencies', name: 'added', before: null, after: '1' },
+      ],
+      installScripts: [],
+    });
+  });
+
+  it('reports a dependency and an entry of the same name apart, each where it was read', () => {
+    const result = diffManifest('web/package.json', 'npm', manifest(undefined), manifest({ sharp: true }, { dependencies: { sharp: '^0.33.0' } }));
+    expect(result).toEqual({
+      changes: [{ file: 'web/package.json', ecosystem: 'npm', section: 'dependencies', name: 'sharp', before: null, after: '^0.33.0' }],
+      installScripts: [{ file: 'web/package.json', ecosystem: 'npm', section: 'allowScripts', name: 'sharp', before: null, after: 'allowed' }],
+    });
+  });
+
+  it('reads no policy change from a manifest it cannot read, which is refused whole', () => {
+    expect(diffManifest('package.json', 'npm', manifest({ sharp: true }), '{"allowScripts":')).toEqual({ error: 'package.json (after): not valid JSON' });
   });
 });

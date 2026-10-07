@@ -228,6 +228,26 @@ describe('the tools', () => {
     );
   });
 
+  it('audit_round names a package the round allowed to run install scripts, and counts it in what it measured', async () => {
+    const before = { name: 'x', dependencies: { sharp: '^0.33.0' } };
+    const allowed = repository({ [BRIEF_FILE]: brief({ affected: ['**'] }), 'package.json': `${JSON.stringify(before)}\n` });
+    allowed.git('checkout', '-q', '-b', 'brief/001-x');
+    allowed.write('package.json', `${JSON.stringify({ ...before, allowScripts: { 'sharp@0.33.5': true } })}\n`);
+    allowed.commit('work');
+    const other = await openWorkspace(parseOptions(['mcp']), { stdout: { write: () => true }, stderr: { write: () => true }, cwd: allowed.root, env: {} });
+    const audited = await tools(other, {}).find((t) => t.descriptor.name === 'audit_round')?.call({});
+    expect(audited?.text).toBe(
+      [
+        'warning install-script-allowed: the round allowed "sharp@0.33.5" to run install scripts in package.json (allowScripts). Next: say in the brief why its install scripts must run, or remove the entry; an install script is code no reviewer read, run on every install',
+        '',
+        'measured: goals: none declared · premises: none declared · archive: asked · rulings: none · dependencies: 0 changed, 0 unread · install scripts: 1 changed',
+        '',
+        '0 error(s), 1 warning(s), 0 note(s)',
+      ].join('\n'),
+    );
+    expect((audited?.structured as { measured: unknown }).measured).toMatchObject({ dependencies: { changed: 0, unread: 0 }, installScripts: { changed: 1 } });
+  });
+
   it('list_rounds lists the live briefs and what each waits on', async () => {
     const outcome = await tool('list_rounds').call({});
     expect(outcome.text).toBe('001 Rotate tokens - active, wave -, ready\n002 Next - active, wave -, waits on 1');
