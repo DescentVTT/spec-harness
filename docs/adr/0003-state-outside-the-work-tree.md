@@ -89,6 +89,26 @@ and leaves an empty directory and nothing in git. A worktree whose job
 deleted its `.git` file and whose directory cannot be deleted either keeps
 git's record: git refuses it for as long as the directory is there.
 
+**Ctrl+Break on Windows.** Windows has a fourth signal, SIGBREAK: Ctrl+Break,
+which GitHub's runner also sends there, after Ctrl+C, to a step it cancels,
+where it sends SIGTERM elsewhere (`ProcessInvoker.cs` in actions/runner).
+Unhandled, it ended the harness at once, with the worktree in place,
+git's record of it, and the probe's commands running on: on Windows a command
+is started without a console window, in a console of its own, so no console
+event reaches it, as no terminal signal reaches its process group elsewhere.
+SIGBREAK is handled as the other three are, and exits 149, 128 and its
+number. Measured with console events sent to a console of the harness's own:
+Ctrl+C exits 130, Ctrl+Break 149 and a closed console 129, each with nothing
+left behind.
+
+A closed console is the one interrupt the system puts a deadline on: Windows
+ends the process about five seconds after it. On a loaded workstation it
+ended 0.10.0 before the harness had finished, once in three runs, with the
+directory deleted and git's record left. Nothing in a handler lifts that
+deadline. A process ended outright - `taskkill /F`, a run an agent stops -
+runs no handler at all, and leaves the directory, the record and the
+commands, as the Consequences say of a crash.
+
 ## Consequences
 
 `git worktree add` is the one git write in the family, bounded to a directory

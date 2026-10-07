@@ -159,7 +159,13 @@ function install(): void {
   // meet Node's default, which ends the process before any 'exit' handler
   // runs, with the worktrees still in place. It runs the same steps again,
   // and the first to finish exits.
-  for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) process.on(signal, interrupted);
+  //
+  // SIGBREAK is Windows' own: Ctrl+Break, which GitHub's runner sends there,
+  // after Ctrl+C, where it sends SIGTERM elsewhere. Unheard, it ends the
+  // process before any 'exit' handler runs, and the commands run on.
+  // Elsewhere there is no such signal and nothing calls its listener, so
+  // its mutants are equivalent there.
+  for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGBREAK'] as const) process.on(signal, interrupted);
 }
 
 /**
