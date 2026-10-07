@@ -36,7 +36,8 @@ scope's code to, and the documents the brief cites. Read it before the code.
   the guard pass the file.
 - A file outside the scope that the round genuinely needs: say so in the
   brief and tell the person. The archive reports every such file.
-- Adding a dependency is a decision: name it in the brief and say why.
+- Adding a dependency is a decision, and so is allowing one to run install
+  scripts: name it in the brief and say why.
 
 ## 3. Keep the checklist true
 

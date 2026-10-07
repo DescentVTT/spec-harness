@@ -155,7 +155,28 @@ One report on a round, in four parts:
 | The archive | What spec-brief's archive would refuse or warn about, run with `--dry-run`. |
 | Assertions | The brief's own assertions through spec-guard: a goal that fails, or a premise (under a heading such as *The Defect, Measured*) that still holds after the round meant to change it. |
 | Rulings | Rulings whose signatures do not verify. |
-| Dependencies | Every dependency the round added to `package.json`, `Cargo.toml`, `go.mod`, `pyproject.toml`, `requirements*.txt`, NuGet project files or a `Gemfile`. |
+| Dependencies | Every dependency the round added to `package.json`, `Cargo.toml`, `go.mod`, `pyproject.toml`, `requirements*.txt`, NuGet project files or a `Gemfile`, and every package it [allowed to run install scripts](#install-scripts) in a `package.json`. |
+
+#### Install scripts
+
+A dependency's install script is code no reviewer read, run on every contributor's machine and in CI when the dependency is installed. npm 12 runs one only where `allowScripts` in the project's `package.json` allows the package, and `npm install-scripts approve` writes the approval there. So the audit reads that field in each `package.json` the round changed, as npm reads it: an entry whose value is `true` is an approval, one whose value is `false` a denial, and any other value neither.
+
+| The round | The audit reports |
+| --- | --- |
+| added an entry that is `true`, or turned one from `false` to `true` | `install-script-allowed`, a warning, as a new dependency is: it fails the audit under `--strict`, and no ruling covers it. |
+| added an entry that is `false`, or turned one from `true` to `false` | `install-script-denied`, a note. |
+| removed an entry | `install-script-entry-removed`, a note, which says whether the entry allowed or denied. |
+
+- A denial and a removed entry are no grant, so neither is a warning.
+- An entry is named as the manifest names it. npm pins an approval to the version a person reviewed, `canvas@3.1.0`, so one moved to `canvas@3.2.0` is a new approval, and the old entry a removed one.
+- `--format json` lists them as `installScripts`, beside `dependencies`: each with its `file`, its `section` (`allowScripts`), its `name`, and `before` and `after`, each `"allowed"`, `"denied"` or `null`.
+
+It reads no other grant ([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md) has the reasons):
+
+- `.npmrc`: npm reads `allow-scripts` there when `package.json` holds no entry, and `dangerously-allow-all-scripts` whenever it is set. `.npmrc` is not a manifest the audit reads.
+- pnpm: pnpm 11 and 12 keep their approvals as `allowBuilds` in `pnpm-workspace.yaml`, YAML the audit has no reader for, and read nothing from the `pnpm` field of `package.json`. Bun's `trustedDependencies` and Yarn's `dependenciesMeta` are not read either.
+- The package's own `preinstall`, `install`, `postinstall` and `prepare` scripts. They are the repository's own commands, on a line of the round's diff, where an approval turns on code that is in no diff; and `prepare` is where a package builds, so a round changes it for ordinary reasons. To have a round stop before it changes them, protect `package.json` in the brief.
+- Whether npm honours a key. npm passes over a semver range, `canvas@^3`, and a dist-tag, `canvas@latest`, and reads the field in the project's root alone, warning about one in a workspace. The audit reports the entry as written, in whichever `package.json` holds it.
 
 #### What it could not measure
 
@@ -175,7 +196,7 @@ measured: goals: 2 held, 0 failed · premises: 1 retired, 0 holding · archive: 
 0 error(s), 0 warning(s), 1 note(s)
 ```
 
-A brief that declares no assertion says `goals: none declared`, and draws no warning: a brief without assertions is a brief, and the archive still measures its round.
+A brief that declares no assertion says `goals: none declared`, and draws no warning: a brief without assertions is a brief, and the archive still measures its round. A round that changed an install-script policy has its entries counted at the end of the line, `· install scripts: 2 changed`; a round that changed none says nothing of them there.
 
 `--format json` has the same as `measured`, beside `counts`, and `audit_round` says it too:
 
@@ -189,6 +210,7 @@ A brief that declares no assertion says `goals: none declared`, and draws no war
 | `unreadableAssertions` | a count |
 | `rulings` | counts: `verified`, `unverified` |
 | `dependencies` | counts: `changed`, `unread` |
+| `installScripts` | a count: `changed` |
 
 #### For a forge
 
@@ -368,7 +390,7 @@ A person who runs the tools by hand runs `npx spec-harness`, from the root.
 | `base` | the remote's default branch | What rounds are measured from, and where allowed signers are read. `init` names it, since a repository git did not clone may have no default branch recorded. |
 | `rulings.section` | `"Rulings"` | The brief section holding the rulings table. |
 | `rulings.allowedSigners` | `".github/allowed_signers"` | The allowed-signers file, read from the base branch. |
-| `dependencies.manifests` | the list under [`audit`](#audit-brief) | Manifest names whose added dependencies the audit reports. A name that cannot be read is a warning in the audit. |
+| `dependencies.manifests` | the list under [`audit`](#audit-brief) | Manifest names whose added dependencies the audit reports, and, in a `package.json`, the install scripts it allowed. A name that cannot be read is a warning in the audit. |
 | `context.budget` | `60000` | Characters a context packet may hold; cited documents fill what the rest leaves, and those that do not fit are named by path. |
 | `assertions.premises` | `The Defect, Measured`, `Premises`, `Preconditions` | Sections whose assertions state what was true before the round. |
 | `probes.runs`, `probes.timeout` | `2`, `600` | Runs per probe, and seconds per run. |
