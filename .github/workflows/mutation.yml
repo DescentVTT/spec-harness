@@ -80,10 +80,14 @@ jobs:
       - name: Build
         run: npm run build
 
+      # `--no-install`: the sweep runs the Stryker that `npm ci` installed, and
+      # a job that lost that step stops here, where npx alone would fetch
+      # whatever the registry has under the name. `.npmrc` says the same for
+      # every command (tests/npm.test.ts).
       - name: Full mutation sweep, one shard
         run: |
           started=$SECONDS
-          npx stryker run stryker.shard.config.mjs
+          npx --no-install stryker run stryker.shard.config.mjs
           echo "{\"seconds\": $((SECONDS - started))}" > "reports/mutation/shard-$MUTATION_SHARD.timing.json"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
