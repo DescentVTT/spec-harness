@@ -42,6 +42,11 @@ It runs in eight shards, balanced on measured minutes in
 `scripts/mutation-shards.mjs`, and the `break` is applied once, to their
 merged report; a file no shard lists is mutated by the last.
 
+Vitest stays on 4 while Stryker's runner runs no test against a mutant on 5,
+where the core sweep read 3.83%: Dependabot proposes no major of it,
+`tests/source.test.ts` fails one made by hand, and ADR-0010 has the reason
+and where the steps that lift the hold are.
+
 ## Layout
 
 | Module | Responsibility |

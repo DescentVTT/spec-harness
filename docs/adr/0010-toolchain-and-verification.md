@@ -105,3 +105,40 @@ shard would pay again; split, it would add jobs to every change to save a
 few minutes.
 
 **The `break` stays 89.**
+
+*Amended 2026-10-07.* **Vitest stays on 4 until Stryker's runner reads 5.**
+The Decision's "Vitest 4.1" was the family's choice of a line that had
+aged; it is now a hold with a cause. On vitest 5,
+`@stryker-mutator/vitest-runner` 10.0.0, the newest there is, runs no test
+against a mutant a test covers and scores it as survived, with every test
+green: vitest 5 matches a test's name with ` > ` between its suites, and the
+runner asks for the tests of a mutant by names joined with a space
+([stryker-js #6210](https://github.com/stryker-mutator/stryker-js/issues/6210),
+open). The evidence is spec-guard's, which met this on 2026-09-07 and pinned
+vitest then
+([its ADR-0003](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0003-mutation-testing.md)).
+On 2026-10-06 Dependabot proposed vitest 5.0.0 (pull request 45), and the
+core sweep measured it:
+
+| Vitest | Run | Score | Mutants | Killed | Timed out | Survived | No coverage |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 4.1.11, main at 94203e3 | 37555884370 | 98.13% | 4,871 | 4,752 | 28 | 87 | 4 |
+| 5.0.0, pull request 45 | 37528943599 | 3.83% | 4,862 | 186 | 0 | 4,672 | 4 |
+
+spec-core's sweep of the same bump read 4.00%, where its main reads 96.36%.
+The core sweep is the only one a pull request runs here, and it failed
+with a score and no reason, on a pull request whose every test had passed.
+
+So `.github/dependabot.yml` proposes no major of `vitest` or of an `@vitest`
+package, and `tests/source.test.ts` fails when `package.json` admits a
+vitest that is not a 4, with the issue and this amendment in its message: a
+bump made by hand fails `npm test` with its reason. Minors and patches of 4
+still come, and a security update is not held back.
+
+The hold is the family's and is lifted in spec-core first, by the steps in
+[its ADR-0008](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0008-toolchain.md)
+(amended 2026-10-07), which also records what vitest 4 still receives while
+it is held. When the bump comes here, its pull request's core sweep
+measures it; dispatch `mutation.yml` on the branch as well, for the modules
+the core sweep leaves out, and hold both to that ADR's two conditions
+before merging.
