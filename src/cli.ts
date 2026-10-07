@@ -155,7 +155,16 @@ async function readStdin(io: CliIO): Promise<string> {
 async function hookCommand(options: Options, io: CliIO): Promise<number> {
   const kind = options.positionals[0];
   if (kind === 'claude') {
-    const request = parseClaudeHook(await readStdin(io));
+    let question: string;
+    try {
+      question = await readStdin(io);
+    } catch (error) {
+      // A question that could not be read is one the hook cannot see, as one
+      // it cannot parse is, below: it has no event to hold a write by.
+      io.stderr.write(`spec-harness: the hook input could not be read: ${(error as Error).message}\n`);
+      return EXIT_FAILED;
+    }
+    const request = parseClaudeHook(question);
     if ('error' in request) {
       // A hook that cannot read its question refuses nothing it cannot see,
       // but says so where the person reads it: a non-blocking error.

@@ -164,7 +164,9 @@ expects. The launcher answers the same way an error nothing awaits - a
 stream's, a timer's, a child process's - which never reaches `run`.
 
 What the hook already answered its own way is as it was: a question that is
-not JSON or names no event is exit 1, refusing nothing it cannot see; a
+not JSON or names no event is exit 1, refusing nothing it cannot see, and
+so is one that could not be read from its input at all, which has no event
+to hold a write by; a
 session outside a git work tree is exit 0; and a check before a write that
 fails says `cannot check this write`, with exit 2. The server answers a
 request that fails with an error for that request and serves the next. A

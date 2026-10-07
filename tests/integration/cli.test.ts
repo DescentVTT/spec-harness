@@ -114,10 +114,9 @@ describe('an error the harness did not expect', () => {
     // Before one, the hook answers its own way, as it did: the write waits.
     const before = await refusing(['hook', 'claude', '--brief', '1'], repo.root, { stdin: async () => hook('PreToolUse', 'src/db/schema.ts') });
     expect(before).toEqual({ code: 2, stderr: 'spec-harness: cannot check this write: the stream is gone\n' });
-    // A hook whose input cannot be read at all has no event to answer by.
-    const unread = await refusing(['hook', 'claude'], repo.root, { stdin: broke });
-    expect(unread.code).toBe(2);
-    expect(unread.stderr).toMatch(BROKE);
+    // A hook whose input cannot be read at all has no event to answer by: as
+    // for a question it cannot parse, it refuses nothing it cannot see.
+    expect(await refusing(['hook', 'claude'], repo.root, { stdin: broke })).toEqual({ code: 1, stderr: 'spec-harness: the hook input could not be read: the pipe broke\n' });
   });
 
   it('reports the message of an error that has no stack, and a thrown value that is no Error as it reads', async () => {
