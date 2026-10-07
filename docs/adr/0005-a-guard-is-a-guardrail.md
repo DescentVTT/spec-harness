@@ -145,6 +145,31 @@ What else grants the same, and is not read:
   `npm run build` changes what it runs without changing. A brief that must
   keep them protects `package.json`, which the guard and the archive hold.
 
+*Amended 2026-10-08.* An error the harness did not expect is exit 2, from
+the hook as from every command. `run` named the errors it expects (a usage
+mistake, a configuration that does not load, a sibling missing or
+unreadable) and threw any other again, and the launcher's
+`process.exitCode = await cli.main()` left that to Node: the stack and exit
+code 1. Exit 1 is "refused or found something" to a script, and to Claude Code a
+PreToolUse hook that failed without blocking, so the write the guard could
+not check went ahead (ADR-0012). Measured on 0.10.1 through the launcher,
+with a stdout that throws: `--version`, `--help`, `doctor`, `guard`,
+`escalate --list` and `init` each exited 1. Such an error is now
+`spec-harness: unexpected error:` and the stack on stderr, so that a report
+of it says where, nothing on stdout for it, and exit 2: the answer cannot be
+trusted (spec-core's ADR-0005), and before a write the write waits, as it
+does when the guard cannot read the briefs. After a write there is nothing
+to hold, and the hook exits 2 all the same, as it did for an error it
+expects. The launcher answers the same way an error nothing awaits - a
+stream's, a timer's, a child process's - which never reaches `run`.
+
+What the hook already answered its own way is as it was: a question that is
+not JSON or names no event is exit 1, refusing nothing it cannot see; a
+session outside a git work tree is exit 0; and a check before a write that
+fails says `cannot check this write`, with exit 2. The server answers a
+request that fails with an error for that request and serves the next. A
+caller of `run` or `main` from the package gets 2 where it got a rejection.
+
 ## Consequences
 
 An agent that writes through a shell passes the guard and is caught at the
