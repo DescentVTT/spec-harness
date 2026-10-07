@@ -129,6 +129,21 @@ or the minimum is raised, as the consequences below say how. The suite runs
 spec-brief and spec-guard; spec-graph it only stands in for, so neither end of
 spec-graph's range is run, and its minimum rests on the reason in the table.
 
+*Amended 2026-10-07.* The workflows ask of npm only what npm 10, 11 and 12
+all do. `pack` runs the npm Node 24 carries, 11 today, and took the
+tarball's name from `npm pack --json`: an array under npm 11, and under npm
+12 an object keyed by the package's name, where the step fails before it
+names a tarball. It now packs into a directory of its own and takes the one
+tarball there, as spec-guard does; the bytes are the same under the three.
+Every job installs with `npm ci --ignore-scripts`. npm 12 runs a dependency's
+install script only where `allowScripts` in `package.json` names the package,
+npm 10 and 11 run every one unless told not to, and nothing in the lockfile
+needs one, so the flag gives the three one reading: a development dependency
+runs in CI when the build or the suite loads it, and not by being installed.
+`tests/npm.test.ts` holds both, and that no workflow passes npm a flag the
+three do not all define, which npm 12 refuses. `publish` installs npm 11.20.0
+as before.
+
 ## Consequences
 
 - A maintainer sets up npmjs.com once: publish the placeholder; in the
