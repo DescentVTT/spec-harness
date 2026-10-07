@@ -32,7 +32,7 @@ import type { DocumentReader } from './document.js';
 import { readJsonObject, readText, repositoryPath, stateDirectory, writeAtomic } from './fs.js';
 import { blameLine, changes, isUncommitted, mergeBase, remoteDefault, revision, show, verifyCommit } from './git.js';
 import { decide, type Decision, type VerifiedRuling } from './guard.js';
-import { diffManifest, ecosystemOf, readManifestNames, type DependencyChange } from './manifests.js';
+import { diffManifest, ecosystemOf, readManifestNames, type DependencyChange, type InstallScriptChange } from './manifests.js';
 import {
   addRulingRow,
   nextId,
@@ -279,13 +279,14 @@ export async function buildContext(
 
 /* ------------------------------------------------------------------- audit */
 
-async function dependencyChanges(workspace: Workspace, base: Base): Promise<AuditInput['dependencies']> {
+async function dependencyChanges(workspace: Workspace, base: Base): Promise<AuditInput['dependencies'] & { readonly installScripts: readonly InstallScriptChange[] }> {
   // A name that cannot be read is reported with or without a base: it would
   // leave its manifests out of every audit measured from one.
   const names = readManifestNames(workspace.config.dependencies.manifests);
-  if (base.kind === 'unresolved') return { changes: [], unread: [], unreadNames: names.unread, rootedNames: names.rooted };
+  if (base.kind === 'unresolved') return { changes: [], installScripts: [], unread: [], unreadNames: names.unread, rootedNames: names.rooted };
   const isManifest = names.match;
   const out: DependencyChange[] = [];
+  const installScripts: InstallScriptChange[] = [];
   const unread: string[] = [];
   for (const change of await changes(base.mergeBase, base.head, workspace.root)) {
     if (!isManifest(change.path) && !(change.from !== undefined && isManifest(change.from))) continue;
@@ -299,10 +300,14 @@ async function dependencyChanges(workspace: Workspace, base: Base): Promise<Audi
     const before = await show(base.mergeBase, change.from ?? change.path, workspace.root);
     const after = await show(base.head, change.path, workspace.root);
     const diff = diffManifest(change.path, ecosystem, before, after);
-    if ('error' in diff) unread.push(change.path);
-    else out.push(...diff.changes);
+    if ('error' in diff) {
+      unread.push(change.path);
+      continue;
+    }
+    out.push(...diff.changes);
+    installScripts.push(...diff.installScripts);
   }
-  return { changes: out, unread, unreadNames: names.unread, rootedNames: names.rooted };
+  return { changes: out, installScripts, unread, unreadNames: names.unread, rootedNames: names.rooted };
 }
 
 /** A file's real path, links and the filesystem's case resolved, or `null` when there is no such file. */
@@ -427,6 +432,8 @@ export interface AuditResult {
   readonly base: Base;
   readonly report: AuditReport;
   readonly dependencies: readonly DependencyChange[];
+  /** The entries of an install-script policy the round added, removed or turned. */
+  readonly installScripts: readonly InstallScriptChange[];
 }
 
 export async function runAudit(workspace: Workspace, brief: BriefRow, reader: DocumentReader, baseFlag: string | undefined): Promise<AuditResult> {
@@ -456,7 +463,13 @@ export async function runAudit(workspace: Workspace, brief: BriefRow, reader: Do
     pluginLoaded: plugin.kind === 'loaded',
   });
   const findings = [...rulings.problems, ...report.findings];
-  return { brief, base, dependencies: dependencies.changes, report: { findings, counts: tally(findings), measured: report.measured } };
+  return {
+    brief,
+    base,
+    dependencies: dependencies.changes,
+    installScripts: dependencies.installScripts,
+    report: { findings, counts: tally(findings), measured: report.measured },
+  };
 }
 
 /* -------------------------------------------------------------- escalation */

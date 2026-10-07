@@ -179,7 +179,7 @@ export function tools(workspace: Workspace, env: CliIO['env']): ToolDefinition[]
         name: 'audit_round',
         title: 'Audit the round',
         description:
-          'Did the round stay inside the lines: what the archive would refuse (open boxes, protected files, files outside the scope), the brief\'s own assertions, unverified rulings, and every dependency added.',
+          'Did the round stay inside the lines: what the archive would refuse (open boxes, protected files, files outside the scope), the brief\'s own assertions, unverified rulings, every dependency added and every package allowed to run install scripts.',
         inputSchema: { type: 'object', properties: { brief: briefProperty, base: baseProperty }, additionalProperties: false },
         annotations: readOnly,
       },

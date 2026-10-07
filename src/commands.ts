@@ -108,6 +108,7 @@ export async function auditCommand(options: Options, io: CliIO): Promise<number>
         measured,
         findings,
         dependencies: result.dependencies,
+        installScripts: result.installScripts,
       }),
     );
   } else if (options.format === 'pretty') {

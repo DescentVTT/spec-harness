@@ -75,7 +75,12 @@ second factor: `npm stage list @descent-vtt/spec-harness`,
 `npm stage view <id>`, `npm stage approve <id>`. A prerelease (`0.2.0-rc.1`)
 is staged under the `next` dist-tag. To try the workflow without publishing,
 run it by hand from main (Actions, Release, Run workflow): it does everything
-but the upload and the GitHub release.
+but the signing, the upload and the GitHub release. That rehearsal can try
+another npm than the one the release pins, without moving the pin: name one
+exact version in its `npm_version` input, as in
+`gh workflow run release.yml --ref main -f npm_version=12.2.0`. A tag stages
+with the pin whatever was rehearsed, and ADR-0011 says what a rehearsal does
+and does not show.
 
 ### Once, before the first release
 

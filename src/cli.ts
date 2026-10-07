@@ -71,7 +71,8 @@ Commands:
                       --note. It counts once committed signed.
   rulings [brief]     The brief's rulings, and whether each one's signature verifies.
   audit [brief]       Did the round stay inside the lines: what the archive would say,
-                      the brief's assertions, unverified rulings, new dependencies.
+                      the brief's assertions, unverified rulings, new dependencies
+                      and the install scripts it allowed.
   probe [brief]       Run the brief's probes: red at the base, green at the head.
                       --at base|head|both, --id <probe>.
   premises            Do the live briefs' premises still hold? For CI: exit 1 when one

@@ -16,6 +16,10 @@ cannot turn a run red. The family's policy is
 - `doctor` and `init` note a pre-commit hook that runs spec-harness through
   `npx`, with the line that runs it with `node`; `doctor --format json`
   gains `gitHook.note`. A note, never a failure.
+- `readManifest` and `diffManifest` in the programmatic API give a
+  `package.json`'s install-script entries, and what changed in them, as
+  `installScripts`, beside the dependencies. `AuditInput.dependencies` takes
+  the changes as `installScripts`, optional.
 
 ### Changed
 
@@ -30,6 +34,16 @@ cannot turn a run red. The family's policy is
   Upgrading: a hook written before keeps working. To move it, replace its
   `npx` command with the line `doctor` names, or delete the hook and run
   `init --git-hook --write`.
+- `audit` reports a package a round allowed to run install scripts: an
+  entry it added to `allowScripts` in a `package.json`, where npm 12 keeps
+  its approvals, or turned from `false` to `true`. It is
+  `install-script-allowed`, a warning as a new dependency is, which fails
+  `--strict`; a denial and a removed entry are notes. `--format json` gains
+  `installScripts`, and `measured` a count of the same name
+  ([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
+  Upgrading: a round that approves a dependency's install script now fails
+  `audit --strict`; say in the brief why the script must run, and run the
+  audit without `--strict`, or remove the entry.
 
 ## 0.9.1
 
