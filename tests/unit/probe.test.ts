@@ -1,7 +1,18 @@
 import { describe, expect, it } from 'vitest';
 
 import type { JUnitRead } from '../../src/junit.js';
-import { classify, readProbes, renderEvidence, verdictOf, type Classified, type CodeBlock, type ProbeResult, type ProbeSpec } from '../../src/probe.js';
+import {
+  classify,
+  endOfOutput,
+  readProbes,
+  renderEvidence,
+  renderUnexplained,
+  verdictOf,
+  type Classified,
+  type CodeBlock,
+  type ProbeResult,
+  type ProbeSpec,
+} from '../../src/probe.js';
 
 function probe(content: string, line = 10): CodeBlock {
   return { info: 'probe', content, line };
@@ -234,6 +245,7 @@ describe('one run, against what the probe declares', () => {
     expect(classify(SPEC, { exitCode: 2, output: 'SyntaxError', junit: null })).toEqual({
       outcome: 'wrong-failure',
       detail: 'the command exited 2 and its output does not contain "expected 401"',
+      output: 'SyntaxError',
     });
   });
 
@@ -242,7 +254,7 @@ describe('one run, against what the probe declares', () => {
   });
 
   it('is a timeout when the command was stopped', () => {
-    expect(classify(SPEC, { exitCode: null, output: 'expected 401', junit: null })).toEqual({ outcome: 'timeout', detail: 'stopped after 30 seconds' });
+    expect(classify(SPEC, { exitCode: null, output: 'expected 401', junit: null })).toEqual({ outcome: 'timeout', detail: 'stopped after 30 seconds', output: 'expected 401' });
     expect(classify({ ...SPEC, timeout: null }, { exitCode: null, output: '', junit: null }).detail).toBe('stopped after the configured seconds');
   });
 
@@ -266,6 +278,7 @@ describe('one run, against what the probe declares', () => {
     expect(classify(both, { exitCode: 1, output: 'expected 401', junit: silent })).toEqual({
       outcome: 'wrong-failure',
       detail: 'rotation a failed, which is not what the probe declares',
+      output: 'expected 401',
     });
   });
 
@@ -278,10 +291,12 @@ describe('one run, against what the probe declares', () => {
     expect(classify(JUNIT, { exitCode: 1, output: '', junit: report(['login', 'failed', 'x'], ['rotation', 'skipped', '']) })).toEqual({
       outcome: 'wrong-failure',
       detail: 'login failed, which is not what the probe declares',
+      output: '',
     });
     expect(classify(JUNIT, { exitCode: 3, output: '', junit: report(['rotation', 'passed', '']) })).toEqual({
       outcome: 'wrong-failure',
       detail: 'the command exited 3 with no failing test',
+      output: '',
     });
   });
 
@@ -289,6 +304,7 @@ describe('one run, against what the probe declares', () => {
     expect(classify(JUNIT, { exitCode: 0, output: '', junit: report(['login', 'failed', 'x']) })).toEqual({
       outcome: 'wrong-failure',
       detail: 'login failed, which is not what the probe declares',
+      output: '',
     });
   });
 
@@ -300,12 +316,82 @@ describe('one run, against what the probe declares', () => {
   });
 
   it('proves nothing without a readable report', () => {
-    expect(classify(JUNIT, { exitCode: 0, output: '', junit: null })).toEqual({ outcome: 'no-report', detail: 'the command passed and wrote no r.xml' });
-    expect(classify(JUNIT, { exitCode: 1, output: '', junit: null })).toEqual({ outcome: 'wrong-failure', detail: 'the command failed before writing r.xml' });
+    expect(classify(JUNIT, { exitCode: 0, output: '', junit: null })).toEqual({ outcome: 'no-report', detail: 'the command passed and wrote no r.xml', output: '' });
+    expect(classify(JUNIT, { exitCode: 1, output: '', junit: null })).toEqual({ outcome: 'wrong-failure', detail: 'the command failed before writing r.xml', output: '' });
     expect(classify(JUNIT, { exitCode: 1, output: '', junit: { ok: false, error: 'a tag is never closed' } })).toEqual({
       outcome: 'no-report',
       detail: 'r.xml cannot be read: a tag is never closed',
+      output: '',
     });
+  });
+
+  it('carries the end of what the command printed when it proves nothing, where the reason is', () => {
+    // A red for another reason: the reason is the command's to give.
+    const npm = 'npm error npx canceled due to missing packages and no YES option: ["vitest@5.0.3"]\n';
+    expect(classify(SPEC, { exitCode: 1, output: npm, junit: null }).output).toBe('npm error npx canceled due to missing packages and no YES option: ["vitest@5.0.3"]');
+    // Stopped, with a question nobody was there to answer.
+    expect(classify(SPEC, { exitCode: null, output: 'Ok to proceed? (y) ', junit: null }).output).toBe('Ok to proceed? (y)');
+    expect(classify(JUNIT, { exitCode: 0, output: 'no reporter named junit\n', junit: null }).output).toBe('no reporter named junit');
+    // Shown as a person is shown it: the end, and nothing for a terminal to obey.
+    expect(classify(SPEC, { exitCode: 1, output: `${'a'.repeat(3000)}\u001b[2Kz`, junit: null }).output).toBe(`${'a'.repeat(1990)}\\u001b[2Kz`);
+  });
+
+  it('carries no output when the run is red or green: the evidence is the line that matched, or the pass', () => {
+    expect(classify(SPEC, { exitCode: 1, output: 'noise\nexpected 401, got 200\nnoise', junit: null })).toEqual({ outcome: 'red', detail: 'expected 401, got 200' });
+    expect(classify(SPEC, { exitCode: 0, output: 'noise', junit: null })).toEqual({ outcome: 'green', detail: 'the command passed' });
+    expect(Object.keys(classify(JUNIT, { exitCode: 1, output: 'noise', junit: report(['rotation', 'failed', 'x']) }))).toEqual(['outcome', 'detail']);
+    expect(Object.keys(classify(JUNIT, { exitCode: 0, output: 'noise', junit: report(['rotation', 'passed', '']) }))).toEqual(['outcome', 'detail']);
+  });
+});
+
+describe('the end of what a command printed, as a person is shown it', () => {
+  it('is all of it when it is short, with the space at its end dropped and the space at its start kept', () => {
+    expect(endOfOutput('')).toBe('');
+    expect(endOfOutput('one\n  two\n')).toBe('one\n  two');
+    // The first line's indentation is part of what was printed.
+    expect(endOfOutput('  at probe.js:3\n\n \n')).toBe('  at probe.js:3');
+    expect(endOfOutput(' \n\n')).toBe('');
+  });
+
+  it('begins at the first line that is not blank, as `npm run` opens with one, and keeps the blank lines inside it', () => {
+    expect(endOfOutput('\n> project@1.0.0 test\n> vitest run x\n\nsh: 1: vitest: not found\n')).toBe('> project@1.0.0 test\n> vitest run x\n\nsh: 1: vitest: not found');
+    expect(endOfOutput('\n\n\none\n\ntwo')).toBe('one\n\ntwo');
+  });
+
+  it('is its last 2,000 characters, counted once the space at its end is dropped', () => {
+    expect(endOfOutput('a'.repeat(2000))).toBe('a'.repeat(2000));
+    expect(endOfOutput(`a${'b'.repeat(2000)}`)).toBe('b'.repeat(2000));
+    // Blank lines at the end do not take the place of the reason above them.
+    expect(endOfOutput(`${'a'.repeat(1000)}${'b'.repeat(2000)}\n\n\n`)).toBe('b'.repeat(2000));
+    // Where the 2,000 begin on blank lines, what is shown begins after them.
+    expect(endOfOutput(`${'a'.repeat(1000)}\n\n${'b'.repeat(1998)}`)).toBe('b'.repeat(1998));
+  });
+
+  it('ends a line at a carriage return, alone or in front of a line feed', () => {
+    expect(endOfOutput('one\r\ntwo\r\n')).toBe('one\ntwo');
+    // Alone, it would have a terminal write the next line over the last.
+    expect(endOfOutput('10%\r20%\rdone')).toBe('10%\n20%\ndone');
+    expect(endOfOutput('one\r\r\ntwo')).toBe('one\n\ntwo');
+  });
+
+  it('drops a colour, which says nothing in a report', () => {
+    expect(endOfOutput('\u001b[31mnpm error\u001b[39m code E404')).toBe('npm error code E404');
+    expect(endOfOutput('\u001b[1;31mFAIL\u001b[0m \u001b[mtests/a.test.ts')).toBe('FAIL tests/a.test.ts');
+  });
+
+  it('writes every other control character as its escape, so that it shows and does nothing', () => {
+    // Clear the line, move up, ring the bell, rename the window: none of it reaches the terminal.
+    expect(endOfOutput('a\u001b[2K\u001b[1Ab')).toBe('a\\u001b[2K\\u001b[1Ab');
+    expect(endOfOutput('\u0007\u001b]0;title\u0007')).toBe('\\u0007\\u001b]0;title\\u0007');
+    expect(endOfOutput('a\u0000b\u0008c\u007fd')).toBe('a\\u0000b\\u0008c\\u007fd');
+    // The controls above the ASCII ones, which a terminal reads as it reads an escape.
+    expect(endOfOutput('a\u009b31mb\u0085c')).toBe('a\\u009b31mb\\u0085c');
+  });
+
+  it('keeps the line feed, the tab and everything a person reads', () => {
+    expect(endOfOutput('a\tb\nc')).toBe('a\tb\nc');
+    // What a colour is made of is text, without the escape in front of it.
+    expect(endOfOutput('café ✓ [31m 1;2m')).toBe('café ✓ [31m 1;2m');
   });
 });
 
@@ -375,5 +461,59 @@ describe('the evidence a brief records', () => {
   it('writes a result with no runs as none agreeing', () => {
     const empty: ProbeResult = { probe: SPEC, at: 'base', commit: 'abc', expected: 'red', runs: [], verdict: 'invalid' };
     expect(renderEvidence([empty], 'h', 'd').split('\n')[2]).toBe('| p | base `abc` | 0/0 | invalid |  |');
+  });
+});
+
+describe('what a person is told of a run that proves nothing', () => {
+  const result = (verdict: ProbeResult['verdict'], runs: Classified[], more: Partial<ProbeResult> = {}): ProbeResult => ({ probe: SPEC, at: 'base', commit: 'abc', expected: 'red', runs, verdict, ...more });
+  const red: Classified = { outcome: 'red', detail: 'expected 401, got 200' };
+  const green: Classified = { outcome: 'green', detail: 'the command passed' };
+  const refused: Classified = {
+    outcome: 'wrong-failure',
+    detail: 'the command exited 1 and its output does not contain "expected 401"',
+    output: 'npm error npx canceled due to missing packages and no YES option: ["vitest@5.0.3"]',
+  };
+
+  it('is the probe, the commit it ran at, its verdict, the run and the end of what its command printed', () => {
+    expect(renderUnexplained([result('invalid', [refused, refused])])).toBe(
+      [
+        'spec-harness: probe p is invalid at base: run 1 of 2: the command exited 1 and its output does not contain "expected 401"; its output ended:',
+        'npm error npx canceled due to missing packages and no YES option: ["vitest@5.0.3"]',
+        '',
+      ].join('\n'),
+    );
+  });
+
+  it('says so when the command printed nothing', () => {
+    const silent: Classified = { outcome: 'timeout', detail: 'stopped after 30 seconds', output: '' };
+    expect(renderUnexplained([result('invalid', [silent], { at: 'head', expected: 'green' })])).toBe('spec-harness: probe p is invalid at head: run 1 of 1: stopped after 30 seconds; it printed nothing\n');
+  });
+
+  it('is the first such run of a result, wherever it comes among the runs', () => {
+    const later: Classified = { ...refused, output: 'another reason' };
+    expect(renderUnexplained([result('flaky', [red, refused, later])])).toBe(
+      'spec-harness: probe p is flaky at base: run 2 of 3: the command exited 1 and its output does not contain "expected 401"; its output ended:\nnpm error npx canceled due to missing packages and no YES option: ["vitest@5.0.3"]\n',
+    );
+  });
+
+  it('is nothing for a result whose runs are all red or green: its verdict is the whole of it', () => {
+    // Measured, fixed, vacuous, still failing, and flaky between red and green.
+    const whole = [result('measured', [red, red]), result('fixed', [green], { expected: 'green' }), result('vacuous', [green]), result('still-failing', [red], { expected: 'green' }), result('flaky', [red, green])];
+    expect(renderUnexplained(whole)).toBe('');
+    expect(renderUnexplained([result('invalid', [])])).toBe('');
+    expect(renderUnexplained([])).toBe('');
+  });
+
+  it('is one block for each such result, in their order, with nothing between them or for the others', () => {
+    const other: ProbeResult = result('invalid', [{ outcome: 'no-report', detail: 'the command passed and wrote no r.xml', output: 'done' }], { probe: { ...SPEC, id: 'q' }, at: 'head', expected: 'green' });
+    expect(renderUnexplained([result('invalid', [refused]), result('measured', [red]), other])).toBe(
+      [
+        'spec-harness: probe p is invalid at base: run 1 of 1: the command exited 1 and its output does not contain "expected 401"; its output ended:',
+        'npm error npx canceled due to missing packages and no YES option: ["vitest@5.0.3"]',
+        'spec-harness: probe q is invalid at head: run 1 of 1: the command passed and wrote no r.xml; its output ended:',
+        'done',
+        '',
+      ].join('\n'),
+    );
   });
 });

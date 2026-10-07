@@ -192,6 +192,45 @@ export interface Classified {
   readonly outcome: RunOutcome;
   /** The evidence: the line or the message that matched, or what was missing. */
   readonly detail: string;
+  /**
+   * The end of what the command printed, as {@link endOfOutput} gives it, on
+   * a run that proves nothing: it failed for another reason, was stopped at
+   * its timeout, or left no report that can be read. `detail` says only that
+   * the reason was not the probe's; the reason itself is the command's to
+   * give, and this is where it gave it. A red or a green run has none.
+   */
+  readonly output?: string;
+}
+
+/** How many characters of the end of a command's output a person is shown. */
+const SHOWN = 2000;
+
+/**
+ * The end of what a command printed, as a person is shown it: the last 2,000
+ * characters, less what is there for a terminal to obey rather than for a
+ * person to read. Written out as it came, an escape sequence in it moves the
+ * cursor, clears lines already written or renames the window.
+ *
+ * - A carriage return ends a line as a line feed does, alone or in front of
+ *   one: alone it would have the next line written over the last.
+ * - A colour is dropped. A command told to colour what it prints, as
+ *   `npm_config_color=always` tells npm, does so with nobody at a terminal
+ *   to see it, and a colour says nothing in a report.
+ * - Every other control character but the line feed and the tab is written
+ *   as its escape, as JSON writes it, so that it shows and does nothing.
+ *
+ * Space at the end is dropped before the 2,000 are counted, so that blank
+ * lines do not take the place of the reason above them. Blank lines at the
+ * start of what is left are dropped after: `npm run` opens with one.
+ */
+export function endOfOutput(output: string): string {
+  return output
+    .replace(/\r\n?/g, '\n')
+    .replace(/\u001b\[[\d;]*m/g, '')
+    .replace(/[^\P{Cc}\n\t]/gu, (control) => `\\u${control.charCodeAt(0).toString(16).padStart(4, '0')}`)
+    .trimEnd()
+    .slice(-SHOWN)
+    .replace(/^\n+/, '');
 }
 
 function firstLineWith(text: string, needle: string): string {
@@ -199,8 +238,16 @@ function firstLineWith(text: string, needle: string): string {
   return (line ?? needle).trim().slice(0, 200);
 }
 
-/** What one run showed, against what the probe declares. */
+/**
+ * What one run showed, against what the probe declares, with the end of the
+ * command's output on a run that is neither red nor green.
+ */
 export function classify(spec: ProbeSpec, run: ProbeRun): Classified {
+  const judged = judge(spec, run);
+  return judged.outcome === 'red' || judged.outcome === 'green' ? judged : { ...judged, output: endOfOutput(run.output) };
+}
+
+function judge(spec: ProbeSpec, run: ProbeRun): Classified {
   if (run.exitCode === null) return { outcome: 'timeout', detail: `stopped after ${spec.timeout ?? 'the configured'} seconds` };
   if (spec.junit !== null) {
     if (run.junit === null) {
@@ -281,4 +328,26 @@ export function renderEvidence(results: readonly ProbeResult[], hash: string, da
   }
   lines.push('', `Measured ${date} by spec-harness with probes \`${hash}\`.`);
   return lines.join('\n');
+}
+
+/**
+ * What a person is told, beside the table, of each result with a run that
+ * proves nothing: which run, what it showed, and the end of what its command
+ * printed, where the reason is. The first such run of a result speaks for the
+ * rest, as the first run's evidence fills the table's cell. A result whose
+ * runs are all red or green has nothing to add to its verdict.
+ *
+ * It is for the standard error: the table is what a brief records and what a
+ * script reads, and a command's output is no part of either.
+ */
+export function renderUnexplained(results: readonly ProbeResult[]): string {
+  return results
+    .map((result) => {
+      const at = result.runs.findIndex((run) => run.output !== undefined);
+      const run = result.runs[at];
+      if (run?.output === undefined) return '';
+      const printed = run.output === '' ? 'it printed nothing' : `its output ended:\n${run.output}`;
+      return `spec-harness: probe ${result.probe.id} is ${result.verdict} at ${result.at}: run ${at + 1} of ${result.runs.length}: ${run.detail}; ${printed}\n`;
+    })
+    .join('');
 }

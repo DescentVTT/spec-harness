@@ -13,7 +13,7 @@ import { briefIdFromBranch } from './branch.js';
 import { findActive } from './briefs.js';
 import { formatFindings } from './formats.js';
 import { readJUnit } from './junit.js';
-import { classify, readProbes, renderEvidence, verdictOf, type ProbeResult, type ProbeSpec } from './probe.js';
+import { classify, endOfOutput, readProbes, renderEvidence, renderUnexplained, verdictOf, type ProbeResult, type ProbeSpec } from './probe.js';
 import { createReader } from './reader.js';
 import {
   buildContext,
@@ -240,7 +240,7 @@ export async function probeCommand(options: Options, io: CliIO): Promise<number>
       const setups = [...new Set(probes.map((probe) => probe.setup).filter((setup): setup is string => setup !== null))];
       for (const setup of setups) {
         const run = await runCommand(setup, directory, workspace.config.probes.timeout);
-        if (run.exitCode !== 0) throw new UsageError(`the probe setup "${setup}" failed at ${label}:\n${run.output.slice(-2000)}`);
+        if (run.exitCode !== 0) throw new UsageError(`the probe setup "${setup}" failed at ${label}:\n${endOfOutput(run.output)}`);
       }
       for (const probe of probes) {
         const runs = await runProbe(directory, probe, probe.runs ?? workspace.config.probes.runs, probe.timeout ?? workspace.config.probes.timeout);
@@ -264,6 +264,10 @@ export async function probeCommand(options: Options, io: CliIO): Promise<number>
     );
   } else {
     io.stdout.write(`${evidence}\n`);
+    // On the standard error, beside the table and never in it: the table is
+    // what a brief records and a script reads. The JSON document has the
+    // same as a field of each such run, and so says nothing here.
+    io.stderr.write(renderUnexplained(results));
   }
   return failed.length === 0 ? EXIT_OK : EXIT_FAILED;
 }

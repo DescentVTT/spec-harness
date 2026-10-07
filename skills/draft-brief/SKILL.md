@@ -75,7 +75,8 @@ npx --no-install @descent-vtt/spec-harness probe <id> --at base
 
 `measured` means the defect is real; paste the evidence table into the
 brief. `vacuous` means it is not there: say so to the person and stop.
-`invalid` or `flaky` means the probe proves nothing yet: fix the probe.
+`invalid` or `flaky` means the probe proves nothing yet: read the end of its
+command's output, printed after the table, and fix the probe.
 
 ## 4. Check, then hand over
 

@@ -49,6 +49,32 @@ agent writes, and `tests/npm.test.ts` holds every probe this repository shows
 to a command that fetches nothing. The harness still runs a probe's line as
 it is written.
 
+*Amended again 2026-10-08.* **A run that proves nothing shows what its
+command printed.** An `invalid` probe said that its command "exited 1 and its
+output does not contain" the signature, and nothing of the output, where the
+reason is. A run that is neither red nor green - it failed for another
+reason, was stopped at its timeout, or left no report that can be read - now
+carries the end of what its command printed: its last 2,000 characters, as
+many as a failed `setup` shows. That is every run of an `invalid` probe and any such
+run of a `flaky` one. `measured`, `fixed`, `vacuous` and `still-failing` are
+verdicts over red and green runs, whose evidence is the line that matched or
+the pass, and they show nothing more. In the JSON document it is `output` on
+each such run, and nothing is written beside the document. With the table it
+is on the standard error, for the first such run of each result, under one
+line: `spec-harness: probe <id> is <verdict> at <base or head>: run <n> of
+<runs>: <what the run showed>; its output ended:`, or `; it printed nothing`.
+The table, which a brief records and a script reads, is as it was.
+
+What is shown is for a person to read, not for a terminal to obey. A carriage
+return ends a line. A colour is dropped: npm 11.16.0 coloured what it printed
+into a pipe where the environment said `npm_config_color=always`, and a
+colour says nothing in a report. Every other control character but the line
+feed and the tab is written as its escape, `\u001b`, so that an escape
+sequence shows and does nothing. Space at the end and blank lines at the
+start are dropped. A failed `setup`, which showed its last 2,000 characters
+as they came, shows them by the same rule. The sandbox keeps the first 4 MiB
+a command prints, so past that the end shown is the end of what was kept.
+
 ## Consequences
 
 A research round whose answer may be "no" is not a defect and needs no probe;

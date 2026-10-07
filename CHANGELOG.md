@@ -9,6 +9,17 @@ only fixes, reports less or documents, so `^0.7.0` takes only releases that
 cannot turn a run red. The family's policy is
 [spec-core's ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
+## Unreleased
+
+### Added
+
+- A probe's run that proves nothing - it failed for another reason than the
+  probe declares, was stopped at its timeout or left no report - shows the
+  last 2,000 characters its command printed, where the reason is: on the
+  standard error beside the table, and with `--format json` as `output` on
+  that run. Colours are dropped and other control characters written as
+  their escapes, and a `setup` that fails shows its output by the same rule.
+
 ## 0.10.1
 
 On Windows a probe lost its verdict when its worktree could not be deleted,
