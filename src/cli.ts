@@ -3,9 +3,9 @@
  *
  * Exit 0: done, nothing refused. Exit 1: something refused or found. Exit 2:
  * the answer cannot be trusted - a bad flag, a configuration that does not
- * load, a sibling that is missing or printed something unreadable. A run that
- * could not look must never exit as though it looked and found nothing
- * (spec-core ADR-0005).
+ * load, a sibling that is missing or printed something unreadable, an error
+ * nothing here expected. A run that could not look must never exit as though
+ * it looked and found nothing (spec-core ADR-0005).
  */
 
 import { SiblingOutputError } from './briefs.js';
@@ -331,7 +331,7 @@ const COMMANDS: ReadonlyMap<string, (options: Options, io: CliIO) => Promise<num
   ['doctor', doctorCommand],
 ]);
 
-export async function run(argv: readonly string[], io: CliIO): Promise<number> {
+async function dispatch(argv: readonly string[], io: CliIO): Promise<number> {
   let options: Options;
   try {
     options = parseOptions(argv);
@@ -352,8 +352,24 @@ export async function run(argv: readonly string[], io: CliIO): Promise<number> {
     io.stderr.write(`spec-harness: unknown command "${options.command}"; see spec-harness --help\n`);
     return EXIT_ERROR;
   }
+  return command(options, io);
+}
+
+/**
+ * Runs the command line and resolves to the exit code, for an error nothing
+ * below expected too.
+ *
+ * Such an error is neither a refusal nor a finding: the answer cannot be
+ * trusted, which is exit 2 (spec-core ADR-0005). Rejected instead, it reached
+ * the launcher as Node's uncaught error, exit 1, "refused or found something"
+ * to a script, and to Claude Code a hook that failed without blocking: the
+ * write the guard could not check went ahead. The stack is what makes a
+ * report of it something to act on, and it goes to stderr alone: a script
+ * that reads a document from stdout is handed no part of one.
+ */
+export async function run(argv: readonly string[], io: CliIO): Promise<number> {
   try {
-    return await command(options, io);
+    return await dispatch(argv, io);
   } catch (error) {
     // A sibling's document of a shape the harness does not read is a sibling
     // that printed something it cannot read (answers.ts): exit 2.
@@ -361,7 +377,8 @@ export async function run(argv: readonly string[], io: CliIO): Promise<number> {
       io.stderr.write(`spec-harness: ${error.message}\n`);
       return EXIT_ERROR;
     }
-    throw error;
+    io.stderr.write(`spec-harness: unexpected error: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`);
+    return EXIT_ERROR;
   }
 }
 
