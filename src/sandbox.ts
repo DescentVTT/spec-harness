@@ -104,7 +104,9 @@ function forget(directory: string, repository: string): boolean {
     return true;
   } catch {
     // Git refused a worktree its job broke, could not delete all of the
-    // directory, holds nothing of it any more, or cannot be run.
+    // directory, holds nothing of it any more, or cannot be run. The answer
+    // is read with `!` and nowhere else, so the mutant that answers nothing
+    // here is equivalent.
     return false;
   }
 }

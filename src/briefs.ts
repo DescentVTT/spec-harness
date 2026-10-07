@@ -50,6 +50,8 @@ export function parseBriefList(document: unknown): BriefRow[] {
     throw new SiblingOutputError('spec-brief did not print a list document');
   }
   const version = document['schemaVersion'];
+  // The list holds numbers alone, so `includes` refuses whatever is not one:
+  // the `typeof` is the compiler's, and the mutant without it is equivalent.
   if (typeof version !== 'number' || !SUPPORTED_SCHEMA_VERSIONS.includes(version)) {
     throw new SiblingOutputError(
       `spec-brief printed schemaVersion ${String(version)}; this harness reads ${SUPPORTED_SCHEMA_VERSIONS.join(', ')}`,
