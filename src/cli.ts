@@ -306,20 +306,26 @@ async function doctorCommand(options: Options, io: CliIO): Promise<number> {
 
 /* ---------------------------------------------------------------- dispatch */
 
-const COMMANDS: Readonly<Record<string, (options: Options, io: CliIO) => Promise<number>>> = {
-  guard: guardCommand,
-  hook: hookCommand,
-  context: contextCommand,
-  audit: auditCommand,
-  escalate: escalateCommand,
-  rule: ruleCommand,
-  rulings: rulingsCommand,
-  probe: probeCommand,
-  premises: premisesCommand,
-  init: initCommand,
-  mcp: mcpCommand,
-  doctor: doctorCommand,
-};
+/**
+ * A map, because the command is the first word a person types and an object
+ * answers to more names than it was given: `spec-harness constructor` ran
+ * `Object` as a command and ended on a stack trace, where `spec-harness
+ * construct` is an unknown command with exit 2.
+ */
+const COMMANDS: ReadonlyMap<string, (options: Options, io: CliIO) => Promise<number>> = new Map([
+  ['guard', guardCommand],
+  ['hook', hookCommand],
+  ['context', contextCommand],
+  ['audit', auditCommand],
+  ['escalate', escalateCommand],
+  ['rule', ruleCommand],
+  ['rulings', rulingsCommand],
+  ['probe', probeCommand],
+  ['premises', premisesCommand],
+  ['init', initCommand],
+  ['mcp', mcpCommand],
+  ['doctor', doctorCommand],
+]);
 
 export async function run(argv: readonly string[], io: CliIO): Promise<number> {
   let options: Options;
@@ -337,7 +343,7 @@ export async function run(argv: readonly string[], io: CliIO): Promise<number> {
     io.stdout.write(HELP);
     return options.help ? EXIT_OK : EXIT_ERROR;
   }
-  const command = COMMANDS[options.command];
+  const command = COMMANDS.get(options.command);
   if (command === undefined) {
     io.stderr.write(`spec-harness: unknown command "${options.command}"; see spec-harness --help\n`);
     return EXIT_ERROR;
