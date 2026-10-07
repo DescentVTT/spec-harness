@@ -88,8 +88,11 @@ longer has a probe's npx fetch, since the environment outranks it: that takes
 `--yes` on the line, or the variable. Linux and macOS were not measured by
 hand. The integration suite runs the npm on the PATH against a registry of
 its own on the loopback address - nothing fetched by default, fetched where
-the person's environment says so in either case, fetched with `--yes` on the
-line - so CI holds every platform and npm it runs to the same.
+the person's environment says so in lower case or upper, fetched with `--yes`
+on the line - so CI holds every platform and npm it runs to the same. Its
+first run did, on Ubuntu 24.04 and 26.04, macOS 26 and Windows Server 2025:
+npm 10.9.8 and 10.9.9 with Node 22, 11.19.0 with Node 24 and 11.19.1 with
+Node 26.
 
 **A run that proves nothing shows what its command printed.** An `invalid`
 probe said that its command "exited 1 and its output does not contain" the
@@ -108,10 +111,13 @@ line: `spec-harness: probe <id> is <verdict> at <base or head>: run <n> of
 The table, which a brief records and a script reads, is as it was.
 
 What is shown is for a person to read, not for a terminal to obey. A carriage
-return ends a line. A colour is dropped: npm 11.16.0 coloured what it printed
-into a pipe where the environment said `npm_config_color=always`, and a
-colour says nothing in a report. Every other control character but the line
-feed and the tab is written as its escape, `\u001b`, so that an escape
+return ends a line. A colour is dropped: it says nothing in a report, and a
+command can colour what it prints with nobody at a terminal to see it. npm
+11.16.0 did into a pipe where the environment said `npm_config_color=always`.
+vitest 4.1.11 did not on a workstation, into a pipe with `CI`,
+`GITHUB_ACTIONS` or `FORCE_COLOR` set, though the logs of this repository's
+CI hold its colours on every runner. Every other control character but the
+line feed and the tab is written as its escape, `\u001b`, so that an escape
 sequence shows and does nothing. Space at the end and blank lines at the
 start are dropped. A failed `setup`, which showed its last 2,000 characters
 as they came, shows them by the same rule. The sandbox keeps the first 4 MiB
