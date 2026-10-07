@@ -55,7 +55,8 @@ const GUARD_ARGS: readonly string[] = Object.freeze([`${PROJECT_DIR}/${BIN}`, 'h
  */
 export const GUARD_HOOK: Readonly<Json> = Object.freeze({ type: 'command', command: 'node', args: GUARD_ARGS, timeout: 60 });
 
-/** What 0.1 installed: an npx command, found from wherever the session stood. */
+// bare-name: what 0.1 installed, an npx command found from wherever the
+// session stood. Read here so that init replaces it, and never run.
 const LEGACY_HOOK = 'npx --no-install spec-harness hook claude';
 const LEGACY_SERVER_ARGS = ['--no-install', 'spec-harness', 'mcp'];
 

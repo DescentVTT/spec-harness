@@ -11,6 +11,42 @@ cannot turn a run red. The family's policy is
 
 ## Unreleased
 
+### Security
+
+- **The skills and the README gave `npx` the tools' command names, which on
+  npm are not this project's.** `spec-harness` without the `@descent-vtt`
+  scope is another publisher's package, with a command of the same name, and
+  `spec-brief`, `spec-guard` and `spec-graph` without it belonged to nobody
+  on 2026-10-07. `npx` given a name the project has not installed fetches
+  the package of that name and runs it, unasked when no terminal is
+  attached, as under an agent. The four skills, which an agent follows to
+  the letter in whatever tree it stands in - a fresh clone, a linked
+  worktree before `npm ci` - told it to run fifteen such commands, and one
+  of them named spec-guard, which a project need not have installed at all.
+  Every command in the skills, in the MCP prompts that serve the same text,
+  and in the README now gives the package's full name behind `--no-install`,
+  as in `npx --no-install @descent-vtt/spec-harness audit --format json`: it
+  runs the project's install, or stops with an error that names this
+  package. Each skill opens by saying what to do then - install the
+  project's dependencies there, as with `npm ci` - and never to drop the
+  flag or the scope; the spec-guard step runs only where the project lists
+  spec-guard. [Names](README.md#names) says whose the names are. The hooks,
+  the MCP server and git's hook already ran `node` with the path of the
+  installed file, and are unchanged. What was measured, under npm 10.9.9,
+  11.20.0 and 12.2.0, is in the family's
+  [adopting guide](https://github.com/DescentVTT/spec-core/blob/main/docs/adopting.md#names);
+  ADR-0009 records the decision for the skills, and `tests/names.test.ts`
+  holds every file here to the rule.
+  Upgrading: update the Claude Code plugin, or the package, to get the
+  skills as they are now. In a CI job, a script or a prompt of your own
+  that gives `npx` a tool's command name alone, write
+  `npx --no-install @descent-vtt/<name>`. `--no-install` in front of the
+  bare name is not enough: it stops a download, and npm still runs a copy
+  of the other package that an earlier fetch left in its cache. If
+  the bare name was ever run through `npx` on a machine, in a tree where the
+  harness was not installed, empty npm's cache of fetched commands there:
+  the `_npx` directory below the path `npm config get cache` prints.
+
 ### Added
 
 - `doctor` and `init` note a pre-commit hook that runs spec-harness through
@@ -25,7 +61,8 @@ cannot turn a run red. The family's policy is
 
 - `init --git-hook` writes a pre-commit hook that runs `node` and the
   script in the project's install, as the Claude Code hooks are run, where
-  it ran `npx --no-install spec-harness hook git`: a commit starts no npm,
+  it ran <!-- bare-name: the hook as it was -->
+  `npx --no-install spec-harness hook git`: a commit starts no npm,
   and npm 12's two `npm notice run` lines on every commit are gone. Where
   the harness is not installed in the work tree git commits in, the hook
   says so and stops the commit. The line advised for a hook of your own is
@@ -554,9 +591,9 @@ A signed ruling now works from `init` onwards. An end-to-end check of 0.1.1
 from npm, in a repository made with `git init`, could not finish the round
 the README describes: `init` named no base and did not load the spec-brief
 plugin, so no ruling verified, and spec-brief's archive refused the file a
-person had allowed. After upgrading, run `npx spec-harness init --write`
-again: it adds what is missing and replaces the `npx` hooks and server 0.1
-wrote.
+person had allowed. After upgrading, run
+`npx --no-install @descent-vtt/spec-harness init --write` again: it adds what
+is missing and replaces the `npx` hooks and server 0.1 wrote.
 
 ### Fixed
 
@@ -581,7 +618,7 @@ wrote.
 - The plugin's MCP server and hooks, and those `init` writes, run `node`
   with `${CLAUDE_PROJECT_DIR}/node_modules/@descent-vtt/spec-harness/bin/spec-harness.js`.
   Claude Code starts a plugin's server in the plugin's directory, where
-  `npx --no-install spec-harness` found no spec-harness, and on Windows
+  the `npx` entry 0.1 wrote found no spec-harness, and on Windows
   starts a server without a shell, where `npx` cannot start at all. The
   server is told the project with `--root`, and reads `CLAUDE_PROJECT_DIR`
   when no root is named. Use the plugin or `init`'s hooks and server, not
