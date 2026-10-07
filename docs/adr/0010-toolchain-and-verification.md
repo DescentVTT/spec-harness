@@ -145,3 +145,41 @@ it is held. When the bump comes here, its pull request's core sweep
 measures it; dispatch `mutation.yml` on the branch as well, for the modules
 the core sweep leaves out, and hold both to that ADR's two conditions
 before merging.
+
+*Amended 2026-10-08.* **A run of the suite works in a temporary directory of
+its own.** On 2026-10-07 one workstation's temporary directory held 998
+directories of the suite's making: 874 `spec-harness-test-*`, the
+repositories its tests make, and 124 `spec-harness-*`, worktrees of the
+sandbox, of which every one that still said whose it was, 104, was a test
+repository's. Measured there, each with a temporary directory given to the
+run and empty at the start:
+
+| Run, on main at 10f0e8b | Left behind |
+| --- | --- |
+| 18 of the 19 integration files, every test passing | nothing |
+| `sandbox.test.ts` with 17 of its tests timing out | 4 worktrees of the sandbox |
+| four files, the run ended after 45 seconds as an agent's is | 86 directories of the tests |
+
+So a run that ends leaves nothing unless a sandbox test fails while its
+worktree is in use, and a run that is ended leaves all it had made.
+`vitest.config.ts` now has every run start in `tests/temporary.ts`, which
+makes one directory with the suite's prefix in the system's temporary
+directory and names it, in `TMPDIR`, `TMP` and `TEMP`, as the temporary
+directory to everything the run starts: the tests, the sandbox under test,
+and git and node under those. The run removes it when it ends, with whatever
+a failed test left in it: the timed-out run above then leaves nothing, and
+the ended one leaves one directory. Before it makes its own, a run removes
+the directories earlier runs left: those with the suite's prefix, directly
+in the system's temporary directory, that nothing was added to or taken from
+for a day. No run lasts a day; a watch left idle for one loses its directory
+to the next run and is started again. A link is never followed, and the
+sandbox's own prefix is never removed, since a person's `probe` makes
+directories with it on the same machine.
+
+One directory for the whole run was chosen over each file clearing up after
+the others because only it holds what a test did not make itself: a worktree
+the sandbox made carries the sandbox's prefix, which the suite may not
+remove from the system's temporary directory. The mutation sweeps run
+without it, as before, on a runner that is thrown away, and
+`tests/mutation-shards.test.ts` still holds their configuration to this
+one's files and timeouts.

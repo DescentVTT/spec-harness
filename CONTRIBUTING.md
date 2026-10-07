@@ -21,6 +21,12 @@ suite. `npm ci` leaves the lockfile as it is under each of them; npm 10's
 `npm install` writes it back without the `libc` fields npm 11 and 12 keep, so
 a change to the lockfile is made with npm 11 or later.
 
+A run of the suite works in one directory of its own in the system's
+temporary directory, `spec-harness-test-*`, and removes it when it ends. A
+run that is ended early leaves that directory, and a later run removes it
+once a day has passed, with any other of that name
+([ADR-0010](docs/adr/0010-toolchain-and-verification.md)).
+
 `src/vendor/spec-core/` is spec-core's, copied by its `scripts/vendor.mjs` and
 verified by hash. It is never edited here.
 
