@@ -778,6 +778,24 @@ describe('a command whose shell has ended while something it started still holds
     expect(await within(exitOf(other), 60, 'the other process to end')).toEqual({ code: 7, signal: null });
   });
 
+  // No test can start another user's process, so the system's answer for one
+  // is given by hand, and with it nothing is sent to any process at all.
+  it.skipIf(process.platform === 'win32')('is not stopped under its id when what has the id may not be signalled, as another user\'s process may not', async () => {
+    const { runCommand: run, handlers, started } = await watchedSandbox();
+    const name = named('holder');
+    void run(leaving(name, 'outside its group'), temp(), 600);
+    await stray(name);
+    expect(await within(exitOf(started[0] as ChildProcess), 60, 'the sandbox to see the shell end')).toEqual({ code: 0, signal: null });
+    const sent: unknown[] = [];
+    vi.spyOn(process, 'kill').mockImplementation((_pid, signal) => {
+      if (signal === 0) throw Object.assign(new Error('kill EPERM'), { code: 'EPERM' });
+      sent.push(signal);
+      return true;
+    });
+    only(handlers('exit'), 'exit')(0);
+    expect(sent).toEqual([]);
+  });
+
   // The group's id is given to no other process while the group has a member
   // (ADR-0003). Windows has no such group, and taskkill finds no tree under
   // a root that has ended, so there nothing is left to stop the process by.
