@@ -9,6 +9,22 @@ only fixes, reports less or documents, so `^0.7.0` takes only releases that
 cannot turn a run red. The family's policy is
 [spec-core's ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
+## Unreleased
+
+### Changed
+
+- **An error the harness did not expect ends the run with exit 2, not 1.**
+  It left the process as Node's uncaught error, and exit 1 reads as a
+  refusal or a finding; every command now reports it as
+  `spec-harness: unexpected error:` with its stack on stderr, nothing on
+  stdout, and exit 2, as does an error thrown where nothing waits for it. In
+  `hook claude` that holds the write the guard could not check, where the
+  failed hook let it through
+  ([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
+  Upgrading: a script that took exit 1 after a crash for a refusal now sees
+  2, "the answer cannot be trusted"; `run()` and `main()` from the package
+  resolve to 2 where their promise rejected.
+
 ## 0.10.1
 
 On Windows a probe lost its verdict when its worktree could not be deleted,

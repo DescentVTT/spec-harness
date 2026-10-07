@@ -122,7 +122,7 @@ May the round write this?
 
 Paths are compared as the filesystem spells them, links resolved and case corrected, so `SRC/db/schema.ts` does not walk past a protection on `src/db/schema.ts` on Windows.
 
-- `spec-harness hook claude` answers Claude Code's PreToolUse and PostToolUse hooks: a refusal before the write, with the reason and the next step; a warning after a write outside the scope. It never answers `allow`, which would skip the person's own permission prompt.
+- `spec-harness hook claude` answers Claude Code's PreToolUse and PostToolUse hooks: a refusal before the write, with the reason and the next step; a warning after a write outside the scope. It never answers `allow`, which would skip the person's own permission prompt. When it cannot answer - the configuration does not load, the briefs cannot be read, the harness meets an error it did not expect - it exits 2, and before a write Claude Code then holds the write.
 - `spec-harness hook git` is a pre-commit hook for any agent or none. `init --git-hook` writes it; in a hook of your own it is the line `node node_modules/@descent-vtt/spec-harness/bin/spec-harness.js hook git`.
 
 A guard is a guardrail - an agent that writes through a shell passes it - so the audit and spec-brief's archive are the gates ([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
@@ -423,7 +423,7 @@ A person who runs the tools by hand runs `npx --no-install @descent-vtt/spec-har
 | --- | --- |
 | `0` | Clean. |
 | `1` | Refused, found something, or waiting on a person. |
-| `2` | The answer cannot be trusted. |
+| `2` | The answer cannot be trusted. An error the harness did not expect is one: `spec-harness: unexpected error:` and its stack, on stderr. |
 | `130` | A `probe` interrupted by SIGINT (Ctrl+C) while it runs. |
 | `143` | A `probe` interrupted by SIGTERM. |
 | `129` | A `probe` interrupted by SIGHUP. |
