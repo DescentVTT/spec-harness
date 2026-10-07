@@ -9,6 +9,19 @@ only fixes, reports less or documents, so `^0.7.0` takes only releases that
 cannot turn a run red. The family's policy is
 [spec-core's ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
+## Unreleased
+
+### Fixed
+
+- `probe` keeps its verdict when a worktree's directory cannot be deleted,
+  as on Windows while something a probe's command started is still running
+  in it. It ended in a Node stack trace with exit 1 before, the whole
+  checkout left in the temporary directory and git's record of the worktree
+  left in the repository. Git now forgets the worktree first, `probe` prints
+  and exits by its verdict, and it names the directory it left on the
+  standard error as it exits
+  ([ADR-0003](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0003-state-outside-the-work-tree.md)).
+
 ## 0.10.0
 
 The skills and the README gave `npx` the tools' bare command names, which on

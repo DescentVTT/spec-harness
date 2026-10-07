@@ -276,6 +276,7 @@ signature: expected 401, got 200
 - `probe --at head` must be green: `fixed`.
 - The evidence table it prints names the hash of the probe it measured with ([ADR-0007](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0007-probes-declare-their-failure.md)).
 - Interrupted, it stops every command it started, with everything those started, before it removes the worktree ([ADR-0003](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0003-state-outside-the-work-tree.md)).
+- A worktree's directory that cannot be deleted - on Windows, one that something a command started is still running in - costs the verdict nothing: git forgets the worktree, `probe` prints and exits as it would have, and it names the directory it left on the standard error as it exits.
 
 ### `premises`
 
