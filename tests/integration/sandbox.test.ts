@@ -1,8 +1,10 @@
-import { spawn } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { spawn, type ChildProcess } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
+import { chmodSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { createServer, type AddressInfo, type Socket } from 'node:net';
 import { join } from 'node:path';
 
-import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { runCommand } from '../../src/sandbox.js';
 import { brief, BRIEF_FILE, cleanup, repository, spawnBin, temp, withEnvironment, type Repository } from './helpers.js';
@@ -29,31 +31,101 @@ type Handler = (...args: unknown[]) => void;
 // as it runs, as it does when the event is emitted.
 const emitter: NodeJS.EventEmitter = process;
 const snapshots: Map<ProcessEvent, Function[]>[] = [];
-// Processes the tests' commands started, stopped after each test whatever it
-// left running: a test that fails leaves them behind otherwise.
-const strays: number[] = [];
 
-afterEach(() => {
-  for (const pid of strays.splice(0)) {
-    try {
-      process.kill(pid, 'SIGKILL');
-    } catch {
-      // Already gone, as it is when the test passed.
+/**
+ * A process one of the tests' commands started, known by the connection it
+ * opened to this file as it started, and never by its id. Once a process has
+ * ended, its id is the system's to give to another, on Windows within seconds
+ * (ADR-0003), and a signal sent to the id then stops a stranger: another
+ * worker's git, or the sibling an audit is waiting on. A connection is the
+ * process's own for as long as it runs and closes when it ends, however it
+ * ends, so it answers both whether the process runs and when it has gone.
+ */
+interface Stray {
+  /** Settles once the process has ended. */
+  readonly ended: Promise<void>;
+  /** Tells the process to end, over its connection, and waits until it has. */
+  end(): Promise<void>;
+}
+
+// What a process says first, so that nothing else that finds the port is
+// taken for one of them.
+const KEY = randomUUID();
+const strays = new Map<string, Stray>();
+const connections = new Set<Socket>();
+// The processes this file started itself, and so holds: each is stopped
+// through its handle, which reaches no other process whatever its id becomes.
+const own: ChildProcess[] = [];
+let names = 0;
+
+const lobby = createServer((socket) => {
+  connections.add(socket);
+  socket.once('close', () => connections.delete(socket));
+  // A process that is stopped drops its connection, and 'close' follows.
+  socket.on('error', () => undefined);
+  let said = '';
+  const hear = (chunk: Buffer): void => {
+    said += chunk.toString('utf8');
+    if (!said.includes('\n')) return;
+    socket.off('data', hear);
+    const [key, name] = said.trim().split(' ');
+    if (key !== KEY || name === undefined) {
+      socket.destroy();
+      return;
     }
-  }
-  // The handlers a test's module installed stay on this worker's process
-  // otherwise, and a real signal would find them.
-  for (const before of snapshots.splice(0)) {
-    for (const event of EVENTS) {
-      for (const listener of emitter.rawListeners(event)) {
-        if (!(before.get(event) ?? []).includes(listener)) emitter.removeListener(event, listener as Handler);
+    const ended = new Promise<void>((resolve) => socket.once('close', () => resolve()));
+    strays.set(name, {
+      ended,
+      end: async () => {
+        if (!socket.destroyed) socket.write('end\n');
+        await within(ended, 30, `${name} to end`);
+      },
+    });
+    socket.write('known\n');
+  };
+  socket.on('data', hear);
+});
+
+beforeAll(() => new Promise<void>((resolve) => lobby.listen(0, '127.0.0.1', () => resolve())));
+afterAll(
+  () =>
+    new Promise<void>((resolve) => {
+      for (const socket of connections) socket.destroy();
+      lobby.close(() => resolve());
+    }),
+);
+
+afterEach(async () => {
+  // Whatever a test left running, as one that failed does. The processes its
+  // commands started are told to end, each over its own connection, where one
+  // that has ended hears nothing; those this file started are stopped through
+  // the handles it holds, where nothing happens to one that has ended.
+  const left = [...strays.values()];
+  strays.clear();
+  for (const child of own.splice(0)) child.kill('SIGKILL');
+  try {
+    await Promise.all(left.map((stray) => stray.end()));
+  } finally {
+    // The handlers a test's module installed stay on this worker's process
+    // otherwise, and a real signal would find them.
+    for (const before of snapshots.splice(0)) {
+      for (const event of EVENTS) {
+        for (const listener of emitter.rawListeners(event)) {
+          if (!(before.get(event) ?? []).includes(listener)) emitter.removeListener(event, listener as Handler);
+        }
       }
     }
+    vi.restoreAllMocks();
   }
-  vi.restoreAllMocks();
 });
 
 type Sandbox = typeof import('../../src/sandbox.js');
+
+interface Fresh {
+  readonly withWorktree: Sandbox['withWorktree'];
+  readonly runCommand: Sandbox['runCommand'];
+  handlers(event: ProcessEvent): Handler[];
+}
 
 /**
  * The sandbox as a process loads it, with the handlers it has installed on
@@ -61,7 +133,7 @@ type Sandbox = typeof import('../../src/sandbox.js');
  * a worktree or runs a command, so each test loads a copy of its own: one an
  * earlier test or file loaded would already have.
  */
-async function freshSandbox(): Promise<{ withWorktree: Sandbox['withWorktree']; runCommand: Sandbox['runCommand']; handlers: (event: ProcessEvent) => Handler[] }> {
+async function freshSandbox(): Promise<Fresh> {
   vi.resetModules();
   const before = new Map(EVENTS.map((event) => [event, emitter.rawListeners(event)] as const));
   snapshots.push(before);
@@ -111,16 +183,6 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** Whether a process is running: signal 0 asks without sending anything. */
-function alive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 async function until(done: () => boolean, what: string, seconds: number): Promise<void> {
   const deadline = Date.now() + seconds * 1000;
   while (!done()) {
@@ -129,78 +191,119 @@ async function until(done: () => boolean, what: string, seconds: number): Promis
   }
 }
 
-/**
- * A command line running a script of the test's own, which is handed `file`
- * to write process ids to. A script, rather than `node -e`, because cmd.exe
- * and sh quote a line inside a line differently. Every process the scripts
- * start ends on its own after ten minutes, so none that a stopped test run
- * left behind runs on.
- */
-function script(name: string, lines: readonly string[], file: string): string {
-  const path = join(temp(), name);
-  writeFileSync(path, `${lines.join('\n')}\n`);
-  return `node "${path}" "${file}"`;
+/** A name no other process of this file's has taken. */
+function named(role: string): string {
+  names += 1;
+  return `${role}-${names}`;
 }
 
-// Written whole under another name and then renamed, so a test never reads
-// half of it.
-const WRITE_IDS = "const { renameSync, writeFileSync } = require('node:fs'); const write = (ids) => { writeFileSync(`${process.argv[2]}.part`, ids.join(' ')); renameSync(`${process.argv[2]}.part`, process.argv[2]); };";
+/** The process that has made itself known as `name`, once it has. */
+async function stray(name: string, seconds = 120): Promise<Stray> {
+  await until(() => strays.has(name), `${name} to make itself known`, seconds);
+  return strays.get(name) as Stray;
+}
+
+interface Ended {
+  readonly code: number | null;
+  readonly signal: NodeJS.Signals | null;
+}
+
+/** How a process whose handle the caller has ended, once it has: as Node saw it end. */
+function exitOf(child: ChildProcess): Promise<Ended> {
+  return new Promise((resolve) => {
+    if (child.exitCode !== null || child.signalCode !== null) resolve({ code: child.exitCode, signal: child.signalCode });
+    else child.once('exit', (code, signal) => resolve({ code, signal }));
+  });
+}
 
 /**
- * A command whose child starts a grandchild that ignores SIGTERM, and writes
- * the grandchild's id and its own. On Windows the grandchild is detached from
+ * How a process a command starts makes itself known to this file, as the
+ * first lines of its script: it connects, says the key and the name it was
+ * handed, and calls `then` once this file has answered. It ends when it is
+ * told to over the connection, when the connection closes, as it does when
+ * this worker ends, and after ten minutes whatever happens: so neither a
+ * test that fails nor a run that is stopped leaves one running on.
+ */
+const KNOWN = [
+  'const known = (name, then = () => {}) => {',
+  "  const socket = require('node:net').connect(Number(process.argv[2]), '127.0.0.1', () => socket.write(`${process.argv[3]} ${name}\\n`));",
+  "  let heard = '';",
+  "  socket.on('data', (chunk) => {",
+  "    const first = heard === '';",
+  '    heard += chunk;',
+  "    if (heard.includes('end')) process.exit(0);",
+  '    if (first) then(socket);',
+  '  });',
+  "  for (const event of ['error', 'close']) socket.on(event, () => process.exit(0));",
+  '  setTimeout(() => process.exit(0), 600000).unref();',
+  '};',
+];
+
+/**
+ * A command line running a script of the test's own, which is handed where
+ * this file listens, the key, and `args`. A script, rather than `node -e`,
+ * because cmd.exe and sh quote a line inside a line differently.
+ */
+function script(name: string, lines: readonly string[], ...args: readonly string[]): string {
+  const path = join(temp(), name);
+  writeFileSync(path, `${[...KNOWN, ...lines].join('\n')}\n`);
+  return [`node "${path}"`, (lobby.address() as AddressInfo).port, KEY, ...args].join(' ');
+}
+
+/**
+ * A script whose process makes itself known by the name it is handed, and
+ * then only waits to be ended. It ignores SIGTERM, a request to stop.
+ */
+function waiter(): string {
+  const path = join(temp(), 'wait.cjs');
+  writeFileSync(path, `${[...KNOWN, "process.on('SIGTERM', () => {});", 'known(process.argv[4]);'].join('\n')}\n`);
+  return path;
+}
+
+/**
+ * A command whose child starts a grandchild that ignores SIGTERM, and makes
+ * itself known as `grandchild`. On Windows the grandchild is detached from
  * its parent's job object, which would otherwise end it with its parent:
  * only taskkill following the tree stops it. On Linux and macOS it stays in
  * the command's process group, which is what is signalled.
  */
-function tree(file: string): string {
+function tree(grandchild: string): string {
   return script(
     'tree.cjs',
     [
-      WRITE_IDS,
       "const { spawn } = require('node:child_process');",
-      "const grandchild = spawn(process.execPath, ['-e', \"process.on('SIGTERM', () => {}); setTimeout(() => {}, 600000)\"], { stdio: 'inherit', detached: process.platform === 'win32', windowsHide: true });",
-      'write([grandchild.pid, process.pid]);',
-      'setTimeout(() => {}, 600000);',
+      "spawn(process.execPath, [process.argv[5], process.argv[2], process.argv[3], process.argv[4]], { stdio: 'inherit', detached: process.platform === 'win32', windowsHide: true });",
+      'known(process.argv[6]);',
     ],
-    file,
+    grandchild,
+    `"${waiter()}"`,
+    named('command'),
   );
 }
 
 /**
- * A command that leaves behind a process holding its output and ends: the
- * holder, in a process group of its own and with its parent gone, is out of
- * reach of both the group signal and taskkill's tree. It writes the holder's
- * id and its own.
+ * A command that leaves behind a process holding its output, known as `name`,
+ * and ends. Left outside the command's process group, in one of its own and
+ * with its parent gone, the process is out of reach of both the group signal
+ * and taskkill's tree. Left in the group, it is what the group signal still
+ * reaches on Linux and macOS; on Windows a process node starts without
+ * detaching it ends with node, so none is left that way there.
  */
-function escaped(file: string): string {
+function leaving(name: string, where: 'outside its group' | 'in its group', command = named('command')): string {
   return script(
-    'escaped.cjs',
+    'leaving.cjs',
     [
-      WRITE_IDS,
       "const { spawn } = require('node:child_process');",
-      "const holder = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 600000)'], { stdio: 'inherit', detached: true, windowsHide: true });",
-      'holder.unref();',
-      'write([holder.pid, process.pid]);',
+      "const kept = spawn(process.execPath, [process.argv[5], process.argv[2], process.argv[3], process.argv[4]], { stdio: 'inherit', detached: process.argv[7] === 'detached', windowsHide: true });",
+      'kept.unref();',
+      '// Known before it ends, so that its end is seen: its connection closes with it.',
+      'known(process.argv[6], (socket) => socket.unref());',
     ],
-    file,
+    name,
+    `"${waiter()}"`,
+    command,
+    where === 'outside its group' ? 'detached' : 'grouped',
   );
-}
-
-/** The ids a command's script wrote to `file`, once it has; each is stopped after the test. */
-async function ids(file: string): Promise<number[]> {
-  let found: number[] = [];
-  await until(
-    () => {
-      if (!existsSync(file)) return false;
-      found = readFileSync(file, 'utf8').split(' ').map(Number);
-      return true;
-    },
-    `the ids in ${file}`,
-    120,
-  );
-  strays.push(...found);
-  return found;
 }
 
 /**
@@ -218,13 +321,14 @@ function midJob(withWorktree: Sandbox['withWorktree'], repo: Repository): Promis
   });
 }
 
-/** A command that has left a process holding its output behind and ended; the holder's id. */
-async function holding(run: Sandbox['runCommand']): Promise<number> {
-  const file = join(temp(), 'ids');
-  void run(escaped(file), temp(), 600);
-  const [holder = 0, command = 0] = await ids(file);
-  await until(() => !alive(command), 'the command to end', 60);
-  return holder;
+/** A command that has left a process holding its output behind and ended; that process. */
+async function holding(run: Sandbox['runCommand']): Promise<Stray> {
+  const holder = named('holder');
+  const command = named('command');
+  void run(leaving(holder, 'outside its group', command), temp(), 600);
+  const kept = await stray(holder);
+  await within((await stray(command)).ended, 60, 'the command to end');
+  return kept;
 }
 
 interface Pin {
@@ -250,19 +354,17 @@ async function pin(directory: string, ms: number, at = directory): Promise<Pin> 
     writeFileSync(join(locked, 'kept'), '');
     chmodSync(locked, 0o500);
   }
-  const file = join(temp(), 'ids');
   const path = join(temp(), 'pin.cjs');
-  const release = "setTimeout(() => { if (process.argv[4] !== '') require('node:fs').chmodSync(process.argv[4], 0o700); }, Number(process.argv[3]));";
-  writeFileSync(path, [WRITE_IDS, 'write([process.pid]);', release, ''].join('\n'));
-  spawn(process.execPath, [path, file, String(ms), locked], { cwd: at, stdio: 'ignore', windowsHide: true });
-  const [pid = 0] = await ids(file);
+  const release = "setTimeout(() => { if (process.argv[3] !== '') require('node:fs').chmodSync(process.argv[3], 0o700); }, Number(process.argv[2]));";
+  // It says when it runs, which is when `ms` begins.
+  writeFileSync(path, ["console.log('pinning');", release, ''].join('\n'));
+  const child = spawn(process.execPath, [path, String(ms), locked], { cwd: at, stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true });
+  own.push(child);
+  await within(new Promise((resolve) => child.stdout?.once('data', resolve)), 120, 'the pinning process to run');
   const free = async (): Promise<void> => {
-    try {
-      process.kill(pid, 'SIGKILL');
-    } catch {
-      // It let go on its own, after `ms`.
-    }
-    await until(() => !alive(pid), 'the pinning process to end', 30);
+    // Through the handle: nothing happens once it has let go on its own, after `ms`.
+    child.kill('SIGKILL');
+    await within(exitOf(child), 30, 'the pinning process to end');
     if (locked !== '' && existsSync(locked)) chmodSync(locked, 0o700);
   };
   return {
@@ -441,14 +543,14 @@ describe('a command still running when the process is interrupted or exits', () 
   it('is stopped with everything it started, then its worktree is removed', async () => {
     const { withWorktree, runCommand: run, handlers } = await freshSandbox();
     const repo = repository({ 'a.txt': 'a\n' });
-    const file = join(temp(), 'ids');
+    const name = named('grandchild');
     const directory = await midJob(withWorktree, repo);
-    void run(tree(file), directory, 600);
-    const [grandchild = 0] = await ids(file);
+    void run(tree(name), directory, 600);
+    const grandchild = await stray(name);
     expect((await interrupt(only(handlers('SIGINT'), 'SIGINT'), 'SIGINT')).code).toBe(130);
-    // Stopped already; a process whose parent has gone can take a moment to
-    // be collected by the system, and answers to its id until then.
-    await until(() => !alive(grandchild), 'the grandchild to be gone', 30);
+    // Stopped already; its connection closes a moment after, once the system
+    // has ended it.
+    await within(grandchild.ended, 30, 'the grandchild to be gone');
     expect(existsSync(directory)).toBe(false);
     expect(worktrees(repo)).toHaveLength(1);
   });
@@ -456,14 +558,14 @@ describe('a command still running when the process is interrupted or exits', () 
   it('is stopped as the interrupt begins, not once the interrupt has waited out its bound', async () => {
     const { withWorktree, runCommand: run, handlers } = await freshSandbox();
     const repo = repository({ 'a.txt': 'a\n' });
-    const file = join(temp(), 'ids');
-    void run(tree(file), await midJob(withWorktree, repo), 600);
-    const [grandchild = 0] = await ids(file);
+    const name = named('grandchild');
+    void run(tree(name), await midJob(withWorktree, repo), 600);
+    const grandchild = await stray(name);
     const exited = interrupt(only(handlers('SIGINT'), 'SIGINT'), 'SIGINT');
     try {
       // Well inside the three seconds an interrupt waits at most (ADR-0003),
       // which a tree left running would hold it to.
-      await until(() => !alive(grandchild), 'the grandchild to be gone', 2);
+      await within(grandchild.ended, 2, 'the grandchild to be gone');
     } finally {
       await exited;
     }
@@ -472,12 +574,12 @@ describe('a command still running when the process is interrupted or exits', () 
   it('is stopped with everything it started when the process exits mid-job, then its worktree is removed', async () => {
     const { withWorktree, runCommand: run, handlers } = await freshSandbox();
     const repo = repository({ 'a.txt': 'a\n' });
-    const file = join(temp(), 'ids');
+    const name = named('grandchild');
     const directory = await midJob(withWorktree, repo);
-    void run(tree(file), directory, 600);
-    const [grandchild = 0] = await ids(file);
+    void run(tree(name), directory, 600);
+    const grandchild = await stray(name);
     only(handlers('exit'), 'exit')(0);
-    await until(() => !alive(grandchild), 'the grandchild to be gone', 30);
+    await within(grandchild.ended, 30, 'the grandchild to be gone');
     expect(existsSync(directory)).toBe(false);
     expect(worktrees(repo)).toHaveLength(1);
   });
@@ -485,10 +587,10 @@ describe('a command still running when the process is interrupted or exits', () 
   it('never answers once the process is interrupted, so its job cannot carry on in the worktree being removed', async () => {
     const { withWorktree, runCommand: run, handlers } = await freshSandbox();
     const repo = repository({ 'a.txt': 'a\n' });
-    const file = join(temp(), 'ids');
+    const name = named('grandchild');
     const answered = vi.fn();
-    void run(tree(file), await midJob(withWorktree, repo), 600).then(answered);
-    await ids(file);
+    void run(tree(name), await midJob(withWorktree, repo), 600).then(answered);
+    await stray(name);
     await interrupt(only(handlers('SIGINT'), 'SIGINT'), 'SIGINT');
     await sleep(100);
     expect(answered).not.toHaveBeenCalled();
@@ -506,8 +608,9 @@ describe('a command still running when the process is interrupted or exits', () 
     await sleep(300);
     expect(exit, 'an exit while the output is still held').toBeNull();
     const released = Date.now();
-    process.kill(holder, 'SIGKILL');
+    const gone = holder.end();
     const { code, at } = await within(exited, 60, 'exit');
+    await gone;
     expect(code).toBe(130);
     expect(at - released).toBeLessThan(1_000);
   });
@@ -704,14 +807,14 @@ describe.skipIf(process.getuid?.() === 0)('a worktree whose directory cannot be 
   it('costs a probe nothing but a line: the verdict is printed, the exit is the verdict\'s, and git lists no worktree', async () => {
     // The command line as a person runs it. The probe's command leaves the
     // worktree as `pin` does: on Windows a process of its own still running
-    // in it, elsewhere a directory in it that its owner may not write.
+    // in it, which makes itself known to this file as the commands' other
+    // processes do, elsewhere a directory in it that its owner may not write.
     const leave = [
       "const { spawn } = require('node:child_process');",
       "const { chmodSync, mkdirSync, writeFileSync } = require('node:fs');",
       "if (process.platform === 'win32') {",
-      "  const holder = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 120000)'], { stdio: 'ignore', detached: true, windowsHide: true });",
+      "  const holder = spawn(process.execPath, JSON.parse(process.env.SPEC_HARNESS_TEST_HOLDER), { stdio: 'ignore', detached: true, windowsHide: true });",
       '  holder.unref();',
-      '  writeFileSync(process.env.SPEC_HARNESS_TEST_HOLDER, String(holder.pid));',
       '} else {',
       "  mkdirSync('locked');",
       "  writeFileSync('locked/kept', '');",
@@ -723,8 +826,8 @@ describe.skipIf(process.getuid?.() === 0)('a worktree whose directory cannot be 
     const body = ['## Probes', '', '```probe', 'id: v', 'run: node leave.js', 'signature: expected fixed', '```', '', '```probe-file leave.js', leave, '```', ''].join('\n');
     const repo = repository({ [BRIEF_FILE]: brief({ affected: ['src/**'], body }) }, { probes: { runs: 1 } });
     repo.git('checkout', '-q', '-b', 'brief/001-fix');
-    const holder = join(temp(), 'holder');
-    process.env['SPEC_HARNESS_TEST_HOLDER'] = holder;
+    const holder = named('holder');
+    process.env['SPEC_HARNESS_TEST_HOLDER'] = JSON.stringify([waiter(), String((lobby.address() as AddressInfo).port), KEY, holder]);
     let directory = '';
     try {
       const result = spawnBin(['probe', '--at', 'base'], repo.root);
@@ -739,15 +842,13 @@ describe.skipIf(process.getuid?.() === 0)('a worktree whose directory cannot be 
     } finally {
       delete process.env['SPEC_HARNESS_TEST_HOLDER'];
       // What the probe's command left is this test's to end and to delete.
-      if (existsSync(holder)) {
-        const pid = Number(readFileSync(holder, 'utf8'));
-        strays.push(pid);
-        try {
-          process.kill(pid, 'SIGKILL');
-        } catch {
-          // Already gone.
-        }
-        await until(() => !alive(pid), 'the process the command left to end', 30);
+      // The process connected while the probe ran and this worker waited on
+      // it; one that never started has nothing to end.
+      if (process.platform === 'win32') {
+        await stray(holder, 30).then(
+          (kept) => kept.end(),
+          () => undefined,
+        );
       }
       if (directory !== '') {
         if (existsSync(join(directory, 'locked'))) chmodSync(join(directory, 'locked'), 0o700);
