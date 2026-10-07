@@ -63,7 +63,9 @@ worked through, main's sharded sweep of c385f19 (run 36743578103) measured
 sweep's `break` rises from 89 to 95, under that worst case as before, and
 still moves only up. The shards took from 5m54s to 24m47s. For 0.10.0 the sweep of
 16f3a8e (run 37622048228) read 97.56% over 7,877 mutants, 96.41% with every
-timeout lost, and the `break` stays 95.
+timeout lost, and the `break` stays 95. For 0.10.1 the sweep of b1c0f70 (run
+37662090669) read 97.47% over 7,897 mutants, 96.48% with every timeout
+lost, and the `break` stays 95.
 
 One runner took 69 to 130 minutes for the full sweep. Before any sharded
 sweep ran, the report of eb39599 was cut into shards the way Stryker writes
