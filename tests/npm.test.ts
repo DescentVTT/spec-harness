@@ -281,6 +281,90 @@ describe('a tool run through npx, in a tree that may not have it installed', () 
   });
 });
 
+/**
+ * A probe's `run` and `setup` are command lines the harness starts in a
+ * worktree made for the probe: the files the commit tracks, and nothing
+ * installed until `setup` installs it, with no terminal and `CI` set. There
+ * `npx <name>` fetched the registry's package of that name and ran it,
+ * unasked (0.10.0 on Windows under npm 11.16.0, with a made-up name served
+ * from a loopback registry; ADR-0007). A person, or an agent drafting a brief,
+ * writes a probe after the one a document shows, so each one shown starts its
+ * tool through a script of the project's or says `--no-install`.
+ */
+
+interface ProbeLine {
+  readonly where: string;
+  readonly key: string;
+  readonly command: string;
+}
+
+/**
+ * The `run` and `setup` lines of each fenced `probe` block in `text`, as a
+ * document or a source comment writes it: a comment's ` * ` in front of a
+ * line is not part of it.
+ */
+function probeLinesOf(text: string, file: string): ProbeLine[] {
+  let inside = false;
+  return text.split(/\r?\n/).flatMap((raw, index) => {
+    const line = raw.replace(/^\s*\*\s?/, '').trim();
+    if (line.startsWith('```')) {
+      inside = line === '```probe';
+      return [];
+    }
+    const field = /^(run|setup):\s*(.+)$/.exec(line);
+    return inside && field !== null ? [{ where: `${file}:${index + 1}`, key: field[1] as string, command: field[2] as string }] : [];
+  });
+}
+
+describe('a probe this repository shows, run where nothing is installed until its setup installs it', () => {
+  const inDirectory = (directory: string, extension: string): string[] =>
+    readdirSync(`${ROOT}${directory}`)
+      .filter((name) => name.endsWith(extension))
+      .sort()
+      .map((name) => `${directory}/${name}`);
+  const skills = readdirSync(`${ROOT}skills`)
+    .sort()
+    .map((name) => `skills/${name}/SKILL.md`);
+  // Where a probe is shown: the README, the records, the skills an agent follows and the comments of the sources.
+  const documents = ['README.md', ...inDirectory('docs/adr', '.md'), ...skills, ...inDirectory('src', '.ts')];
+  const lines = documents.flatMap((file) => probeLinesOf(read(file), file));
+  const faultsIn = (block: string): Array<string | null> => probeLinesOf(block, 'x').flatMap(({ command }) => runsOf(command, 'x').map(faultOf));
+
+  it.each([
+    ['```probe\nid: a\nrun: npx vitest run tests/probes/rotate.test.ts\nsignature: b\n```'],
+    ['```probe\nid: a\nsetup: npx playwright install\nrun: npm test\nsignature: b\n```'],
+    // As a source comment shows one.
+    [' * ```probe\n * id: a\n * run: npm exec -- jest tests/a.test.js\n * signature: b\n * ```'],
+  ])('is one npm would fetch for, written as %j', (block) => {
+    expect(faultsIn(block)).toEqual(['fetches where the command is not installed']);
+  });
+
+  it.each([
+    // A script of the project's and a file run with node start no runner at all.
+    ['```probe\nid: a\nsetup: npm ci\nrun: npm test -- tests/probes/rotate.test.ts\nsignature: b\n```', []],
+    ['```probe\nid: a\nrun: node probe.js\nsignature: b\n```', []],
+    ['```probe\nid: a\nrun: npx --no-install vitest run tests/probes/rotate.test.ts\nsignature: b\n```', [null]],
+    // A line that reads the same in another kind of block is a CI step's, or a probe's file, and no probe's command.
+    ['```yaml\nsteps:\n  - name: Test\n    run: npx vitest run\n```', []],
+    ['```probe-file .github/workflows/ci.yml\n    run: npx vitest run\n```', []],
+    ['```probe\nid: a\nrun: node probe.js\nsignature: b\n```\n\nThen:\n\n    run: npx vitest run\n', []],
+  ])('is in order, or no probe at all, written as %j', (block, faults) => {
+    expect(faultsIn(block)).toEqual(faults);
+  });
+
+  it('is read where one is shown: the README, and the comment that opens src/probe.ts', () => {
+    // A probe that moved, or a fence this file no longer reads, would leave
+    // the check below nothing to fail on.
+    const found = lines.map(({ where, key }) => `${where.split(':')[0]} ${key}`);
+    expect(found).toEqual(expect.arrayContaining(['README.md setup', 'README.md run', 'src/probe.ts run']));
+  });
+
+  it('starts its tool through a script of the project, or says `--no-install`: it fetches nothing', () => {
+    const faulty = lines.flatMap(({ where, key, command }) => runsOf(command, where).flatMap((run) => (faultOf(run) === null ? [] : [`${where}: ${key}: ${command} (${faultOf(run)})`])));
+    expect(faulty).toEqual([]);
+  });
+});
+
 /** Each script of `workflow` as the runner hands it to bash: what follows a `run:` on its line, or the block under `run: |`. */
 function scriptsOf(workflow: string): string[] {
   const lines = workflow.split(/\r?\n/);
