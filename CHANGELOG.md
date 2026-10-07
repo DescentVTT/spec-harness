@@ -50,6 +50,14 @@ cannot turn a run red. The family's policy is
 - A probe's command that reads its input is told at once that there is
   none. Its input was a pipe nothing closed, so it waited until the probe's
   timeout stopped it, ten minutes by default.
+- `probe` stops a command by its id only while it still holds the command's
+  shell. A command whose shell had ended while something it started held its
+  output was stopped all the same at its timeout, an interrupt or exit, under
+  an id Windows may have given to another process by then, which
+  `taskkill /T /F` ended with all it had started; on Linux and macOS what the
+  shell left in its process group is still stopped, unless a process has the
+  id by then
+  ([ADR-0003](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0003-state-outside-the-work-tree.md)).
 
 ## 0.10.1
 

@@ -39,8 +39,35 @@ let ending = false;
 const SETTLE_MS = 3_000;
 
 /**
+ * Whether a process has this id now. Signal 0 asks and sends nothing, and any
+ * answer but "no such process" says one has it: another user's process
+ * answers that it may not be signalled. A test cannot start one of those, so
+ * the mutants that take that answer for "none" survive.
+ */
+function taken(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== 'ESRCH';
+  }
+}
+
+/**
  * Stops a command with everything it started, forced: SIGKILL to its process
  * group on Linux and macOS, taskkill over its tree on Windows.
+ *
+ * Both name the command by its id, and the id is the command's only while
+ * something holds it (ADR-0003). Node holds the command's shell until it has
+ * seen the shell end, and until then the system gives the id to nothing else.
+ * After that the id is free on Windows, where a process started seconds later
+ * can be given it: taskkill would stop that process with all it started, and
+ * could not have found what the command left anyway, since it finds no tree
+ * under a root that has ended. So a command whose shell has ended is not
+ * stopped there. On Linux and macOS the id names the command's process group
+ * as well, and stays out of use while the group has a member: what the shell
+ * left in its group is still stopped, unless a process has the id now, which
+ * says the group emptied and the id was given out again.
  *
  * `windowsHide` here and below only keeps a console window from opening on
  * Windows, which nothing reads, so its mutants are equivalent.
@@ -51,6 +78,14 @@ function stop(child: ChildProcess): void {
   // process, so the mutant that lets it through is equivalent; within that
   // tick nothing here stops a command.
   if (child.pid === undefined) return;
+  // Node sets one of the two when it sees the shell end, and lets go of the
+  // shell then. Windows reports no signal: there the second is set only once
+  // the fallback below has stopped the shell, on the path no test takes.
+  const held = child.exitCode === null && child.signalCode === null;
+  // Windows is not asked whether a process has the id: one could be given it
+  // between the answer and taskkill. Elsewhere `win32` is false already, so
+  // the mutants that make it false are equivalent there.
+  if (!held && (process.platform === 'win32' || taken(child.pid))) return;
   try {
     // False already on Linux and macOS, so the mutants that make it false
     // are equivalent there. On Windows the tests fail without taskkill:
@@ -60,10 +95,13 @@ function stop(child: ChildProcess): void {
     if (process.platform === 'win32') execFileSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
     else process.kill(-child.pid, 'SIGKILL');
   } catch {
-    // Reached when the group or the tree is already gone, and the command's
-    // shell with it, as when the command left something holding its output;
-    // and on Windows when taskkill cannot be run, where stopping the shell is
-    // what is left. No test takes that second path.
+    // Reached when the group is already gone, and the command's shell with
+    // it, as when the command left something outside the group holding its
+    // output; on Windows when the shell has only just ended, which taskkill
+    // sees before Node does; and there when taskkill cannot be run, where
+    // stopping the shell is what is left. No test takes that last path.
+    // `kill` goes through Node's own hold on the shell, and does nothing
+    // once that is gone.
     child.kill('SIGKILL');
   }
 }

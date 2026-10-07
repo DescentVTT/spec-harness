@@ -13,11 +13,12 @@ import { brief, BRIEF_FILE, cleanup, repository, spawnBin, temp, withEnvironment
  * What the sandbox promises beyond a job that ends on its own, which
  * edges.test.ts covers: a worktree removed when the process is interrupted or
  * exits mid-job, and every command still running in it stopped first, with
- * everything it started; a worktree git forgets, and a job whose answer
- * stands, when the directory cannot be deleted (ADR-0003); and a probe's
- * command run as CI runs it, with npm told to fetch nothing for it unless
- * the person's environment says otherwise, its output bounded, stopped whole
- * at its timeout (ADR-0007).
+ * everything it started, and none stopped under an id that is no longer its
+ * own; a worktree git forgets, and a job whose answer stands, when the
+ * directory cannot be deleted (ADR-0003); and a probe's command run as CI
+ * runs it, with npm told to fetch nothing for it unless the person's
+ * environment says otherwise, its output bounded, stopped whole at its
+ * timeout (ADR-0007).
  */
 
 afterAll(cleanup);
@@ -115,6 +116,7 @@ afterEach(async () => {
         }
       }
     }
+    vi.doUnmock('node:child_process');
     vi.restoreAllMocks();
   }
 });
@@ -140,6 +142,44 @@ async function freshSandbox(): Promise<Fresh> {
   const { withWorktree, runCommand: run } = await import('../../src/sandbox.js');
   const handlers = (event: ProcessEvent): Handler[] => emitter.rawListeners(event).filter((listener) => !(before.get(event) ?? []).includes(listener)) as Handler[];
   return { withWorktree, runCommand: run, handlers };
+}
+
+interface Watched extends Fresh {
+  /** Each command the sandbox started, as the sandbox itself holds it, in the order it started them. */
+  readonly started: ChildProcess[];
+  /** The arguments of each taskkill the sandbox asked for, where `noted` has it noted and not run. */
+  readonly taskkills: string[][];
+}
+
+/**
+ * The sandbox with the commands it starts in the test's hands as well: what
+ * the sandbox has seen of a command's shell, which decides whether it may
+ * still stop the command by its id, is not something a caller is told. Where
+ * a test says so, a taskkill the sandbox asks for is noted and not run, so
+ * that a sandbox that asks for one it should not have stops nothing.
+ */
+async function watchedSandbox(taskkill: 'run' | 'noted' = 'run'): Promise<Watched> {
+  const started: ChildProcess[] = [];
+  const taskkills: string[][] = [];
+  vi.doMock('node:child_process', async (original) => {
+    const actual = await original<typeof import('node:child_process')>();
+    return {
+      ...actual,
+      spawn: (...args: unknown[]): ChildProcess => {
+        const child = (actual.spawn as (...given: unknown[]) => ChildProcess)(...args);
+        started.push(child);
+        return child;
+      },
+      execFileSync: (file: string, args: readonly string[], options: unknown): unknown => {
+        if (file === 'taskkill' && taskkill === 'noted') {
+          taskkills.push([...args]);
+          return '';
+        }
+        return (actual.execFileSync as (...given: unknown[]) => unknown)(file, args, options);
+      },
+    };
+  });
+  return { ...(await freshSandbox()), started, taskkills };
 }
 
 function only(handlers: Handler[], event: ProcessEvent): Handler {
@@ -329,6 +369,46 @@ async function holding(run: Sandbox['runCommand']): Promise<Stray> {
   const kept = await stray(holder);
   await within((await stray(command)).ended, 60, 'the command to end');
   return kept;
+}
+
+/**
+ * Starts a command, and answers its promise with what its timeout runs,
+ * called as the timer would call it: a test cannot wait ten minutes, and a
+ * timeout short enough to wait for could fire before the test is ready.
+ */
+function timed<T>(start: () => Promise<T>, seconds: number): { answered: Promise<T>; timeout: () => void } {
+  const timers = vi.spyOn(globalThis, 'setTimeout');
+  try {
+    const answered = start();
+    const call = timers.mock.calls.find(([, ms]) => ms === seconds * 1000);
+    if (call === undefined) throw new Error(`the command set no timer of ${seconds}s`);
+    return { answered, timeout: call[0] as () => void };
+  } finally {
+    timers.mockRestore();
+  }
+}
+
+/**
+ * A process of this file's own, to be given a command's id as the system
+ * gives an id to another process once nothing holds its last owner. It leads
+ * a process group where there are groups, so a signal to the group of that
+ * id reaches it. How it ends says whether it was stopped: with 7 once its
+ * input is closed, as the test closes it, and otherwise as what stopped it
+ * left it.
+ */
+function another(): ChildProcess {
+  const child = spawn(process.execPath, ['-e', "process.stdin.resume(); process.stdin.on('end', () => process.exit(7)); setTimeout(() => process.exit(8), 600000);"], {
+    stdio: ['pipe', 'ignore', 'ignore'],
+    detached: process.platform !== 'win32',
+    windowsHide: true,
+  });
+  own.push(child);
+  return child;
+}
+
+/** Has `command`, which the sandbox holds, carry the id of `other`, as it does once the system has given its id to `other`. */
+function give(command: ChildProcess, other: ChildProcess): void {
+  (command as { pid: number | undefined }).pid = other.pid;
 }
 
 interface Pin {
@@ -653,6 +733,78 @@ describe('a command still running when the process is interrupted or exits', () 
     // and the real process.exit is back.
     await within(exited, 60, 'exit');
     expect(early).toMatchObject({ code: 130 });
+  });
+});
+
+describe('a command whose shell has ended while something it started still holds its output', () => {
+  // The sandbox still waits for such a command, and has let go of its shell:
+  // the id is the system's to give to another process. No test can have the
+  // system do that, so the tests give the id to a process of their own, which
+  // they hold, and stop the command once, while they hold it: an interrupt
+  // stops a command twice, three seconds apart, and a sandbox that got this
+  // wrong would send the second to an id nothing held any more.
+  it.each(['its timeout', 'the exit of the process'] as const)('is not stopped under its id by %s: the process that has the id by then runs on', async (by) => {
+    const { runCommand: run, handlers, started } = await watchedSandbox();
+    const name = named('holder');
+    const { answered, timeout } = timed(() => run(leaving(name, 'outside its group'), temp(), 600), 600);
+    const holder = await stray(name);
+    const command = started[0] as ChildProcess;
+    expect(await within(exitOf(command), 60, 'the sandbox to see the shell end')).toEqual({ code: 0, signal: null });
+    const other = another();
+    give(command, other);
+    if (by === 'its timeout') timeout();
+    else only(handlers('exit'), 'exit')(0);
+    other.stdin?.end();
+    expect(await within(exitOf(other), 60, 'the other process to end')).toEqual({ code: 7, signal: null });
+    if (by === 'its timeout') {
+      // Its timeout is still what ended it, once its output is let go.
+      await holder.end();
+      expect(await within(answered, 60, 'the command to answer')).toEqual({ exitCode: null, output: '' });
+    }
+  });
+
+  // Windows reports no signal for a process: there a shell ends with a code.
+  it.skipIf(process.platform === 'win32')('is not stopped under its id either when a signal ended its shell', async () => {
+    const { runCommand: run, handlers, started } = await watchedSandbox();
+    const name = named('holder');
+    void run(`${leaving(name, 'outside its group')}; kill -KILL $$`, temp(), 600);
+    await stray(name);
+    const command = started[0] as ChildProcess;
+    expect(await within(exitOf(command), 60, 'the sandbox to see the shell end')).toEqual({ code: null, signal: 'SIGKILL' });
+    const other = another();
+    give(command, other);
+    only(handlers('exit'), 'exit')(0);
+    other.stdin?.end();
+    expect(await within(exitOf(other), 60, 'the other process to end')).toEqual({ code: 7, signal: null });
+  });
+
+  // The group's id is given to no other process while the group has a member
+  // (ADR-0003). Windows has no such group, and taskkill finds no tree under
+  // a root that has ended, so there nothing is left to stop the process by.
+  it.skipIf(process.platform === 'win32')('is still stopped at its timeout with what its shell left in its process group', async () => {
+    const { runCommand: run, started } = await watchedSandbox();
+    const name = named('member');
+    const { answered, timeout } = timed(() => run(leaving(name, 'in its group'), temp(), 600), 600);
+    const member = await stray(name);
+    expect(await within(exitOf(started[0] as ChildProcess), 60, 'the sandbox to see the shell end')).toEqual({ code: 0, signal: null });
+    timeout();
+    await within(member.ended, 30, 'the process left in the group to be gone');
+    expect(await within(answered, 30, 'the command to answer')).toEqual({ exitCode: null, output: '' });
+  });
+
+  // Asking first whether a process has the id would leave the moment between
+  // the answer and taskkill's own look, in which one can be given it.
+  it.runIf(process.platform === 'win32')('is never handed to taskkill, even while no process has its id, where a command still running is', async () => {
+    const { runCommand: run, handlers, started, taskkills } = await watchedSandbox('noted');
+    const holder = named('holder');
+    void run(leaving(holder, 'outside its group'), temp(), 600);
+    await stray(holder);
+    expect(await within(exitOf(started[0] as ChildProcess), 60, 'the sandbox to see the shell end')).toEqual({ code: 0, signal: null });
+    const grandchild = named('grandchild');
+    void run(tree(grandchild), temp(), 600);
+    await stray(grandchild);
+    only(handlers('exit'), 'exit')(0);
+    expect(taskkills.map((args) => args[1])).toEqual([String(started[1]?.pid)]);
   });
 });
 
