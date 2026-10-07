@@ -13,6 +13,9 @@ cannot turn a run red. The family's policy is
 
 ### Added
 
+- `doctor` and `init` note a pre-commit hook that runs spec-harness through
+  `npx`, with the line that runs it with `node`; `doctor --format json`
+  gains `gitHook.note`. A note, never a failure.
 - `readManifest` and `diffManifest` in the programmatic API give a
   `package.json`'s install-script entries, and what changed in them, as
   `installScripts`, beside the dependencies. `AuditInput.dependencies` takes
@@ -20,6 +23,17 @@ cannot turn a run red. The family's policy is
 
 ### Changed
 
+- `init --git-hook` writes a pre-commit hook that runs `node` and the
+  script in the project's install, as the Claude Code hooks are run, where
+  it ran `npx --no-install spec-harness hook git`: a commit starts no npm,
+  and npm 12's two `npm notice run` lines on every commit are gone. Where
+  the harness is not installed in the work tree git commits in, the hook
+  says so and stops the commit. The line advised for a hook of your own is
+  `node node_modules/@descent-vtt/spec-harness/bin/spec-harness.js hook git`
+  ([ADR-0012](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0012-one-way-into-claude-code.md)).
+  Upgrading: a hook written before keeps working. To move it, replace its
+  `npx` command with the line `doctor` names, or delete the hook and run
+  `init --git-hook --write`.
 - `audit` reports a package a round allowed to run install scripts: an
   entry it added to `allowScripts` in a `package.json`, where npm 12 keeps
   its approvals, or turned from `false` to `true`. It is

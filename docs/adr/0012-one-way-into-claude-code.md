@@ -114,6 +114,44 @@ before. Which `claude`
 is measured is still the one Windows finds first on `PATH`, and a
 `claude.exe`, as the native installer puts one, is asked, as before.
 
+*Amended 2026-10-07.* git's pre-commit hook is run as Claude Code's hooks
+are: `node` and the script in the project's install. `init --git-hook` wrote
+`exec npx --no-install spec-harness hook git`, which starts npm to start
+node on every commit. Under npm 12, npx says on stderr what it runs, two
+`npm notice run` lines a commit, where npm 10 and 11 print none (measured
+with 10.9.9, 11.20.0 and 12.2.0). And where the harness is not installed,
+npx asks the registry about the bare name `spec-harness`, which is another
+publisher's package, and names that package in its refusal.
+
+git starts a pre-commit hook at the top of the work tree it commits in:
+from a subdirectory, under `git -C`, in a linked worktree, whose top it is
+though the hook file is the main work tree's, and for a `core.hooksPath`
+that is relative, absolute, or shared by several repositories (githooks(5),
+and measured with Git for Windows 2.55). So the hook names the script by
+its path from there,
+`node_modules/@descent-vtt/spec-harness/bin/spec-harness.js`: not from
+where the hook file is, which for a linked worktree and for shared hooks is
+another place, and not by an absolute path written by init, which a second
+work tree or a moved repository does not have. Each work tree is
+guarded by its own install, as the siblings are found in its own
+`node_modules`. Where the script is not there - a linked worktree nobody
+installed into, a repository that shares its hooks with one that uses the
+harness - node would end on a stack trace, so the hook checks first, says
+what is missing and where, and exits 2: git stops the commit, as it did
+when npx found nothing to run. The hook is a POSIX sh script on every
+platform, since Git for Windows runs a hook with the sh it ships, and a
+test has git run it there.
+
+init never replaces a hook that exists, so one written the old way keeps
+running through npx, and keeps guarding. doctor and init read it as a hook
+that runs spec-harness, as before, and add a note: how it is run, and the
+line that runs it with node. The note fails nothing, `--strict` or not, and
+`doctor --format json` has it as `gitHook.note`, `null` where there is
+nothing to say; the field is added, so no `schemaVersion` moves.
+A comment that names the npx command is not noted, and neither is another
+runner's line, such as `pnpm exec`, which is the repository's to choose.
+The line advised for a hook of the repository's own is the node line too.
+
 ## Consequences
 
 - A plugin turned on by managed settings or `--settings` is invisible to

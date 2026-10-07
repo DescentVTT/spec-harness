@@ -109,7 +109,7 @@ May the round write this?
 Paths are compared as the filesystem spells them, links resolved and case corrected, so `SRC/db/schema.ts` does not walk past a protection on `src/db/schema.ts` on Windows.
 
 - `spec-harness hook claude` answers Claude Code's PreToolUse and PostToolUse hooks: a refusal before the write, with the reason and the next step; a warning after a write outside the scope. It never answers `allow`, which would skip the person's own permission prompt.
-- `spec-harness hook git` is a pre-commit hook for any agent or none.
+- `spec-harness hook git` is a pre-commit hook for any agent or none. `init --git-hook` writes it; in a hook of your own it is the line `node node_modules/@descent-vtt/spec-harness/bin/spec-harness.js hook git`.
 
 A guard is a guardrail - an agent that writes through a shell passes it - so the audit and spec-brief's archive are the gates ([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
 
@@ -298,7 +298,9 @@ Configures the family to agree. It prints the plan, merges into files that exist
 - **git's pre-commit hook**, where git runs it from: `core.hooksPath`, relative, absolute or under `~`, and the shared hooks of a linked worktree.
   - It refuses a commit that changes what the active brief protects, for any agent or none, a shell's writes included.
   - With `--git-hook` it is written; without, the plan advises it (`advise`).
-  - A hook that exists is never replaced: `init` says to add the line to it.
+  - It runs `node` and the script in the project's `node_modules`, as the Claude Code hooks do, and no `npx`. git starts a pre-commit hook at the top of the work tree it commits in, so the script is read from there: a linked worktree is guarded by its own install, and so is each repository that shares a hooks directory. Where the install is not there, the hook says so and the commit waits.
+  - It is a POSIX `sh` script on every platform: Git for Windows runs a hook with the `sh` it ships.
+  - A hook that exists is never replaced: `init` says to add the line to it. One that runs spec-harness through `npx`, as `init` wrote it through 0.9.1, keeps working, and `init` names the line that runs it with `node`.
 - **The allowed-signers file** `rulings.allowedSigners` names, `.github/allowed_signers` by default: one line per person, and a FIDO2 key, `ssh-keygen -t ed25519-sk`, for anyone whose agent runs as them (`advise`).
   - With it, how the forge keeps it, the ADRs, the tool configurations and the CI configuration from changing unread, as [spec-core's ADR-0005](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0005-the-family-contract.md) asks; [spec-core's adopting guide](https://github.com/DescentVTT/spec-core/blob/main/docs/adopting.md) has the settings:
     - GitHub: CODEOWNERS and a protected branch;
@@ -328,6 +330,7 @@ The first thing to run when a hook refuses something unexpectedly. It reports:
   - A `claude` that is not found, a Windows script that runs no `@anthropic-ai/claude-code` package whose package.json gives a version, and a version that cannot be read are *cannot tell*, never fine; `--strict` fails them.
   - The Claude Code in an editor or the desktop app may be another release than the one on `PATH`: check it there with `claude --version` or `/status`.
 - **git's pre-commit hook**: whether it runs spec-harness, where git runs it from: installed, missing, a hook of the repository's own without the line, or, outside Windows, one git skips because it is not executable.
+  - A hook that runs it through `npx` is one that runs it. A note names the line that runs it with `node`: `npx` starts npm to start node on every commit, and under npm 12 prints two `npm notice run` lines each time. A note, never a failure; `--format json` has it as `gitHook.note`.
 
 ## As a Claude Code plugin
 
@@ -376,6 +379,8 @@ The hooks name `${CLAUDE_PROJECT_DIR}/node_modules/@descent-vtt/spec-harness/bin
 - Claude Code starts a hook wherever the session stands and a plugin's server in the plugin's directory, so neither can rely on `npx` finding the project's install.
 - On Windows `npx` is a shim that cannot start without a shell.
 - The copy in the project is the version the project pinned, the one `doctor` checks the siblings against.
+
+git's hook names the same script, `node_modules/@descent-vtt/spec-harness/bin/spec-harness.js`, from the top of the work tree, where git starts it. `npx` would start npm to start node on every commit.
 
 A person who runs the tools by hand runs `npx spec-harness`, from the root.
 

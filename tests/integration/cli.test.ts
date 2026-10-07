@@ -414,12 +414,12 @@ describe('doctor on the rest of what a ruling and a commit need', () => {
     await cli(['init', '--git-hook', '--write'], repo.root);
     expect((await cli(['doctor'], repo.root)).stdout).toContain('\ngit     .git/hooks/pre-commit runs spec-harness\n');
     const json = parsed<{ gitHook: unknown }>(await cli(['doctor', '--format', 'json'], repo.root));
-    expect(json.gitHook).toEqual({ state: 'runs', file: '.git/hooks/pre-commit', detail: '.git/hooks/pre-commit runs spec-harness' });
+    expect(json.gitHook).toEqual({ state: 'runs', file: '.git/hooks/pre-commit', detail: '.git/hooks/pre-commit runs spec-harness', note: null });
     const other = repository({});
     other.git('config', 'core.hooksPath', '.githooks');
     other.write('.githooks/pre-commit', '#!/bin/sh\nnpm test\n');
     expect((await cli(['doctor'], other.root)).stdout).toContain(
-      '\ngit     .githooks/pre-commit does not run spec-harness: add the line "npx --no-install spec-harness hook git" to it\n',
+      '\ngit     .githooks/pre-commit does not run spec-harness: add the line "node node_modules/@descent-vtt/spec-harness/bin/spec-harness.js hook git" to it\n',
     );
   });
 

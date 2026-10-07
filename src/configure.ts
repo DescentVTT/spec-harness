@@ -30,7 +30,8 @@ function sameStrings(value: unknown, expected: readonly string[]): boolean {
  * stands, so neither can rely on `npx` finding the project's install; and on
  * Windows a server's command is started without a shell, where `npx` is a
  * shim that cannot start at all. `node` and the script's path work
- * everywhere.
+ * everywhere. git's hook runs the same script, from the top of the work
+ * tree, where git starts it.
  */
 const BIN = 'node_modules/@descent-vtt/spec-harness/bin/spec-harness.js';
 
@@ -463,8 +464,47 @@ export const PROTECT_RULE_FILES =
   'on GitHub, CODEOWNERS and a protected branch; on GitLab Premium, Code Owners; on GitLab Free, a protected branch no one pushes to, merged by Maintainers, agents as Developers, and pipelines that must succeed. ' +
   "spec-core's docs/adopting.md has the settings";
 
-/** The line to add to a hook the repository has of its own. */
-export const GIT_HOOK_LINE = 'npx --no-install spec-harness hook git';
+/**
+ * The line to add to a hook the repository has of its own: node and the
+ * script in the project's install, as Claude Code's hooks are run. git starts
+ * a pre-commit hook at the top of the work tree it commits in, a linked
+ * worktree's own, wherever the hook is kept, so the path is read from there.
+ */
+export const GIT_HOOK_LINE = `node ${BIN} hook git`;
+
+/**
+ * The hook init writes. It is a POSIX sh script on every platform, since Git
+ * for Windows runs a hook with the sh it ships. Where the project's install
+ * is not in the work tree - a linked worktree nobody installed into, a
+ * repository that shares its hooks with one that uses the harness - node
+ * would end on a stack trace, so the hook says what is missing and where, and
+ * the commit waits, as it did when npx found nothing to run.
+ */
+export const PRE_COMMIT = `#!/bin/sh
+# spec-harness: refuse a commit that changes what the active brief protects.
+# git runs this at the top of the work tree it commits in, a linked worktree's
+# own, wherever the hook is kept: the project's install is read from there.
+bin=${BIN}
+if [ ! -f "$bin" ]; then
+  printf '%s\\n' "spec-harness: $bin is not in $PWD, the work tree git commits in: install the project's dependencies there, as with npm ci, and commit again" >&2
+  exit 2
+fi
+exec node "$bin" hook git
+`;
+
+/**
+ * What doctor and init add of a hook whose text runs the harness through
+ * npx: the hook init wrote through 0.9.1, or the line it advised for a hook
+ * of the repository's own. A note, never a failure: the hook guards as it
+ * did. npx starts npm to start node, and npm 12 says on stderr what it runs,
+ * twice a commit. A comment that names the command runs nothing, and neither
+ * does another runner's line, which is the repository's to choose.
+ */
+export function gitHookNote(text: string): string | null {
+  const npx = text.split('\n').some((line) => /^[^#]*\bnpx\b.*\bspec-harness\s+hook\s+git\b/.test(line));
+  if (!npx) return null;
+  return `it runs spec-harness through npx, which starts npm to start node on every commit, and under npm 12 prints two "npm notice run" lines each time: to run it with node from the project's install, as Claude Code's hooks are, replace the npx command there with "${GIT_HOOK_LINE}"`;
+}
 
 /** What doctor says of git's pre-commit hook. */
 export function describeGitHook(hook: GitHookState): string {

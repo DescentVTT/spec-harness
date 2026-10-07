@@ -242,7 +242,9 @@ async function doctorCommand(options: Options, io: CliIO): Promise<number> {
   // Only a Claude Code that runs the guard is asked its release: one older
   // than the hooks need lets every write through unguarded.
   const release = claude === 'none' ? null : checkClaudeCode(await claudeVersion(io.env));
-  const { hook } = await gitHook(workspace.root);
+  // How the hook runs the harness is a note: one that goes through npx guards
+  // as well as one that does not, and fails nothing, --strict or not.
+  const { hook, note: hookNote } = await gitHook(workspace.root);
   const branch = workspace.branch === null ? '(detached)' : `${workspace.branch}${workspace.branchSource === undefined ? '' : ` (detached; ${workspace.branchSource} names it)`}`;
   if (options.format === 'json') {
     io.stdout.write(
@@ -269,7 +271,7 @@ async function doctorCommand(options: Options, io: CliIO): Promise<number> {
               ? { state: 'unchecked', version: null, minimum: CLAUDE_CODE_MINIMUM, detail: 'not asked: nothing wires Claude Code to the guard here' }
               : { state: release.state, version: 'version' in release ? release.version : null, minimum: CLAUDE_CODE_MINIMUM, detail: describeClaudeRelease(release) },
         },
-        gitHook: { state: hook.state, file: 'file' in hook ? hook.file : null, detail: describeGitHook(hook) },
+        gitHook: { state: hook.state, file: 'file' in hook ? hook.file : null, detail: describeGitHook(hook), note: hookNote },
         siblings: rows,
       }),
     );
@@ -287,6 +289,7 @@ async function doctorCommand(options: Options, io: CliIO): Promise<number> {
         `claude  ${describeClaudeCode(wiring)}`,
         ...more(release === null ? [] : [describeClaudeRelease(release)]),
         `git     ${describeGitHook(hook)}`,
+        ...more(hookNote === null ? [] : [hookNote]),
         '',
         '',
       ].join('\n'),
