@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 
 import { runCommand } from '../../src/sandbox.js';
-import { brief, BRIEF_FILE, cleanup, repository, spawnBin, temp, type Repository } from './helpers.js';
+import { brief, BRIEF_FILE, cleanup, repository, spawnBin, temp, withEnvironment, type Repository } from './helpers.js';
 
 /**
  * What the sandbox promises beyond a job that ends on its own, which
@@ -13,8 +13,9 @@ import { brief, BRIEF_FILE, cleanup, repository, spawnBin, temp, type Repository
  * exits mid-job, and every command still running in it stopped first, with
  * everything it started; a worktree git forgets, and a job whose answer
  * stands, when the directory cannot be deleted (ADR-0003); and a probe's
- * command run as CI runs it, its output bounded, stopped whole at its timeout
- * (ADR-0007).
+ * command run as CI runs it, with npm told to fetch nothing for it unless
+ * the person's environment says otherwise, its output bounded, stopped whole
+ * at its timeout (ADR-0007).
  */
 
 afterAll(cleanup);
@@ -766,6 +767,23 @@ describe('a command', () => {
     } finally {
       delete process.env['SPEC_HARNESS_SANDBOX_TEST'];
     }
+  });
+
+  it("is handed npm's `yes` setting as false, so that npx fetches nothing for it, unless the person's environment sets it in either case", async () => {
+    // Each spelling of the setting the command was handed, with its value.
+    const path = join(temp(), 'said.cjs');
+    writeFileSync(path, "console.log(JSON.stringify(Object.entries(process.env).filter(([name]) => name.toLowerCase() === 'npm_config_yes')));\n");
+    const handed = (changes: Record<string, string | undefined>): Promise<unknown> =>
+      withEnvironment({ npm_config_yes: undefined, ...changes }, async () => {
+        const run = await runCommand(`node "${path}"`, temp(), 60);
+        expect(run.exitCode, run.output).toBe(0);
+        return JSON.parse(run.output);
+      });
+    expect(await handed({})).toEqual([['npm_config_yes', 'false']]);
+    // A person who set it has said what npm may fetch, and it reaches the command as they set it.
+    expect(await handed({ npm_config_yes: 'true' })).toEqual([['npm_config_yes', 'true']]);
+    expect(await handed({ NPM_CONFIG_YES: 'true' })).toEqual([['NPM_CONFIG_YES', 'true']]);
+    expect(await handed({ npm_config_yes: 'false' })).toEqual([['npm_config_yes', 'false']]);
   });
 
   it('keeps its output up to 4 MiB, enough to find a signature in, and drops what comes after', async () => {

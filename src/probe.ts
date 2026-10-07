@@ -202,6 +202,36 @@ export interface Classified {
   readonly output?: string;
 }
 
+/**
+ * npm's `yes` setting as an environment spells it. npm reads the name in any
+ * case: `NPM_CONFIG_YES` and `Npm_Config_Yes` did what `npm_config_yes` does
+ * under npm 10.9.9, 11.16.0, 11.20.0 and 12.2.0 (ADR-0007).
+ */
+const NPM_YES = /^npm_config_yes$/i;
+
+/**
+ * The environment a probe's commands run in: the person's own, with `CI` set
+ * as a pipeline sets it, and with npm told to fetch nothing for a command
+ * unless the person's environment already says what npm may fetch.
+ *
+ * A probe's command runs where nothing is installed until its `setup`
+ * installs it, with no terminal to be asked on. There `npx <name>` fetches
+ * the registry's package of that name and runs it, unasked, and with
+ * `npm_config_yes=false` it stops and names the package instead (ADR-0007).
+ * A person who set the variable, in any case, has said what they want, and
+ * it is left as they set it. Set and empty says nothing: npm fetched with it
+ * as with no variable, so the setting is made. The empty one is taken out
+ * first and not left beside it: on Windows a name is one variable whatever
+ * its case, and of two spellings a command is handed one, the upper case
+ * before the lower, which would be the empty one.
+ */
+export function probeEnvironment(own: Readonly<Record<string, string | undefined>>): Record<string, string | undefined> {
+  const spelled = Object.keys(own).filter((name) => NPM_YES.test(name));
+  if (spelled.some((name) => Boolean(own[name]))) return { ...own, CI: '1' };
+  const rest = Object.fromEntries(Object.entries(own).filter(([name]) => !spelled.includes(name)));
+  return { ...rest, CI: '1', npm_config_yes: 'false' };
+}
+
 /** How many characters of the end of a command's output a person is shown. */
 const SHOWN = 2000;
 

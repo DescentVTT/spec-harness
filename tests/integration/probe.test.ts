@@ -1,7 +1,11 @@
-import { afterAll, describe, expect, it } from 'vitest';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import type { Classified } from '../../src/probe.js';
-import { brief, BRIEF_FILE, cleanup, cli, parsed, repository, type Repository } from './helpers.js';
+import { brief, BRIEF_FILE, cleanup, cli, parsed, repository, temp, withEnvironment, type Repository } from './helpers.js';
+import { serve, type Registry } from './registry.js';
 
 afterAll(cleanup);
 
@@ -30,10 +34,13 @@ function probeBlock(fields: string, files: Record<string, string> = { 'probe.js'
   return blocks.join('\n');
 }
 
-/** A brief whose probe measures src/value.txt, on a branch that fixes it. */
-function defect(fields: string, options: { fix?: string; files?: Record<string, string>; config?: Record<string, unknown> } = {}): Repository {
+/** A brief whose probe measures src/value.txt, on a branch that fixes it; `tracked` is what else the base commit holds. */
+function defect(
+  fields: string,
+  options: { fix?: string; files?: Record<string, string>; config?: Record<string, unknown>; tracked?: Record<string, string> } = {},
+): Repository {
   const repo = repository(
-    { [BRIEF_FILE]: brief({ affected: ['src/**'], body: probeBlock(fields, options.files) }), 'src/value.txt': 'broken\n' },
+    { [BRIEF_FILE]: brief({ affected: ['src/**'], body: probeBlock(fields, options.files) }), 'src/value.txt': 'broken\n', ...options.tracked },
     { probes: { runs: 1 }, ...options.config },
   );
   repo.git('checkout', '-q', '-b', 'brief/001-fix');
@@ -256,5 +263,81 @@ describe('probe', () => {
     expect(worktrees(repo)).toHaveLength(1);
     const unbased = defect('id: v\nrun: node probe.js\nsignature: x');
     expect(await cli(['probe', '--base', 'nowhere'], unbased.root)).toMatchObject({ code: 2, stderr: 'spec-harness: "nowhere" names no commit\n' });
+  });
+});
+
+/**
+ * A probe's command runs where nothing is installed until its `setup`
+ * installs it, with no terminal: there `npx <name>` fetched the registry's
+ * package of that name and ran it, unasked (ADR-0007). These tests run the
+ * npm that is on the PATH, as a probe does, against a registry of their own
+ * on the loopback address and a cache of their own, so CI measures every
+ * platform and npm it runs.
+ *
+ * The package is made up. Its name is under the family's own scope, where
+ * nobody else can register one: were npm ever to ask the real registry for
+ * it, the answer is that there is no such package.
+ */
+describe('a probe whose command starts a tool through npx, by a name the project has not installed', () => {
+  const NAME = '@descent-vtt/no-such-probe-tool';
+  const FETCHED = 'SPEC_HARNESS_TEST_FETCHED';
+  // The package's command says that it ran, in a file and in what it prints, and fails as a probe's command does.
+  const SCRIPT = `require('node:fs').writeFileSync(process.env.${FETCHED}, 'ran'); console.log('FETCHED AND RAN'); process.exit(1);`;
+  let registry: Registry;
+
+  beforeAll(async () => {
+    registry = await serve(NAME, '9.9.9', 'no-such-probe-tool', SCRIPT);
+  });
+  afterAll(() => registry.close());
+
+  /**
+   * `probe` over a brief whose probe runs `line`, in a project with a
+   * manifest and nothing installed, with npm pointed at the registry above
+   * and `environment` said beside it. What the probe found, what the
+   * registry was asked, and whether the package ran.
+   */
+  async function probing(line: string, environment: Record<string, string | undefined> = {}): Promise<{ report: ProbeReport; asked: string[]; downloaded: string[]; ran: boolean }> {
+    const repo = defect(`id: fetch\nrun: ${line}\nsignature: FETCHED AND RAN`, { files: {}, tracked: { 'package.json': '{ "name": "probed", "version": "1.0.0", "private": true }\n' } });
+    const marker = join(temp(), 'fetched');
+    const settings = {
+      npm_config_registry: registry.url,
+      // A cache apiece: a copy an earlier fetch left in one would run without a download.
+      npm_config_cache: join(temp(), 'npm-cache'),
+      npm_config_update_notifier: 'false',
+      [FETCHED]: marker,
+      // Whatever the person running the suite has said of it.
+      npm_config_yes: undefined,
+    };
+    registry.requests.length = 0;
+    const result = await withEnvironment({ ...settings, ...environment }, () => cli(['probe', '--format', 'json'], repo.root));
+    return { report: parsed<ProbeReport>(result), asked: [...registry.requests], downloaded: registry.downloads(), ran: existsSync(marker) };
+  }
+
+  it('fetches nothing: npm stops and names the package, and the probe is invalid with what npm said', async () => {
+    const { report, asked, downloaded, ran } = await probing(`npx ${NAME} --version`);
+    expect(downloaded).toEqual([]);
+    expect(ran).toBe(false);
+    expect(report.results.map((r) => [r.at, r.verdict])).toEqual([['base', 'invalid']]);
+    const run = report.results[0]?.runs[0];
+    expect(run).toMatchObject({ outcome: 'wrong-failure', detail: 'the command exited 1 and its output does not contain "FETCHED AND RAN"' });
+    // npm reached the registry, was told of the package, and stopped there: its reason is what the person is shown.
+    expect(asked).toContain(`GET /${NAME}`);
+    expect(run?.output).toMatch(/npx canceled due to missing packages.*@descent-vtt\/no-such-probe-tool@9\.9\.9/);
+  });
+
+  it('fetches where the line itself says `--yes`: the line is the person\'s, approved with the brief', async () => {
+    const { report, downloaded, ran } = await probing(`npx --yes ${NAME} --version`);
+    expect(downloaded).toEqual([`GET /${NAME}/-/no-such-probe-tool-9.9.9.tgz`]);
+    expect(ran).toBe(true);
+    expect(report.results.map((r) => [r.at, r.verdict])).toEqual([['base', 'measured']]);
+  });
+
+  it("fetches where the person's environment says npm may, in either case of the name", async () => {
+    for (const name of ['npm_config_yes', 'NPM_CONFIG_YES']) {
+      const { report, downloaded, ran } = await probing(`npx ${NAME} --version`, { [name]: 'true' });
+      expect(downloaded, name).toEqual([`GET /${NAME}/-/no-such-probe-tool-9.9.9.tgz`]);
+      expect(ran, name).toBe(true);
+      expect(report.results.map((r) => [r.at, r.verdict]), name).toEqual([['base', 'measured']]);
+    }
   });
 });

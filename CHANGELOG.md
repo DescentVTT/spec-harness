@@ -11,6 +11,20 @@ cannot turn a run red. The family's policy is
 
 ## Unreleased
 
+### Changed
+
+- `probe` runs a probe's `setup` and `run` lines with `npm_config_yes=false`,
+  so `npx <tool>` given a name the project has not installed stops and names
+  the package, where it fetched the registry's package of that name and ran
+  it, unasked. A probe that passed by fetching is now `invalid`
+  ([ADR-0007](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0007-probes-declare-their-failure.md)).
+  Upgrading: install the tool in the probe's `setup`, as `setup: npm ci`
+  does, and start it through one of the project's scripts or
+  `npx --no-install <tool>`. To have npm fetch as before, say `--yes` on the
+  probe's line, or set `npm_config_yes=true` in the environment `probe` runs
+  in, which it leaves as it finds it; `yes=true` in an `.npmrc` no longer
+  does it, since the environment outranks the file.
+
 ### Added
 
 - A probe's run that proves nothing - it failed for another reason than the

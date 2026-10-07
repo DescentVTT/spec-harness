@@ -235,6 +235,34 @@ export function spawnBin(args: readonly string[], cwd: string, input?: string): 
 }
 
 /**
+ * Runs `work` with `changes` made to this process's environment, which is
+ * what a command the harness starts is handed, and puts back what was there.
+ * A name is changed in every case it is spelled in: on Windows the spellings
+ * are one variable, and elsewhere a test that sets one means the others gone,
+ * whatever the person running the suite has set. `undefined` only takes the
+ * name out.
+ */
+export async function withEnvironment<T>(changes: Readonly<Record<string, string | undefined>>, work: () => Promise<T>): Promise<T> {
+  const spellings = (name: string): string[] => Object.keys(process.env).filter((key) => key.toLowerCase() === name.toLowerCase());
+  const clear = (): [string, string | undefined][] =>
+    Object.keys(changes).flatMap((name) =>
+      spellings(name).map((key) => {
+        const value = process.env[key];
+        delete process.env[key];
+        return [key, value] as [string, string | undefined];
+      }),
+    );
+  const before = clear();
+  for (const [name, value] of Object.entries(changes)) if (value !== undefined) process.env[name] = value;
+  try {
+    return await work();
+  } finally {
+    clear();
+    for (const [key, value] of before) if (value !== undefined) process.env[key] = value;
+  }
+}
+
+/**
  * Whether ssh-keygen is on PATH. Only "no such program" says it is not: on a
  * loaded host a spawn can fail for other reasons, and a signing test skipped
  * for one of those would pass silently. ssh-keygen exits non-zero on "-?".

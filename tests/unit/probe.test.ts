@@ -4,6 +4,7 @@ import type { JUnitRead } from '../../src/junit.js';
 import {
   classify,
   endOfOutput,
+  probeEnvironment,
   readProbes,
   renderEvidence,
   renderUnexplained,
@@ -515,5 +516,62 @@ describe('what a person is told of a run that proves nothing', () => {
         '',
       ].join('\n'),
     );
+  });
+});
+
+describe("the environment a probe's commands run in", () => {
+  /** What the environment says of npm's `yes` setting, in whatever case: each name and its value. */
+  const said = (environment: Record<string, string | undefined>): [string, string | undefined][] =>
+    Object.entries(environment).filter(([name]) => name.toLowerCase() === 'npm_config_yes');
+
+  it('has npm fetch nothing for a command, where the person said nothing of it', () => {
+    expect(probeEnvironment({ PATH: '/bin', HOME: '/home/a' })).toEqual({ PATH: '/bin', HOME: '/home/a', CI: '1', npm_config_yes: 'false' });
+    expect(probeEnvironment({})).toEqual({ CI: '1', npm_config_yes: 'false' });
+  });
+
+  it('is left as the person set it, whatever they set and in whatever case npm reads it', () => {
+    for (const name of ['npm_config_yes', 'NPM_CONFIG_YES', 'Npm_Config_Yes']) {
+      for (const value of ['true', 'false', '1', '0']) {
+        expect(said(probeEnvironment({ PATH: '/bin', [name]: value })), `${name}=${value}`).toEqual([[name, value]]);
+      }
+    }
+    expect(probeEnvironment({ PATH: '/bin', NPM_CONFIG_YES: 'true' })).toEqual({ PATH: '/bin', NPM_CONFIG_YES: 'true', CI: '1' });
+  });
+
+  it('is left as it is when two spellings are set, and when one of two is empty', () => {
+    expect(said(probeEnvironment({ npm_config_yes: 'true', NPM_CONFIG_YES: 'false' }))).toEqual([
+      ['npm_config_yes', 'true'],
+      ['NPM_CONFIG_YES', 'false'],
+    ]);
+    expect(said(probeEnvironment({ npm_config_yes: '', NPM_CONFIG_YES: 'true' }))).toEqual([
+      ['npm_config_yes', ''],
+      ['NPM_CONFIG_YES', 'true'],
+    ]);
+    expect(said(probeEnvironment({ NPM_CONFIG_YES: 'true', npm_config_yes: '' }))).toEqual([
+      ['NPM_CONFIG_YES', 'true'],
+      ['npm_config_yes', ''],
+    ]);
+  });
+
+  it('takes a setting that is empty for none, as npm does, and leaves one spelling of it', () => {
+    // On Windows two spellings are one variable, and the empty one could be the one a command is handed.
+    expect(probeEnvironment({ PATH: '/bin', NPM_CONFIG_YES: '' })).toEqual({ PATH: '/bin', CI: '1', npm_config_yes: 'false' });
+    expect(probeEnvironment({ npm_config_yes: '', Npm_Config_Yes: '', NPM_CONFIG_YES: undefined })).toEqual({ CI: '1', npm_config_yes: 'false' });
+  });
+
+  it('reads no other setting of npm for that one, nor a name that only contains it', () => {
+    const others = { npm_config_yes_please: 'true', my_npm_config_yes: 'true', npm_config_yess: 'true', npm_config_ye: 'true', npm_config_registry: 'http://127.0.0.1:1/' };
+    expect(probeEnvironment(others)).toEqual({ ...others, CI: '1', npm_config_yes: 'false' });
+  });
+
+  it('sets CI as a pipeline does, over whatever the person had there, and passes the rest on', () => {
+    expect(probeEnvironment({ CI: 'false', SPEC_BRIEF: '012', npm_config_yes: 'true' })).toEqual({ CI: '1', SPEC_BRIEF: '012', npm_config_yes: 'true' });
+    expect(probeEnvironment({ CI: '', npm_config_cache: '/tmp/c' })).toEqual({ CI: '1', npm_config_cache: '/tmp/c', npm_config_yes: 'false' });
+  });
+
+  it("leaves the person's own environment as it was", () => {
+    const own = { PATH: '/bin', NPM_CONFIG_YES: '' };
+    probeEnvironment(own);
+    expect(own).toEqual({ PATH: '/bin', NPM_CONFIG_YES: '' });
   });
 });
