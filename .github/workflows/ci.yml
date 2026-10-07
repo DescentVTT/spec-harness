@@ -32,7 +32,13 @@ jobs:
       fail-fast: false
       matrix:
         # 22 is the floor, 24 the active LTS, 26 the current release.
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        # Each image by the label that is its alone, never `-latest`, which
+        # GitHub moves (tests/runner-images.test.ts). Windows and macOS are what
+        # their `-latest` gave on 2026-10-07. Both Ubuntu images, because
+        # `ubuntu-latest` hands a user's job either from 2026-10-19 and the
+        # suite runs the image's git, ssh-keygen and bash. spec-core's
+        # ADR-0008 has the steps that move one.
+        os: [ubuntu-24.04, ubuntu-26.04, windows-2025-vs2026, macos-26]
         node: ['22', '24', '26']
     steps:
       # Pinned to commits, with the tag beside each, as in the sibling tools.
@@ -63,9 +69,12 @@ jobs:
   # range package.json promises: the suite again, with each sibling it runs
   # at the oldest release MINIMUM_VERSIONS says this one runs (ADR-0011). One
   # leg, since what differs from the matrix is the siblings, not the platform.
+  #
+  # On one image, as coverage, the sweeps and the release are: the one their
+  # numbers were measured on. Moving one is spec-core's ADR-0008.
   minimum:
     name: test (minimum siblings)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -98,7 +107,7 @@ jobs:
 
   coverage:
     name: coverage
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -117,7 +126,7 @@ jobs:
 
   mutation:
     name: mutation (core)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # The core sweep took 6 to 8 minutes.
     timeout-minutes: 30
     steps:
