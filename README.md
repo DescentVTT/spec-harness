@@ -263,7 +263,7 @@ A defect is measured before it is filed. The brief carries its probe:
 ```probe
 id: old-token-still-accepted
 setup: npm ci
-run: npx vitest run tests/probes/rotate.test.ts
+run: npm test -- tests/probes/rotate.test.ts
 signature: expected 401, got 200
 ```
 
@@ -274,6 +274,7 @@ signature: expected 401, got 200
 
 - `probe --at base` runs it in a temporary worktree at the base commit: every run must fail **for the declared reason** - the `signature` in the output, or a JUnit `test` failing - or the verdict is `vacuous` (no defect), `flaky` or `invalid`.
 - `probe --at head` must be green: `fixed`.
+- That worktree is a fresh checkout, so a probe's commands can rely on the files the commit tracks, the probe's own files and what its `setup` installed, and on nothing else: there is no `node_modules` until `setup` puts one there. Start a tool through one of the project's scripts, as `npm test --` does above, or through `npx --no-install <tool>`. Given a tool's name alone, `npx` fetches the registry's package of that name wherever `setup` did not install the tool, and runs it, unasked: the command has no terminal to be asked on ([Names](#names)).
 - The evidence table it prints names the hash of the probe it measured with ([ADR-0007](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0007-probes-declare-their-failure.md)).
 - Interrupted, it stops every command it started, with everything those started, before it removes the worktree ([ADR-0003](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0003-state-outside-the-work-tree.md)).
 - A worktree's directory that cannot be deleted - on Windows, one that something a command started is still running in - costs the verdict nothing: git forgets the worktree, `probe` prints and exits as it would have, and it names the directory it left on the standard error as it exits.

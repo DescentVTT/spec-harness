@@ -20,14 +20,14 @@ const KEYS = 'id, run, setup, signature, junit, test, runs, timeout';
 describe('reading probes', () => {
   it('reads every key of a probe, and its files', () => {
     const set = readProbes([
-      probe('id: old-token\nsetup: npm ci\nrun: npx vitest run tests/probes/rotate.test.ts\nsignature: expected 401, got 200\njunit: reports/junit.xml\ntest: rotation\nruns: 3\ntimeout: 60', 4),
+      probe('id: old-token\nsetup: npm ci\nrun: npm test -- tests/probes/rotate.test.ts\nsignature: expected 401, got 200\njunit: reports/junit.xml\ntest: rotation\nruns: 3\ntimeout: 60', 4),
       file('tests/probes/rotate.test.ts', 'test("x", () => {});', 12),
     ]);
     expect(set.problems).toEqual([]);
     expect(set.probes).toEqual([
       {
         id: 'old-token',
-        run: 'npx vitest run tests/probes/rotate.test.ts',
+        run: 'npm test -- tests/probes/rotate.test.ts',
         setup: 'npm ci',
         signature: 'expected 401, got 200',
         junit: 'reports/junit.xml',

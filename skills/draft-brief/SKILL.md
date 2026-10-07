@@ -61,7 +61,13 @@ For a `defect` brief, write a probe: a test that fails now, for the reason
 the brief states, declared in the brief as a `probe` block (with the test in
 a `probe-file` block if it is new). Give it a `signature` - text the failure
 must contain - or a JUnit `test` name, so a compile error is never taken for
-the defect. Then:
+the defect.
+
+The probe runs in a fresh worktree, where nothing is installed until its
+`setup` line installs it, as `setup: npm ci` does. Make `run` one of the
+project's own scripts, such as `npm test -- <file>`, and never `npx` with a
+tool's name alone: where the tool is not installed, npm fetches whatever the
+registry has under that name and runs it. Then:
 
 ```bash
 npx --no-install @descent-vtt/spec-harness probe <id> --at base
