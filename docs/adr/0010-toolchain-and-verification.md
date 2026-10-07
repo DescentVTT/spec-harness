@@ -104,7 +104,8 @@ longest of CI's jobs, of which a minute and a half is the start every
 shard would pay again; split, it would add jobs to every change to save a
 few minutes.
 
-**The `break` stays 89.**
+**The split left the `break` at 89**; the sweep of c385f19, above, moved it
+to 95.
 
 *Amended 2026-10-07.* **Vitest stays on 4 until Stryker's runner reads 5.**
 The Decision's "Vitest 4.1" was the family's choice of a line that had
