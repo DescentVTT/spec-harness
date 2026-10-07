@@ -136,6 +136,19 @@ describe('the release of the Claude Code a Windows shim runs', () => {
     expect(await claudeVersion({ PATH: directory, PATHEXT: '.CMD' }, 'win32')).toEqual(read);
   });
 
+  it('takes a program before the shim beside it where PATHEXT is not set, a .com before an .exe', async () => {
+    // Neither file is a program, so the one that was tried is named in what failed.
+    const directory = installed(NPM_SHIM, { [MANIFEST]: '{ "version": "2.1.285" }' });
+    const said = async (): Promise<string> => {
+      const answer = await claudeVersion({ PATH: directory }, 'win32');
+      return 'missing' in answer ? answer.missing : JSON.stringify(answer);
+    };
+    write(directory, 'claude.exe', 'not a program\n');
+    expect(await said()).toContain(`${join(directory, 'claude.exe')} --version failed: `);
+    write(directory, 'claude.com', 'not a program\n');
+    expect(await said()).toContain(`${join(directory, 'claude.com')} --version failed: `);
+  });
+
   it('reads a shim by its own extension, in a directory whose name ends as a program\'s does', async () => {
     const directory = join(temp(), 'tools.com');
     write(directory, 'claude.cmd', NPM_SHIM);

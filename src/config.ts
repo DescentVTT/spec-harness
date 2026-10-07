@@ -208,6 +208,8 @@ export function parseConfig(raw: unknown, file = CONFIG_FILE): HarnessConfig {
     for (const name of SIBLINGS) {
       const command = value[name];
       if (command === undefined || command === null) continue;
+      // A list that is not empty has a first entry: the `?.` is the
+      // compiler's, and the mutant without it is equivalent.
       if (!isStringList(command) || command.length === 0 || command[0]?.trim() === '') {
         // A sibling runs without a shell, so the example is node and the
         // script: npx is a shim Windows cannot start without one.

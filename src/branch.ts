@@ -16,6 +16,8 @@
 const SEPARATORS = new Set(['-', '_', '/', '.']);
 
 function isIdChar(ch: string): boolean {
+  // Asked of one character at a time, so the mutants that drop either anchor
+  // are equivalent.
   return /^[A-Za-z0-9]$/.test(ch);
 }
 

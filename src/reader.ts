@@ -11,6 +11,8 @@ import { splitLines } from './vendor/spec-core/text/index.js';
 
 /** Section names compare without case, emphasis, a leading number or a trailing colon. */
 export function sameSection(heading: string, name: string): boolean {
+  // Both names are folded the same way and then compared, so the mutant that
+  // folds them to upper case is equivalent.
   const normal = (text: string): string =>
     text
       .replace(/[*_`]/g, '')
@@ -44,6 +46,8 @@ function scanOf(text: string, cache: { text: string; scan: MarkdownScan } | null
 
 export function createReader(): DocumentReader {
   // Commands read the same brief several times in a row; one scan serves them.
+  // It spares a scan and changes no answer, so the mutant that keeps nothing
+  // is equivalent.
   let last: { text: string; scan: MarkdownScan } | null = null;
   const scan = (text: string): MarkdownScan => {
     const result = scanOf(text, last);
