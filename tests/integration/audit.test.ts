@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import type { DependencyChange } from '../../src/manifests.js';
+import type { DependencyChange, InstallScriptChange } from '../../src/manifests.js';
 import type { Finding } from '../../src/types.js';
 import { join } from 'node:path';
 
@@ -15,6 +15,7 @@ interface Report {
   counts: { error: number; warning: number; note: number };
   findings: Finding[];
   dependencies: DependencyChange[];
+  installScripts: InstallScriptChange[];
 }
 
 const BODY = [
@@ -103,7 +104,10 @@ describe('audit of a round', () => {
       unreadableAssertions: 0,
       rulings: { verified: 0, unverified: 0 },
       dependencies: { changed: 4, unread: 0 },
+      installScripts: { changed: 0 },
     });
+    // The round changed no install-script policy, and the list says so.
+    expect(report.installScripts).toEqual([]);
   });
 
   it('reports each assertion spec-guard cannot read as a warning, where the audit dropped it and passed', async () => {
@@ -477,6 +481,152 @@ describe('audit of a round', () => {
     // Read as every path, the name made src/a.ts a manifest no reader understands.
     expect(report.findings.map((f) => f.rule)).not.toContain('manifest-unread');
     expect(report.dependencies).toEqual([{ file: 'Cargo.toml', ecosystem: 'cargo', section: 'dependencies', name: 'serde', before: '1', after: '1.1' }]);
+  });
+});
+
+describe('audit of the install scripts a round allowed', () => {
+  type Measured = Report & { measured: { dependencies: unknown; installScripts: unknown } };
+  const POLICY = {
+    name: 'x',
+    version: '1.0.0',
+    dependencies: { canvas: '^3.0.0', esbuild: '^0.25.0' },
+    allowScripts: { 'canvas@3.1.0': true, esbuild: false, 'old-native@1.0.0': true },
+  };
+  const manifest = (value: object): string => `${JSON.stringify(value, null, 2)}\n`;
+  const entry = (name: string, before: string | null, after: string | null, file = 'package.json') => ({ file, ecosystem: 'npm', section: 'allowScripts', name, before, after });
+  const scripts = (findings: readonly Finding[]) => findings.filter((f) => f.rule.startsWith('install-script-')).map((f) => [f.severity, f.rule, f.file, f.message]);
+
+  function round(after: object, files: Readonly<Record<string, string>> = {}, config: Record<string, unknown> = {}): Repository {
+    const r = repository({ [BRIEF_FILE]: brief({ affected: ['**'] }), 'package.json': manifest(POLICY), ...files }, config);
+    r.git('checkout', '-q', '-b', 'brief/1-x');
+    r.write('package.json', manifest(after));
+    r.commit('the round');
+    return r;
+  }
+
+  it('warns about each approval the round added or turned on, notes what it denied or removed, and fails on the warnings only under --strict', async () => {
+    const r = round({ ...POLICY, allowScripts: { 'canvas@3.2.0': true, esbuild: true, sharp: true, 'core-js': false } });
+    const result = await cli(['audit', '--format', 'json'], r.root);
+    const report = parsed<Measured>(result);
+    expect(report.installScripts).toEqual([
+      entry('canvas@3.2.0', null, 'allowed'),
+      entry('esbuild', 'denied', 'allowed'),
+      entry('sharp', null, 'allowed'),
+      entry('core-js', null, 'denied'),
+      entry('canvas@3.1.0', 'allowed', null),
+      entry('old-native@1.0.0', 'allowed', null),
+    ]);
+    expect(report.findings.map((f) => [f.severity, f.rule, f.file, f.message])).toEqual([
+      ['warning', 'install-script-allowed', 'package.json', 'the round allowed "canvas@3.2.0" to run install scripts in package.json (allowScripts)'],
+      ['warning', 'install-script-allowed', 'package.json', 'the round allowed "esbuild" to run install scripts in package.json (allowScripts), which denied it before'],
+      ['warning', 'install-script-allowed', 'package.json', 'the round allowed "sharp" to run install scripts in package.json (allowScripts)'],
+      ['note', 'install-script-denied', 'package.json', 'the round denied "core-js" its install scripts in package.json (allowScripts)'],
+      ['note', 'install-script-entry-removed', 'package.json', 'the round removed "canvas@3.1.0" from package.json (allowScripts), which allowed its install scripts'],
+      ['note', 'install-script-entry-removed', 'package.json', 'the round removed "old-native@1.0.0" from package.json (allowScripts), which allowed its install scripts'],
+    ]);
+    // An approval is not a dependency: neither the list nor its count holds one.
+    expect(report.dependencies).toEqual([]);
+    expect(report.measured).toMatchObject({ dependencies: { changed: 0, unread: 0 }, installScripts: { changed: 6 } });
+    expect(report.counts).toEqual({ error: 0, warning: 3, note: 3 });
+    expect(report.ok).toBe(true);
+    expect(result.code).toBe(0);
+    const strict = await cli(['audit', '--strict', '--format', 'json'], r.root);
+    expect(strict.code).toBe(1);
+    expect(parsed<Report>(strict).ok).toBe(false);
+    const text = (await cli(['audit'], r.root)).stdout;
+    expect(text).toContain('\nwarning  package.json  the round allowed "sharp" to run install scripts in package.json (allowScripts)  install-script-allowed\n');
+    expect(text).toContain('\n         say in the brief why its install scripts must run, or remove the entry; an install script is code no reviewer read, run on every install\n');
+    expect(text.endsWith(' · dependencies: 0 changed, 0 unread · install scripts: 6 changed\n0 error(s), 3 warning(s), 3 note(s)\n')).toBe(true);
+  });
+
+  it('passes --strict on a round that denies, removes, or changes the package\'s own scripts and another tool\'s fields: none is a grant it reads', async () => {
+    const r = round({
+      ...POLICY,
+      scripts: { preinstall: 'node setup.js', install: 'node-gyp rebuild', postinstall: 'node build.js', prepare: 'husky' },
+      pnpm: { onlyBuiltDependencies: ['esbuild'] },
+      trustedDependencies: ['esbuild'],
+      allowScripts: { 'canvas@3.1.0': false, esbuild: false, 'core-js': false },
+    });
+    const result = await cli(['audit', '--strict', '--format', 'json'], r.root);
+    const report = parsed<Measured>(result);
+    expect(report.findings.map((f) => [f.severity, f.rule, f.message])).toEqual([
+      ['note', 'install-script-denied', 'the round denied "canvas@3.1.0" its install scripts in package.json (allowScripts), which allowed them before'],
+      ['note', 'install-script-denied', 'the round denied "core-js" its install scripts in package.json (allowScripts)'],
+      ['note', 'install-script-entry-removed', 'the round removed "old-native@1.0.0" from package.json (allowScripts), which allowed its install scripts'],
+    ]);
+    expect(report.counts).toEqual({ error: 0, warning: 0, note: 3 });
+    expect(report.ok).toBe(true);
+    expect(result.code).toBe(0);
+  });
+
+  it('says nothing of a policy the round left as it was, and nothing on the line that says what it measured', async () => {
+    const r = round({ ...POLICY, version: '1.0.1', dependencies: { ...POLICY.dependencies, canvas: '^3.1.0' } });
+    const report = parsed<Measured>(await cli(['audit', '--format', 'json'], r.root));
+    expect(report.installScripts).toEqual([]);
+    expect(scripts(report.findings)).toEqual([]);
+    expect(report.measured).toMatchObject({ dependencies: { changed: 1, unread: 0 }, installScripts: { changed: 0 } });
+    expect((await cli(['audit'], r.root)).stdout).toMatch(/ · dependencies: 1 changed, 0 unread\n0 error\(s\), 0 warning\(s\), 1 note\(s\)\n$/);
+  });
+
+  it('reads the policy of each manifest the configuration names, at any depth, and of none it does not name', async () => {
+    const nested = { name: 'web', allowScripts: { sharp: true } };
+    const files = { 'web/package.json': manifest({ name: 'web' }) };
+    const named = round(POLICY, files);
+    named.write('web/package.json', manifest(nested));
+    named.commit('a workspace');
+    const report = parsed<Measured>(await cli(['audit', '--format', 'json'], named.root));
+    expect(report.installScripts).toEqual([entry('sharp', null, 'allowed', 'web/package.json')]);
+    expect(scripts(report.findings)).toEqual([
+      ['warning', 'install-script-allowed', 'web/package.json', 'the round allowed "sharp" to run install scripts in web/package.json (allowScripts)'],
+    ]);
+    // With package.json out of the names, the audit reads neither its dependencies nor its policy.
+    const unnamed = round({ ...POLICY, allowScripts: { ...POLICY.allowScripts, sharp: true } }, {}, { dependencies: { manifests: ['Cargo.toml'] } });
+    const silent = parsed<Measured>(await cli(['audit', '--strict', '--format', 'json'], unnamed.root));
+    expect(silent.installScripts).toEqual([]);
+    expect(silent.findings).toEqual([]);
+    expect(silent.ok).toBe(true);
+  });
+
+  it('reports a policy that came with a new manifest, and one that left with a deleted one', async () => {
+    const r = repository({ [BRIEF_FILE]: brief({ affected: ['**'] }), 'old/package.json': manifest({ name: 'old', allowScripts: { sharp: true } }) });
+    r.git('checkout', '-q', '-b', 'brief/1-x');
+    r.git('rm', '-q', 'old/package.json');
+    r.write('new/package.json', manifest({ name: 'new', version: '2.0.0', description: 'another package altogether', allowScripts: { 'canvas@3.1.0': true } }));
+    r.commit('one for another');
+    const report = parsed<Measured>(await cli(['audit', '--format', 'json'], r.root));
+    expect([...report.installScripts].sort((a, b) => a.file.localeCompare(b.file))).toEqual([
+      entry('canvas@3.1.0', null, 'allowed', 'new/package.json'),
+      entry('sharp', 'allowed', null, 'old/package.json'),
+    ]);
+  });
+
+  it('reports no entry of a manifest it cannot read, which is unread, and none when the round was not measured', async () => {
+    // Under web/, since spec-guard reads its own options from the root's package.json and stops on a broken one.
+    const files = { 'web/package.json': manifest({ name: 'web' }) };
+    const r = round(POLICY, files);
+    r.write('web/package.json', '{ "allowScripts": { "sharp": true }, "dependencies": ["sharp"] }\n');
+    r.commit('a manifest no reader reads');
+    const report = parsed<Measured>(await cli(['audit', '--format', 'json'], r.root));
+    expect(report.findings.map((f) => [f.rule, f.file])).toEqual([['manifest-unread', 'web/package.json']]);
+    expect(report.installScripts).toEqual([]);
+    const unmeasured = parsed<Measured>(await cli(['audit', '--base', 'no-such-branch', '--format', 'json'], round({ ...POLICY, allowScripts: { sharp: true } }).root));
+    expect(unmeasured.installScripts).toEqual([]);
+    expect(scripts(unmeasured.findings)).toEqual([]);
+    expect(unmeasured.measured).toMatchObject({ installScripts: { changed: 0 } });
+  });
+
+  it('places each for a forge, with a fingerprint of the entry and not of what it says', async () => {
+    const r = round({ ...POLICY, allowScripts: { ...POLICY.allowScripts, sharp: true, esbuild: true } });
+    const issues = JSON.parse((await cli(['audit', '--format', 'gitlab'], r.root)).stdout) as { check_name: string; severity: string; fingerprint: string; location: { path: string } }[];
+    expect(issues.map((issue) => [issue.check_name, issue.severity, issue.location.path])).toEqual([
+      ['install-script-allowed', 'minor', 'package.json'],
+      ['install-script-allowed', 'minor', 'package.json'],
+    ]);
+    expect(new Set(issues.map((issue) => issue.fingerprint)).size).toBe(2);
+    const sarif = JSON.parse((await cli(['audit', '--format', 'sarif'], r.root)).stdout) as { runs: { tool: { driver: { rules: { id: string; shortDescription: { text: string } }[] } } }[] };
+    expect(sarif.runs[0]?.tool.driver.rules).toEqual([
+      { id: 'install-script-allowed', shortDescription: { text: 'A package the round allowed to run install scripts: code no reviewer read, run on every install.' } },
+    ]);
   });
 });
 

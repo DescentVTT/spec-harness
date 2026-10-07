@@ -24,7 +24,7 @@ export type { HookRequest, HookResponse } from './hooks.js';
 export { readJUnit } from './junit.js';
 export type { JUnitCase, JUnitRead } from './junit.js';
 export { diffManifest, ecosystemOf, manifestMatcher, readManifest, readManifestNames } from './manifests.js';
-export type { Dependency, DependencyChange, Ecosystem, ManifestNames } from './manifests.js';
+export type { Dependency, DependencyChange, Ecosystem, InstallScriptChange, InstallScriptEntry, InstallScriptVerdict, ManifestNames, ManifestRead } from './manifests.js';
 export { classify, readProbes, renderEvidence, verdictOf } from './probe.js';
 export type { Classified, CodeBlock, ProbeFile, ProbeResult, ProbeRun, ProbeSet, ProbeSpec } from './probe.js';
 export { createReader } from './reader.js';

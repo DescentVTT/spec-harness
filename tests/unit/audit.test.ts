@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { audit, describeMeasured, isPremise, premiseFinding, RULES, unreadablePremiseFinding, type AssertionOutcome, type AuditInput } from '../../src/audit.js';
 import { DEFAULT_CONFIG } from '../../src/config.js';
-import type { DependencyChange } from '../../src/manifests.js';
+import type { DependencyChange, InstallScriptChange, InstallScriptVerdict } from '../../src/manifests.js';
 import { row } from './helpers.js';
 
 const FILE = 'briefs/012_rotate-tokens.md';
@@ -30,6 +30,10 @@ function change(before: string | null, after: string | null, name = 'left-pad'):
   return { file: 'package.json', ecosystem: 'npm', section: 'dependencies', name, before, after };
 }
 
+function script(before: InstallScriptVerdict | null, after: InstallScriptVerdict | null, name = 'canvas@3.1.0'): InstallScriptChange {
+  return { file: 'package.json', ecosystem: 'npm', section: 'allowScripts', name, before, after };
+}
+
 describe('a clean round', () => {
   it('finds nothing, and says what it measured to find it (spec-core ADR-0005)', () => {
     const held = audit(input({ assertions: [outcome(true, 'Invariants'), outcome(true, 'Goals'), outcome(false, 'Premises')] }));
@@ -44,6 +48,7 @@ describe('a clean round', () => {
       unreadableAssertions: 0,
       rulings: { verified: 0, unverified: 0 },
       dependencies: { changed: 0, unread: 0 },
+      installScripts: { changed: 0 },
     });
     expect(describeMeasured(held.measured)).toBe(
       'measured: goals: 2 held, 0 failed · premises: 1 retired, 0 holding · archive: asked · rulings: none · dependencies: 0 changed, 0 unread',
@@ -72,6 +77,7 @@ describe('what the audit measured', () => {
       unreadableAssertions: 0,
       rulings: { verified: 2, unverified: 2 },
       dependencies: { changed: 0, unread: 0 },
+      installScripts: { changed: 0 },
     } as const;
     expect(describeMeasured(measured)).toBe(
       'measured: goals: 1 held, 0 failed · premises: 1 retired, 1 holding · archive: asked · rulings: 2 verified, 2 unverified · dependencies: 0 changed, 0 unread',
@@ -98,6 +104,9 @@ describe('what the audit measured', () => {
       'new-dependency',
       'dependency-removed',
       'dependency-changed',
+      'install-script-allowed',
+      'install-script-denied',
+      'install-script-entry-removed',
     ]);
     const sentences = Object.values(RULES);
     for (const [rule, sentence] of Object.entries(RULES)) expect(sentence, rule).toMatch(/^\S.* .*\.$/);
@@ -567,6 +576,101 @@ describe('dependencies', () => {
   });
 });
 
+describe('install scripts', () => {
+  const hint = 'say in the brief why its install scripts must run, or remove the entry; an install script is code no reviewer read, run on every install';
+
+  it('warns about each package the round allowed to run install scripts, named as the manifest names it', () => {
+    const report = audit(input({ dependencies: { changes: [], installScripts: [script(null, 'allowed'), script('denied', 'allowed', 'sharp')], unread: [] } }));
+    expect(report.findings).toEqual([
+      {
+        rule: 'install-script-allowed',
+        severity: 'warning',
+        message: 'the round allowed "canvas@3.1.0" to run install scripts in package.json (allowScripts)',
+        hint,
+        file: 'package.json',
+        subject: 'canvas@3.1.0 (allowScripts)',
+      },
+      {
+        rule: 'install-script-allowed',
+        severity: 'warning',
+        message: 'the round allowed "sharp" to run install scripts in package.json (allowScripts), which denied it before',
+        hint,
+        file: 'package.json',
+        subject: 'sharp (allowScripts)',
+      },
+    ]);
+    // Warnings, as a new dependency is: they fail the audit only under --strict.
+    expect(report.counts).toEqual({ error: 0, warning: 2, note: 0 });
+  });
+
+  it('notes a package the round denied, and no more: a denial is no grant', () => {
+    const report = audit(input({ dependencies: { changes: [], installScripts: [script(null, 'denied', 'core-js'), script('allowed', 'denied')], unread: [] } }));
+    expect(report.findings).toEqual([
+      {
+        rule: 'install-script-denied',
+        severity: 'note',
+        message: 'the round denied "core-js" its install scripts in package.json (allowScripts)',
+        hint: 'nothing to do, if the brief meant it',
+        file: 'package.json',
+        subject: 'core-js (allowScripts)',
+      },
+      {
+        rule: 'install-script-denied',
+        severity: 'note',
+        message: 'the round denied "canvas@3.1.0" its install scripts in package.json (allowScripts), which allowed them before',
+        hint: 'nothing to do, if the brief meant it',
+        file: 'package.json',
+        subject: 'canvas@3.1.0 (allowScripts)',
+      },
+    ]);
+    expect(report.counts).toEqual({ error: 0, warning: 0, note: 2 });
+  });
+
+  it('notes an entry the round removed, by what it said, and no more: a grant removed is no grant', () => {
+    const report = audit(input({ dependencies: { changes: [], installScripts: [script('allowed', null), script('denied', null, 'core-js')], unread: [] } }));
+    expect(report.findings).toEqual([
+      {
+        rule: 'install-script-entry-removed',
+        severity: 'note',
+        message: 'the round removed "canvas@3.1.0" from package.json (allowScripts), which allowed its install scripts',
+        hint: 'nothing to do, if the brief meant it',
+        file: 'package.json',
+        subject: 'canvas@3.1.0 (allowScripts)',
+      },
+      {
+        rule: 'install-script-entry-removed',
+        severity: 'note',
+        message: 'the round removed "core-js" from package.json (allowScripts), which denied its install scripts',
+        hint: 'nothing to do, if the brief meant it',
+        file: 'package.json',
+        subject: 'core-js (allowScripts)',
+      },
+    ]);
+    expect(report.counts).toEqual({ error: 0, warning: 0, note: 2 });
+  });
+
+  it('counts the entries that changed apart from the dependencies, and says so on the line only when there are some', () => {
+    const report = audit(
+      input({ dependencies: { changes: [change(null, '1')], installScripts: [script(null, 'allowed'), script('allowed', null, 'old@1.0.0'), script(null, 'denied', 'core-js')], unread: [] } }),
+    );
+    expect(report.measured).toMatchObject({ dependencies: { changed: 1, unread: 0 }, installScripts: { changed: 3 } });
+    expect(describeMeasured(report.measured)).toBe(
+      'measured: goals: none declared · premises: none declared · archive: asked · rulings: none · dependencies: 1 changed, 0 unread · install scripts: 3 changed',
+    );
+    const one = audit(input({ dependencies: { changes: [], installScripts: [script(null, 'denied')], unread: [] } }));
+    expect(describeMeasured(one.measured)).toMatch(/ · dependencies: 0 changed, 0 unread · install scripts: 1 changed$/);
+  });
+
+  it('reads none given, or an empty list, as no entry changed', () => {
+    for (const dependencies of [{ changes: [], unread: [] }, { changes: [], installScripts: [], unread: [] }]) {
+      const report = audit(input({ dependencies }));
+      expect(report.findings).toEqual([]);
+      expect(report.measured.installScripts).toEqual({ changed: 0 });
+      expect(describeMeasured(report.measured)).toMatch(/ · dependencies: 0 changed, 0 unread$/);
+    }
+  });
+});
+
 describe('a premise that premises finds no longer holds', () => {
   const brief = { id: '012', file: FILE };
   const outcome = { description: '"legacyCall" in src', message: 'expected at least 1, found 0', line: 20 };
@@ -619,6 +723,7 @@ describe('the report', () => {
         unverifiedRulings: [{ id: 'R-1', reason: 'r' }],
         dependencies: {
           changes: [change(null, '1'), change('1', null)],
+          installScripts: [script(null, 'allowed'), script(null, 'denied', 'core-js'), script('allowed', null, 'old@1.0.0')],
           unread: ['go.mod'],
           unreadNames: [{ name: '[x', reason: 'r' }],
           rootedNames: [{ name: '/Gemfile', whole: true }],
@@ -637,8 +742,11 @@ describe('the report', () => {
       'manifest-unread',
       'new-dependency',
       'dependency-removed',
+      'install-script-allowed',
+      'install-script-denied',
+      'install-script-entry-removed',
     ]);
-    expect(report.counts).toEqual({ error: 2, warning: 7, note: 2 });
+    expect(report.counts).toEqual({ error: 2, warning: 8, note: 4 });
     // An archive reason with no file names none, and with no path is about nothing narrower than its rule.
     expect('file' in (report.findings[1] as object)).toBe(false);
     expect('subject' in (report.findings[1] as object)).toBe(false);
