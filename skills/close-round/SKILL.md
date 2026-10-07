@@ -15,11 +15,12 @@ It reports, as one list: what spec-brief's archive would refuse or warn
 about (open boxes, protected files changed, files outside the scope, work not
 committed), the brief's own assertions (a goal that fails; a premise that
 still holds), rulings whose signatures do not verify, and every dependency the
-round added. Fix what it reports, then run it again. `unmeasured` means it
-could not see the round's commits: pass `--base <branch>`. Read `measured`
-beside the findings, since an audit that ran nothing finds nothing too:
-`assertions: "unavailable"` ran no goal, and `assertion-unreadable` is a
-directive spec-guard cannot read, to fix before the round is done.
+round added or allowed to run install scripts. Fix what it reports, then run
+it again. `unmeasured` means it could not see the round's commits: pass
+`--base <branch>`. Read `measured` beside the findings, since an audit that
+ran nothing finds nothing too: `assertions: "unavailable"` ran no goal, and
+`assertion-unreadable` is a directive spec-guard cannot read, to fix before
+the round is done.
 
 ## 2. For a defect, show it is gone
 

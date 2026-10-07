@@ -89,6 +89,62 @@ spec-guard cannot read outside the premise sections is a goal, the audit's
 to report. The summary counts the premises that could not be read apart
 from those checked, and `--format json` gains `unreadable`.
 
+*Amended 2026-10-07.* The audit reports a package a round allowed to run
+install scripts, as it reports a dependency a round added. npm 12 runs a
+dependency's `preinstall`, `install` and `postinstall`, and `prepare` for one
+that is not from a registry, only where the project's `package.json` allows
+the package under `allowScripts`, where `npm install-scripts approve` and
+`deny` write: a key that is a package, a package at exact versions joined by
+`||`, or a git, file or tarball source, to `true` or `false`, a denial
+winning over an approval. The audit read the four dependency sections alone,
+so a round could add the one line that runs a dependency's code on every
+contributor's machine and in CI, code that is in no diff, and the audit said
+nothing. It now reads the field in each `package.json` that
+`dependencies.manifests` names and the round changed, as npm reads it: an
+entry is its key as written and `true` or `false`, any other value is no
+entry, and a field that is not an object holds none. An approval the round
+added, or turned from a denial, is `install-script-allowed`, a warning that
+fails `--strict`, which no ruling covers, as `new-dependency` is. A denial
+is `install-script-denied` and a removed entry
+`install-script-entry-removed`, notes as `dependency-removed` is: a denial
+and a removed approval stop a script, and a removed denial approves nothing
+by itself. Where an approval of the same package stood beside the denial,
+npm honours it again; npm's own commands never leave the two together, and
+the note on the denial is what the audit says of it. A key is not parsed.
+npm pins an approval to the version a person reviewed, so `canvas@3.2.0`
+beside a removed `canvas@3.1.0` is a new approval and a removed entry, not
+a version moved; and telling an exact version from the range or the
+dist-tag npm passes over is npm's reading of a package spec, which the
+audit does not copy. `--format json` lists the entries as `installScripts`
+and counts them in `measured`, apart from the dependencies, and the line a
+person reads says so only when a policy changed. Both are added, so no
+`schemaVersion` moves.
+
+What else grants the same, and is not read:
+
+- **`.npmrc`.** npm takes `allow-scripts` from it when `package.json` has
+  no entry, and `dangerously-allow-all-scripts` whenever it is set. It is not
+  a manifest, and `dependencies.manifests` names none. The lockfile holds no
+  approval.
+- **pnpm.** pnpm 11 and 12 keep their approvals as `allowBuilds` in
+  `pnpm-workspace.yaml`, where pnpm also writes a placeholder for each build
+  it ignored, and read no setting from the `pnpm` field of `package.json`.
+  That is YAML, a reader the harness does not have. The
+  `pnpm.onlyBuiltDependencies` pnpm 10 read from `package.json` is an
+  approval under that major and nothing under the two after it, so the
+  manifest alone does not say whether an entry there grants anything.
+- **Bun and Yarn.** Bun's `trustedDependencies` replaces a list built into
+  Bun, and Yarn's `dependenciesMeta` allows a build only where
+  `.yarnrc.yml` turns scripts off. What an entry of either grants is not in
+  the manifest, and neither was run here.
+- **The root package's own `preinstall`, `install`, `postinstall` and
+  `prepare`.** They run on every install too. But they are the repository's
+  commands, written in the round's diff for a reviewer to read, where an
+  approval is one line that turns on code no diff holds. `prepare` is where
+  a package builds, so it changes in ordinary rounds, and a script that runs
+  `npm run build` changes what it runs without changing. A brief that must
+  keep them protects `package.json`, which the guard and the archive hold.
+
 ## Consequences
 
 An agent that writes through a shell passes the guard and is caught at the
