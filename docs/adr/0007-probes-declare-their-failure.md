@@ -33,6 +33,22 @@ description" - comparing prose with prose.
 - The command runs through the shell. It is a line of the repository's own
   brief, approved with it, as CI runs the repository's own scripts.
 
+*Amended 2026-10-08.* What a probe's command finds installed was measured
+with the released 0.10.0 on Windows under npm 11.16.0, with a made-up name
+served from a registry on the loopback address. The worktree holds the files
+the commit tracks and the probe's files: no `node_modules`, and none above it
+in the temporary directory. The command has no terminal and `CI` set. There
+`npx <name>` fetched the registry's package of that name and ran it, unasked,
+wherever `setup` had not installed the name. With `--no-install` on the line,
+or `yes=false` in an `.npmrc` the commit tracks, npm asked the registry about
+the name and fetched nothing. `npm test -- <file>` asked the registry
+nothing, and failed where `setup` had installed nothing. The README's example
+ran its test through `npx` by the runner's name alone; it now runs the
+project's own script, the `draft-brief` skill says the same of a probe an
+agent writes, and `tests/npm.test.ts` holds every probe this repository shows
+to a command that fetches nothing. The harness still runs a probe's line as
+it is written.
+
 ## Consequences
 
 A research round whose answer may be "no" is not a defect and needs no probe;

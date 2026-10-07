@@ -9,6 +9,22 @@ only fixes, reports less or documents, so `^0.7.0` takes only releases that
 cannot turn a run red. The family's policy is
 [spec-core's ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
+## Unreleased
+
+### Security
+
+- The README's probe example ran its test through `npx` by the runner's name
+  alone, and the `draft-brief` skill said nothing of how a probe starts a
+  tool. A probe runs in a fresh worktree with nothing installed until its
+  `setup` installs it and no terminal, where `npx <tool>` fetches the
+  registry's package of that name and runs it, unasked: the example is now
+  `run: npm test -- tests/probes/rotate.test.ts`, and the skill tells an
+  agent to write a probe so
+  ([ADR-0007](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0007-probes-declare-their-failure.md)).
+  Upgrading: in a brief of your own, have a probe's `run` and `setup` start
+  a tool through one of the project's scripts, or through
+  `npx --no-install <tool>`. `probe` itself runs a line as it is written.
+
 ## 0.10.0
 
 The skills and the README gave `npx` the tools' bare command names, which on
