@@ -9,7 +9,11 @@ only fixes, reports less or documents, so `^0.7.0` takes only releases that
 cannot turn a run red. The family's policy is
 [spec-core's ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
-## Unreleased
+## 0.10.1
+
+On Windows a probe lost its verdict when its worktree could not be deleted,
+and Ctrl+Break left its commands running; and the README's probe example
+started its tool through `npx`.
 
 ### Security
 
