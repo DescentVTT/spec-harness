@@ -41,8 +41,7 @@ const SETTLE_MS = 3_000;
 /**
  * Whether a process has this id now. Signal 0 asks and sends nothing, and any
  * answer but "no such process" says one has it: another user's process
- * answers that it may not be signalled. A test cannot start one of those, so
- * the mutants that take that answer for "none" survive.
+ * answers that it may not be signalled.
  */
 function taken(pid: number): boolean {
   try {
