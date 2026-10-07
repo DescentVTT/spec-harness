@@ -19,7 +19,7 @@ import { brief, BRIEF_FILE, cleanup, repository, spawnBin, temp, type Repository
 
 afterAll(cleanup);
 
-const EVENTS = ['exit', 'SIGINT', 'SIGTERM', 'SIGHUP'] as const;
+const EVENTS = ['exit', 'SIGINT', 'SIGTERM', 'SIGHUP', 'SIGBREAK'] as const;
 type ProcessEvent = (typeof EVENTS)[number];
 type Handler = (...args: unknown[]) => void;
 
@@ -299,6 +299,10 @@ const EXIT_CODES = [
   { signal: 'SIGHUP', number: 1, code: 129 },
   { signal: 'SIGINT', number: 2, code: 130 },
   { signal: 'SIGTERM', number: 15, code: 143 },
+  // Ctrl+Break, which GitHub's runner also sends a step it cancels on
+  // Windows. Windows alone has the signal, so only there is there a number
+  // to exit as.
+  ...(process.platform === 'win32' ? [{ signal: 'SIGBREAK', number: 21, code: 149 } as const] : []),
 ] as const;
 
 describe('a worktree, whatever ends its job', () => {

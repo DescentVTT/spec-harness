@@ -21,6 +21,10 @@ cannot turn a run red. The family's policy is
   and exits by its verdict, and it names the directory it left on the
   standard error as it exits
   ([ADR-0003](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0003-state-outside-the-work-tree.md)).
+- Ctrl+Break on Windows, which GitHub's runner also sends a step it
+  cancels, stops a `probe`'s commands and removes its worktree, as Ctrl+C
+  does, and exits 149. It ended the harness at once before, with the
+  worktree in place and the commands running on.
 
 ## 0.10.0
 

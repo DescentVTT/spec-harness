@@ -426,6 +426,7 @@ A person who runs the tools by hand runs `npx --no-install @descent-vtt/spec-har
 | `130` | A `probe` interrupted by SIGINT (Ctrl+C) while it runs. |
 | `143` | A `probe` interrupted by SIGTERM. |
 | `129` | A `probe` interrupted by SIGHUP. |
+| `149` | A `probe` interrupted by SIGBREAK, which is Ctrl+Break on Windows. |
 
 An interrupted `probe` exits as a shell reports a process the signal ended.
 
