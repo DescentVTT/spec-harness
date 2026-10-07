@@ -1,11 +1,12 @@
+import { spawnSync } from 'node:child_process';
 import { chmodSync, copyFileSync, linkSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { afterAll, describe, expect, it } from 'vitest';
 
-import { HELP } from '../../src/cli.js';
+import { HELP, run } from '../../src/cli.js';
 import { mergeClaudeSettings, mergeMcp } from '../../src/configure.js';
-import { brief, BRIEF_FILE, cleanup, cli, installFake, installHarness, parsed, repository, ROOT, SPEC_BRIEF, spawnBin, temp, write, type Repository } from './helpers.js';
+import { BIN, brief, BRIEF_FILE, cleanup, cli, installFake, installHarness, parsed, repository, ROOT, SPEC_BRIEF, spawnBin, temp, write, type Repository } from './helpers.js';
 
 afterAll(cleanup);
 
@@ -42,6 +43,95 @@ describe('the command line', () => {
     const result = await cli(['guard', 'a.ts'], outside);
     expect(result).toEqual({ code: 2, stdout: '', stderr: `spec-harness: ${outside} is not inside a git work tree; spec-harness measures rounds by their commits\n` });
     expect((await cli(['doctor', '--root', outside], ROOT)).code).toBe(2);
+  });
+});
+
+describe('an error the harness did not expect', () => {
+  interface Refused {
+    readonly code: number;
+    readonly stderr: string;
+  }
+
+  /**
+   * The command line with a stdout that throws. No command expects the stream
+   * to refuse a write, so it stands for every error none of them names. Left
+   * to reject, such an error reached the launcher as Node's uncaught error,
+   * exit 1: a refusal or a finding to a script, and to Claude Code a hook that
+   * failed without blocking.
+   */
+  async function refusing(argv: readonly string[], cwd: string, options: { readonly thrown?: unknown; readonly stdin?: () => Promise<string> } = {}): Promise<Refused> {
+    let stderr = '';
+    const thrown = 'thrown' in options ? options.thrown : new Error('the stream is gone');
+    const code = await run(argv, {
+      stdout: {
+        write: () => {
+          throw thrown;
+        },
+      },
+      stderr: { write: (text: string) => (stderr += text) },
+      cwd,
+      env: {},
+      ...(options.stdin === undefined ? {} : { stdin: options.stdin }),
+    });
+    return { code, stderr };
+  }
+
+  // The stack, so a report of it says where: the message alone names no line.
+  const GONE = /^spec-harness: unexpected error: Error: the stream is gone\n {4}at [^]*\n$/;
+  const BROKE = /^spec-harness: unexpected error: Error: the pipe broke\n {4}at [^]*\n$/;
+  const broke = async (): Promise<string> => {
+    throw new Error('the pipe broke');
+  };
+
+  it('ends --version and --help with exit 2 and the stack on stderr', async () => {
+    for (const argv of [['--version'], ['--help'], []]) {
+      const result = await refusing(argv, ROOT);
+      expect(result.code, argv.join(' ')).toBe(2);
+      expect(result.stderr, argv.join(' ')).toMatch(GONE);
+    }
+  });
+
+  it('ends a command the same way, in either format', async () => {
+    const repo = repository({ [BRIEF_FILE]: brief({ protected: ['src/db/schema.ts'] }), 'src/db/schema.ts': 'x\n' });
+    for (const argv of [['guard', 'src/db/schema.ts', '--brief', '1'], ['guard', 'src/db/schema.ts', '--brief', '1', '--format', 'json'], ['doctor']]) {
+      const result = await refusing(argv, repo.root);
+      expect(result.code, argv.join(' ')).toBe(2);
+      expect(result.stderr, argv.join(' ')).toMatch(GONE);
+    }
+    // The server, when what it is sent cannot be read.
+    const server = await refusing(['mcp'], repo.root, { stdin: broke });
+    expect(server.code).toBe(2);
+    expect(server.stderr).toMatch(BROKE);
+  });
+
+  it('answers a hook with exit 2 too, which is what makes Claude Code hold a write (ADR-0012)', async () => {
+    const repo = repository({ [BRIEF_FILE]: brief({ affected: ['src/**'], protected: ['src/db/schema.ts'] }) });
+    const hook = (event: string, file: string): string => JSON.stringify({ hook_event_name: event, tool_name: 'Write', cwd: repo.root, tool_input: { file_path: file } });
+    // After a write outside the scope the hook has a warning to print.
+    const after = await refusing(['hook', 'claude', '--brief', '1'], repo.root, { stdin: async () => hook('PostToolUse', 'docs/notes.md') });
+    expect(after.code).toBe(2);
+    expect(after.stderr).toMatch(GONE);
+    // Before one, the hook answers its own way, as it did: the write waits.
+    const before = await refusing(['hook', 'claude', '--brief', '1'], repo.root, { stdin: async () => hook('PreToolUse', 'src/db/schema.ts') });
+    expect(before).toEqual({ code: 2, stderr: 'spec-harness: cannot check this write: the stream is gone\n' });
+    // A hook whose input cannot be read at all has no event to answer by: as
+    // for a question it cannot parse, it refuses nothing it cannot see.
+    expect(await refusing(['hook', 'claude'], repo.root, { stdin: broke })).toEqual({ code: 1, stderr: 'spec-harness: the hook input could not be read: the pipe broke\n' });
+  });
+
+  it('reports the message of an error that has no stack, and a thrown value that is no Error as it reads', async () => {
+    const bare = new Error('no stack on this one');
+    delete bare.stack;
+    expect(await refusing(['--version'], ROOT, { thrown: bare })).toEqual({ code: 2, stderr: 'spec-harness: unexpected error: no stack on this one\n' });
+    expect(await refusing(['--version'], ROOT, { thrown: 'only a string' })).toEqual({ code: 2, stderr: 'spec-harness: unexpected error: only a string\n' });
+  });
+
+  it('still names an error it does expect by its message alone', async () => {
+    const outside = temp();
+    expect(await refusing(['guard', 'a.ts'], outside)).toEqual({
+      code: 2,
+      stderr: `spec-harness: ${outside} is not inside a git work tree; spec-harness measures rounds by their commits\n`,
+    });
   });
 });
 
@@ -495,5 +585,19 @@ describe('the built command line', () => {
     const hook = spawnBin(['hook', 'claude', '--brief', '1'], repo.root, JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: 'Edit', cwd: repo.root, tool_input: { file_path: 'src/db/schema.ts' } }));
     expect(hook.code).toBe(0);
     expect(JSON.parse(hook.stdout).hookSpecificOutput.permissionDecision).toBe('deny');
+  });
+
+  // run answers what it awaits, in process (above). An error thrown from a
+  // callback - a stream's, a timer's, a child's - reaches no promise, and
+  // only the launcher can answer it. Node's own answer is exit 1.
+  it('ends an error nothing awaits with exit 2 and its stack on stderr', () => {
+    // Loaded before the launcher: when the run has nothing left to do, it
+    // throws where no promise holds the error.
+    const stray = 'process.once("beforeExit", () => setImmediate(() => { throw new Error("thrown where nothing awaits"); }));';
+    const result = spawnSync(process.execPath, ['--import', `data:text/javascript,${encodeURIComponent(stray)}`, BIN, '--version'], { cwd: ROOT, encoding: 'utf8' });
+    expect(result.status).toBe(2);
+    expect(result.stderr).toMatch(/^spec-harness: unexpected error: Error: thrown where nothing awaits\n {4}at /);
+    // The run had answered by then, and its answer is not printed twice.
+    expect(result.stdout).toBe(`${VERSION}\n`);
   });
 });
