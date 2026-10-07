@@ -234,7 +234,18 @@ export function runCommand(line: string, cwd: string, timeoutSeconds: number): P
     // tests catch on Windows. Everywhere else `detached` is true already, so
     // the mutants that make it true are equivalent there, as are
     // `windowsHide`'s.
-    const child = spawn(line, { cwd, shell: true, windowsHide: true, detached: process.platform !== 'win32', env: probeEnvironment(process.env) });
+    //
+    // It is given no input: nobody is there to type any, and a pipe that is
+    // never written to and never closed kept a command that reads its input
+    // waiting until the timeout stopped it.
+    const child = spawn(line, {
+      cwd,
+      shell: true,
+      windowsHide: true,
+      detached: process.platform !== 'win32',
+      env: probeEnvironment(process.env),
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
     running.add(child);
     let output = '';
     const keep = (chunk: Buffer): void => {

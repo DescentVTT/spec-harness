@@ -45,6 +45,12 @@ cannot turn a run red. The family's policy is
   that run. Colours are dropped and other control characters written as
   their escapes, and a `setup` that fails shows its output by the same rule.
 
+### Fixed
+
+- A probe's command that reads its input is told at once that there is
+  none. Its input was a pipe nothing closed, so it waited until the probe's
+  timeout stopped it, ten minutes by default.
+
 ## 0.10.1
 
 On Windows a probe lost its verdict when its worktree could not be deleted,

@@ -786,6 +786,12 @@ describe('a command', () => {
     expect(await handed({ npm_config_yes: 'false' })).toEqual([['npm_config_yes', 'false']]);
   });
 
+  it('is given no input, so one that reads its input is told at once that there is none', async () => {
+    // Left a pipe nobody closes, it waited for input until the timeout stopped it.
+    const run = await runCommand('node -e "process.stdin.resume(); process.stdin.on(\'end\', () => console.log(\'no input\'))"', temp(), 20);
+    expect(run).toEqual({ exitCode: 0, output: 'no input\n' });
+  });
+
   it('keeps its output up to 4 MiB, enough to find a signature in, and drops what comes after', async () => {
     // The last byte waits until the rest has left the command, so it arrives
     // on its own, after exactly 4 MiB.

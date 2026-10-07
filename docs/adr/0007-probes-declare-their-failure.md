@@ -123,6 +123,13 @@ start are dropped. A failed `setup`, which showed its last 2,000 characters
 as they came, shows them by the same rule. The sandbox keeps the first 4 MiB
 a command prints, so past that the end shown is the end of what was kept.
 
+A command is also given no input. Its input was a pipe that nothing wrote to
+and nothing closed, so a command that read it, as one does that asks a
+question, waited until its timeout stopped it: measured with a five-second
+timeout, `node -e "process.stdin.resume(); ..."` was stopped at five
+seconds with nothing printed. It is now told at once that there is no
+input, and what it does then is its own to print.
+
 ## Consequences
 
 A research round whose answer may be "no" is not a defect and needs no probe;
