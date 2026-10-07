@@ -61,7 +61,9 @@ worked through, main's sharded sweep of c385f19 (run 36743578103) measured
 **97.42% over 7,717 mutants**: 7,438 killed, 80 by timeout, 168 survived and
 31 without coverage. Losing every timeout kill would leave 96.38%, so the full
 sweep's `break` rises from 89 to 95, under that worst case as before, and
-still moves only up. The shards took from 5m54s to 24m47s.
+still moves only up. The shards took from 5m54s to 24m47s. For 0.10.0 the sweep of
+16f3a8e (run 37622048228) read 97.56% over 7,877 mutants, 96.41% with every
+timeout lost, and the `break` stays 95.
 
 One runner took 69 to 130 minutes for the full sweep. Before any sharded
 sweep ran, the report of eb39599 was cut into shards the way Stryker writes
