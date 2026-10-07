@@ -3,7 +3,7 @@
 ## Getting started
 
 ```bash
-npm install
+npm ci
 npm run lint      # tsc --noEmit, strict
 npm run build     # emits dist/; a few integration tests run bin/spec-harness.js
 npm test          # vitest: the unit suite and the integration suite
@@ -15,6 +15,11 @@ they cost are in [`docs/adr/`](docs/adr/README.md). Mutation testing runs in
 GitHub Actions, not on a workstation: the core sweep is a CI job on every
 change, and the full sweep runs weekly and on request (Actions, Mutation,
 Run workflow), in eight parallel shards merged into one score.
+
+npm 10, 11 and 12 install the same tree from the lockfile and run the same
+suite. `npm ci` leaves the lockfile as it is under each of them; npm 10's
+`npm install` writes it back without the `libc` fields npm 11 and 12 keep, so
+a change to the lockfile is made with npm 11 or later.
 
 `src/vendor/spec-core/` is spec-core's, copied by its `scripts/vendor.mjs` and
 verified by hash. It is never edited here.
