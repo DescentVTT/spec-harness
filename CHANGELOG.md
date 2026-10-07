@@ -9,7 +9,11 @@ only fixes, reports less or documents, so `^0.7.0` takes only releases that
 cannot turn a run red. The family's policy is
 [spec-core's ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
-## Unreleased
+## 0.9.1
+
+A command or a JUnit entity named `constructor`, `toString` or `__proto__`
+is the unknown name it is, and the suite now runs against the siblings' newest
+releases and, in CI, their minimums.
 
 ### Fixed
 
