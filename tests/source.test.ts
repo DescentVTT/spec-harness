@@ -10,8 +10,10 @@ import { minimumsOf } from '../scripts/minimum-siblings.js';
 import { pluginDrift, releaseOf } from '../scripts/release.js';
 import { ConfigError, parseConfig, SIBLINGS } from '../src/config.js';
 import { GUARD_HOOK, mcpServer, mergeClaudeSettings, mergeMcp, PROJECT_DIR, PROJECT_DIR_OR_HERE } from '../src/configure.js';
+import { refusal } from '../src/usage.js';
 import { scanMarkdown } from '../src/vendor/spec-core/markdown/index.js';
 import { CLAUDE_CODE_MINIMUM, MINIMUM_VERSIONS } from '../src/versions.js';
+import { parseOptions } from '../src/workspace.js';
 import { PREFIX, VARIABLES } from './temporary.js';
 
 /**
@@ -293,6 +295,61 @@ describe('the README', () => {
     }
     expect(documented.length).toBeGreaterThanOrEqual(11);
     expect(documented.filter((key) => !table.includes(`\`${key}\``))).toEqual([]);
+  });
+
+  /** A command line with one option on it, given a value where the parser asks for one. */
+  function withOption(command: string, option: string): string[] {
+    // Claude Code's hook is read apart, so git's stands for the command.
+    const argv = [...(command === 'hook' ? ['hook', 'git'] : [command]), `--${option}`];
+    try {
+      parseOptions(argv);
+      return argv;
+    } catch {
+      return [...argv, option === 'format' ? 'json' : option === 'at' ? 'base' : 'x'];
+    }
+  }
+
+  it('gives each command, in its table, the options the command line lets it take and no other', () => {
+    const readme = text('README.md');
+    const section = readme.slice(readme.indexOf('### An input that names nothing'), readme.indexOf('## As a Claude Code plugin'));
+    const rows = [...section.matchAll(/^ {2}\| (`[^|]+) \| (`--[^|]+) \|$/gm)].map((match) => ({
+      commands: [...(match[1] as string).matchAll(/`([a-z]+)`/g)].map((found) => found[1] as string),
+      options: [...(match[2] as string).matchAll(/`--([a-z-]+)`/g)].map((found) => found[1] as string),
+    }));
+    expect(rows.flatMap((row) => row.commands).sort()).toEqual(['audit', 'context', 'doctor', 'escalate', 'guard', 'hook', 'init', 'mcp', 'premises', 'probe', 'rule', 'rulings']);
+    const every = [...new Set(rows.flatMap((row) => row.options))];
+    expect(every).toHaveLength(18);
+    for (const row of rows) {
+      for (const command of row.commands) {
+        for (const option of every) {
+          const answer = refusal(parseOptions(withOption(command, option)), () => true);
+          if (row.options.includes(option)) expect(answer, `${command} --${option}`).toBeNull();
+          else expect(answer, `${command} --${option}`).toContain(`${command} does not take --${option}; `);
+        }
+      }
+    }
+  });
+
+  it('writes no command line the command line refuses, in the README or in a skill', () => {
+    // A person copies these and an agent follows them to the letter: one the
+    // harness refused would stop every round at that step.
+    const documents = ['README.md', ...[...walk('skills')].filter((path) => path.endsWith('.md'))];
+    const written = documents.flatMap((document) => {
+      // A command with the lines that continue it, as a shell joins them.
+      const joined = text(document).replace(/ \\\n\s*/g, ' ');
+      const commands = [...joined.matchAll(/npx --no-install @descent-vtt\/spec-harness ([^`\n]+)/g), ...joined.matchAll(/`spec-harness ([^`\n]+)`/g), ...joined.matchAll(/spec-harness\.js ([^`\n]+)`/g)];
+      return commands.map((match) => ({ document, line: (match[1] as string).trim() }));
+    });
+    // Seventeen across the README and three of the skills; fewer would mean this no longer reads them.
+    expect(written.length).toBeGreaterThanOrEqual(15);
+    expect(new Set(written.map(({ document }) => document)).size).toBeGreaterThanOrEqual(4);
+    for (const { document, line } of written) {
+      // Its words as a shell reads them, up to a comment or a redirection.
+      const words = [...line.matchAll(/"([^"]*)"|(\S+)/g)].map((match) => match[1] ?? (match[2] as string));
+      const end = words.findIndex((word) => word === '#' || word === '>');
+      const argv = end === -1 ? words : words.slice(0, end);
+      expect(refusal(parseOptions(argv), () => true), `${document}: ${line}`).toBeNull();
+    }
   });
 });
 
