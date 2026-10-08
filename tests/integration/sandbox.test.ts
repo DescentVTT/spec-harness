@@ -18,8 +18,10 @@ import { BIN, brief, BRIEF_FILE, cleanup, cli, repository, ROOT, spawnBin, temp,
  * directory cannot be deleted (ADR-0003); and a probe's command run as CI
  * runs it, with npm told to fetch nothing for it unless the person's
  * environment says otherwise, its output bounded, stopped whole at its
- * timeout (ADR-0007), and answered within a bound of that timeout when
- * something the stop did not reach still holds its output (ADR-0003).
+ * timeout (ADR-0007), answered by its shell's exit code once its shell has
+ * ended, within a bound of that end or of its timeout when something still
+ * holds its output, and what it left in its process group stopped when its
+ * job ends (ADR-0003).
  */
 
 afterAll(cleanup);
@@ -58,6 +60,11 @@ const connections = new Set<Socket>();
 // The processes this file started itself, and so holds: each is stopped
 // through its handle, which reaches no other process whatever its id becomes.
 const own: ChildProcess[] = [];
+// The commands the sandboxes loaded here have started. One still running
+// when its test ends is ended with the rest, below, and its sandbox sees its
+// shell end a moment later: that is waited for, or the bound the sandbox
+// sets then would be taken for one of the next test's.
+const begun: ChildProcess[] = [];
 let names = 0;
 
 const lobby = createServer((socket) => {
@@ -105,8 +112,10 @@ afterEach(async () => {
   const left = [...strays.values()];
   strays.clear();
   for (const child of own.splice(0)) child.kill('SIGKILL');
+  const commands = begun.splice(0);
   try {
     await Promise.all(left.map((stray) => stray.end()));
+    await Promise.all(commands.map((command) => within(exitOf(command), 30, 'a command the test left running to end')));
   } finally {
     // The handlers a test's module installed stay on this worker's process
     // otherwise, and a real signal would find them.
@@ -130,21 +139,6 @@ interface Fresh {
   handlers(event: ProcessEvent): Handler[];
 }
 
-/**
- * The sandbox as a process loads it, with the handlers it has installed on
- * the process so far. The module installs them once, the first time it makes
- * a worktree or runs a command, so each test loads a copy of its own: one an
- * earlier test or file loaded would already have.
- */
-async function freshSandbox(): Promise<Fresh> {
-  vi.resetModules();
-  const before = new Map(EVENTS.map((event) => [event, emitter.rawListeners(event)] as const));
-  snapshots.push(before);
-  const { withWorktree, runCommand: run } = await import('../../src/sandbox.js');
-  const handlers = (event: ProcessEvent): Handler[] => emitter.rawListeners(event).filter((listener) => !(before.get(event) ?? []).includes(listener)) as Handler[];
-  return { withWorktree, runCommand: run, handlers };
-}
-
 interface Watched extends Fresh {
   /** Each command the sandbox started, as the sandbox itself holds it, in the order it started them. */
   readonly started: ChildProcess[];
@@ -158,6 +152,11 @@ interface Watched extends Fresh {
  * still stop the command by its id, is not something a caller is told. Where
  * a test says so, a taskkill the sandbox asks for is noted and not run, so
  * that a sandbox that asks for one it should not have stops nothing.
+ *
+ * It is the sandbox as a process loads it, with the handlers it has installed
+ * on the process so far. The module installs them once, the first time it
+ * makes a worktree or runs a command, so each test loads a copy of its own:
+ * one an earlier test or file loaded would already have.
  */
 async function watchedSandbox(taskkill: 'run' | 'noted' = 'run'): Promise<Watched> {
   const started: ChildProcess[] = [];
@@ -169,6 +168,7 @@ async function watchedSandbox(taskkill: 'run' | 'noted' = 'run'): Promise<Watche
       spawn: (...args: unknown[]): ChildProcess => {
         const child = (actual.spawn as (...given: unknown[]) => ChildProcess)(...args);
         started.push(child);
+        begun.push(child);
         return child;
       },
       execFileSync: (file: string, args: readonly string[], options: unknown): unknown => {
@@ -180,7 +180,17 @@ async function watchedSandbox(taskkill: 'run' | 'noted' = 'run'): Promise<Watche
       },
     };
   });
-  return { ...(await freshSandbox()), started, taskkills };
+  vi.resetModules();
+  const before = new Map(EVENTS.map((event) => [event, emitter.rawListeners(event)] as const));
+  snapshots.push(before);
+  const { withWorktree, runCommand: run } = await import('../../src/sandbox.js');
+  const handlers = (event: ProcessEvent): Handler[] => emitter.rawListeners(event).filter((listener) => !(before.get(event) ?? []).includes(listener)) as Handler[];
+  return { withWorktree, runCommand: run, handlers, started, taskkills };
+}
+
+/** The sandbox as a process loads it, for a test that does not look at its commands. */
+function freshSandbox(): Promise<Fresh> {
+  return watchedSandbox();
 }
 
 function only(handlers: Handler[], event: ProcessEvent): Handler {
@@ -340,34 +350,59 @@ function tree(grandchild: string): string {
 }
 
 /**
- * A command that leaves behind a process holding its output, known as `name`,
- * and ends. Left outside the command's process group, in one of its own and
- * with its parent gone, the process is out of reach of both the group signal
- * and taskkill's tree. Left in the group, it is what the group signal still
- * reaches on Linux and macOS; on Windows a process node starts without
- * detaching it ends with node, so none is left that way there.
+ * A command that leaves behind a process, known as `name`, and ends. Left
+ * outside the command's process group, in one of its own and with its parent
+ * gone, the process is out of reach of both the group signal and taskkill's
+ * tree. Left in the group, it is what the group signal still reaches on Linux
+ * and macOS; on Windows a process node starts without detaching it ends with
+ * node, so none is left that way there.
  *
- * The command prints `says` first, when there is one. The process it leaves
+ * The process holds the command's output unless `does` says otherwise. It
  * runs in the temporary directory, not where the command ran: on Windows a
  * directory something runs in cannot be deleted, which other tests are about.
  */
-function leaving(name: string, where: 'outside its group' | 'in its group', command = named('command'), says = ''): string {
+function leaving(name: string, where: 'outside its group' | 'in its group', does: Leaving = {}): string {
   return script(
     'leaving.cjs',
     [
       "const { spawn } = require('node:child_process');",
-      'if (process.argv[8] !== undefined) console.log(process.argv[8]);',
-      "const kept = spawn(process.execPath, [process.argv[5], process.argv[2], process.argv[3], process.argv[4]], { cwd: require('node:os').tmpdir(), stdio: 'inherit', detached: process.argv[7] === 'detached', windowsHide: true });",
+      'const [name, waiter, command, where, hold, code, ...says] = process.argv.slice(4);',
+      "if (says.length > 0) console.log(says.join(' '));",
+      "const kept = spawn(process.execPath, [waiter, process.argv[2], process.argv[3], name], { cwd: require('node:os').tmpdir(), stdio: hold === 'held' ? 'inherit' : 'ignore', detached: where === 'detached', windowsHide: true });",
       'kept.unref();',
+      'process.exitCode = Number(code);',
       '// Known before it ends, so that its end is seen: its connection closes with it.',
-      'known(process.argv[6], (socket) => socket.unref());',
+      'known(command, (socket) => socket.unref());',
     ],
     name,
     `"${waiter()}"`,
-    command,
+    does.command ?? named('command'),
     where === 'outside its group' ? 'detached' : 'grouped',
-    ...(says === '' ? [] : [says]),
+    does.holding === false ? 'free' : 'held',
+    String(does.exits ?? 0),
+    ...(does.says === undefined ? [] : [does.says]),
   );
+}
+
+/** What a command made by {@link leaving} does besides leaving a process behind. */
+interface Leaving {
+  /** The name its own process makes itself known by. */
+  readonly command?: string;
+  /** What it prints first. */
+  readonly says?: string;
+  /** How it ends, and its shell with it: 0 unless said. */
+  readonly exits?: number;
+  /** `false` leaves the process no hold on the command's output. */
+  readonly holding?: false;
+}
+
+/**
+ * The command line `first`, whose shell then goes on to run a process known
+ * as `name` until that is told to end or is stopped: a command whose shell
+ * is still running once `first` has ended and its process is gone.
+ */
+function andThen(first: string, name: string): string {
+  return [first, process.platform === 'win32' ? '&' : ';', `node "${waiter()}"`, (lobby.address() as AddressInfo).port, KEY, name].join(' ');
 }
 
 /**
@@ -385,13 +420,19 @@ function midJob(withWorktree: Sandbox['withWorktree'], repo: Repository): Promis
   });
 }
 
-/** A command that has left a process holding its output behind and ended; that process. */
+/**
+ * A command still running that has left a process holding its output where
+ * no stop reaches it, out of its group and with its parent gone; that
+ * process. The command's shell runs on: one whose shell has ended is
+ * answered within three seconds, and is then no command still running.
+ */
 async function holding(run: Sandbox['runCommand']): Promise<Stray> {
   const holder = named('holder');
   const command = named('command');
-  void run(leaving(holder, 'outside its group', command), temp(), 600);
+  void run(andThen(leaving(holder, 'outside its group'), command), temp(), 600);
   const kept = await stray(holder);
-  await within((await stray(command)).ended, 60, 'the command to end');
+  // The shell has gone on to its second process, so the first has ended.
+  await stray(command);
   return kept;
 }
 
@@ -413,22 +454,41 @@ function timed<T>(start: () => Promise<T>, seconds: number): { answered: Promise
 }
 
 /**
- * Runs `timeout`, which is what a command's timer runs, and answers what the
- * bound on the wait for the command's output will run once it has passed:
- * the one timer of three seconds set meanwhile (ADR-0003). A test runs that
- * by hand as well and is spared the wait, where the built command line, run
- * as a person runs it, waits the three seconds out.
+ * What the bounds on the waits for commands' output will run once they have
+ * passed: every timer of three seconds set from this call on, in the order
+ * set, each kept from running by the clock (ADR-0003). The sandbox sets one
+ * as it sees a command's shell end and one as a command's timeout passes. A
+ * test runs it by hand, so it is spared the wait and cannot lose a race
+ * with it: a test learns that a shell has ended later than the sandbox does.
+ * The built command line, run as a person runs it, waits its bound out.
+ *
+ * Nothing else here may wait three seconds while this is in place.
  */
-function bounded(timeout: () => void): () => void {
-  const timers = vi.spyOn(globalThis, 'setTimeout');
-  try {
-    timeout();
-    const set = timers.mock.calls.filter(([, ms]) => ms === 3_000);
-    expect(set, 'the timers of three seconds that the timeout set').toHaveLength(1);
-    return set[0]?.[0] as () => void;
-  } finally {
-    timers.mockRestore();
-  }
+function bounds(): (() => void)[] {
+  type Set = (run: () => void, ms?: number, ...rest: unknown[]) => NodeJS.Timeout;
+  const real = globalThis.setTimeout as Set;
+  const set: (() => void)[] = [];
+  const held: Set = (run, ms, ...rest) => {
+    if (ms !== 3_000) return real(run, ms, ...rest);
+    set.push(run);
+    // Something for the sandbox to clear, which runs nothing.
+    return real(() => undefined, 0);
+  };
+  vi.spyOn(globalThis, 'setTimeout').mockImplementation(held as unknown as typeof setTimeout);
+  return set;
+}
+
+/** As `until`, for a test that has faked `setTimeout`, which `until` waits by. */
+function ticking(done: () => boolean, what: string, seconds: number): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const deadline = Date.now() + seconds * 1000;
+    const tick = setInterval(() => {
+      if (!done() && Date.now() <= deadline) return;
+      clearInterval(tick);
+      if (done()) resolve();
+      else reject(new Error(`still waiting for ${what} after ${seconds}s`));
+    }, 50);
+  });
 }
 
 /**
@@ -785,39 +845,92 @@ describe('a command still running when the process is interrupted or exits', () 
   });
 });
 
-describe('a command whose shell has ended while something it started still holds its output', () => {
-  // The sandbox still waits for such a command, and has let go of its shell:
-  // the id is the system's to give to another process. No test can have the
-  // system do that, so the tests give the id to a process of their own, which
-  // they hold, and stop the command once, while they hold it: an interrupt
-  // stops a command twice, three seconds apart, and a sandbox that got this
-  // wrong would send the second to an id nothing held any more.
-  it.each(['its timeout', 'the exit of the process'] as const)('is not stopped under its id by %s: the process that has the id by then runs on', async (by) => {
+describe('a command whose shell has ended while something it started still runs', () => {
+  // A command is its shell, as a step is in CI: GitHub's runner answers a
+  // step by its shell's exit code, five seconds after the shell has ended at
+  // the latest, and leaves what the step started running until the job ends
+  // (ADR-0003). The sandbox waited for such a command until its timeout, ten
+  // minutes by default, and then called it stopped.
+  const SAID = ', and something it started was left running, holding its output';
+
+  it.each([0, 3])(
+    'is answered by its shell\'s exit code, %i, once a bound of three seconds has passed since the shell ended, with what it had printed, and its output is let go while the holder runs on',
+    async (exits) => {
+      const { runCommand: run, started } = await watchedSandbox();
+      const name = named('holder');
+      const waits = bounds();
+      const answered = run(leaving(name, 'outside its group', { says: 'printed', exits }), temp(), 600);
+      const command = started[0] as ChildProcess;
+      expect(await within(exitOf(command), 60, 'the sandbox to see the shell end')).toEqual({ code: exits, signal: null });
+      const holder = await stray(name);
+      let over = false;
+      void holder.ended.then(() => {
+        over = true;
+      });
+      // Node says a command is closed once nothing of its output is open on
+      // this side: until then the open output keeps the process from ending.
+      const closed = new Promise<void>((resolve) => command.once('close', () => resolve()));
+      let answer: unknown = null;
+      void answered.then((run) => {
+        answer = run;
+      });
+      // Until the bound passes the sandbox waits, as it does for a command
+      // that left nothing, whose output closes a moment after its shell ends.
+      await sleep(100);
+      expect(answer, 'an answer before the bound').toBeNull();
+      expect(waits, 'the bounds set').toHaveLength(1);
+      (waits[0] as () => void)();
+      expect(await within(answered, 60, 'the command to answer')).toEqual({ exitCode: exits, output: 'printed\n', outputHeld: true });
+      await within(closed, 30, 'the sandbox to let go of the output');
+      expect(over, 'the holder ended').toBe(false);
+    },
+  );
+
+  it('is not stopped at its timeout, nor made a stopped command by it: the timeout was its shell\'s, and passed with it', async () => {
+    const { runCommand: run, started } = await watchedSandbox();
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const name = named('holder');
+      const answered = run(leaving(name, 'outside its group', { exits: 3 }), temp(), 2);
+      expect(await exitOf(started[0] as ChildProcess)).toEqual({ code: 3, signal: null });
+      // The two seconds of its timeout, short of the three of the bound.
+      vi.advanceTimersByTime(2_000);
+      await ticking(() => strays.has(name), `${name} to make itself known`, 120);
+      await (strays.get(name) as Stray).end();
+      // Its output closed before the bound: nothing is said to hold it.
+      expect(await answered).toEqual({ exitCode: 3, output: '' });
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // The sandbox still waits for such a command, for three seconds, and has
+  // let go of its shell: the id is the system's to give to another process.
+  // No test can have the system do that, so the tests give the id to a
+  // process of their own, which they hold. The bound is kept from passing,
+  // so the command is one still waited for whatever the machine's pace.
+  it('is not stopped under its id by the exit of the process: the process that has the id by then runs on', async () => {
     const { runCommand: run, handlers, started } = await watchedSandbox();
     const name = named('holder');
-    const { answered, timeout } = timed(() => run(leaving(name, 'outside its group'), temp(), 600), 600);
-    const holder = await stray(name);
+    bounds();
+    void run(leaving(name, 'outside its group'), temp(), 600);
+    await stray(name);
     const command = started[0] as ChildProcess;
     expect(await within(exitOf(command), 60, 'the sandbox to see the shell end')).toEqual({ code: 0, signal: null });
     const other = another();
     give(command, other);
-    if (by === 'its timeout') timeout();
-    else only(handlers('exit'), 'exit')(0);
+    only(handlers('exit'), 'exit')(0);
     other.stdin?.end();
     expect(await within(exitOf(other), 60, 'the other process to end')).toEqual({ code: 7, signal: null });
-    if (by === 'its timeout') {
-      // Its timeout is still what ended it, whether its output closed first
-      // or the bound on the wait for that passed.
-      await holder.end();
-      expect(await within(answered, 60, 'the command to answer')).toMatchObject({ exitCode: null, output: '' });
-    }
   });
 
   // Windows reports no signal for a process: there a shell ends with a code.
-  it.skipIf(process.platform === 'win32')('is not stopped under its id either when a signal ended its shell', async () => {
+  it.skipIf(process.platform === 'win32')('is not stopped under its id either when a signal ended its shell, and is answered as failed, having no exit code', async () => {
     const { runCommand: run, handlers, started } = await watchedSandbox();
     const name = named('holder');
-    void run(`${leaving(name, 'outside its group')}; kill -KILL $$`, temp(), 600);
+    const waits = bounds();
+    const answered = run(`${leaving(name, 'outside its group')}; kill -KILL $$`, temp(), 600);
     await stray(name);
     const command = started[0] as ChildProcess;
     expect(await within(exitOf(command), 60, 'the sandbox to see the shell end')).toEqual({ code: null, signal: 'SIGKILL' });
@@ -826,6 +939,8 @@ describe('a command whose shell has ended while something it started still holds
     only(handlers('exit'), 'exit')(0);
     other.stdin?.end();
     expect(await within(exitOf(other), 60, 'the other process to end')).toEqual({ code: 7, signal: null });
+    (waits[0] as () => void)();
+    expect(await within(answered, 60, 'the command to answer')).toEqual({ exitCode: 1, output: '', outputHeld: true });
   });
 
   // No test can start another user's process, so the system's answer for one
@@ -833,6 +948,7 @@ describe('a command whose shell has ended while something it started still holds
   it.skipIf(process.platform === 'win32')('is not stopped under its id when what has the id may not be signalled, as another user\'s process may not', async () => {
     const { runCommand: run, handlers, started } = await watchedSandbox();
     const name = named('holder');
+    bounds();
     void run(leaving(name, 'outside its group'), temp(), 600);
     await stray(name);
     expect(await within(exitOf(started[0] as ChildProcess), 60, 'the sandbox to see the shell end')).toEqual({ code: 0, signal: null });
@@ -846,26 +962,12 @@ describe('a command whose shell has ended while something it started still holds
     expect(sent).toEqual([]);
   });
 
-  // The group's id is given to no other process while the group has a member
-  // (ADR-0003). Windows has no such group, and taskkill finds no tree under
-  // a root that has ended, so there nothing is left to stop the process by.
-  it.skipIf(process.platform === 'win32')('is still stopped at its timeout with what its shell left in its process group', async () => {
-    const { runCommand: run, started } = await watchedSandbox();
-    const name = named('member');
-    const { answered, timeout } = timed(() => run(leaving(name, 'in its group'), temp(), 600), 600);
-    const member = await stray(name);
-    expect(await within(exitOf(started[0] as ChildProcess), 60, 'the sandbox to see the shell end')).toEqual({ code: 0, signal: null });
-    timeout();
-    await within(member.ended, 30, 'the process left in the group to be gone');
-    // Stopped whole, so nothing is said to hold its output.
-    expect(await within(answered, 30, 'the command to answer')).toEqual({ exitCode: null, output: '' });
-  });
-
   // Asking first whether a process has the id would leave the moment between
   // the answer and taskkill's own look, in which one can be given it.
   it.runIf(process.platform === 'win32')('is never handed to taskkill, even while no process has its id, where a command still running is', async () => {
     const { runCommand: run, handlers, started, taskkills } = await watchedSandbox('noted');
     const holder = named('holder');
+    bounds();
     void run(leaving(holder, 'outside its group'), temp(), 600);
     await stray(holder);
     expect(await within(exitOf(started[0] as ChildProcess), 60, 'the sandbox to see the shell end')).toEqual({ code: 0, signal: null });
@@ -875,21 +977,212 @@ describe('a command whose shell has ended while something it started still holds
     only(handlers('exit'), 'exit')(0);
     expect(taskkills.map((args) => args[1])).toEqual([String(started[1]?.pid)]);
   });
+
+  // What the shell left in its process group is within reach for as long as
+  // it runs: the group's id is given to no other process while the group has
+  // a member (ADR-0003). It is not stopped as the shell ends: in CI what a
+  // step started runs on into the steps after it, and is ended with the job.
+  // Windows has no such group, and nothing a command left there is reached.
+  it.skipIf(process.platform === 'win32').each([
+    { hold: 'holding its output', does: {}, answer: { exitCode: 0, output: '', outputHeld: true } },
+    { hold: 'with no hold on its output', does: { holding: false }, answer: { exitCode: 0, output: '' } },
+  ] as const)(
+    'leaves what it left in its process group, $hold, running until its job ends, stops it then, and holds nothing of it after',
+    async ({ does, answer }) => {
+      const { withWorktree, runCommand: run, handlers } = await freshSandbox();
+      const repo = repository({ 'a.txt': 'a\n' });
+      const name = named('member');
+      const waits = bounds();
+      let over = false;
+      const member = await withWorktree(repo.root, 'HEAD', async (directory) => {
+        const answered = run(leaving(name, 'in its group', does), directory, 600);
+        const left = await stray(name);
+        void left.ended.then(() => {
+          over = true;
+        });
+        // An output nothing holds closes by itself, and answers the command.
+        if ('outputHeld' in answer) {
+          await until(() => waits.length === 1, 'the sandbox to see the shell end', 30);
+          (waits[0] as () => void)();
+        }
+        expect(await within(answered, 60, 'the command to answer')).toEqual(answer);
+        // Long enough for a signal sent as the shell ended to have arrived.
+        await sleep(300);
+        expect(over, 'the process left in the group ended while its job ran').toBe(false);
+        return left;
+      });
+      await within(member.ended, 10, 'the process left in the group to be gone');
+      // The group has emptied, and its id is the system's to give out again:
+      // whatever the sandbox would send from here on is noted, and not sent.
+      const sent: unknown[] = [];
+      vi.spyOn(process, 'kill').mockImplementation((_pid, signal) => {
+        if (signal === 0) throw Object.assign(new Error('kill ESRCH'), { code: 'ESRCH' });
+        sent.push(signal);
+        return true;
+      });
+      only(handlers('exit'), 'exit')(0);
+      expect(sent).toEqual([]);
+    },
+  );
+
+  it.skipIf(process.platform === 'win32')('leaves what it left in its process group to its own job: the end of another job does not stop it, and the exit of the process does', async () => {
+    const { withWorktree, runCommand: run, handlers } = await freshSandbox();
+    const repo = repository({ 'a.txt': 'a\n' });
+    const name = named('member');
+    const directory = await midJob(withWorktree, repo);
+    expect(await run(leaving(name, 'in its group', { holding: false }), directory, 600)).toEqual({ exitCode: 0, output: '' });
+    const member = await stray(name);
+    let over = false;
+    void member.ended.then(() => {
+      over = true;
+    });
+    await withWorktree(repo.root, 'HEAD', async () => undefined);
+    await sleep(300);
+    expect(over, 'the process left in the group ended with another job').toBe(false);
+    only(handlers('exit'), 'exit')(0);
+    await within(member.ended, 10, 'the process left in the group to be gone');
+  });
+
+  // Most commands leave nothing, and the id of a group that has emptied is
+  // the system's to give to another process, which may come to lead a group.
+  it.skipIf(process.platform === 'win32')('is not signalled when its job ends, having left nothing in its process group', async () => {
+    const { withWorktree, runCommand: run } = await freshSandbox();
+    const repo = repository({ 'a.txt': 'a\n' });
+    const sent: unknown[] = [];
+    await withWorktree(repo.root, 'HEAD', async (directory) => {
+      expect(await run('node -e "1"', directory, 600)).toEqual({ exitCode: 0, output: '' });
+      // No process is asked after from here on, and none is signalled: what
+      // the sandbox would send is noted.
+      vi.spyOn(process, 'kill').mockImplementation((_pid, signal) => {
+        if (signal === 0) throw Object.assign(new Error('kill ESRCH'), { code: 'ESRCH' });
+        sent.push(signal);
+        return true;
+      });
+    });
+    expect(sent).toEqual([]);
+  });
+
+  // Through `probe`, for how such a command is judged and what a person is
+  // told. The bound is run by hand once the sandbox has seen the shell end.
+  it.each([
+    {
+      line: 'run, which fails as the probe declares: the defect is measured',
+      does: { says: 'expected fixed, got broken', exits: 1 },
+      fields: (left: string) => [`run: ${left}`],
+      code: 0,
+      table: new RegExp(`^\\| v \\| base \`[0-9a-f]{12}\` \\| 1/1 \\| measured \\| expected fixed, got broken${SAID} \\|$`, 'm'),
+      told: (): string => '',
+    },
+    {
+      line: 'setup, which passed: the probe goes on, beside what the setup left',
+      does: { says: 'installed' },
+      fields: (left: string) => [`setup: ${left}`, 'run: node -e "console.log(\'expected fixed, got broken\'); process.exit(1)"'],
+      code: 0,
+      table: /^\| v \| base `[0-9a-f]{12}` \| 1\/1 \| measured \| expected fixed, got broken \|$/m,
+      told: (left: string): string => `spec-harness: the probe setup "${left}" passed at base${SAID}\n`,
+    },
+    {
+      line: 'setup, which failed: the probe stops, as for any setup that fails',
+      does: { says: 'no network', exits: 3 },
+      fields: (left: string) => [`setup: ${left}`, 'run: node -e "process.exit(1)"'],
+      code: 2,
+      table: /^$/,
+      told: (left: string): string => `spec-harness: the probe setup "${left}" failed at base${SAID}:\nno network\n`,
+    },
+  ])('is judged by its shell, and said to have left something running, where it was a probe\'s $line', async ({ does, fields, code, table, told }) => {
+    const name = named('holder');
+    const left = leaving(name, 'outside its group', does);
+    const body = ['## Probes', '', '```probe', 'id: v', ...fields(left), 'signature: expected fixed', '```', ''].join('\n');
+    const repo = repository({ [BRIEF_FILE]: brief({ affected: ['src/**'], body }) }, { probes: { runs: 1 } });
+    repo.git('checkout', '-q', '-b', 'brief/001-fix');
+    const waits = bounds();
+    const probed = cli(['probe', '--at', 'base'], repo.root);
+    const holder = await stray(name);
+    let over = false;
+    void holder.ended.then(() => {
+      over = true;
+    });
+    // The first command the probe runs is the one that leaves the holder.
+    await until(() => waits.length > 0, 'the sandbox to see the shell end', 30);
+    (waits[0] as () => void)();
+    const result = await within(probed, 60, 'the probe to answer');
+    expect(over, 'the holder ended').toBe(false);
+    expect(result.stderr).toBe(told(left));
+    expect(result.stdout).toMatch(table);
+    expect(result.code).toBe(code);
+    expect(worktrees(repo)).toHaveLength(1);
+  });
+
+  // The command line as a person runs it, which alone shows that the process
+  // ends, and when: an output left open keeps Node from ending, with the
+  // verdict already printed. Here the bound passes by the clock, and the
+  // holder runs where the command ran, in the worktree, as what a probe's
+  // command leaves behind does.
+  it('does not keep `probe` from ending: the verdict is printed, the exit is the verdict\'s, and git lists no worktree', async () => {
+    const leave = [
+      "const { spawn } = require('node:child_process');",
+      "const holder = spawn(process.execPath, JSON.parse(process.env.SPEC_HARNESS_TEST_HOLDER), { stdio: 'inherit', detached: true, windowsHide: true });",
+      'holder.unref();',
+      "console.log('expected fixed, got broken');",
+      'process.exitCode = 1;',
+    ].join('\n');
+    // Thirty seconds for a command that ends at once: the time a sandbox that
+    // still waited for the holder would take to say so, where the default
+    // would have it wait ten minutes.
+    const body = ['## Probes', '', '```probe', 'id: v', 'run: node leave.js', 'signature: expected fixed', 'timeout: 30', '```', '', '```probe-file leave.js', leave, '```', ''].join('\n');
+    const repo = repository({ [BRIEF_FILE]: brief({ affected: ['src/**'], body }) }, { probes: { runs: 1 } });
+    repo.git('checkout', '-q', '-b', 'brief/001-fix');
+    const name = named('holder');
+    process.env['SPEC_HARNESS_TEST_HOLDER'] = JSON.stringify([waiter(), String((lobby.address() as AddressInfo).port), KEY, name]);
+    let directory = '';
+    try {
+      const ended = startBin(['probe', '--at', 'base'], repo.root);
+      const holder = await stray(name);
+      let over = false;
+      void holder.ended.then(() => {
+        over = true;
+      });
+      // The three seconds of the bound, and on Windows three more twice for
+      // a directory that cannot be deleted (ADR-0003): never the ten minutes
+      // of the command's timeout, which no test could wait for.
+      const result = await within(ended, 120, 'end of the probe while the holder runs');
+      expect(over, 'the holder ended').toBe(false);
+      const lines = result.stderr.split('\n').filter((text) => text !== '');
+      // On Windows a directory something runs in cannot be deleted, and the
+      // worktree is named as it is left; elsewhere it is deleted under the holder.
+      if (process.platform === 'win32') directory = /^spec-harness: the temporary worktree at (.+) could not be deleted and is left there: ./.exec(lines.pop() ?? '')?.[1] ?? '';
+      // Measured: the table is all there is to say.
+      expect(lines, result.stderr).toEqual([]);
+      expect(result.stdout).toContain(`| 1/1 | measured | expected fixed, got broken${SAID} |`);
+      expect(result.code).toBe(0);
+      expect(directory === '', result.stderr).toBe(process.platform !== 'win32');
+      expect(worktrees(repo)).toHaveLength(1);
+    } finally {
+      delete process.env['SPEC_HARNESS_TEST_HOLDER'];
+      await stray(name, 30).then(
+        (kept) => kept.end(),
+        () => undefined,
+      );
+      if (directory !== '') await until(() => removed(directory), `${directory} to be removed`, 30);
+    }
+  });
 });
 
 describe('a command stopped at its timeout while something the stop cannot reach holds its output', () => {
   // A process in a group of its own, its parent gone: neither the group's
-  // signal nor taskkill's tree finds it (ADR-0003). The command waited for it
-  // without bound, and the probe with it.
+  // signal nor taskkill's tree finds it (ADR-0003). The command's shell still
+  // runs at the timeout, which is the shell's: the command waited for that
+  // process without bound, and the probe with it.
   const SAID = ', and something it started was left running, holding its output';
 
   it('is answered once a bound of three seconds on the wait has passed, with what it had printed, and its output is let go while the holder runs on', async () => {
     const { runCommand: run, started } = await watchedSandbox();
     const name = named('holder');
-    const { answered, timeout } = timed(() => run(leaving(name, 'outside its group', named('command'), 'printed'), temp(), 600), 600);
+    const running = named('command');
+    const { answered, timeout } = timed(() => run(andThen(leaving(name, 'outside its group', { says: 'printed' }), running), temp(), 600), 600);
     const holder = await stray(name);
+    await stray(running);
     const command = started[0] as ChildProcess;
-    expect(await within(exitOf(command), 60, 'the sandbox to see the shell end')).toEqual({ code: 0, signal: null });
     let over = false;
     void holder.ended.then(() => {
       over = true;
@@ -901,20 +1194,22 @@ describe('a command stopped at its timeout while something the stop cannot reach
     void answered.then((run) => {
       answer = run;
     });
-    const bound = bounded(timeout);
+    const waits = bounds();
+    timeout();
     // Until the bound passes the sandbox waits, as it does for a command
     // that its timeout stopped whole and whose output is only now closing.
     await sleep(100);
     expect(answer, 'an answer before the bound').toBeNull();
-    bound();
+    expect(waits, 'the bounds set').toHaveLength(1);
+    (waits[0] as () => void)();
     expect(await within(answered, 60, 'the command to answer')).toEqual({ exitCode: null, output: 'printed\n', outputHeld: true });
     await within(closed, 30, 'the sandbox to let go of the output');
     expect(over, 'the holder ended').toBe(false);
   });
 
   // Through `probe`, for what a person is told. The command's timeout, ten
-  // minutes, is run by hand once the command has ended and left the holder,
-  // as `timed` runs one, and the bound after it.
+  // minutes, is run by hand once the command has left the holder and its
+  // shell has gone on, as `timed` runs one, and the bound after it.
   it.each([
     {
       line: 'run',
@@ -932,15 +1227,15 @@ describe('a command stopped at its timeout while something the stop cannot reach
     },
   ])('is said to have left something running, where a person reads of a probe whose $line it was', async ({ fields, code, table, told }) => {
     const name = named('holder');
-    const command = named('command');
-    const left = leaving(name, 'outside its group', command, 'printed');
+    const running = named('command');
+    const left = andThen(leaving(name, 'outside its group', { says: 'printed' }), running);
     const body = ['## Probes', '', '```probe', 'id: v', ...fields(left), 'signature: expected fixed', '```', ''].join('\n');
     const repo = repository({ [BRIEF_FILE]: brief({ affected: ['src/**'], body }) }, { probes: { runs: 1 } });
     repo.git('checkout', '-q', '-b', 'brief/001-fix');
     const timers = vi.spyOn(globalThis, 'setTimeout');
     const probed = cli(['probe', '--at', 'base'], repo.root);
     const holder = await stray(name);
-    await within((await stray(command)).ended, 60, 'the command to end');
+    await stray(running);
     let over = false;
     void holder.ended.then(() => {
       over = true;
@@ -948,63 +1243,16 @@ describe('a command stopped at its timeout while something the stop cannot reach
     const timeout = timers.mock.calls.find(([, ms]) => ms === 600_000)?.[0] as (() => void) | undefined;
     timers.mockRestore();
     expect(timeout, 'the timer of the command').toBeDefined();
-    bounded(timeout as () => void)();
+    const waits = bounds();
+    (timeout as () => void)();
+    expect(waits, 'the bounds set').toHaveLength(1);
+    (waits[0] as () => void)();
     const result = await within(probed, 60, 'the probe to answer');
     expect(over, 'the holder ended').toBe(false);
     expect(result.stderr).toBe(told(left));
     expect(result.stdout).toMatch(table);
     expect(result.code).toBe(code);
     expect(worktrees(repo)).toHaveLength(1);
-  });
-
-  // The command line as a person runs it, which alone shows that the process
-  // ends, and when: an output left open keeps Node from ending, with the
-  // verdict already printed. Here the timeout and the bound pass by the
-  // clock, and the holder runs where the command ran, in the worktree, as
-  // what a probe's command leaves behind does.
-  it('does not keep `probe` from ending: the verdict is printed, the exit is the verdict\'s, and git lists no worktree', async () => {
-    const leave = [
-      "const { spawn } = require('node:child_process');",
-      "const holder = spawn(process.execPath, JSON.parse(process.env.SPEC_HARNESS_TEST_HOLDER), { stdio: 'inherit', detached: true, windowsHide: true });",
-      'holder.unref();',
-      "console.log('printed');",
-    ].join('\n');
-    // Five seconds for a command that ends at once: stopped while it still
-    // ran, it would take the holder with it on Windows.
-    const body = ['## Probes', '', '```probe', 'id: v', 'run: node leave.js', 'signature: expected fixed', 'timeout: 5', '```', '', '```probe-file leave.js', leave, '```', ''].join('\n');
-    const repo = repository({ [BRIEF_FILE]: brief({ affected: ['src/**'], body }) }, { probes: { runs: 1 } });
-    repo.git('checkout', '-q', '-b', 'brief/001-fix');
-    const name = named('holder');
-    process.env['SPEC_HARNESS_TEST_HOLDER'] = JSON.stringify([waiter(), String((lobby.address() as AddressInfo).port), KEY, name]);
-    let directory = '';
-    try {
-      const ended = startBin(['probe', '--at', 'base'], repo.root);
-      const holder = await stray(name);
-      let over = false;
-      void holder.ended.then(() => {
-        over = true;
-      });
-      // The five seconds, the three of the bound, and on Windows three more
-      // twice for a directory that cannot be deleted (ADR-0003).
-      const result = await within(ended, 120, 'end of the probe while the holder runs');
-      expect(over, 'the holder ended').toBe(false);
-      const lines = result.stderr.split('\n').filter((text) => text !== '');
-      // On Windows a directory something runs in cannot be deleted, and the
-      // worktree is named as it is left; elsewhere it is deleted under the holder.
-      if (process.platform === 'win32') directory = /^spec-harness: the temporary worktree at (.+) could not be deleted and is left there: ./.exec(lines.pop() ?? '')?.[1] ?? '';
-      expect(lines, result.stderr).toEqual([`spec-harness: probe v is invalid at base: run 1 of 1: stopped after 5 seconds${SAID}; its output ended:`, 'printed']);
-      expect(result.stdout).toContain(`| 1/1 | invalid | stopped after 5 seconds${SAID} |`);
-      expect(result.code).toBe(1);
-      expect(directory === '', result.stderr).toBe(process.platform !== 'win32');
-      expect(worktrees(repo)).toHaveLength(1);
-    } finally {
-      delete process.env['SPEC_HARNESS_TEST_HOLDER'];
-      await stray(name, 30).then(
-        (kept) => kept.end(),
-        () => undefined,
-      );
-      if (directory !== '') await until(() => removed(directory), `${directory} to be removed`, 30);
-    }
   });
 });
 
