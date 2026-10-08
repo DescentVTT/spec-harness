@@ -173,6 +173,11 @@ describe('the memo a person rules on', () => {
     );
   });
 
+  it('gives a choice whose cost was not given as the choice alone, with no dash that leads nowhere', () => {
+    const memo = renderMemo({ ...REQUEST, options: [{ label: 'Refuse', consequence: '' }, { label: 'Allow', consequence: 'one column' }] });
+    expect(memo).toContain('## Options\n\n1. **Refuse**\n2. **Allow** - one column\n\n## The agent recommends');
+  });
+
   it('leaves out what the request does not have', () => {
     const memo = renderMemo({ ...REQUEST, options: [], recommendation: null, branch: null, head: null });
     expect(memo).toContain('Brief 012 (`briefs/012_rotate-tokens.md`), raised 2026-09-26T00:00:00.000Z.');

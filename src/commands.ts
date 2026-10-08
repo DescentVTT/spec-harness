@@ -126,7 +126,12 @@ export async function auditCommand(options: Options, io: CliIO): Promise<number>
 
 function parseOption(raw: string): EscalationOption {
   const colon = raw.indexOf(':');
-  return colon < 0 ? { label: raw.trim(), consequence: '' } : { label: raw.slice(0, colon).trim(), consequence: raw.slice(colon + 1).trim() };
+  const option = colon < 0 ? { label: raw.trim(), consequence: '' } : { label: raw.slice(0, colon).trim(), consequence: raw.slice(colon + 1).trim() };
+  // An option given nothing was refused where the command line was read, so
+  // this one has a colon and nothing before it: a cost, and no choice it is
+  // the cost of. The memo would number a choice with no name.
+  if (option.label === '') throw new UsageError(`--option is ${JSON.stringify(raw)}, which names no choice before its colon; give it "<label>: <cost>"`);
+  return option;
 }
 
 export async function escalateCommand(options: Options, io: CliIO): Promise<number> {
@@ -147,11 +152,14 @@ export async function escalateCommand(options: Options, io: CliIO): Promise<numb
   if (options.paths.length === 0 || options.reason === undefined) {
     throw new UsageError('escalate needs --path <file> (repeatable) and --reason <why>; or --list, or --show <id>');
   }
+  // Read before spec-brief is asked anything: a request that cannot be
+  // written is refused for what is wrong with it, whatever the brief.
+  const choices = options.options.map(parseOption);
   const { brief } = await targetBrief(workspace, options, io, undefined);
   const { request, memo } = await raiseEscalation(workspace, brief, {
     paths: options.paths,
     reason: options.reason,
-    options: options.options.map(parseOption),
+    options: choices,
     recommendation: options.recommend ?? null,
   });
   io.stdout.write(options.format === 'json' ? json('escalate', { request, memo }) : memo);

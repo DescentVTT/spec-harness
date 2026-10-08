@@ -150,7 +150,9 @@ export function renderMemo(request: EscalationRequest): string {
   ];
   if (request.options.length > 0) {
     lines.push('## Options', '');
-    request.options.forEach((option, index) => lines.push(`${index + 1}. **${option.label}** - ${option.consequence}`));
+    // A choice whose cost was not given is written as the choice alone,
+    // with no dash that leads nowhere.
+    request.options.forEach((option, index) => lines.push(`${index + 1}. **${option.label}**${option.consequence === '' ? '' : ` - ${option.consequence}`}`));
     lines.push('');
   }
   if (request.recommendation !== null) lines.push('## The agent recommends', '', request.recommendation.trim(), '');

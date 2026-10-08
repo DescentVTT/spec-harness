@@ -16,7 +16,9 @@ import { briefIdFromBranch } from './branch.js';
 import { titleOf } from './context.js';
 import { createReader } from './reader.js';
 import { buildContext, checkPaths, raiseEscalation, runAudit } from './round.js';
+import type { EscalationOption } from './rulings.js';
 import type { BriefRow } from './types.js';
+import { emptyValue, isBlank, type ValuedOption } from './usage.js';
 import {
   createMcpServer,
   serveLines,
@@ -38,21 +40,69 @@ export const INSTRUCTIONS =
   'Call audit_round when the work is done, and fix what it reports; archiving is a person\'s decision. ' +
   'For the architecture rules themselves, spec-guard\'s own server answers get_architectural_rules.';
 
-const briefProperty = { type: 'string', description: 'The brief id. Omit to use the brief the branch or SPEC_BRIEF names.' };
+const briefProperty = { type: 'string', description: 'The brief id. Omit to use the brief the branch or SPEC_BRIEF names; an empty id is refused.' };
 const baseProperty = {
   type: 'string',
-  description: 'The branch the round is measured from, whose allowed signers a ruling is verified against. Omit to use the configured base.',
+  description:
+    'The branch the round is measured from, whose allowed signers a ruling is verified against. Omit to use the configured base; an empty one is refused.',
 };
 
-/** The `base` argument, or the tool error for one that is not a string. */
+/**
+ * The tool error for an argument that is given and names nothing, in the
+ * words the command line has for its option. Read as left out, an empty
+ * `brief` was answered for the branch's brief and an empty `base` with no
+ * ruling verified, and nothing told the agent that neither was the answer to
+ * what it had asked.
+ */
+function namesNothing(argument: string, option: ValuedOption, value: string): ToolOutcome {
+  return toolError(`${emptyValue(`"${argument}"`, option, value)}.`);
+}
+
+/** The `base` argument, or the tool error for one that is not a string, or names no commit. */
 function baseOf(args: JsonObject): { base: string | undefined } | ToolOutcome {
   const base = args['base'];
   if (base !== undefined && typeof base !== 'string') return toolError('"base" must be a string.');
+  if (base !== undefined && isBlank(base)) return namesNothing('base', 'base', base);
   return { base };
+}
+
+/** The `paths` argument, or the tool error for one that is no list of files, or has a place that names none. */
+function pathsOf(args: JsonObject): { paths: string[] } | ToolOutcome {
+  const paths = args['paths'];
+  if (!Array.isArray(paths) || !paths.every((p) => typeof p === 'string') || paths.length === 0) {
+    return toolError('"paths" must be a non-empty array of strings.');
+  }
+  const empty = paths.findIndex(isBlank);
+  if (empty !== -1) return namesNothing(`paths[${empty}]`, 'path', paths[empty] as string);
+  return { paths };
+}
+
+/**
+ * The `options` argument as the memo's choices, or the tool error for one
+ * the memo cannot be written with: a choice is its label, and one without
+ * was written as a number and two empty stars. What a choice costs may be
+ * left out, and the memo then gives the choice alone.
+ */
+function optionsOf(args: JsonObject): { options: EscalationOption[] } | ToolOutcome {
+  const raw = args['options'] ?? [];
+  if (!Array.isArray(raw)) return toolError('"options" must be an array.');
+  const options: EscalationOption[] = [];
+  for (const [index, item] of raw.entries()) {
+    // An item that is no object has no label, and is refused for that.
+    const entry = (item ?? {}) as JsonObject;
+    const label = entry['label'];
+    const consequence = entry['consequence'] ?? '';
+    if (typeof label !== 'string') return toolError(`"options[${index}].label" must be a string.`);
+    if (isBlank(label)) return toolError(`"options[${index}].label" is ${JSON.stringify(label)}, which names no choice; give the option a label, or leave the option out.`);
+    if (typeof consequence !== 'string') return toolError(`"options[${index}].consequence" must be a string.`);
+    options.push({ label: label.trim(), consequence: consequence.trim() });
+  }
+  return { options };
 }
 
 async function round(workspace: Workspace, env: CliIO['env'], id: unknown): Promise<{ brief: BriefRow; briefs: BriefRow[] } | ToolOutcome> {
   if (id !== undefined && typeof id !== 'string') return toolError('"brief" must be a string.');
+  if (id !== undefined && isBlank(id)) return namesNothing('brief', 'brief', id);
   const briefs = await workspace.siblings.briefs();
   const fromBranch = briefIdFromBranch(workspace.config.branches, workspace.branch);
   const active = findActive(briefs, { flag: id, environment: env['SPEC_BRIEF'], branch: fromBranch });
@@ -107,7 +157,7 @@ export function tools(workspace: Workspace, env: CliIO['env']): ToolDefinition[]
         inputSchema: {
           type: 'object',
           properties: {
-            paths: { type: 'array', items: { type: 'string' }, description: 'Paths relative to the project root, or absolute inside it.' },
+            paths: { type: 'array', items: { type: 'string' }, description: 'Paths relative to the project root, or absolute inside it. An empty one is refused.' },
             brief: briefProperty,
             base: baseProperty,
           },
@@ -119,15 +169,13 @@ export function tools(workspace: Workspace, env: CliIO['env']): ToolDefinition[]
       async call(args: JsonObject): Promise<ToolOutcome> {
         const unknown = unknownArguments(args, ['paths', 'brief', 'base']);
         if (unknown) return unknown;
-        const paths = args['paths'];
-        if (!Array.isArray(paths) || !paths.every((p) => typeof p === 'string') || paths.length === 0) {
-          return toolError('"paths" must be a non-empty array of strings.');
-        }
+        const given = pathsOf(args);
+        if ('text' in given) return given;
         const base = baseOf(args);
         if ('text' in base) return base;
         const found = await round(workspace, env, args['brief']);
         if ('text' in found) return found;
-        const decisions = await checkPaths(workspace, found.brief, undefined, paths as string[], workspace.root, reader, base.base);
+        const decisions = await checkPaths(workspace, found.brief, undefined, given.paths, workspace.root, reader, base.base);
         const text = decisions.map((d) => `${d.verdict}: ${d.message}${d.verdict === 'allow' ? '' : `. Next: ${d.hint}`}`).join('\n');
         return { text, structured: { decisions: decisions.map((d) => ({ ...d })) } };
       },
@@ -141,14 +189,14 @@ export function tools(workspace: Workspace, env: CliIO['env']): ToolDefinition[]
         inputSchema: {
           type: 'object',
           properties: {
-            paths: { type: 'array', items: { type: 'string' }, description: 'The protected files the round needs to change.' },
-            reason: { type: 'string', description: 'Why the round cannot be done without them.' },
+            paths: { type: 'array', items: { type: 'string' }, description: 'The protected files the round needs to change. An empty one is refused.' },
+            reason: { type: 'string', description: 'Why the round cannot be done without them. It is required, and may not be empty.' },
             options: {
               type: 'array',
               items: { type: 'object', properties: { label: { type: 'string' }, consequence: { type: 'string' } }, required: ['label', 'consequence'] },
-              description: 'The choices the person has, each with what it costs.',
+              description: 'The choices the person has, each with what it costs. A choice whose label is empty is refused.',
             },
-            recommendation: { type: 'string', description: 'Which option you recommend, and why.' },
+            recommendation: { type: 'string', description: 'Which option you recommend, and why. Omit it when there is none: an empty one is refused.' },
             brief: briefProperty,
           },
           required: ['paths', 'reason'],
@@ -159,18 +207,25 @@ export function tools(workspace: Workspace, env: CliIO['env']): ToolDefinition[]
       async call(args: JsonObject): Promise<ToolOutcome> {
         const unknown = unknownArguments(args, ['paths', 'reason', 'options', 'recommendation', 'brief']);
         if (unknown) return unknown;
-        const paths = args['paths'];
+        // Every part of the memo before anything is written: a person rules
+        // on what it says, and cannot rule on a part that says nothing.
+        const given = pathsOf(args);
+        if ('text' in given) return given;
         const reason = args['reason'];
-        if (!Array.isArray(paths) || !paths.every((p) => typeof p === 'string') || paths.length === 0) return toolError('"paths" must be a non-empty array of strings.');
-        if (typeof reason !== 'string' || reason.trim() === '') return toolError('"reason" is required.');
-        const rawOptions = args['options'] ?? [];
-        if (!Array.isArray(rawOptions)) return toolError('"options" must be an array.');
-        const options = rawOptions.map((o) => ({ label: String((o as JsonObject)['label'] ?? ''), consequence: String((o as JsonObject)['consequence'] ?? '') }));
+        if (typeof reason !== 'string' || isBlank(reason)) return toolError('"reason" is required.');
+        const choices = optionsOf(args);
+        if ('text' in choices) return choices;
         const recommendation = args['recommendation'];
         if (recommendation !== undefined && typeof recommendation !== 'string') return toolError('"recommendation" must be a string.');
+        if (recommendation !== undefined && isBlank(recommendation)) return namesNothing('recommendation', 'recommend', recommendation);
         const found = await round(workspace, env, args['brief']);
         if ('text' in found) return found;
-        const { request, memo } = await raiseEscalation(workspace, found.brief, { paths: paths as string[], reason, options, recommendation: recommendation ?? null });
+        const { request, memo } = await raiseEscalation(workspace, found.brief, {
+          paths: given.paths,
+          reason,
+          options: choices.options,
+          recommendation: recommendation ?? null,
+        });
         return { text: `${memo}\nStop here until a person rules on ${request.id}.`, structured: { id: request.id } };
       },
     },
