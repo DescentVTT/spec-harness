@@ -9,7 +9,12 @@ only fixes, reports less or documents, so `^0.7.0` takes only releases that
 cannot turn a run red. The family's policy is
 [spec-core's ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
-## Unreleased
+## 0.11.0
+
+An error the harness did not expect is exit 2, where it was Node's exit 1; a
+probe's command fetches nothing through `npx` unless its line or the person
+says so, is given no input, and shows what it printed when a run proves
+nothing; and a command is stopped by its id only while the harness holds it.
 
 ### Changed
 
