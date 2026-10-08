@@ -26,6 +26,15 @@ import { probeEnvironment } from './probe.js';
 
 const live = new Map<string, string>();
 const running = new Set<ChildProcess>();
+/**
+ * The commands whose shell has ended and left a process in its process
+ * group, each with the directory it ran in: what `withWorktree` stops when
+ * the job in that directory ends, and an interrupt or the exit of the process
+ * whenever it comes. Linux and macOS alone have such a group; on Windows
+ * nothing is kept, since nothing a command left can be reached once its
+ * shell has ended (ADR-0003).
+ */
+const left = new Map<ChildProcess, string>();
 let installed = false;
 /** Set once the process is interrupted: from then on a command's end is never answered. */
 let ending = false;
@@ -35,6 +44,10 @@ let ending = false;
  * output and their directory. They were stopped forced, so this is only the
  * time the system takes to end them; whatever still holds either after it has
  * left the tree, and no wait would end it.
+ *
+ * It is also how long the output of a command whose shell ended by itself is
+ * waited for: what still holds it then is something the command started and
+ * did not wait for, which is no part of the command.
  */
 const SETTLE_MS = 3_000;
 
@@ -58,6 +71,12 @@ function taken(pid: number): boolean {
  * Windows. A process that left the group is not in it, and taskkill follows
  * a tree from parent to child while each parent runs: one whose parent has
  * ended is found under no root. Such a process runs on (ADR-0003).
+ *
+ * A command is stopped so at its timeout while its shell still runs, and at
+ * an interrupt and at the exit of the process. One whose shell has ended is
+ * answered and not stopped: what it left in its group runs on until the job
+ * in its worktree ends, as what a step leaves runs on until its job ends in
+ * CI, and is stopped then, by this.
  *
  * Both name the command by its id, and the id is the command's only while
  * something holds it (ADR-0003). Node holds the command's shell until it has
@@ -153,6 +172,21 @@ function forget(directory: string, repository: string): boolean {
 }
 
 /**
+ * Stops what the commands that ran in `directory` left in their process
+ * groups, and forgets those commands: the end of a job, before its worktree
+ * is removed. With no directory, what every command left: an interrupt, or
+ * the exit of the process. One job's end leaves what another job's commands
+ * left, which that job may still be using.
+ */
+function clear(directory?: string): void {
+  for (const [child, where] of left) {
+    if (directory !== undefined && where !== directory) continue;
+    stop(child);
+    left.delete(child);
+  }
+}
+
+/**
  * Stops every command still running, then removes every live worktree:
  * synchronously, the only kind of work an exit handler may do, so at exit
  * nothing waits for the commands to end but `discard`'s retries. A directory
@@ -161,6 +195,7 @@ function forget(directory: string, repository: string): boolean {
  */
 function sweep(): void {
   for (const child of running) stop(child);
+  clear();
   for (const [directory, repository] of live) {
     // In the order a job's end takes, for the reasons `withWorktree` gives.
     const forgotten = forget(directory, repository);
@@ -224,6 +259,10 @@ function install(): void {
  *
  * A directory that cannot be deleted stays on the list for the exit to try
  * again, and does not take the job's answer with it.
+ *
+ * What the job's commands left running in their process groups is stopped
+ * first, so that the worktree is removed with as little running in it as the
+ * sandbox can reach.
  */
 export async function withWorktree<T>(repository: string, revision: string, work: (directory: string) => Promise<T>): Promise<T> {
   install();
@@ -233,6 +272,7 @@ export async function withWorktree<T>(repository: string, revision: string, work
     await addWorktree(directory, revision, repository);
     return await work(directory);
   } finally {
+    clear(directory);
     const forgotten = await removeWorktree(directory, repository);
     if (discard(directory) === null) {
       // Asked again about a worktree it has forgotten, git changes nothing,
@@ -244,33 +284,40 @@ export async function withWorktree<T>(repository: string, revision: string, work
 }
 
 export interface CommandRun {
-  /** `null` when the command was stopped at its timeout. */
+  /** How the command's shell ended; `null` when the command was stopped at its timeout. */
   readonly exitCode: number | null;
   /** What the command had printed by the time it was answered. */
   readonly output: string;
   /**
-   * Set on a command that was stopped at its timeout and answered with its
-   * output still open: something it started holds the output where the stop
-   * did not reach it, and runs on (ADR-0003).
+   * Set on a command answered with its output still open: something it
+   * started holds the output, `SETTLE_MS` after its shell ended or after its
+   * timeout stopped what it could reach, and runs on (ADR-0003).
    */
   readonly outputHeld?: true;
 }
 
 /**
  * Runs a command line in a directory, output and errors interleaved, until
- * its output closes. A command that outlives `timeoutSeconds` is stopped
+ * its shell ends. A command is its shell: it is answered with the shell's
+ * exit code and what was printed, once the shell has ended and its output
+ * has closed. A command whose shell outlives `timeoutSeconds` is stopped
  * with what `stop` reaches of it, as is one still running when the process
  * is interrupted or exits. Once the process is interrupted it never answers:
  * the job waiting on it would otherwise carry on in a worktree being removed.
  *
- * The timeout bounds the wait as well as the command. What the stop reached
- * lets go of the output in the time the system takes to end it, and the
- * command answers then. What still holds the output `SETTLE_MS` later is
- * what `stop` does not reach, and no wait would end it: the sandbox lets go
- * of the output instead, and answers with what was printed and with
- * `outputHeld`. Letting go is what the end of this process would do to
- * whatever holds the output, only sooner, and without it the open output
- * keeps this process from ending once its work is done.
+ * The wait for the output is bounded, after the shell's own end as after the
+ * timeout. A shell that ends leaves its output open only where something it
+ * started still holds it, and that is no part of the command: the answer is
+ * the shell's, as a step's is in CI, where GitHub's runner waits five seconds
+ * for such an output and goes on. Here the bound is `SETTLE_MS`, at the
+ * shell's end and at the timeout alike. Then the sandbox lets go of the
+ * output and answers with what was printed and with `outputHeld`. Letting go
+ * is what the end of this process would do to whatever holds the output,
+ * only sooner, and without it the open output keeps this process from ending
+ * once its work is done.
+ *
+ * The timeout is the shell's: once the shell has ended it stops nothing, and
+ * a command already judged by its exit code is not made a stopped one by it.
  *
  * Through the shell, on purpose: a probe's command is a line from the
  * repository's own brief - `npm test -- x` - which the person approved with
@@ -318,26 +365,45 @@ export function runCommand(line: string, cwd: string, timeoutSeconds: number): P
     };
     let stopped = false;
     let settling: NodeJS.Timeout | undefined;
-    const timer = setTimeout(() => {
-      stopped = true;
-      stop(child);
+    // Answers a command whose output is still open once the bound on the
+    // wait for it has passed: `exitCode` is how its shell ended, or `null`
+    // for one stopped at its timeout.
+    const settle = (exitCode: number | null): void => {
       settling = setTimeout(() => {
         // With both let go, 'close' follows as soon as Node has seen the
         // shell end, and takes the command off the list of those running.
         // The streams exist, as above, so the mutants of `?.` are equivalent.
         child.stdout?.destroy();
         child.stderr?.destroy();
-        answer({ exitCode: null, output, outputHeld: true });
+        answer({ exitCode, output, outputHeld: true });
       }, SETTLE_MS);
+    };
+    const timer = setTimeout(() => {
+      stopped = true;
+      stop(child);
+      settle(null);
     }, timeoutSeconds * 1000);
     child.on('error', (error) => {
-      // 'close' follows the error of a spawn that failed, and clears the
-      // timer too, so the mutant that drops this call is equivalent.
+      // A spawn that failed starts no shell, whose end would clear the timer.
       clearTimeout(timer);
       resolve({ exitCode: 127, output: `${output}${error.message}\n` });
     });
-    child.on('close', (code) => {
+    child.on('exit', (code) => {
+      // The shell its timeout stopped: the timeout has the answer already.
+      if (stopped) return;
+      // The shell ended by itself, so the timeout has nothing left to stop.
       clearTimeout(timer);
+      // A group of the shell's id that still has a member is what the shell
+      // left running in it, to be stopped when its job ends. The id is set:
+      // a shell that was never started does not end. Windows has no group,
+      // and answers that there is none.
+      if (taken(-(child.pid as number))) left.set(child, cwd);
+      // A shell that a signal ended has no code: a failure, as in 'close'.
+      settle(code ?? 1);
+    });
+    child.on('close', (code) => {
+      // The command's own timer is over by now: cleared as its shell ended
+      // or as its spawn failed, or run. What is left is the bound.
       clearTimeout(settling);
       running.delete(child);
       // The second answer of a command already answered as held does nothing.

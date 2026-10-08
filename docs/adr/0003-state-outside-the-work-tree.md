@@ -287,6 +287,149 @@ macOS was not measured by hand: the integration suite runs there, and holds
 on every platform that a command left with its output held is answered once
 the bound has passed, that what holds it runs on, and that `probe` ends.
 
+*Amended 2026-10-09.* **A command is its shell.** A command was answered
+when its output closed, or three seconds after its timeout. Between the two
+was the case the last amendment left: a command whose shell has ended while
+something it started still holds its output was waited for until its
+timeout, ten minutes by default, and then answered as stopped, whatever the
+shell's own exit code. So a `run` that left a process behind was a `timeout`
+and its probe `invalid`, and a `setup` that left one could never pass.
+
+Measured with 0.11.1 on Windows 11 (Node 24.18.1, cmd) and on Linux 5.15
+(Node 24.21.0, dash, in a container): a command with a timeout of six
+seconds whose shell ends at once, with exit code 0 or 3, and leaves a process
+that holds its output for twenty; how long the command took to answer, and
+with what.
+
+| What the shell left holding its output | Windows | Linux |
+| --- | --- | --- |
+| Nothing | 0.3 s, its exit code | 0.0 s, its exit code |
+| A process Node started `detached`, its parent ended | 9.0 s, stopped | 9.0 s, stopped |
+| What the shell put in the background: `start /b`, and `&` | 9.0 s, stopped | 6.0 s, stopped |
+| `setsid`, in the background | | 9.0 s, stopped |
+| A process Node started without `detached`, its parent ended | 0.6 s, its exit code | 6.0 s, stopped |
+| A background process with its own output sent to a file | 9.0 s, stopped | 0.0 s, its exit code |
+
+Rows two to four were measured with both exit codes, which made no
+difference. Each nine is the timeout and the three seconds after it; each
+six on Linux is the timeout, whose signal found the process in the command's
+group. Through `probe` on Windows, each
+such `run` was `invalid`, `stopped after 6 seconds, and something it started
+was left running, holding its output`, and each such `setup` ended the probe
+with exit 2, 10.7 to 10.9 seconds after it began, where a probe that leaves
+nothing took 2.5.
+
+**What CI does with the same lines** was measured, since a probe's command
+is run "as CI runs the repository's own scripts": steps on GitHub's runner
+2.337.0, on Ubuntu 24.04 and 26.04, macOS 26 and Windows Server 2025, each
+leaving a process with a life of five minutes, and the step after saying
+when it began and whether that process still ran.
+
+- A step is answered by its shell's exit code: one whose shell exited 3
+  with a process left behind had failed.
+- The runner waits five seconds for a step's output once its shell has
+  ended, and goes on: the step after began 5.0 to 5.9 seconds after the
+  shell ended wherever something held the output, and 0.0 to 0.1 where
+  nothing did. What the process wrote in those five seconds is in the
+  step's log, and nothing it wrote later.
+- On Linux and macOS whatever the step left runs on into the steps after
+  it: a background job of `bash` and of `sh`, holding the output or not,
+  `setsid`, a process Node started `detached`. As the job ends the runner
+  ends each: `Cleaning up orphan processes`.
+- On Windows the runner ends, at those five seconds, the processes under
+  the shell that has ended, where they hold the step's output: what `cmd`
+  started with `start /b`, with its own output sent to `nul` as well, and
+  what PowerShell started with `Start-Process -NoNewWindow`, were gone 4.8 to
+  5.1 seconds after the shell. Read in the runner's `ProcessInvoker.cs`, and
+  not measured: it finds them by their parent's id, through the shell's
+  process, which it still holds. A process whose parent had ended ran on to
+  the end of the job, as did a background job of Git's `bash`.
+
+**What Windows can reach.** libuv puts each process Node starts without
+`detached` in a job object that ends its processes when Node ends, and lets
+their own children out of it (`JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK`,
+`src/win/process.c` in libuv 1.52.1). Measured: a process that started a
+command as the sandbox does and exited three seconds later, stopping
+nothing. The shell, still running, was ended with it, and never ran the rest
+of its line. A process that shell had started ran on, as did one left with
+`start /b` by a shell that had ended and one Node had started `detached`. So
+the job holds a command's shell and nothing the shell started, and gives the
+sandbox no reach of its own. Inside a command it is what ends a process Node
+started without `detached` when that Node ends: in the table above such a
+process never wrote its first line, and the command answered at once. With
+taskkill finding no tree under a root that has ended, and no id safe to name
+once the shell is let go (above), nothing a command left on Windows can be
+reached once its shell has ended. The runner's way takes a hold on the
+shell that Node does not keep.
+
+So:
+
+- **A command is answered when its shell ends**, with the shell's exit code
+  and what was printed until then, once its output has closed.
+- **The wait for that output is bounded** by the three seconds a timeout's
+  wait and an interrupt's already have. Then the sandbox lets go of the
+  output, as it does after a timeout, and answers by the exit code, with
+  its output still held. The runner's bound is five seconds; three is kept
+  because it is the one the sandbox has, and what a process prints after
+  its command's shell has ended is no part of the command by either.
+- **The timeout is the shell's.** A shell that has ended is not stopped at
+  the timeout its command was given, and a command already judged by its
+  exit code does not become a stopped one when that time comes. A shell
+  still running at its timeout is stopped as before.
+- **What the shell left is not stopped as the shell ends.** That was the
+  plan, and the measurements argue against it: on Linux and macOS CI leaves
+  it running into the steps after, which is how a server started in one
+  step serves the next, and a `setup` that started one in the background
+  with its output sent to a file already worked that way here. Stopped at
+  the shell's end, the same `setup` would have passed with its server gone
+  on Linux and macOS, and with it running on Windows, where nothing can be
+  stopped.
+- **It is stopped when its job ends**, as far as the sandbox can reach it:
+  on Linux and macOS, every process still in the command's process group,
+  before the worktree is removed, at an interrupt and at the exit of the
+  process, whether or not it holds the command's output. This is where CI
+  ends it, and the rule this record began with: a worktree is removed only
+  once nothing runs in it. The sandbox keeps such a command, and only such a
+  one: as Node sees a shell end, a group of the shell's id that still has a
+  member is what the shell left, and the id is given to no other process
+  while it has one (above). A command that left nothing is not kept and
+  never signalled. One job's end leaves what another job's commands left.
+  The one case left open above is as it was, and is now open until the job
+  ends where it was open until the timeout.
+- **On Windows nothing is stopped.** What a command left runs on until it
+  ends or a person ends it: through the runs after it, and through the
+  head's when it was left at the base. Where it runs in the worktree, the
+  directory is named as `probe` exits, as before.
+- **A person is told where the output was held**, in the words a timeout
+  already has. A run's evidence goes on `, and something it started was left
+  running, holding its output`, after whatever the run showed: the line that
+  matched, or `the command passed`. A `setup` that failed says it in the
+  error that stops the probe. A `setup` that passed says it in a line of its
+  own on the standard error, `spec-harness: the probe setup "<line>" passed
+  at base, and something it started was left running, holding its output`,
+  whatever the format: the JSON document has no place for a setup. On Linux
+  and macOS what is said to be left may be what the job's end then stops;
+  nothing is said of a process that holds no output, which the sandbox
+  cannot see on Windows and stops unasked elsewhere.
+
+Measured with this change, the commands of the table above: every row that
+was stopped is answered by its exit code, 0 or 3, with its output held,
+after 3.3 to 3.6 seconds on Windows and 3.0 on Linux; the rows that
+answered at once are as they were. On Linux the processes left in the
+group, with `&` and by Node, were stopped as the process that had run the
+command ended, the one with its output sent to a file among them, which had
+run its twenty seconds before; those out of the group ran theirs. Through
+`probe` on Windows: a `run` that fails as its probe declares is `measured`
+and exits 0, one that passes is `vacuous`, a `setup` that exits 0 lets the
+probe measure, and one that exits 3 stops it as failed, each 5.2 to 5.9
+seconds after it began.
+
+Not changed: what a timeout and an interrupt reach of a command still
+running. Not reached: on Windows, anything a command left; everywhere, what
+left the command's group. A process a command leaves in its group on Linux
+or macOS that was to outlive `probe` no longer does. macOS was measured in
+CI alone, as was `probe` on Linux: the container has no git.
+
 ## Consequences
 
 `git worktree add` is the one git write in the family, bounded to a directory
