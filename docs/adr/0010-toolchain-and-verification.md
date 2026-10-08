@@ -71,7 +71,10 @@ lost, and the `break` stays 95. For 0.11.1 the sweep of a2a0596 (run
 37791578721) read 97.47% over 8,024 mutants, 96.44% with every timeout
 lost, and the `break` stays 95; three of its shards took from 31 to 36
 minutes, where the table in `scripts/mutation-shards.mjs` was balanced for
-14, so the table is to be measured again.
+14, so the table is to be measured again. For 0.12.0 the sweep of d8a7e8b
+(run 37834817671), in the order and on the table of the 2026-10-09
+amendment below, read 97.48% over 8,212 mutants, 96.43% with every timeout
+lost, in shards of 13m34s to 16m57s, and the `break` stays 95.
 
 One runner took 69 to 130 minutes for the full sweep. Before any sharded
 sweep ran, the report of eb39599 was cut into shards the way Stryker writes
