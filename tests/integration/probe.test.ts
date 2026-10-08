@@ -229,8 +229,10 @@ describe('probe', () => {
   it('writes each probe file with a final newline, and runs the setup before the probe', async () => {
     const check = "const text = require('node:fs').readFileSync('data.txt', 'utf8'); console.log(text === 'x\\n' ? 'expected fixed' : JSON.stringify(text)); process.exit(1);";
     const repo = defect('id: v\nsetup: node -e "process.exit(0)"\nrun: node check.js\nsignature: expected fixed', { files: { 'check.js': check, 'data.txt': 'x' } });
-    const report = parsed<ProbeReport>(await cli(['probe', '--format', 'json'], repo.root));
-    expect(report.results.map((r) => [r.at, r.verdict])).toEqual([['base', 'measured']]);
+    const result = await cli(['probe', '--format', 'json'], repo.root);
+    expect(parsed<ProbeReport>(result).results.map((r) => [r.at, r.verdict])).toEqual([['base', 'measured']]);
+    // A setup that passed and left nothing running has nothing said of it.
+    expect(result.stderr).toBe('');
   });
 
   it('runs one probe by --id, and says when there is none', async () => {

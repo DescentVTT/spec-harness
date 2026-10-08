@@ -9,6 +9,31 @@ only fixes, reports less or documents, so `^0.7.0` takes only releases that
 cannot turn a run red. The family's policy is
 [spec-core's ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
+## Unreleased
+
+### Changed
+
+- **A probe's command is answered when its shell ends, by the shell's exit
+  code.** A command that ended and left something holding its output, as a
+  server started in the background does, was waited for until its timeout,
+  ten minutes by default, and then counted as stopped: its `run` was a
+  `timeout` and the probe `invalid`, and its `setup` stopped the probe.
+  `probe` now waits three seconds for that output, as GitHub's runner waits
+  five for a step's, judges the command by its exit code and what it had
+  printed, and says that something it started was left running
+  ([ADR-0003](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0003-state-outside-the-work-tree.md)).
+  Upgrading: a command's work must be done when its shell ends, so have it
+  wait for what it starts. A probe that was `invalid` at its timeout may now
+  be `measured`, `vacuous`, `fixed` or `still-failing`, and a `setup` that
+  stopped the probe may pass.
+- On Linux and macOS, what a probe's command left running in its process
+  group is stopped when `probe` is done at that commit, before the worktree
+  is removed. One that held the command's output was stopped at the
+  command's timeout, and one that held nothing ran on after `probe` had
+  ended. Upgrading: a process a `setup` starts in the background serves the
+  runs at that commit and does not outlive them. On Windows it still runs
+  on, since nothing a command left can be reached there.
+
 ## 0.11.1
 
 A probe's timeout ends the wait as well as the command, where a process out
