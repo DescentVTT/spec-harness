@@ -153,6 +153,41 @@ A comment that names the npx command is not noted, and neither is another
 runner's line, such as `pnpm exec`, which is the repository's to choose.
 The line advised for a hook of the repository's own is the node line too.
 
+*Amended 2026-10-09.* The lines the releases wrote are read as they were.
+init writes a line once and never again: a repository keeps the hook, the
+server and the pre-commit hook of the release it ran init with, and a plugin
+of any release runs beside any release of the package. When the command line
+began to refuse an option or an argument a command does not take, and a
+value that names nothing (ADR-0005), the lines were read from the tags,
+`src/setup.ts`, `src/configure.ts`, `hooks/hooks.json` and `.mcp.json` at
+v0.1.0 to v0.11.1:
+
+<!-- bare-name: the lines as the releases wrote them, never to be run -->
+| Releases | Where | The line |
+| --- | --- | --- |
+| 0.1.0 to 0.1.1 | the hooks, in `.claude/settings.json` and the plugin | `npx --no-install spec-harness hook claude` |
+| 0.1.2 to 0.11.1 | the same | `node ${CLAUDE_PROJECT_DIR}/node_modules/@descent-vtt/spec-harness/bin/spec-harness.js hook claude` |
+| 0.1.0 to 0.1.1 | the server, in `.mcp.json` and the plugin | `npx --no-install spec-harness mcp` |
+| 0.1.2 to 0.11.1 | the server, in `.mcp.json` | `node ${CLAUDE_PROJECT_DIR:-.}/node_modules/@descent-vtt/spec-harness/bin/spec-harness.js mcp --root ${CLAUDE_PROJECT_DIR:-.}` |
+| 0.1.2 to 0.11.1 | the server, in the plugin | `node ${CLAUDE_PROJECT_DIR}/node_modules/@descent-vtt/spec-harness/bin/spec-harness.js mcp --root ${CLAUDE_PROJECT_DIR}` |
+| 0.1.0 to 0.9.1 | git's pre-commit hook, and the line advised for a hook of the repository's own | `npx --no-install spec-harness hook git` |
+| 0.10.0 to 0.11.1 | git's pre-commit hook | `node "$bin" hook git`, `bin` being the script's path |
+| 0.10.0 to 0.11.1 | the line advised | `node node_modules/@descent-vtt/spec-harness/bin/spec-harness.js hook git` |
+
+So the harness has been handed five command lines: `hook claude`,
+`hook git`, `mcp`, `mcp --root .` and `mcp --root` with the project. None
+is refused, and `tests/integration/released-lines.test.ts` holds the table
+as data, each line read as the release that wrote it read it, and what this
+release writes to be among them: a release that changes a line adds one
+there, and none is taken out.
+
+`--root ""` is refused now, and no line above was ever handed it and ran.
+A root is empty only where its placeholder was filled with nothing, and each
+line finds its script by the same placeholder: filled with nothing, the
+script's path starts at the top of the filesystem, and node has none to
+start. `hook claude` is read as before whatever else is on its line
+(ADR-0005), so a line a person changed by hand guards as it did.
+
 ## Consequences
 
 - A plugin turned on by managed settings or `--settings` is invisible to

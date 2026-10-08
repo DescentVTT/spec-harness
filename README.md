@@ -70,6 +70,12 @@ CI checks out a commit on no branch, so on a detached HEAD the branch is the one
 
 A branch checked out always wins, and `doctor` says which variable named the branch. Without them, a round's own CI run would name no brief, and `premises` would report the premise the round retires as stale.
 
+A name that names no brief is not passed over for the next ([ADR-0004](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0004-the-active-brief-is-named-not-guessed.md)):
+
+- `--brief` given nothing, `--brief ""`, is refused, as `--brief "$ID"` is where the variable is not set: it was read as the option left out, and the branch's brief answered.
+- `SPEC_BRIEF` set and empty, or to space alone, is as unset. A hook's settings and a pipeline's `env` block set it whether or not a round is under way, and the branch then names the brief, which `doctor` shows.
+- An id spec-brief does not know, or one it has archived, is not passed over either, whichever of the three names it: a command that acts on the brief stops with exit 2, and `doctor` says so in its report.
+
 ## Commands
 
 In the order a round meets them; `init` and `doctor` set a repository up and check it.
@@ -124,6 +130,7 @@ Paths are compared as the filesystem spells them, links resolved and case correc
 
 - `spec-harness hook claude` answers Claude Code's PreToolUse and PostToolUse hooks: a refusal before the write, with the reason and the next step; a warning after a write outside the scope. It never answers `allow`, which would skip the person's own permission prompt. When it cannot answer - the configuration does not load, the briefs cannot be read, the harness meets an error it did not expect - it exits 2, and before a write Claude Code then holds the write.
 - `spec-harness hook git` is a pre-commit hook for any agent or none. `init --git-hook` writes it; in a hook of your own it is the line `node node_modules/@descent-vtt/spec-harness/bin/spec-harness.js hook git`.
+- `hook claude` passes over whatever else is on its line that it does not read, as every release has, where every other command [refuses it](#an-input-that-names-nothing): its line is in settings a later release cannot rewrite, and exit 2 from it holds every write.
 
 A guard is a guardrail - an agent that writes through a shell passes it - so the audit and spec-brief's archive are the gates ([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
 
@@ -141,6 +148,8 @@ npx --no-install @descent-vtt/spec-harness escalate --show E-012-1
 npx --no-install @descent-vtt/spec-harness rule E-012-1 --allow --note "Add rotated_at only."
 git commit -S -m "ruling R-012-1: allow" -- briefs/012_rotate-tokens.md
 ```
+
+A memo is what a person rules on, so none is written with a part that says nothing: a path, the reason, a recommendation or an option that is empty is [refused](#an-input-that-names-nothing), by `escalate` and by the server's `request_escalation` alike. An option is `"<label>: <cost>"`: the label names the choice and may not be empty, and the cost may be left out, the memo then giving the choice alone.
 
 A ruling is a row in the brief's `## Rulings` table. It **counts** when the commit that last changed the row is signed by a key the **base branch's** `.github/allowed_signers` lists. The file is `rulings.allowedSigners` in `.spec-harness.json`, `.github/allowed_signers` by default.
 
@@ -305,6 +314,8 @@ Run it in CI: exit 1 when a premise is stale, exit 2 when spec-guard is not ther
 
 `start_round`, `check_path`, `request_escalation`, `audit_round` and `list_rounds` over MCP on stdio, with the four workflow prompts. Both protocol eras are served. The architecture rules themselves stay with spec-guard's server.
 
+A tool answers an argument it cannot use with a tool error that names the argument, and writes nothing: one it does not take, one of the wrong type, and one that is given and [names nothing](#an-input-that-names-nothing), such as an empty `brief`.
+
 ### `init`
 
 Configures the family to agree. It prints the plan, merges into files that exist, keeping what is there, and changes nothing without `--write`. Each step names its file and what `init` does there: `skip` is a step it does not take and `advise` one it leaves to you, each with the reason.
@@ -343,6 +354,8 @@ The first thing to run when a hook refuses something unexpectedly. It reports:
   - A sibling older than this release needs is `outdated`, with the minimum and the command that installs a newer one, and exit 1.
   - A command named under `tools` is run as named, and its version is not checked.
 - **The repository**: its root, the branch, and the brief the flag, `SPEC_BRIEF` or the branch names.
+  - A brief no round can work under is said on that line, with why: `brief   none: the flag names brief 999, and spec-brief knows no such brief`. So is one spec-brief has archived, an empty `--brief`, and a spec-brief that could not list the briefs. The guard holds every write while it stands, which is often why `doctor` is being run.
+  - It fails nothing, as a base that names no commit fails nothing: `doctor` exits as it would have. `--format json` has the id as `brief` and the reason as `briefProblem`, `null` where there is none.
 - **What a signed ruling needs to count**:
   - the base, and whether `--base`, `.spec-harness.json` or the remote named it;
   - whether the allowed-signers file is on that base;
@@ -359,6 +372,38 @@ The first thing to run when a hook refuses something unexpectedly. It reports:
   - The Claude Code in an editor or the desktop app may be another release than the one on `PATH`: check it there with `claude --version` or `/status`.
 - **git's pre-commit hook**: whether it runs spec-harness, where git runs it from: installed, missing, a hook of the repository's own without the line, or, outside Windows, one git skips because it is not executable.
   - A hook that runs it through `npx` is one that runs it. A note names the line that runs it with `node`: `npx` starts npm to start node on every commit, and under npm 12 prints two `npm notice run` lines each time. A note, never a failure; `--format json` has it as `gitHook.note`.
+
+### An input that names nothing
+
+An option, an argument or a value that is given and names nothing is refused: exit 2, one line on stderr that names it and says what to do, nothing read or written for it. None is read as if it had not been given. `--root "$DIR"` where the variable is not set would otherwise run in the current directory, and the answer would look like the one that was asked for ([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
+
+- **An option a command does not read.** A command takes the options its answer depends on, and refuses any other by name, with the ones it takes: `doctor does not take --note; its options are --brief, --base, --root, --format and --strict`.
+
+  | Command | Reads |
+  | --- | --- |
+  | `context`, `rulings` | `--brief`, `--base`, `--root`, `--format` |
+  | `guard`, `audit`, `doctor` | `--brief`, `--base`, `--root`, `--format`, `--strict` |
+  | `probe` | `--brief`, `--base`, `--root`, `--format`, `--id`, `--at` |
+  | `premises` | `--brief`, `--root`, `--format`, `--strict` |
+  | `escalate` | `--brief`, `--root`, `--format`, `--path`, `--reason`, `--option`, `--recommend`, `--list`, `--show` |
+  | `rule` | `--root`, `--format`, `--allow`, `--deny`, `--note` |
+  | `init` | `--root`, `--format`, `--write`, `--git-hook` |
+  | `hook` | `--brief`, `--base`, `--root` |
+  | `mcp` | `--root` |
+
+  `init` chooses the base itself, and the server is told the brief and the base by each call, so neither takes `--base` or `--brief`: taking one would say the base or the brief had been set.
+- **An argument a command does not take.** `context`, `rulings`, `audit` and `probe` take one brief's id at most, `rule` one escalation's id, `guard` its paths and `hook` the word `claude` or `git`; `escalate`, `premises`, `init`, `mcp` and `doctor` take none. `init mydir` set up the directory it stood in; `init --root mydir` sets up another.
+- **A value that names nothing.** An option that takes a value refuses one that is empty or only space, by the option's name: `--brief is "", which names no brief`. So does an argument, as in `guard ""`. No option gives an empty value a meaning: leave the option out for what the command does without it.
+- **A `--root` that is no directory**, a file or a path that is not there: `--root is "nowhere", which is not a directory`.
+- **A `.spec-harness.json` that is a directory** does not load, and is said so in a line, as one that is not JSON is.
+
+`--help` and `--version` answer whatever else is on the line. Three things are read another way, each for its reason:
+
+- **`hook claude` reads its line as every release has.** The line is in `.claude/settings.json` and in the Claude Code plugin of every release since 0.1.0, which a later release cannot rewrite, and exit 2 from it holds every write of a session, the one that would mend the line among them. So what it does not read is passed over as before, an empty `--brief` with the rest; an option no command has is exit 2 there, as it always was. The releases have handed the harness five command lines, `hook claude`, `hook git`, `mcp`, and `mcp --root` with the project or with `.`, and each is read as the release that wrote it read it ([ADR-0012](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0012-one-way-into-claude-code.md)).
+- **`doctor` says an empty `--brief` or `--base` in its report**, as it says a brief spec-brief does not know: a diagnosis is what a person runs when something is wrong, and it reports what is wrong with what it was given.
+- **`SPEC_BRIEF` set and empty is as unset**, since what sets it sets it whether or not there is a round ([Which brief](#which-brief)).
+
+**In a tool call.** The server's tools refuse the same in their arguments, with a tool error that names the argument, as in `"paths[1]" is "", which names no file`: an empty `brief` or `base`, an empty path, an empty `recommendation`, an option whose `label` is empty. An argument a tool does not take was refused already.
 
 ## As a Claude Code plugin
 
@@ -435,7 +480,7 @@ A person who runs the tools by hand runs `npx --no-install @descent-vtt/spec-har
 | --- | --- |
 | `0` | Clean. |
 | `1` | Refused, found something, or waiting on a person. |
-| `2` | The answer cannot be trusted, or did not arrive. A git command that failed is one, and so is a stdout its reader closed before all of the output was written, as a pipeline into `head` does: each is one line on stderr. An error the harness did not expect is one too: `spec-harness: unexpected error:` and its stack, on stderr. |
+| `2` | The answer cannot be trusted, or did not arrive. An option, an argument or a value that [names nothing](#an-input-that-names-nothing) is one. A git command that failed is one, and so is a stdout its reader closed before all of the output was written, as a pipeline into `head` does: each is one line on stderr. An error the harness did not expect is one too: `spec-harness: unexpected error:` and its stack, on stderr. |
 | `130` | A `probe` interrupted by SIGINT (Ctrl+C) while it runs. |
 | `143` | A `probe` interrupted by SIGTERM. |
 | `129` | A `probe` interrupted by SIGHUP. |

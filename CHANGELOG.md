@@ -33,6 +33,76 @@ cannot turn a run red. The family's policy is
   ended. Upgrading: a process a `setup` starts in the background serves the
   runs at that commit and does not outlive them. On Windows it still runs
   on, since nothing a command left can be reached there.
+- **An option a command does not read is refused by that command.** Every
+  command took every option, so `doctor --note x`, `init --base main`,
+  `mcp --brief 012` and `hook git --strict` ran as if the option were not
+  there. Each is now exit 2 and one line that names it, `doctor does not
+  take --note; its options are --brief, --base, --root, --format and
+  --strict`
+  ([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md),
+  [An input that names nothing](README.md#an-input-that-names-nothing)).
+  Upgrading: drop the option. The README's table has what each command
+  reads; `--strict` is for `guard`, `audit`, `premises` and `doctor`, and
+  `init` and `mcp` take neither `--brief` nor `--base`.
+- **An argument a command does not take is refused.** `doctor extra`,
+  `premises extra` and `context 012 extra` ran as if it were not there, and
+  `init mydir` set up the directory it stood in; each is exit 2 with the
+  argument named. Upgrading: drop the argument; `init --root mydir` sets up
+  another directory.
+- **An option or an argument given an empty value is refused by name, not
+  read as left out.** `--root ""` ran in the current directory, `--brief ""`
+  was answered for the branch's brief, `audit --base ""` measured no change
+  and warned, and `guard src/a.ts ""` judged the repository itself. Each is
+  exit 2 and a line such as `--root is "", which names no directory`, for a
+  value of only space too; `probe --id ""` and `escalate --show ""`, exit 2
+  before, say the same line
+  ([ADR-0004](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0004-the-active-brief-is-named-not-guessed.md)).
+  Upgrading: where a script may hand an option nothing, leave the option
+  out, as `${ID:+--brief "$ID"}` does in a shell. `SPEC_BRIEF` set and
+  empty is still as unset.
+- **A memo is not written with a part that says nothing.** `escalate` with
+  an empty `--path`, `--reason`, `--option` or `--recommend`, and
+  `request_escalation` with an empty path, recommendation or option label,
+  recorded a request a person could not rule on: a file with no name, an
+  empty *Why*, `1. **** - `. Each is refused, exit 2 or a tool error that
+  names the argument, and nothing is recorded
+  ([ADR-0006](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0006-a-ruling-is-a-signed-commit.md)).
+  Upgrading: give each of them something, or leave `--option` and
+  `--recommend` out; an option needs a label, `"<label>: <cost>"`, and its
+  cost may be left out.
+- **The server's tools refuse an empty `brief`, `base` or path.**
+  `start_round`, `check_path`, `request_escalation` and `audit_round`
+  answered an empty `brief` for the branch's brief and an empty `base` with
+  no ruling verified, and `check_path` judged an empty path as the project
+  itself. Each is a tool error that names the argument, `"brief" is "",
+  which names no brief`. Upgrading: omit an argument there is nothing to
+  give.
+- `hook claude` refuses none of the above: whatever else is on its line is
+  passed over as before, since exit 2 from it holds every write of a
+  session. Every command line a release's `init` wrote, or its plugin
+  ships, is read as it was, and a test holds each
+  ([ADR-0012](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0012-one-way-into-claude-code.md)).
+
+### Added
+
+- `doctor` says when the brief a round would work under is no brief: one
+  spec-brief does not know or has archived, whichever of `--brief`,
+  `SPEC_BRIEF` or the branch names it, and an empty `--brief` or `--base`.
+  It printed the id and no more, `brief   999`, for a brief under which the
+  guard held every write. Its exit code is as it was, and `--format json`
+  has the reason as `briefProblem`.
+
+### Fixed
+
+- A `--root` that is a file, or is not there, is refused by name, `--root
+  is "nowhere", which is not a directory`, where the line said the path was
+  outside a git work tree. Exit 2, as before.
+- A `.spec-harness.json` that is a directory is said in the harness's
+  words, `.spec-harness.json is a directory, not a configuration file`,
+  where it was `is not valid JSON: EISDIR: illegal operation on a
+  directory, read`. Exit 2, as before.
+- A memo gives an option that states no cost as the choice alone,
+  `2. **Refuse**`, where it ended in a dash that led nowhere.
 
 ## 0.11.1
 

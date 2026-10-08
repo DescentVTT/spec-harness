@@ -203,6 +203,88 @@ for one. Measured on 0.11.0 through the launcher (Windows 11, Node 24.18.1):
   message alone, `spec-harness: git diff --cached failed: fatal: ...`, exit
   2. So for the diff `audit` reads and the worktree `probe` adds.
 
+*Amended 2026-10-09.* An input that is set and names nothing is refused,
+not read as if it had not been given (spec-core's ADR-0005, amended the same
+day). The command line had one table of options for every command, and
+nothing asked whether what the parser took named anything. Measured on
+0.11.1 through the launcher, each of these ran as if the input were not
+there, exit 0 unless said:
+
+- **An option another command reads.** `doctor --note x`, `doctor --id ""`,
+  `init --base nowhere`, `mcp --brief 999`, `hook git --strict`: every
+  command took all eighteen options, and did nothing with those it does not
+  read.
+- **An argument no command asked for.** `doctor extra`, `init mydir`, which
+  set up the directory it stood in, `premises extra`, `mcp extra`, and a
+  second argument to `context`, `rulings`, `audit`, `probe` and `rule`.
+- **An option given an empty value.** `--root ""` ran in the current
+  directory; `--brief ""` was the branch's brief (ADR-0004); `audit --base
+  ""` was an audit that measured no change, with a warning; `escalate`
+  wrote the empty value into its memo (ADR-0006). `probe --id ""` and
+  `escalate --show ""` were exit 2 in words that named no option.
+- **An empty argument.** `guard src/a.ts ""` judged the empty path as the
+  repository itself, and `context ""` was the branch's brief.
+
+Each is now exit 2 and one line on stderr that names the input, shows what
+it holds and says what to do, before the command reads or writes anything:
+
+- A command has a shape: the options it reads and the arguments it takes
+  (`src/usage.ts`, and the README's table). An option is a command's only
+  where its answer depends on it. `init` chooses the base itself and the
+  server is told the brief and the base by each call, so neither takes
+  `--base` or `--brief`: taking one would tell someone the base or the
+  brief had been set. An option a command does not read is refused by name,
+  with those it does read, and an argument it does not take with what it
+  takes.
+- An option that takes a value refuses one that is empty or only space, by
+  the option's name, the value shown as JSON, where a tab can be seen. No
+  option gives emptiness a meaning, so there is no exception among them.
+  `--format`, `--at` and `rule`'s `--note` were refused already, each in
+  its own words, and keep them. An argument that names nothing is refused
+  the same way.
+- A `--root` that is a file, or is not there, was exit 2 already, in words
+  that named a git work tree and not the option. It is refused by name.
+- A `.spec-harness.json` that is a directory was refused in Node's words,
+  `is not valid JSON: EISDIR`. It says `is a directory, not a configuration
+  file`.
+- `--help` and `--version` answer whatever else is on the line: asked for
+  the help, a run answers nothing else that could be mistaken.
+- The server answers a tool call that holds such an argument with a tool
+  error that names it, `"brief" is "", which names no brief`, and serves
+  the next: an empty `brief` or `base`, an empty place in `paths`, an empty
+  `recommendation`, an option without a label (ADR-0006). It refused an
+  argument a tool does not take, and one of the wrong type, already.
+
+**`hook claude` is exempt, and reads its line as every release has.** The
+line is in `.claude/settings.json` and in the plugin of every release since
+0.1.0, which a later release cannot rewrite, and Claude Code holds a tool
+call on a PreToolUse hook's exit 2: a refusal of something on that line
+would hold every write of a session, the write that mends the line among
+them, for the sake of an option that had done no harm. So whatever is on
+its line beside `hook claude` is passed over as it was, an empty `--brief`
+or `--root` included, and the hook keeps the answers the amendments above
+give it: exit 1 for a question it cannot read, exit 0 outside a git work
+tree, exit 2 for a brief that is named and is not one, and exit 2 for an
+option no command has, which the parser refused before this. What the
+releases wrote on that line is `hook claude` and nothing else (ADR-0012).
+
+`hook git` is held to the rule. It stops one commit with a line a person
+reads, who can then mend the hook, and the releases wrote `hook git` and
+nothing after it. `doctor` is a diagnosis: it refuses what any command
+refuses, but an empty `--brief` or `--base` it says in its report, as it
+says a base that names no commit (ADR-0004).
+
+Each refusal is input refused that was accepted, a minor release (spec-core's
+ADR-0009). What was found and left as it was:
+
+- `--base` naming no commit is said where it matters and stops nothing but
+  `probe`: a warning in `audit`, a ruling not verified in `rulings` and the
+  guard, a line of `doctor`'s report.
+- `escalate --list` and `--show` pass over the options of a request given
+  beside them, and `premises` reads a `--brief` spec-brief does not know as
+  no round.
+- A brief given as an argument and by `--brief` at once is the argument's.
+
 ## Consequences
 
 An agent that writes through a shell passes the guard and is caught at the

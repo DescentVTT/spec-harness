@@ -73,6 +73,31 @@ merge commit keeps them verifiable after it: the README says how to set
 that, on GitLab the merge method *Merge commit* with *Squash commits when
 merging* set to *Do not allow*.
 
+*Amended 2026-10-09.* A memo is never written with a part that says
+nothing. A person rules on the memo, and cannot rule on a hole in it.
+Measured on 0.11.1: `escalate --path "" --reason why` recorded a request
+for a file named with two backticks and nothing between them;
+`--reason ""` or `" "` one with an empty *Why*; `--option ""` wrote
+`1. **** - `, a choice numbered and not named; `--recommend ""` a
+recommendation of nothing. `request_escalation` refused an empty reason and
+wrote the rest, and a test held an option with no label to be recorded
+"rather than refuse to ask".
+
+That is reversed. A request that is refused costs the agent one more call,
+in the same turn, with the part filled in; a memo with a hole costs the
+person a trip back to the agent to learn what was meant, and a ruling made
+without it rules on something else.
+
+- `escalate` refuses an empty `--path`, `--reason`, `--option` or
+  `--recommend` by the option's name, and an option with a cost and no
+  label, `--option ": a cost"`, the same way: exit 2, nothing recorded.
+- `request_escalation` refuses an empty place in `paths`, an empty
+  `recommendation` and an option whose `label` is empty or is not a
+  string, with a tool error that names the argument, `"options[1].label"`.
+- An option's cost may be left out, on the command line and in a tool call
+  alike: a choice with a name is a choice. The memo then gives the choice
+  alone, where it wrote the name and a dash that led nowhere.
+
 ## Consequences
 
 No new format, service or network: git, OpenSSH 8.1 or later (2019), and an
