@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { runCommand } from '../../src/sandbox.js';
-import { brief, BRIEF_FILE, cleanup, repository, spawnBin, temp, withEnvironment, type Repository } from './helpers.js';
+import { BIN, brief, BRIEF_FILE, cleanup, cli, repository, ROOT, spawnBin, temp, withEnvironment, type Captured, type Repository } from './helpers.js';
 
 /**
  * What the sandbox promises beyond a job that ends on its own, which
@@ -18,7 +18,8 @@ import { brief, BRIEF_FILE, cleanup, repository, spawnBin, temp, withEnvironment
  * directory cannot be deleted (ADR-0003); and a probe's command run as CI
  * runs it, with npm told to fetch nothing for it unless the person's
  * environment says otherwise, its output bounded, stopped whole at its
- * timeout (ADR-0007).
+ * timeout (ADR-0007), and answered within a bound of that timeout when
+ * something the stop did not reach still holds its output (ADR-0003).
  */
 
 afterAll(cleanup);
@@ -219,6 +220,23 @@ async function interrupt(handler: Handler, signal: NodeJS.Signals): Promise<Exit
   return within(Promise.race([exited, returned.then(() => exited)]), 60, `exit after ${signal}`);
 }
 
+/**
+ * The built command line, started as a person starts it and not waited on
+ * here, so that this file goes on hearing the processes its commands start
+ * while it runs. How it ended, once it has. One still running when its test
+ * ends is stopped through its handle.
+ */
+function startBin(args: readonly string[], cwd: string): Promise<Captured> {
+  if (!existsSync(join(ROOT, 'dist', 'cli.js'))) throw new Error('dist/cli.js is missing: run "npm run build" before the suite');
+  const child = spawn(process.execPath, [BIN, ...args], { cwd, env: { ...process.env, SPEC_BRIEF: '' }, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+  own.push(child);
+  let stdout = '';
+  let stderr = '';
+  child.stdout?.on('data', (chunk: Buffer) => (stdout += chunk.toString('utf8')));
+  child.stderr?.on('data', (chunk: Buffer) => (stderr += chunk.toString('utf8')));
+  return new Promise((resolve) => child.once('close', (code) => resolve({ code: code ?? -1, stdout, stderr })));
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -328,13 +346,18 @@ function tree(grandchild: string): string {
  * and taskkill's tree. Left in the group, it is what the group signal still
  * reaches on Linux and macOS; on Windows a process node starts without
  * detaching it ends with node, so none is left that way there.
+ *
+ * The command prints `says` first, when there is one. The process it leaves
+ * runs in the temporary directory, not where the command ran: on Windows a
+ * directory something runs in cannot be deleted, which other tests are about.
  */
-function leaving(name: string, where: 'outside its group' | 'in its group', command = named('command')): string {
+function leaving(name: string, where: 'outside its group' | 'in its group', command = named('command'), says = ''): string {
   return script(
     'leaving.cjs',
     [
       "const { spawn } = require('node:child_process');",
-      "const kept = spawn(process.execPath, [process.argv[5], process.argv[2], process.argv[3], process.argv[4]], { stdio: 'inherit', detached: process.argv[7] === 'detached', windowsHide: true });",
+      'if (process.argv[8] !== undefined) console.log(process.argv[8]);',
+      "const kept = spawn(process.execPath, [process.argv[5], process.argv[2], process.argv[3], process.argv[4]], { cwd: require('node:os').tmpdir(), stdio: 'inherit', detached: process.argv[7] === 'detached', windowsHide: true });",
       'kept.unref();',
       '// Known before it ends, so that its end is seen: its connection closes with it.',
       'known(process.argv[6], (socket) => socket.unref());',
@@ -343,6 +366,7 @@ function leaving(name: string, where: 'outside its group' | 'in its group', comm
     `"${waiter()}"`,
     command,
     where === 'outside its group' ? 'detached' : 'grouped',
+    ...(says === '' ? [] : [says]),
   );
 }
 
@@ -697,11 +721,17 @@ describe('a command still running when the process is interrupted or exits', () 
 
   it('is not waited for past a bound, when something it started left the tree and holds its output', async () => {
     const { runCommand: run, handlers } = await freshSandbox();
-    await holding(run);
+    const holder = await holding(run);
+    let over = false;
+    void holder.ended.then(() => {
+      over = true;
+    });
     const interrupted = Date.now();
     const { code, at } = await interrupt(only(handlers('SIGINT'), 'SIGINT'), 'SIGINT');
     expect(code).toBe(130);
     expect(at - interrupted).toBeLessThan(15_000);
+    // An interrupt reaches what a timeout reaches, and that process is not it.
+    expect(over, 'the holder ended').toBe(false);
   });
 
   it('is removed at exit once whatever keeps it from being deleted lets go, as a command just stopped does on Windows', async () => {
@@ -757,9 +787,10 @@ describe('a command whose shell has ended while something it started still holds
     other.stdin?.end();
     expect(await within(exitOf(other), 60, 'the other process to end')).toEqual({ code: 7, signal: null });
     if (by === 'its timeout') {
-      // Its timeout is still what ended it, once its output is let go.
+      // Its timeout is still what ended it, whether its output closed first
+      // or the bound on the wait for that passed.
       await holder.end();
-      expect(await within(answered, 60, 'the command to answer')).toEqual({ exitCode: null, output: '' });
+      expect(await within(answered, 60, 'the command to answer')).toMatchObject({ exitCode: null, output: '' });
     }
   });
 
@@ -807,6 +838,7 @@ describe('a command whose shell has ended while something it started still holds
     expect(await within(exitOf(started[0] as ChildProcess), 60, 'the sandbox to see the shell end')).toEqual({ code: 0, signal: null });
     timeout();
     await within(member.ended, 30, 'the process left in the group to be gone');
+    // Stopped whole, so nothing is said to hold its output.
     expect(await within(answered, 30, 'the command to answer')).toEqual({ exitCode: null, output: '' });
   });
 
@@ -823,6 +855,129 @@ describe('a command whose shell has ended while something it started still holds
     await stray(grandchild);
     only(handlers('exit'), 'exit')(0);
     expect(taskkills.map((args) => args[1])).toEqual([String(started[1]?.pid)]);
+  });
+});
+
+describe('a command stopped at its timeout while something the stop cannot reach holds its output', () => {
+  // A process in a group of its own, its parent gone: neither the group's
+  // signal nor taskkill's tree finds it (ADR-0003). The command waited for it
+  // without bound, and the probe with it.
+  const SAID = ', and something it started was left running, holding its output';
+
+  it('is answered within a bound of its timeout, with what it had printed, and its output is let go while the holder runs on', async () => {
+    const { runCommand: run, started } = await watchedSandbox();
+    const name = named('holder');
+    const { answered, timeout } = timed(() => run(leaving(name, 'outside its group', named('command'), 'printed'), temp(), 600), 600);
+    const holder = await stray(name);
+    const command = started[0] as ChildProcess;
+    expect(await within(exitOf(command), 60, 'the sandbox to see the shell end')).toEqual({ code: 0, signal: null });
+    let over = false;
+    void holder.ended.then(() => {
+      over = true;
+    });
+    // Node says a command is closed once nothing of its output is open on
+    // this side: until then the open output keeps the process from ending.
+    const closed = new Promise<void>((resolve) => command.once('close', () => resolve()));
+    const stopped = Date.now();
+    timeout();
+    const answer = await within(answered, 60, 'the command to answer');
+    // The three seconds the sandbox waits for what it stopped (ADR-0003).
+    expect(Date.now() - stopped).toBeLessThan(15_000);
+    expect(answer).toEqual({ exitCode: null, output: 'printed\n', outputHeld: true });
+    await within(closed, 30, 'the sandbox to let go of the output');
+    expect(over, 'the holder ended').toBe(false);
+  });
+
+  // Through `probe`, for what a person is told. The command's timeout, ten
+  // minutes, is run by hand once the command has ended and left the holder,
+  // as `timed` runs one.
+  it.each([
+    {
+      line: 'run',
+      fields: (left: string) => [`run: ${left}`, 'timeout: 600'],
+      code: 1,
+      table: new RegExp(`^\\| v \\| base \`[0-9a-f]{12}\` \\| 1/1 \\| invalid \\| stopped after 600 seconds${SAID} \\|$`, 'm'),
+      told: (): string => `spec-harness: probe v is invalid at base: run 1 of 1: stopped after 600 seconds${SAID}; its output ended:\nprinted\n`,
+    },
+    {
+      line: 'setup',
+      fields: (left: string) => [`setup: ${left}`, 'run: node -e "process.exit(1)"'],
+      code: 2,
+      table: /^$/,
+      told: (left: string): string => `spec-harness: the probe setup "${left}" was stopped after 600 seconds at base${SAID}:\nprinted\n`,
+    },
+  ])('is said to have left something running, where a person reads of a probe whose $line it was', async ({ fields, code, table, told }) => {
+    const name = named('holder');
+    const command = named('command');
+    const left = leaving(name, 'outside its group', command, 'printed');
+    const body = ['## Probes', '', '```probe', 'id: v', ...fields(left), 'signature: expected fixed', '```', ''].join('\n');
+    const repo = repository({ [BRIEF_FILE]: brief({ affected: ['src/**'], body }) }, { probes: { runs: 1 } });
+    repo.git('checkout', '-q', '-b', 'brief/001-fix');
+    const timers = vi.spyOn(globalThis, 'setTimeout');
+    const probed = cli(['probe', '--at', 'base'], repo.root);
+    const holder = await stray(name);
+    await within((await stray(command)).ended, 60, 'the command to end');
+    let over = false;
+    void holder.ended.then(() => {
+      over = true;
+    });
+    const timeout = timers.mock.calls.find(([, ms]) => ms === 600_000)?.[0] as (() => void) | undefined;
+    timers.mockRestore();
+    expect(timeout, 'the timer of the command').toBeDefined();
+    timeout?.();
+    const result = await within(probed, 60, 'the probe to answer');
+    expect(over, 'the holder ended').toBe(false);
+    expect(result.stderr).toBe(told(left));
+    expect(result.stdout).toMatch(table);
+    expect(result.code).toBe(code);
+    expect(worktrees(repo)).toHaveLength(1);
+  });
+
+  // The command line as a person runs it, which alone shows that the process
+  // ends: an output left open keeps Node from ending, with the verdict
+  // already printed. Here the holder runs where the command ran, in the
+  // worktree, as what a probe's command leaves behind does.
+  it('does not keep `probe` from ending: the verdict is printed, the exit is the verdict\'s, and git lists no worktree', async () => {
+    const leave = [
+      "const { spawn } = require('node:child_process');",
+      "const holder = spawn(process.execPath, JSON.parse(process.env.SPEC_HARNESS_TEST_HOLDER), { stdio: 'inherit', detached: true, windowsHide: true });",
+      'holder.unref();',
+      "console.log('printed');",
+    ].join('\n');
+    // Ten seconds for a command that ends at once: stopped sooner, while it
+    // still ran, it would take the holder with it on Windows.
+    const body = ['## Probes', '', '```probe', 'id: v', 'run: node leave.js', 'signature: expected fixed', 'timeout: 10', '```', '', '```probe-file leave.js', leave, '```', ''].join('\n');
+    const repo = repository({ [BRIEF_FILE]: brief({ affected: ['src/**'], body }) }, { probes: { runs: 1 } });
+    repo.git('checkout', '-q', '-b', 'brief/001-fix');
+    const name = named('holder');
+    process.env['SPEC_HARNESS_TEST_HOLDER'] = JSON.stringify([waiter(), String((lobby.address() as AddressInfo).port), KEY, name]);
+    let directory = '';
+    try {
+      const ended = startBin(['probe', '--at', 'base'], repo.root);
+      const holder = await stray(name);
+      let over = false;
+      void holder.ended.then(() => {
+        over = true;
+      });
+      const result = await within(ended, 120, 'end of the probe while the holder runs');
+      expect(over, 'the holder ended').toBe(false);
+      const lines = result.stderr.split('\n').filter((text) => text !== '');
+      // On Windows a directory something runs in cannot be deleted, and the
+      // worktree is named as it is left; elsewhere it is deleted under the holder.
+      if (process.platform === 'win32') directory = /^spec-harness: the temporary worktree at (.+) could not be deleted and is left there: ./.exec(lines.pop() ?? '')?.[1] ?? '';
+      expect(lines, result.stderr).toEqual([`spec-harness: probe v is invalid at base: run 1 of 1: stopped after 10 seconds${SAID}; its output ended:`, 'printed']);
+      expect(result.stdout).toContain(`| 1/1 | invalid | stopped after 10 seconds${SAID} |`);
+      expect(result.code).toBe(1);
+      expect(directory === '', result.stderr).toBe(process.platform !== 'win32');
+      expect(worktrees(repo)).toHaveLength(1);
+    } finally {
+      delete process.env['SPEC_HARNESS_TEST_HOLDER'];
+      await stray(name, 30).then(
+        (kept) => kept.end(),
+        () => undefined,
+      );
+      if (directory !== '') await until(() => removed(directory), `${directory} to be removed`, 30);
+    }
   });
 });
 
@@ -1101,6 +1256,20 @@ describe('a command', () => {
     try {
       const run = await runCommand('node -e "process.exit(0)"', temp(), 600);
       expect(run.exitCode).toBe(0);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('leaves no timer behind either once its timeout has stopped it whole: the wait for its output is over, and holds the process no longer', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const answered = runCommand('node -e "setTimeout(() => {}, 20000)"', temp(), 600);
+      vi.advanceTimersByTime(600_000);
+      // Stopped whole, its output closed with it: nothing is said to hold
+      // it. The bound itself never passes here, whatever the machine's pace.
+      expect(await answered).toEqual({ exitCode: null, output: '' });
       expect(vi.getTimerCount()).toBe(0);
     } finally {
       vi.useRealTimers();
