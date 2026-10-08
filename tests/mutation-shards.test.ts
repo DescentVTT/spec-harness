@@ -10,6 +10,9 @@
  * defects put into the merge one at a time made them fail. This file reads the
  * disk and spawns node, so it is not in the unit suite; the full sweep leaves
  * it out (vitest.mutation.config.ts).
+ *
+ * The order the sweep runs a mutant's test files in is held here too: it is
+ * the sweep's, and no mutant is under it.
  */
 
 import { execFileSync } from 'node:child_process';
@@ -19,6 +22,7 @@ import { pathToFileURL } from 'node:url';
 
 import { minimatch } from 'minimatch';
 import { afterEach, describe, expect, it } from 'vitest';
+import { BaseSequencer, type TestSpecification, type Vitest } from 'vitest/node';
 
 import {
   ASSIGNED,
@@ -352,8 +356,117 @@ describe('the merged report as people read it', () => {
   });
 });
 
+const load = async <T>(name: string): Promise<T> => ((await import(pathToFileURL(join(ROOT, name)).href)) as { default: T }).default;
+
+// The configuration and the order it names, from one import, so that they are
+// the same class.
+const mutationSuite = async () =>
+  (await import(pathToFileURL(join(ROOT, 'vitest.mutation.config.ts')).href)) as typeof import('../vitest.mutation.config.js');
+
+describe("the order a mutant's test files run in", () => {
+  // What a worker knows of each file after its last run, by the key vitest
+  // files it under, and the files as vitest finds them.
+  const TIMED: Record<string, { duration: number; failed: boolean }> = {
+    ':tests/integration/sandbox.test.ts': { duration: 46_000, failed: false },
+    ':tests/integration/cli.test.ts': { duration: 7_000, failed: false },
+    ':tests/unit/briefs.test.ts': { duration: 12, failed: false },
+    ':tests/unit/config.test.ts': { duration: 15, failed: false },
+  };
+  const SIZES: Record<string, number> = {
+    ':tests/integration/sandbox.test.ts': 60_000,
+    ':tests/integration/cli.test.ts': 45_000,
+    ':tests/integration/audit.test.ts': 44_000,
+    ':tests/unit/briefs.test.ts': 8_000,
+    ':tests/unit/config.test.ts': 10_000,
+    ':tests/unit/git.test.ts': 2_000,
+  };
+  const FOUND = Object.keys(SIZES).map((key) => key.slice(1));
+
+  const worker = (timed: typeof TIMED, found = FOUND) => {
+    const asked: string[] = [];
+    const ctx = {
+      config: { root: '/work/spec-harness', shard: { index: 1, count: 2 } },
+      cache: {
+        getFileTestResults: (key: string) => {
+          asked.push(key);
+          return timed[key];
+        },
+        getFileStats: (key: string) => (key in SIZES ? { size: SIZES[key]! } : undefined),
+      },
+    } as unknown as Vitest;
+    const files = found.map(
+      (file) => ({ moduleId: `/work/spec-harness/${file}`, project: { name: '', config: { isolate: true, sequence: { groupOrder: 0 } } } }) as unknown as TestSpecification,
+    );
+    return { ctx, files, asked };
+  };
+  const names = (files: TestSpecification[]) => files.map((file) => file.moduleId.slice('/work/spec-harness/tests/'.length).replace('.test.ts', ''));
+
+  it('runs the quickest file first, and a file the worker has not timed after those it has, the smaller first', async () => {
+    const { QuickestFirst } = await mutationSuite();
+    const { ctx, files } = worker(TIMED);
+    expect(names(await new QuickestFirst(ctx).sort(files))).toEqual([
+      'unit/briefs',
+      'unit/config',
+      'integration/cli',
+      'integration/sandbox',
+      'unit/git',
+      'integration/audit',
+    ]);
+    expect(names(await new QuickestFirst(ctx).sort([...files].reverse()))).toEqual(names(await new QuickestFirst(ctx).sort(files)));
+  });
+
+  it('runs a file that failed in the last run before any that passed, however long it takes', async () => {
+    const { QuickestFirst } = await mutationSuite();
+    const failed = { ...TIMED, ':tests/integration/sandbox.test.ts': { duration: 46_000, failed: true } };
+    const { ctx, files } = worker(failed);
+    expect(names(await new QuickestFirst(ctx).sort(files))).toEqual([
+      'integration/sandbox',
+      'unit/briefs',
+      'unit/config',
+      'integration/cli',
+      'unit/git',
+      'integration/audit',
+    ]);
+  });
+
+  it('differs from the order vitest would give in that alone, and reads what vitest recorded by the keys vitest reads', async () => {
+    const { QuickestFirst } = await mutationSuite();
+    const failed = { ...TIMED, ':tests/unit/config.test.ts': { duration: 15, failed: true } };
+    const timed = Object.keys(TIMED).map((key) => key.slice(1));
+
+    // Vitest's own: the failed file, then the longest, which is why a mutant
+    // that only a unit test kills waited for the sandbox tests.
+    const theirs = worker(failed, timed);
+    expect(names(await new BaseSequencer(theirs.ctx).sort(theirs.files))).toEqual([
+      'unit/config',
+      'integration/sandbox',
+      'integration/cli',
+      'unit/briefs',
+    ]);
+    const ours = worker(failed, timed);
+    expect(names(await new QuickestFirst(ours.ctx).sort(ours.files))).toEqual([
+      'unit/config',
+      'unit/briefs',
+      'integration/cli',
+      'integration/sandbox',
+    ]);
+
+    // A key vitest stopped using would find nothing, every file would count
+    // as never run, and the order would quietly be by size.
+    expect(new Set(ours.asked)).toEqual(new Set(theirs.asked));
+    expect(new Set(ours.asked)).toEqual(new Set(Object.keys(TIMED)));
+  });
+
+  it('gives a shard of the suite the files vitest gives it', async () => {
+    const { QuickestFirst } = await mutationSuite();
+    const { ctx, files } = worker(TIMED);
+    const theirs = names(await new BaseSequencer(ctx).shard(files));
+    expect(theirs).toHaveLength(3);
+    expect(names(await new QuickestFirst(ctx).shard(files))).toEqual(theirs);
+  });
+});
+
 describe('this repository', () => {
-  const load = async <T>(name: string): Promise<T> => ((await import(pathToFileURL(join(ROOT, name)).href)) as { default: T }).default;
   const strykerConfig = () => load<{ mutate: string[]; thresholds: Thresholds; vitest: unknown }>('stryker.config.mjs');
 
   // Stryker's reading of `mutate`, written again here with minimatch, the
@@ -398,11 +511,16 @@ describe('this repository', () => {
     // that reaches a file other than through an import, score one that is not
     // the sweep a single run would have done.
     expect((await strykerConfig()).vitest).toEqual({ configFile: 'vitest.mutation.config.ts', related: false });
-    type Test = { include: string[]; exclude?: string[]; environment: string; testTimeout: number; hookTimeout: number };
+    type Test = { include: string[]; exclude?: string[]; environment: string; testTimeout: number; hookTimeout: number; sequence?: unknown };
     const unit = (await load<{ test: Test }>('vitest.config.ts')).test;
-    const { exclude, ...mutation } = (await load<{ test: Test }>('vitest.mutation.config.ts')).test;
+    const suite = await mutationSuite();
+    const { exclude, sequence, ...mutation } = (suite.default as { test: Test }).test;
     expect(mutation).toEqual({ include: unit.include, environment: unit.environment, testTimeout: unit.testTimeout, hookTimeout: unit.hookTimeout });
     expect(exclude).toEqual(['tests/source.test.ts', 'tests/mutation-shards.test.ts', '**/node_modules/**']);
+    // The order is the sweep's alone: `npm test` reports every failure, and
+    // runs its files side by side.
+    expect(sequence).toEqual({ sequencer: suite.QuickestFirst });
+    expect(unit.sequence).toBeUndefined();
   });
 
   it('gives a shard its own files, its own report, and no gate', async () => {

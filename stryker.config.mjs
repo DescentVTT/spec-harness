@@ -12,7 +12,8 @@ export default {
   packageManager: 'npm',
   testRunner: 'vitest',
   // The whole suite but tests/source.test.ts, which reads the repository as it
-  // is on disk, and the sandbox is not; vitest.mutation.config.ts says why.
+  // is on disk, and the sandbox is not; vitest.mutation.config.ts says why,
+  // and why a mutant's quickest test files run first.
   vitest: { configFile: 'vitest.mutation.config.ts', related: false },
   coverageAnalysis: 'perTest',
   // The vendored spec-core copies are measured in spec-core (its ADR-0001).
