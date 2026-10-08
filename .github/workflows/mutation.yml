@@ -11,7 +11,8 @@ name: Mutation
 # and the sibling tools for every mutant they reach, so it is slower by an
 # order of magnitude: it runs weekly and on request. One runner took 69 to 130
 # minutes for it, so it runs in shards, each mutating its own files against
-# every test (scripts/mutation-shards.mjs), and the job after them merges the
+# every test (scripts/mutation-shards.mjs), a mutant's quickest test files
+# first (vitest.mutation.config.ts), and the job after them merges the
 # reports and applies the `break` in stryker.config.mjs once, to the merged
 # score.
 on:
@@ -43,13 +44,16 @@ jobs:
     # The image the hosted sweeps in ADR-0010 were measured on. Another image
     # is another measurement: spec-core's ADR-0008 says what moving takes.
     runs-on: ubuntu-24.04
-    # Headroom for a bad runner, not a budget: the shards took 11 to 22
-    # minutes. Stryker writes a shard's report only when the shard ends, so a
-    # shard cut short measures nothing and the merge refuses the sweep; Re-run
-    # failed jobs runs that shard again, and the merge takes the other shards'
-    # reports from the first attempt. A shard that keeps passing 30 means the
-    # table in scripts/mutation-shards.mjs needs re-measuring, not this number
-    # raising.
+    # Headroom for a bad runner, not a budget: the shards took 12 to 17
+    # minutes in the sweep of the table (run 37821498621; ADR-0010, amended
+    # 2026-10-09). Stryker writes a shard's report only when the shard ends,
+    # so a shard cut short measures nothing and the merge refuses the sweep;
+    # Re-run failed jobs runs that shard again, and the merge takes the other
+    # shards' reports from the first attempt. A shard that keeps passing 22,
+    # half as long again as the table has it, means the table in
+    # scripts/mutation-shards.mjs needs re-measuring, or that the suite has
+    # grown, which every static mutant that survives runs whole: not this
+    # number raising.
     timeout-minutes: 60
     strategy:
       # One broken shard should not hide what the others found. The merge

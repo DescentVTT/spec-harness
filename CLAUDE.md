@@ -40,7 +40,10 @@ Both mutation sweeps run in GitHub Actions. The core sweep is a job in
 its sweep of c385f19 ([ADR-0010](docs/adr/0010-toolchain-and-verification.md)).
 It runs in eight shards, balanced on measured minutes in
 `scripts/mutation-shards.mjs`, and the `break` is applied once, to their
-merged report; a file no shard lists is mutated by the last.
+merged report; a file no shard lists is mutated by the last. A mutant's test
+files run the quickest first there (`vitest.mutation.config.ts`), and a
+static mutant that survives runs them all, so a second added to the suite is
+a second for each of those in every sweep.
 
 Vitest stays on 4 while Stryker's runner runs no test against a mutant on 5,
 where the core sweep read 3.83%: Dependabot proposes no major of it,
