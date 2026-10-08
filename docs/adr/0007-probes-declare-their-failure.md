@@ -138,6 +138,29 @@ evidence goes on from `stopped after <n> seconds` to say that something the
 command started was left running, holding its output. ADR-0003 has what was
 measured, and what a timeout reaches on each platform.
 
+*Amended 2026-10-09.* **A run is judged by its command's shell.** A command
+whose shell had ended while something it started still held its output was
+waited for until its timeout and was then a `timeout`, so its probe was
+`invalid` whatever the command had printed and however its shell had exited;
+and a `setup` that left such a process stopped the probe. A command is now
+answered when its shell ends, as a step is in CI: a `run` is red, green or
+neither by the shell's exit code and what was printed until then, a `setup`
+has passed when the code is 0, and the output is waited for three seconds
+and no longer. Where it was still held then, the run's evidence goes on to
+say that something the command started was left running, after the line
+that matched or `the command passed`; a `setup` that passed says so on the
+standard error, and one that failed in the error that stops the probe. So a
+probe that was `invalid` at its timeout may be `measured`, `vacuous`, `fixed`
+or `still-failing`, and one whose `setup` stopped it may be measured.
+
+What a command leaves running is no part of its answer and is not waited
+for: its work must be done when its shell ends. It runs on beside the runs
+after it, as what a step left does beside the steps after it, and is stopped
+when the probe is done at that commit where the sandbox can still reach it:
+on Linux and macOS in the command's process group, on Windows nowhere.
+ADR-0003 has what was measured, here and in CI, and why it is not stopped as
+the shell ends.
+
 ## Consequences
 
 A research round whose answer may be "no" is not a defect and needs no probe;
