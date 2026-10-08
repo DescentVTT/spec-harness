@@ -82,7 +82,7 @@ describe('escalate', () => {
     );
     expect(result.code).toBe(1);
     expect(result.stdout.startsWith('# Escalation E-001-1\n\nBrief 001 (`briefs/001_rotate-tokens.md`) on `brief/001-rotate` at `')).toBe(true);
-    expect(result.stdout).toContain('1. **Allow** - one additive column\n2. **Refuse** - \n');
+    expect(result.stdout).toContain('1. **Allow** - one additive column\n2. **Refuse**\n');
     expect(result.stdout).toContain('## The agent recommends\n\nAllow; it is additive.\n');
     expect(escalations(repo)).toEqual(['E-001-1.json']);
     // In-flight state is not the repository's: nothing for git status to show.
@@ -119,8 +119,31 @@ describe('escalate', () => {
 
   it('reads an option as its label and what it costs, either side of the first colon, trimmed', async () => {
     const other = round();
-    const result = await cli(['escalate', '--path', 'a', '--reason', 'r', '--option', ' Refuse ', '--option', 'Allow : one column: additive', '--option', ': a cost alone'], other.root);
-    expect(result.stdout).toContain('## Options\n\n1. **Refuse** - \n2. **Allow** - one column: additive\n3. **** - a cost alone\n');
+    const result = await cli(['escalate', '--path', 'a', '--reason', 'r', '--option', ' Refuse ', '--option', 'Allow : one column: additive', '--option', 'Wait:'], other.root);
+    expect(result.stdout).toContain('## Options\n\n1. **Refuse**\n2. **Allow** - one column: additive\n3. **Wait**\n');
+  });
+
+  it('is never written with a part that says nothing: a person rules on the memo, and cannot rule on a hole in it', async () => {
+    // Each of these wrote a memo: a file named ``, an empty Why, a choice
+    // numbered and not named, a recommendation of nothing.
+    const other = round();
+    const request = ['escalate', '--path', 'src/db/schema.ts', '--reason', 'why'];
+    const refused = async (argv: string[], stderr: string): Promise<void> => {
+      expect(await cli(argv, other.root), argv.join(' ')).toEqual({ code: 2, stdout: '', stderr: `spec-harness: ${stderr}\n` });
+    };
+    await refused(['escalate', '--path', '', '--reason', 'why'], '--path is "", which names no file; give it the path of a file');
+    await refused(['escalate', '--path', 'src/db/schema.ts', '--path', ' ', '--reason', 'why'], '--path is " ", which names no file; give it the path of a file');
+    await refused(['escalate', '--path', 'src/db/schema.ts', '--reason', ' '], '--reason is " ", which gives no reason; say why the round cannot be done without the file');
+    await refused([...request, '--option', ''], '--option is "", which names no choice; give it "<label>: <cost>", or leave it out');
+    await refused([...request, '--option', 'Allow: one', '--option', ': a cost alone'], '--option is ": a cost alone", which names no choice before its colon; give it "<label>: <cost>"');
+    await refused([...request, '--option', ' : '], '--option is " : ", which names no choice before its colon; give it "<label>: <cost>"');
+    await refused([...request, '--recommend', ''], '--recommend is "", which recommends nothing; say which option and why, or leave it out');
+    // A choice that cannot be read is refused before spec-brief is asked which brief.
+    expect(await cli([...request, '--option', ':', '--brief', '404'], other.root)).toMatchObject({ code: 2, stderr: expect.stringContaining('--option is ":"') });
+    expect(escalations(other)).toEqual([]);
+    // What says something is written as before.
+    expect((await cli(request, other.root)).code).toBe(1);
+    expect(escalations(other)).toEqual(['E-001-1.json']);
   });
 
   it('needs a brief to escalate against', async () => {

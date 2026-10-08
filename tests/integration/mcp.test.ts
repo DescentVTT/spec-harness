@@ -170,6 +170,26 @@ describe('the tools', () => {
     expect(await tool('start_round').call({ brief: '3' })).toEqual({ text: 'the flag names brief 003, which is archived; a closed round writes nothing', isError: true });
   });
 
+  it('refuse a brief, a base or a path that is given and names nothing, by the argument, where each was read as left out', async () => {
+    // An empty brief was answered for the branch's brief, an empty base with
+    // no ruling verified, and an empty path as the project itself.
+    const brief = (value: string) => ({ text: `"brief" is ${JSON.stringify(value)}, which names no brief; give it a brief's id, or leave it out for the one SPEC_BRIEF or the branch names.`, isError: true });
+    const base = (value: string) => ({ text: `"base" is ${JSON.stringify(value)}, which names no commit; give it a branch or a commit, or leave it out for the configured base.`, isError: true });
+    expect(await tool('start_round').call({ brief: '' })).toEqual(brief(''));
+    expect(await tool('check_path').call({ paths: ['a'], brief: ' ' })).toEqual(brief(' '));
+    expect(await tool('audit_round').call({ brief: '\t' })).toEqual(brief('\t'));
+    expect(await tool('request_escalation').call({ paths: ['a'], reason: 'r', brief: '' })).toEqual(brief(''));
+    expect(await tool('start_round').call({ base: '' })).toEqual(base(''));
+    expect(await tool('check_path').call({ paths: ['a'], base: ' ' })).toEqual(base(' '));
+    expect(await tool('audit_round').call({ base: '' })).toEqual(base(''));
+    expect(await tool('check_path').call({ paths: [''] })).toEqual({ text: '"paths[0]" is "", which names no file; give it the path of a file.', isError: true });
+    expect(await tool('check_path').call({ paths: ['src/auth/a.ts', ' '] })).toEqual({ text: '"paths[1]" is " ", which names no file; give it the path of a file.', isError: true });
+    // The argument is named before the brief is looked for.
+    expect(await tool('check_path').call({ paths: ['a'], base: '', brief: '404' })).toEqual(base(''));
+    // What names something is read as it was: an id with space around it, and a base that is one.
+    expect((await tool('start_round').call({ brief: ' 2 ', base: 'main' })).structured).toMatchObject({ brief: '002' });
+  });
+
   it('request_escalation records the request and tells the agent to stop', async () => {
     const outcome = await tool('request_escalation').call({
       paths: ['src/db/schema.ts'],
@@ -180,7 +200,7 @@ describe('the tools', () => {
     expect(outcome.isError).toBeUndefined();
     expect(outcome.structured).toEqual({ id: 'E-001-1' });
     expect(outcome.text).toContain('# Escalation E-001-1');
-    expect(outcome.text).toContain('1. **Allow** - one column\n2. **Refuse** - \n');
+    expect(outcome.text).toContain('1. **Allow** - one column\n2. **Refuse**\n');
     expect(outcome.text).toContain('## The agent recommends\n\nAllow.\n');
     expect(outcome.text.endsWith('\nStop here until a person rules on E-001-1.')).toBe(true);
     const state = join(workspace.commonDir, 'spec-harness', 'escalations');
@@ -197,6 +217,12 @@ describe('the tools', () => {
     expect(await call({ paths: ['a'] })).toEqual({ text: '"reason" is required.', isError: true });
     expect(await call({ paths: ['a'], reason: 'r', options: 'x' })).toEqual({ text: '"options" must be an array.', isError: true });
     expect(await call({ paths: ['a'], reason: 'r', recommendation: 3 })).toEqual({ text: '"recommendation" must be a string.', isError: true });
+    expect(await call({ paths: ['a', ''], reason: 'r' })).toEqual({ text: '"paths[1]" is "", which names no file; give it the path of a file.', isError: true });
+    expect(await call({ paths: ['a'], reason: '' })).toEqual({ text: '"reason" is required.', isError: true });
+    expect(await call({ paths: ['a'], reason: 'r', recommendation: ' ' })).toEqual({
+      text: '"recommendation" is " ", which recommends nothing; say which option and why, or leave it out.',
+      isError: true,
+    });
     expect((await call({ paths: ['a'], reason: 'r', why: 'x' })).isError).toBe(true);
   });
 
@@ -280,9 +306,35 @@ describe('the tools', () => {
     expect(outcome.text).not.toContain('## The agent recommends');
   });
 
-  it('request_escalation records an option however little it says, rather than refuse to ask', async () => {
-    const outcome = await tool('request_escalation').call({ paths: ['src/db/schema.ts'], reason: 'A column.', options: [{ consequence: 'no column' }] });
-    expect(outcome.text).toContain('## Options\n\n1. **** - no column\n');
+  it('request_escalation refuses a choice with no label, which the memo numbered and did not name, and writes nothing', async () => {
+    const state = join(workspace.commonDir, 'spec-harness', 'escalations');
+    const before = existsSync(state) ? readdirSync(state) : [];
+    const call = (options: unknown) => tool('request_escalation').call({ paths: ['src/db/schema.ts'], reason: 'A column.', options } as JsonObject);
+    const unnamed = (index: number, label: string) => ({
+      text: `"options[${index}].label" is ${JSON.stringify(label)}, which names no choice; give the option a label, or leave the option out.`,
+      isError: true,
+    });
+    expect(await call([{ label: '', consequence: 'no column' }])).toEqual(unnamed(0, ''));
+    expect(await call([{ label: 'Allow', consequence: 'one column' }, { label: ' ', consequence: '' }])).toEqual(unnamed(1, ' '));
+    // A choice with no label at all, and one that is no object, have none to name it by.
+    expect(await call([{ consequence: 'no column' }])).toEqual({ text: '"options[0].label" must be a string.', isError: true });
+    expect(await call([{ label: 5, consequence: 'x' }])).toEqual({ text: '"options[0].label" must be a string.', isError: true });
+    expect(await call([{ label: 'Allow' }, 'Refuse'])).toEqual({ text: '"options[1].label" must be a string.', isError: true });
+    expect(await call([null])).toEqual({ text: '"options[0].label" must be a string.', isError: true });
+    expect(await call([{ label: 'Allow', consequence: 3 }])).toEqual({ text: '"options[0].consequence" must be a string.', isError: true });
+    expect(existsSync(state) ? readdirSync(state) : []).toEqual(before);
+  });
+
+  it('request_escalation records a choice whose cost is left out as the choice alone, and trims both', async () => {
+    const outcome = await tool('request_escalation').call({
+      paths: ['src/db/schema.ts'],
+      reason: 'A column.',
+      options: [{ label: ' Allow ', consequence: ' one column ' }, { label: 'Refuse', consequence: null }, { label: 'Wait', consequence: ' ' }],
+    });
+    expect(outcome.isError).toBeUndefined();
+    expect(outcome.text).toContain('## Options\n\n1. **Allow** - one column\n2. **Refuse**\n3. **Wait**\n');
+    // No list of choices at all is none, as before.
+    expect((await tool('request_escalation').call({ paths: ['src/db/schema.ts'], reason: 'A column.', options: null })).text).not.toContain('## Options');
   });
 
   it('request_escalation and audit_round act on the brief they are given', async () => {
