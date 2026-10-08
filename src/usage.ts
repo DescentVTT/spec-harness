@@ -42,6 +42,8 @@ interface Valued {
   readonly says: string;
 }
 
+// An option left out has no value to refuse, and a value that names something
+// is passed over as none is: the empty list is equivalent to its mutant.
 const one = (value: string | undefined): readonly string[] => (value === undefined ? [] : [value]);
 
 /**
