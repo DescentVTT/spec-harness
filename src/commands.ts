@@ -199,6 +199,15 @@ export async function rulingsCommand(options: Options, io: CliIO): Promise<numbe
 
 /* ------------------------------------------------------------------- probe */
 
+/**
+ * What is said of a command answered at its timeout with its output still
+ * held: of a run, in its evidence, and of a `setup`, in why the probe
+ * stopped. The timeout stopped what it could reach, and what holds the
+ * output is not that: it runs on until it ends or a person ends it, and the
+ * person is the one who can find it (ADR-0003).
+ */
+const LEFT_RUNNING = ', and something it started was left running, holding its output';
+
 async function runProbe(directory: string, probe: ProbeSpec, runs: number, timeout: number): Promise<ProbeResult['runs']> {
   const classified = [];
   for (let i = 0; i < runs; i += 1) {
@@ -208,7 +217,10 @@ async function runProbe(directory: string, probe: ProbeSpec, runs: number, timeo
     // existsSync answers false for null, so the null check is there for the
     // type, and its mutant is equivalent.
     const junit = report === null || !existsSync(report) ? null : readJUnit(await readFile(report, 'utf8'));
-    classified.push(classify(probe, { exitCode: run.exitCode, output: run.output, junit }));
+    const judged = classify(probe, { exitCode: run.exitCode, output: run.output, junit });
+    // Only a run stopped at its timeout is answered so, and this follows
+    // what `classify` says of one.
+    classified.push(run.outputHeld ? { ...judged, detail: `${judged.detail}${LEFT_RUNNING}` } : judged);
   }
   return classified;
 }
@@ -239,8 +251,12 @@ export async function probeCommand(options: Options, io: CliIO): Promise<number>
       }
       const setups = [...new Set(probes.map((probe) => probe.setup).filter((setup): setup is string => setup !== null))];
       for (const setup of setups) {
-        const run = await runCommand(setup, directory, workspace.config.probes.timeout);
-        if (run.exitCode !== 0) throw new UsageError(`the probe setup "${setup}" failed at ${label}:\n${endOfOutput(run.output)}`);
+        const timeout = workspace.config.probes.timeout;
+        const run = await runCommand(setup, directory, timeout);
+        // A setup stopped at its timeout has no exit code to have failed by,
+        // and may have printed nothing: how long it was given is the reason.
+        const how = run.exitCode === null ? `was stopped after ${timeout} seconds` : 'failed';
+        if (run.exitCode !== 0) throw new UsageError(`the probe setup "${setup}" ${how} at ${label}${run.outputHeld ? LEFT_RUNNING : ''}:\n${endOfOutput(run.output)}`);
       }
       for (const probe of probes) {
         const runs = await runProbe(directory, probe, probe.runs ?? workspace.config.probes.runs, probe.timeout ?? workspace.config.probes.timeout);

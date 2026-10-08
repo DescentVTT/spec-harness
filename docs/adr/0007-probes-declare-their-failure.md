@@ -130,6 +130,14 @@ timeout, `node -e "process.stdin.resume(); ..."` was stopped at five
 seconds with nothing printed. It is now told at once that there is no
 input, and what it does then is its own to print.
 
+*Amended a third time 2026-10-08.* A run stopped at its timeout is answered
+within three seconds of it, where it waited without bound for a process the
+stop did not reach to let go of the command's output. Such a run is a
+`timeout` as before, with what its command had printed by then, and its
+evidence goes on from `stopped after <n> seconds` to say that something the
+command started was left running, holding its output. ADR-0003 has what was
+measured, and what a timeout reaches on each platform.
+
 ## Consequences
 
 A research round whose answer may be "no" is not a defect and needs no probe;

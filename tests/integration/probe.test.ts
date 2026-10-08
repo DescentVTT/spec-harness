@@ -264,6 +264,15 @@ describe('probe', () => {
     const unbased = defect('id: v\nrun: node probe.js\nsignature: x');
     expect(await cli(['probe', '--base', 'nowhere'], unbased.root)).toMatchObject({ code: 2, stderr: 'spec-harness: "nowhere" names no commit\n' });
   });
+
+  it('says of a setup stopped at its timeout that it was stopped and after how long, where it may have printed nothing to say why', async () => {
+    const repo = defect('id: v\nsetup: node -e "setTimeout(() => {}, 20000)"\nrun: node probe.js\nsignature: expected fixed', { config: { probes: { runs: 1, timeout: 1 } } });
+    const result = await cli(['probe'], repo.root);
+    expect(result.code).toBe(2);
+    // Stopped whole, so nothing is said to have been left running.
+    expect(result.stderr).toBe('spec-harness: the probe setup "node -e "setTimeout(() => {}, 20000)"" was stopped after 1 seconds at base:\n\n');
+    expect(worktrees(repo)).toHaveLength(1);
+  });
 });
 
 /**

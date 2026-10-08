@@ -183,6 +183,110 @@ after it, which is how a process ended from outside reads, while the sandbox
 tests were sending such signals in another worker during the same seconds.
 The job's log names no ids, so what ended that sibling is not proven.
 
+*Amended a third time 2026-10-08.* **A timeout ends the wait, and what a
+timeout and an interrupt reach is said for each platform.** A command is
+answered when its output closes. At its timeout the sandbox stopped what it
+could and went on waiting for that, with no bound, where an interrupt has
+waited three seconds at most since 2026-09-28. So a command whose output was
+held by a process the stop did not reach answered when that process ended,
+and its probe with it: never, for a process that does not end.
+
+Measured with 0.11.0 on Windows 11 (Node 24.18.1, cmd) and on Linux 5.15
+(Node 24.21.0, dash, in a container): a command with a timeout of two seconds
+whose line leaves a process that holds its output for twelve, and how long
+the command took to answer.
+
+| What the line left holding its output | Windows | Linux |
+| --- | --- | --- |
+| Nothing: the command itself runs on | 2.3 s | 2.0 s |
+| A process Node started `detached`, its parent ended, the shell ended | 12.5 s | 12.1 s |
+| The same, while the shell still runs another command | 12.6 s | 12.1 s |
+| What the shell puts in the background: `start /b`, and `&` | 12.3 s | 2.0 s |
+| `setsid`, in the background | | 12.0 s |
+
+Each twelve is the process ending by itself. On Linux `&` leaves the process
+in the command's group, where the group's signal finds it after the shell has
+ended. On Windows `start /b` leaves it under a shell that has ended, which is
+no longer stopped by its id (above). In the third row taskkill ended the
+shell and the command it was running, and not the process whose parent had
+ended: it follows a tree from parent to child, and finds that process under
+no root. Through `probe` on Windows, with a process that stays: no end in two
+minutes.
+
+So the timeout bounds the wait. A command is stopped at its timeout as
+before. Three seconds later - the bound an interrupt has, and for its reason:
+what a forced stop reached is gone in the time the system takes to end it,
+and no wait ends the rest - the sandbox closes its own ends of the command's
+output and answers: stopped at its timeout, with what was printed until
+then, and with its output still held. Each twelve above became 5.0 seconds,
+5.3 in the third row on Windows, and the other rows are as they were. `probe`
+on Windows, over a run with a five-second timeout, ended inside 17 seconds:
+the five, the three of the bound, and three more twice for a directory that
+cannot be deleted, as said above of one.
+
+- **What holds the output is not stopped.** The sandbox has no id of it: a
+  process out of the group and out of the tree is what no id the sandbox
+  holds leads to. It runs on until it ends or a person ends it.
+- **The output is let go, not left open.** Node does not end while one of a
+  command's streams is open. With the two left open, on both systems, the
+  command answered after five seconds and the process that had run it could
+  not end before the twelfth, when the holder did; and `probe`, with a
+  process that stays, did not end in two minutes. Closing them is what the
+  end of `probe` does to that process, sooner. Measured on both systems: a
+  Node process writing to an output whose reader had exited had its next
+  write fail with `EPIPE` and ended with code 1; one whose reader was the
+  sandbox, letting go, did the same; and one that wrote nothing ran its
+  twelve seconds.
+- **A person is told where the run is told of.** The run's evidence, which
+  says `stopped after <n> seconds`, goes on `, and something it started was
+  left running, holding its output`: in the table, in the line on the
+  standard error, and in the JSON document's `detail`. A `setup` so stopped
+  says it in the error that stops the probe. A `setup` stopped at its timeout
+  said only that it `failed`, with whatever it had printed, which may be
+  nothing: it now says `was stopped after <n> seconds`.
+- **The worktree is removed as any other.** On Windows the process runs in
+  the worktree, where its command ran, so the directory cannot be deleted:
+  git forgets the worktree and the directory is named as `probe` exits, as
+  above. On Linux and macOS it is deleted under the process. A later run of
+  the probe starts in the same worktree while the process still runs.
+
+**What a timeout and an interrupt reach.** Both stop a command that has not
+answered yet, in the same way, as the exit of the process does, and nothing
+else:
+
+- On Linux and macOS, every process still in the command's process group,
+  whether or not the command's shell has ended. Not a process that moved to
+  a session or a group of its own, as a daemon does, `setsid`, and a process
+  Node starts `detached`.
+- On Windows, the command's shell and the processes under it, each found
+  through a parent that still runs. Not a process whose parent has ended;
+  and once the shell itself has ended, nothing the command left.
+- On neither, a process that a command left running after the command had
+  ended and its output had closed: the sandbox holds nothing of that command
+  any more. On Linux a process put in the background with its output sent to
+  a file was such a one: its command answered 0 at once, and it ran its
+  twelve seconds, through the end of the process that had run the command.
+  On Windows `start /b` with the output sent to a file still held the
+  command's output, and the command answered at its timeout, as held:
+  sending a process's own output elsewhere does not take the command's from
+  it there.
+
+"With everything it started", which this record and the README said of a
+timeout and of an interrupt, was true of a command whose processes stay in
+its group or under its running shell, and of no other.
+
+Not changed: a command whose shell has ended is still waited for until its
+output closes or its timeout passes, so a `setup` that leaves a server
+holding the output takes its whole timeout and then stops the probe. Ending
+the wait when the shell ends would change which runs are red and which
+green. Not reached: a shell that a forced stop does not end. None was
+produced, so this is read from the code and not measured: its command is
+answered at the bound all the same, since the answer does not wait for the
+shell, and Node then waits for that shell before it ends.
+macOS was not measured by hand: the integration suite runs there, and holds
+on every platform that a command left with its output held is answered once
+the bound has passed, that what holds it runs on, and that `probe` ends.
+
 ## Consequences
 
 `git worktree add` is the one git write in the family, bounded to a directory
