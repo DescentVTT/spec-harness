@@ -26,6 +26,7 @@ describe('options', () => {
     expect(parseOptions(['guard', 'a.ts', 'b.ts'])).toEqual({
       command: 'guard',
       positionals: ['a.ts', 'b.ts'],
+      given: [],
       brief: undefined,
       base: undefined,
       root: undefined,
@@ -77,6 +78,8 @@ describe('options', () => {
     expect(options).toEqual({
       command: 'escalate',
       positionals: [],
+      // Each once, in the order given, by its long name.
+      given: ['brief', 'base', 'root', 'format', 'strict', 'write', 'git-hook', 'path', 'reason', 'option', 'recommend', 'list', 'show', 'allow', 'deny', 'note', 'id', 'at'],
       brief: '012',
       base: 'origin/main',
       root: '/repo',
@@ -98,6 +101,12 @@ describe('options', () => {
       id: 'p',
       at: 'head',
     });
+  });
+
+  it('lists the options given by their long names, each once and in the order given', () => {
+    expect(parseOptions(['guard', 'a.ts', '--strict', '--brief', '1']).given).toEqual(['strict', 'brief']);
+    expect(parseOptions(['escalate', '--path', 'a', '--reason', 'r', '--path', 'b']).given).toEqual(['path', 'reason']);
+    expect(parseOptions(['-v', '-h']).given).toEqual(['version', 'help']);
   });
 
   it('reads the short forms of help and version', () => {
