@@ -135,6 +135,52 @@ describe('an error the harness did not expect', () => {
   });
 });
 
+describe('a reader that closed the output', () => {
+  // `spec-harness context | head`: the write fails with EPIPE once head has
+  // left. The answer was not delivered, which is still 2, and nothing in the
+  // harness is at fault, so no stack says a defect was found.
+  const failed = (code: string): Error => Object.assign(new Error(`${code}: the write failed`), { code, syscall: 'write' });
+  const CLOSED = { code: 2, stderr: 'spec-harness: stdout was closed before all of the output was written\n' };
+
+  it('ends the run with exit 2 and one line that says so, before a command and inside one', async () => {
+    expect(await refusing(['--version'], ROOT, { thrown: failed('EPIPE') })).toEqual(CLOSED);
+    expect(await refusing(['--help'], ROOT, { thrown: failed('EPIPE') })).toEqual(CLOSED);
+    const repo = repository({ [BRIEF_FILE]: brief({ protected: ['src/db/schema.ts'] }), 'src/db/schema.ts': 'x\n' });
+    expect(await refusing(['guard', 'src/db/schema.ts', '--brief', '1', '--format', 'json'], repo.root, { thrown: failed('EPIPE') })).toEqual(CLOSED);
+    expect(await refusing(['doctor'], repo.root, { thrown: failed('EPIPE') })).toEqual(CLOSED);
+  });
+
+  it('keeps the stack of a write that failed for any other reason', async () => {
+    // A disk that filled up under `> audit.json` is not a reader that left.
+    const result = await refusing(['--version'], ROOT, { thrown: failed('ENOSPC') });
+    expect(result.code).toBe(2);
+    expect(result.stderr).toMatch(/^spec-harness: unexpected error: Error: ENOSPC: the write failed\n {4}at /);
+  });
+
+  it('reads the code of the error, not its words', async () => {
+    const result = await refusing(['--version'], ROOT, { thrown: new Error('EPIPE: broken pipe, write') });
+    expect(result.code).toBe(2);
+    expect(result.stderr).toMatch(/^spec-harness: unexpected error: Error: EPIPE: broken pipe, write\n {4}at /);
+  });
+});
+
+describe('a git command that failed', () => {
+  it('is reported as what git said, on one line with no stack, and exit 2', async () => {
+    // It ended on `unexpected error: GitError:` and a stack, as a defect would.
+    const repo = repository({ 'a.txt': 'a\n' });
+    repo.write('a.txt', 'b\n');
+    repo.git('add', 'a.txt');
+    expect((await cli(['hook', 'git'], repo.root)).code).toBe(0);
+    // An index git cannot read: the hook cannot learn what is staged.
+    repo.write('.git/index', 'no index');
+    const unread = await cli(['hook', 'git'], repo.root);
+    expect(unread.code).toBe(2);
+    expect(unread.stdout).toBe('');
+    expect(unread.stderr).toMatch(/^spec-harness: git diff --cached failed: fatal: [^]*\S\n$/);
+    expect(unread.stderr).not.toMatch(/\n {4}at /);
+  });
+});
+
 describe('the configuration', () => {
   it('stops the run on a key it does not know, or a file that is not JSON', async () => {
     const repo = repository({ [BRIEF_FILE]: brief() }, { outofscope: 'deny' });
