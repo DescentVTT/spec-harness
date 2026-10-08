@@ -9,6 +9,30 @@ only fixes, reports less or documents, so `^0.7.0` takes only releases that
 cannot turn a run red. The family's policy is
 [spec-core's ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
+## Unreleased
+
+### Fixed
+
+- A probe's timeout ends the wait for its command. Where a process the
+  command started still held its output and was out of the timeout's reach -
+  one in a session of its own, or on Windows anything left by a command whose
+  shell had ended - `probe` waited for that process to end, and never ended
+  while it ran. The command is now answered three seconds after its timeout,
+  as stopped at it, with what it had printed, and the run's evidence says
+  that something it started was left running
+  ([ADR-0003](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0003-state-outside-the-work-tree.md)).
+- A probe's `setup` that was stopped at its timeout says so, and after how
+  many seconds. It said only that the setup failed, with whatever the setup
+  had printed.
+
+### Documentation
+
+- The README said an interrupted `probe` stops every command "with
+  everything those started". It and ADR-0003 now say what a timeout and an
+  interrupt reach - the command's process group on Linux and macOS, the
+  processes under the command's shell on Windows while that shell runs - and
+  what they leave running.
+
 ## 0.11.0
 
 An error the harness did not expect is exit 2, where it was Node's exit 1; a
