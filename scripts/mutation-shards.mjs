@@ -85,17 +85,21 @@ import { calculateMutationTestMetrics } from 'mutation-testing-metrics';
 // others by more than the sweeps differ - the same shard moved by up to six
 // minutes between two sweeps of the same code and table in vitest's order -
 // re-measure and move files or add a shard, and add it to the workflow's
-// matrix, which a test checks. Minutes in eight shards, by the files' minutes
-// in each of the two sweeps:
+// matrix, which a test checks.
+//
+// Minutes in eight shards: by the files' minutes in each of the two sweeps,
+// and in brackets what the shard's files took in the sweep of this table,
+// run 37821498621, on 08b8ab4, where sandbox.ts has 25 more mutants. Its jobs
+// took 12m10s to 16m48s.
 export const ASSIGNED = [
-  ['src/round.ts'], // 12.4, 11.4
-  ['src/siblings.ts'], // 12.0, 12.0
-  ['src/sandbox.ts'], // 11.3, 12.7
-  ['src/git.ts', 'src/premises.ts', 'src/host.ts', 'src/briefs.ts', 'src/hooks.ts', 'src/guard.ts'], // 12.6, 11.1
-  ['src/branch.ts', 'src/reader.ts'], // 11.3, 11.7
-  ['src/rulings.ts', 'src/commands.ts'], // 11.2, 11.0
-  ['src/cli.ts', 'src/signers.ts', 'src/workspace.ts', 'src/server.ts', 'src/probe.ts', 'src/config.ts'], // 12.9, 13.2
-]; // and the rest: 11.3, 12.1
+  ['src/round.ts'], // 12.4, 11.4 (11.9)
+  ['src/siblings.ts'], // 12.0, 12.0 (11.0)
+  ['src/sandbox.ts'], // 11.3, 12.7 (13.0)
+  ['src/git.ts', 'src/premises.ts', 'src/host.ts', 'src/briefs.ts', 'src/hooks.ts', 'src/guard.ts'], // 12.6, 11.1 (10.4)
+  ['src/branch.ts', 'src/reader.ts'], // 11.3, 11.7 (13.3)
+  ['src/rulings.ts', 'src/commands.ts'], // 11.2, 11.0 (9.3)
+  ['src/cli.ts', 'src/signers.ts', 'src/workspace.ts', 'src/server.ts', 'src/probe.ts', 'src/config.ts'], // 12.9, 13.2 (11.2)
+]; // and the rest: 11.3, 12.1 (12.8)
 
 export const SHARD_COUNT = ASSIGNED.length + 1;
 
