@@ -1,8 +1,8 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { chmodSync, copyFileSync, linkSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, linkSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { HELP, run } from '../../src/cli.js';
 import { mergeClaudeSettings, mergeMcp } from '../../src/configure.js';
@@ -43,6 +43,50 @@ describe('the command line', () => {
     const result = await cli(['guard', 'a.ts'], outside);
     expect(result).toEqual({ code: 2, stdout: '', stderr: `spec-harness: ${outside} is not inside a git work tree; spec-harness measures rounds by their commits\n` });
     expect((await cli(['doctor', '--root', outside], ROOT)).code).toBe(2);
+  });
+});
+
+describe('an input that is set and names nothing', () => {
+  // Each ran as if it had not been given, and answered, exit 0, a question
+  // nobody had put (spec-core ADR-0005).
+  it('is refused in one line that names it, exit 2, before the command reads or writes anything', async () => {
+    const repo = repository({ [BRIEF_FILE]: brief({ affected: ['src/**'] }) });
+    const refused = async (argv: string[], stderr: string): Promise<void> => {
+      expect(await cli(argv, repo.root), argv.join(' ')).toEqual({ code: 2, stdout: '', stderr: `spec-harness: ${stderr}\n` });
+    };
+    await refused(['doctor', '--note', 'x'], 'doctor does not take --note; its options are --brief, --base, --root, --format and --strict');
+    await refused(['premises', 'extra'], 'premises takes no argument, not "extra"');
+    await refused(['mcp', '--brief', '1'], 'mcp does not take --brief; its only option is --root');
+    await refused(['guard', 'src/a.ts', ''], 'guard was given "" as a path, which names none; give it the paths the round would write');
+    await refused(['context', '--brief', ' '], '--brief is " ", which names no brief; give it a brief\'s id, or leave it out for the one SPEC_BRIEF or the branch names');
+    await refused(['audit', '--base', ''], '--base is "", which names no commit; give it a branch or a commit, or leave it out for the configured base');
+    await refused(['guard', 'src/a.ts', '--root', ''], '--root is "", which names no directory; give it one, or leave it out to run in the current directory');
+    // init mydir set up the directory it stood in, and wrote there.
+    await refused(['init', 'mydir', '--write'], 'init takes no argument, not "mydir"');
+    expect(existsSync(join(repo.root, '.claude'))).toBe(false);
+    expect(existsSync(join(repo.root, '.mcp.json'))).toBe(false);
+  });
+
+  it('is a --root that is a file or is not there, by the option\'s name, and not one that is a directory', async () => {
+    // Each was `is not inside a git work tree`, which named no option.
+    const repo = repository({ 'notes.txt': 'a file\n' });
+    const words = 'which is not a directory; give it one that exists, or leave it out to run in the current directory';
+    for (const root of [join(repo.root, 'notes.txt'), join(repo.root, 'nowhere')]) {
+      expect(await cli(['doctor', '--root', root], repo.root)).toEqual({ code: 2, stdout: '', stderr: `spec-harness: --root is "${root}", ${words}\n` });
+    }
+    // A directory that is in no work tree is one, and is refused for what it is.
+    const outside = temp();
+    expect((await cli(['doctor', '--root', outside], repo.root)).stderr).toBe(`spec-harness: ${outside} is not inside a git work tree; spec-harness measures rounds by their commits\n`);
+    const there = await cli(['guard', join(repo.root, 'a.ts'), '--root', repo.root], temp());
+    expect(there).toMatchObject({ code: 0, stderr: '' });
+    expect(there.stdout).toMatch(/^ok {7}no brief governs /);
+  });
+
+  it('does not keep --help or --version from answering, nor a word that is no command from being said', async () => {
+    expect(await cli(['doctor', 'extra', '--note', 'x', '--help'], ROOT)).toEqual({ code: 0, stdout: HELP, stderr: '' });
+    expect(await cli(['-v', 'init', 'mydir', '--root', ''], ROOT)).toEqual({ code: 0, stdout: `${VERSION}\n`, stderr: '' });
+    expect(await cli(['archive', 'extra', '--note', 'x'], ROOT)).toEqual({ code: 2, stdout: '', stderr: 'spec-harness: unknown command "archive"; see spec-harness --help\n' });
+    expect(await cli(['--root', ''], ROOT)).toEqual({ code: 2, stdout: HELP, stderr: '' });
   });
 });
 
@@ -193,6 +237,13 @@ describe('the configuration', () => {
     const broken = await cli(['guard', 'a.ts'], repo.root);
     expect(broken.code).toBe(2);
     expect(broken.stderr.startsWith('spec-harness: .spec-harness.json is not valid JSON: ')).toBe(true);
+  });
+
+  it('says a directory under its name is one, in a line of its own and not in Node\'s', async () => {
+    // It was `is not valid JSON: EISDIR: illegal operation on a directory, read`.
+    const repo = repository({}, null);
+    mkdirSync(join(repo.root, '.spec-harness.json'));
+    expect(await cli(['guard', 'a.ts'], repo.root)).toEqual({ code: 2, stdout: '', stderr: 'spec-harness: .spec-harness.json is a directory, not a configuration file\n' });
   });
 
   it('blocks the hook too, rather than guarding what the file did not say', async () => {
@@ -406,6 +457,57 @@ describe('the siblings', () => {
     const result = await cli(['context', '1'], repo.root);
     expect(result.code).toBe(0);
     expect(result.stdout.split('\n')[0]).toBe('# Round 001: ["a b;c","$(exit 7)","%PATH%","list","--archived","--format","json","--no-color"]');
+  });
+});
+
+describe('doctor on a brief or a base that names nothing', () => {
+  // A diagnosis says what is wrong with what it was given, where every other
+  // command stops: it is what a person runs when the guard holds a write.
+  const briefLine = (stdout: string): string | undefined => /\nbrief   ([^\n]*)\n/.exec(stdout)?.[1];
+  let repo: Repository;
+  beforeAll(() => {
+    repo = repository({ [BRIEF_FILE]: brief(), 'briefs/archive/003_old.md': brief({ title: '003 - Old', status: 'archived' }) });
+  });
+
+  it('says an empty --brief and an empty --base in its report, by the option, and fails nothing for either', async () => {
+    const result = await cli(['doctor', '--brief', '', '--base', ' '], repo.root);
+    expect(result).toMatchObject({ code: 0, stderr: '' });
+    expect(result.stdout).toContain(
+      [
+        '',
+        'brief   none: --brief is "", which names no brief; give it a brief\'s id, or leave it out for the one SPEC_BRIEF or the branch names',
+        'base    none: --base is " ", which names no commit; give it a branch or a commit, or leave it out for the configured base',
+        'signers .github/allowed_signers, read from the base, which could not be resolved: no ruling can count',
+        '',
+      ].join('\n'),
+    );
+  });
+
+  it('says a brief spec-brief does not know, where it printed the id and no more, and exits as it did', async () => {
+    const unknown = await cli(['doctor', '--brief', '404', '--format', 'json'], repo.root);
+    expect(unknown.code).toBe(0);
+    expect(parsed(unknown)).toMatchObject({ brief: '404', briefProblem: 'the flag names brief 404, and spec-brief knows no such brief' });
+    const archived = await cli(['doctor'], repo.root, { env: { SPEC_BRIEF: '3' } });
+    expect(archived.code).toBe(0);
+    expect(briefLine(archived.stdout)).toBe('none: the environment names brief 003, which is archived; a closed round writes nothing');
+  });
+
+  it('says nothing of a brief that is one, by the id it was named with', async () => {
+    const known = await cli(['doctor', '--brief', '1', '--format', 'json'], repo.root);
+    expect(parsed(known)).toMatchObject({ brief: '1', briefProblem: null });
+  });
+
+  it('says when spec-brief could not be asked, and leaves a spec-brief that is not there to its own row', async () => {
+    const directory = temp();
+    write(directory, 'sibling.js', "process.stderr.write('no briefs directory'); process.exit(2);");
+    const failing = repository({}, { tools: { 'spec-brief': ['node', join(directory, 'sibling.js')] } });
+    expect(briefLine((await cli(['doctor', '--brief', '1'], failing.root)).stdout)).toBe(
+      'none: spec-brief could not say whether it knows brief 1: spec-brief could not list the briefs: no briefs directory',
+    );
+    const bare = repository({}, null);
+    const absent = await cli(['doctor', '--brief', '7'], bare.root);
+    expect(briefLine(absent.stdout)).toBe('7');
+    expect(absent.stdout).toContain('absent    spec-brief  spec-brief is not installed here');
   });
 });
 

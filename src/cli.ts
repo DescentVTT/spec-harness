@@ -2,11 +2,12 @@
  * The command line: arguments, dispatch, output and exit codes.
  *
  * Exit 0: done, nothing refused. Exit 1: something refused or found. Exit 2:
- * the answer cannot be trusted - a bad flag, a configuration that does not
- * load, a sibling that is missing or printed something unreadable, a git
- * command that failed, an output its reader closed, an error nothing here
- * expected. A run that could not look must never exit as though it looked and
- * found nothing (spec-core ADR-0005).
+ * the answer cannot be trusted - a bad flag, an option, an argument or a
+ * value that names nothing, a configuration that does not load, a sibling
+ * that is missing or printed something unreadable, a git command that
+ * failed, an output its reader closed, an error nothing here expected. A run
+ * that could not look must never exit as though it looked and found nothing
+ * (spec-core ADR-0005).
  */
 
 import { SiblingOutputError } from './briefs.js';
@@ -23,17 +24,19 @@ import {
   describeSigners,
   wiringState,
 } from './configure.js';
+import { isDirectory } from './fs.js';
 import { GitError, show, stagedChanges } from './git.js';
 import type { Decision } from './guard.js';
 import { claudeResponse, gitResponse, parseClaudeHook } from './hooks.js';
 import { claudeVersion } from './host.js';
 import { premisesCommand } from './premises.js';
 import { createReader } from './reader.js';
-import { checkPaths, claudeCodeWiring, resolveBase, specBriefPlugin } from './round.js';
+import { checkPaths, claudeCodeWiring, resolveBase, specBriefPlugin, type Base } from './round.js';
 import { mcpCommand } from './server.js';
 import { gitHook, initCommand } from './setup.js';
 import { notFido2, readAllowedSigners } from './signers.js';
 import { SiblingError } from './siblings.js';
+import { emptyValue, isBlank, refusal, type Command } from './usage.js';
 import { checkClaudeCode, CLAUDE_CODE_MINIMUM, MINIMUM_VERSIONS } from './versions.js';
 import {
   activeBrief,
@@ -69,13 +72,13 @@ Commands:
                       [--option "<label>: <cost>"]... [--recommend <text>].
                       --list shows what waits; --show <id> prints one memo.
   rule <id>           Record a person's ruling in the brief: --allow or --deny, with
-                      --note. It counts once committed signed.
+                      --note <text>. It counts once committed signed.
   rulings [brief]     The brief's rulings, and whether each one's signature verifies.
   audit [brief]       Did the round stay inside the lines: what the archive would say,
                       the brief's assertions, unverified rulings, new dependencies
                       and the install scripts it allowed.
   probe [brief]       Run the brief's probes: red at the base, green at the head.
-                      --at base|head|both, --id <probe>.
+                      --at <base|head|both>, --id <probe>.
   premises            Do the live briefs' premises still hold? For CI: exit 1 when one
                       is stale, or, with --strict, when spec-guard cannot read one.
   init                Configure the spec-* tools to agree. Prints the plan; --write
@@ -89,12 +92,21 @@ Commands:
 
 Options:
   --brief <id>        The brief the round works on. Otherwise SPEC_BRIEF, then the branch.
+                      For context, guard, hook, escalate, rulings, audit, probe, premises
+                      and doctor.
   --base <ref>        What the round is measured from. Otherwise "base" in
-                      .spec-harness.json, then the remote's default branch.
-  --root <dir>        Run from another directory.
+                      .spec-harness.json, then the remote's default branch. For context,
+                      guard, hook, rulings, audit, probe and doctor.
+  --root <dir>        Run from another directory, which must exist. For every command.
   --format <fmt>      pretty or json; audit and premises also gitlab, sarif or github.
-  --strict            Warnings fail the run.
+                      For every command but hook and mcp.
+  --strict            Warnings fail the run. For guard, audit, premises and doctor.
   --help, --version
+
+An option a command does not read, an argument it does not take, and an option or an
+argument given an empty value are refused, exit 2, not read as if they were not there.
+doctor says an empty --brief or --base in its report, and hook claude reads its line
+as every release has.
 
 Exit codes: 0 clean, 1 refused or found something, 2 the answer cannot be trusted.
 `;
@@ -218,6 +230,29 @@ async function hookCommand(options: Options, io: CliIO): Promise<number> {
 
 /* ------------------------------------------------------------------ doctor */
 
+/**
+ * The brief a round here works on, as doctor reports it: its id, and what is
+ * wrong with the name when no round can work under it. Every other command
+ * stops there. A diagnosis says it, being what a person runs when the guard
+ * holds a write they expected it to pass.
+ */
+async function diagnoseBrief(workspace: Workspace, options: Options, env: CliIO['env']): Promise<{ readonly id: string | null; readonly problem: string | null }> {
+  if (options.brief !== undefined && isBlank(options.brief)) return { id: null, problem: emptyValue('--brief', 'brief', options.brief) };
+  const id = namedId(workspace, options, env);
+  // A spec-brief that cannot be run is a row of the report, with the reason.
+  if (workspace.siblings.locate('spec-brief').kind !== 'found') return { id, problem: null };
+  try {
+    // Where nothing names a brief, spec-brief is not asked (ADR-0004), and
+    // there is no problem to state.
+    return { id, problem: describeActive(await activeBrief(workspace, options, env)).problem };
+  } catch (error) {
+    // Asking spec-brief throws nothing but this, so the check is equivalent
+    // to its mutant; it keeps any other error the stack it needs.
+    if (!(error instanceof SiblingError)) throw error;
+    return { id, problem: `spec-brief could not say whether it knows brief ${id}: ${error.message}` };
+  }
+}
+
 async function doctorCommand(options: Options, io: CliIO): Promise<number> {
   const workspace = await openWorkspace(options, io);
   const rows = SIBLINGS.map((name) => {
@@ -229,10 +264,14 @@ async function doctorCommand(options: Options, io: CliIO): Promise<number> {
     const detail = sibling.version === null ? `${command} (named in .spec-harness.json; its version is not checked)` : `${command} (${sibling.version})`;
     return { ...row, version: sibling.version, detail };
   });
-  const named = namedId(workspace, options, io.env);
+  const named = await diagnoseBrief(workspace, options, io.env);
   // A ruling counts only by a signature checked against the allowed signers
   // on the base, and only once spec-brief's archive asks the plugin about it.
-  const base = await resolveBase(workspace, options.base);
+  // A --base given nothing is no base, said as the brief's is, in the report.
+  const base: Base =
+    options.base !== undefined && isBlank(options.base)
+      ? { kind: 'unresolved', reason: emptyValue('--base', 'base', options.base) }
+      : await resolveBase(workspace, options.base);
   const signersFile = workspace.config.rulings.allowedSigners;
   // An unresolved base has no commit: git shows nothing for one, so asking
   // anyway reads as no file, and that mutant is equivalent.
@@ -262,7 +301,8 @@ async function doctorCommand(options: Options, io: CliIO): Promise<number> {
         root: workspace.root,
         branch: workspace.branch,
         branchSource: workspace.branchSource ?? null,
-        brief: named,
+        brief: named.id,
+        briefProblem: named.problem,
         base: base.kind === 'resolved' ? { ref: base.ref, source: base.source, mergeBase: base.mergeBase } : { unresolved: base.reason },
         allowedSigners: {
           file: signersFile,
@@ -291,7 +331,7 @@ async function doctorCommand(options: Options, io: CliIO): Promise<number> {
       [
         `root    ${workspace.root}`,
         `branch  ${branch}`,
-        `brief   ${named ?? '(none named)'}`,
+        `brief   ${named.problem === null ? (named.id ?? '(none named)') : `none: ${named.problem}`}`,
         `base    ${describeBase(base)}`,
         `signers ${signers}`,
         ...more(signerNotes),
@@ -326,20 +366,23 @@ async function doctorCommand(options: Options, io: CliIO): Promise<number> {
  * `Object` as a command and ended on a stack trace, where `spec-harness
  * construct` is an unknown command with exit 2.
  */
-const COMMANDS: ReadonlyMap<string, (options: Options, io: CliIO) => Promise<number>> = new Map([
-  ['guard', guardCommand],
-  ['hook', hookCommand],
-  ['context', contextCommand],
-  ['audit', auditCommand],
-  ['escalate', escalateCommand],
-  ['rule', ruleCommand],
-  ['rulings', rulingsCommand],
-  ['probe', probeCommand],
-  ['premises', premisesCommand],
-  ['init', initCommand],
-  ['mcp', mcpCommand],
-  ['doctor', doctorCommand],
-]);
+const COMMANDS: ReadonlyMap<string, (options: Options, io: CliIO) => Promise<number>> = new Map(
+  // One for every command that has a shape (usage.ts), which the compiler holds.
+  Object.entries({
+    guard: guardCommand,
+    hook: hookCommand,
+    context: contextCommand,
+    audit: auditCommand,
+    escalate: escalateCommand,
+    rule: ruleCommand,
+    rulings: rulingsCommand,
+    probe: probeCommand,
+    premises: premisesCommand,
+    init: initCommand,
+    mcp: mcpCommand,
+    doctor: doctorCommand,
+  } satisfies Record<Command, (options: Options, io: CliIO) => Promise<number>>),
+);
 
 async function dispatch(argv: readonly string[], io: CliIO): Promise<number> {
   let options: Options;
@@ -360,6 +403,12 @@ async function dispatch(argv: readonly string[], io: CliIO): Promise<number> {
   const command = COMMANDS.get(options.command);
   if (command === undefined) {
     io.stderr.write(`spec-harness: unknown command "${options.command}"; see spec-harness --help\n`);
+    return EXIT_ERROR;
+  }
+  // What parsed and names nothing, before anything is read or written for it.
+  const refused = refusal(options, isDirectory);
+  if (refused !== null) {
+    io.stderr.write(`spec-harness: ${refused}\n`);
     return EXIT_ERROR;
   }
   return command(options, io);

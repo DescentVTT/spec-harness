@@ -80,6 +80,7 @@ has the labels and the steps that move an image.
 | `versions.ts` | The oldest release of each sibling this one runs, and of Claude Code; an installed version against it. |
 | `git.ts`, `fs.ts`, `siblings.ts`, `host.ts`, `sandbox.ts` | The edges; `host.ts` asks Claude Code its release. |
 | `configure.ts` | What `init` writes into each tool's configuration. |
+| `usage.ts` | What a command line has to be before it runs: the options each command reads, the arguments it takes, and the refusal of what names nothing. |
 | `cli.ts`, `commands.ts`, `setup.ts`, `server.ts` | The command line, `init`, and the MCP server. |
 
 ## Prose

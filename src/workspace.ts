@@ -45,6 +45,8 @@ export function version(): string {
 export interface Options {
   readonly command: string | undefined;
   readonly positionals: readonly string[];
+  /** The long name of every option given, in the order given: what tells an option left out from one a command does not read. */
+  readonly given: readonly string[];
   readonly brief: string | undefined;
   readonly base: string | undefined;
   readonly root: string | undefined;
@@ -120,6 +122,7 @@ export function parseOptions(argv: readonly string[]): Options {
   return {
     command,
     positionals: positionals.slice(1),
+    given: Object.keys(values),
     brief: values.brief,
     base: values.base,
     root: values.root,

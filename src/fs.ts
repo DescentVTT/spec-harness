@@ -3,7 +3,7 @@
  * directory outside the work tree, and paths as the filesystem spells them.
  */
 
-import { existsSync, realpathSync } from 'node:fs';
+import { existsSync, realpathSync, statSync } from 'node:fs';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
@@ -18,6 +18,9 @@ export async function loadConfig(root: string): Promise<{ config: HarnessConfig;
     // A Buffer parses as its text, so the encoding is equivalent to its mutant.
     raw = JSON.parse(await readFile(file, 'utf8'));
   } catch (error) {
+    // A directory under the file's name is not JSON that went wrong, and
+    // Node's words for it, EISDIR, are not the harness's.
+    if ((error as NodeJS.ErrnoException).code === 'EISDIR') throw new ConfigError(`${CONFIG_FILE} is a directory, not a configuration file`);
     throw new ConfigError(`${CONFIG_FILE} is not valid JSON: ${(error as Error).message}`);
   }
   return { config: parseConfig(raw), file };
@@ -88,6 +91,15 @@ export async function readJsonObject(file: string): Promise<Record<string, unkno
     return typeof value === 'object' && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : 'unreadable';
   } catch {
     return 'unreadable';
+  }
+}
+
+/** Whether a path names a directory that is there; one that cannot be read names none. */
+export function isDirectory(path: string): boolean {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
   }
 }
 
