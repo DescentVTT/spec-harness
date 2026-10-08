@@ -9,7 +9,11 @@ only fixes, reports less or documents, so `^0.7.0` takes only releases that
 cannot turn a run red. The family's policy is
 [spec-core's ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
-## Unreleased
+## 0.11.1
+
+A probe's timeout ends the wait as well as the command, where a process out
+of reach that held the command's output kept the probe waiting without
+limit; and an exit 2 the harness could foresee says so in a line.
 
 ### Fixed
 
