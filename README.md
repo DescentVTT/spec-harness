@@ -432,7 +432,7 @@ A person who runs the tools by hand runs `npx --no-install @descent-vtt/spec-har
 | --- | --- |
 | `0` | Clean. |
 | `1` | Refused, found something, or waiting on a person. |
-| `2` | The answer cannot be trusted. An error the harness did not expect is one: `spec-harness: unexpected error:` and its stack, on stderr. |
+| `2` | The answer cannot be trusted, or did not arrive. A git command that failed is one, and so is a stdout its reader closed before all of the output was written, as a pipeline into `head` does: each is one line on stderr. An error the harness did not expect is one too: `spec-harness: unexpected error:` and its stack, on stderr. |
 | `130` | A `probe` interrupted by SIGINT (Ctrl+C) while it runs. |
 | `143` | A `probe` interrupted by SIGTERM. |
 | `129` | A `probe` interrupted by SIGHUP. |

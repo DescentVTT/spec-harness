@@ -13,6 +13,17 @@ cannot turn a run red. The family's policy is
 
 ### Fixed
 
+- **A reader that closes the output is answered in one line, not a stack.**
+  `spec-harness context | head` could end with `spec-harness: unexpected
+  error: Error: EPIPE: broken pipe, write` and a stack once `head` had left;
+  it now prints `spec-harness: stdout was closed before all of the output
+  was written` on stderr, from every command and the server. The exit code
+  is 2, as it was
+  ([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
+- A git command that failed - the diff `audit` reads, the staged files
+  `hook git` reads, the worktree `probe` adds - is reported as what git
+  said, on one line: `spec-harness: git diff --cached failed: fatal: ...`.
+  It was `unexpected error: GitError:` and a stack. Exit 2, as before.
 - A probe's timeout ends the wait for its command. Where a process the
   command started still held its output and was out of the timeout's reach -
   one in a session of its own, or on Windows anything left by a command whose

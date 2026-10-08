@@ -3,9 +3,10 @@
  *
  * Exit 0: done, nothing refused. Exit 1: something refused or found. Exit 2:
  * the answer cannot be trusted - a bad flag, a configuration that does not
- * load, a sibling that is missing or printed something unreadable, an error
- * nothing here expected. A run that could not look must never exit as though
- * it looked and found nothing (spec-core ADR-0005).
+ * load, a sibling that is missing or printed something unreadable, a git
+ * command that failed, an output its reader closed, an error nothing here
+ * expected. A run that could not look must never exit as though it looked and
+ * found nothing (spec-core ADR-0005).
  */
 
 import { SiblingOutputError } from './briefs.js';
@@ -22,7 +23,7 @@ import {
   describeSigners,
   wiringState,
 } from './configure.js';
-import { show, stagedChanges } from './git.js';
+import { GitError, show, stagedChanges } from './git.js';
 import type { Decision } from './guard.js';
 import { claudeResponse, gitResponse, parseClaudeHook } from './hooks.js';
 import { claudeVersion } from './host.js';
@@ -375,18 +376,35 @@ async function dispatch(argv: readonly string[], io: CliIO): Promise<number> {
  * write the guard could not check went ahead. The stack is what makes a
  * report of it something to act on, and it goes to stderr alone: a script
  * that reads a document from stdout is handed no part of one.
+ *
+ * A write its reader had closed the pipe for is not such an error: the answer
+ * was not delivered, which is still 2, and nothing in the harness is at
+ * fault, so it is said in a line and no stack sends a person looking for a
+ * defect. The process's own streams report it as an event, which the
+ * launcher answers in the same words; here it is a caller's stream that
+ * throws it. It is read by its code: stdout and stderr are the only pipes
+ * the harness writes to.
  */
 export async function run(argv: readonly string[], io: CliIO): Promise<number> {
   try {
     return await dispatch(argv, io);
   } catch (error) {
     // A sibling's document of a shape the harness does not read is a sibling
-    // that printed something it cannot read (answers.ts): exit 2.
-    if (error instanceof UsageError || error instanceof ConfigError || error instanceof SiblingError || error instanceof SiblingOutputError) {
+    // that printed something it cannot read (answers.ts): exit 2. A git
+    // command that failed is what git said, and no line of the harness's.
+    if (
+      error instanceof UsageError ||
+      error instanceof ConfigError ||
+      error instanceof SiblingError ||
+      error instanceof SiblingOutputError ||
+      error instanceof GitError
+    ) {
       io.stderr.write(`spec-harness: ${error.message}\n`);
       return EXIT_ERROR;
     }
-    io.stderr.write(`spec-harness: unexpected error: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`);
+    if (!(error instanceof Error)) io.stderr.write(`spec-harness: unexpected error: ${String(error)}\n`);
+    else if ((error as NodeJS.ErrnoException).code === 'EPIPE') io.stderr.write('spec-harness: stdout was closed before all of the output was written\n');
+    else io.stderr.write(`spec-harness: unexpected error: ${error.stack ?? error.message}\n`);
     return EXIT_ERROR;
   }
 }

@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { chmodSync, copyFileSync, linkSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -46,36 +46,36 @@ describe('the command line', () => {
   });
 });
 
-describe('an error the harness did not expect', () => {
-  interface Refused {
-    readonly code: number;
-    readonly stderr: string;
-  }
+interface Refused {
+  readonly code: number;
+  readonly stderr: string;
+}
 
-  /**
-   * The command line with a stdout that throws. No command expects the stream
-   * to refuse a write, so it stands for every error none of them names. Left
-   * to reject, such an error reached the launcher as Node's uncaught error,
-   * exit 1: a refusal or a finding to a script, and to Claude Code a hook that
-   * failed without blocking.
-   */
-  async function refusing(argv: readonly string[], cwd: string, options: { readonly thrown?: unknown; readonly stdin?: () => Promise<string> } = {}): Promise<Refused> {
-    let stderr = '';
-    const thrown = 'thrown' in options ? options.thrown : new Error('the stream is gone');
-    const code = await run(argv, {
-      stdout: {
-        write: () => {
-          throw thrown;
-        },
+/**
+ * The command line with a stdout that throws. No command expects the stream
+ * to refuse a write, so it stands for every error none of them names. Left
+ * to reject, such an error reached the launcher as Node's uncaught error,
+ * exit 1: a refusal or a finding to a script, and to Claude Code a hook that
+ * failed without blocking.
+ */
+async function refusing(argv: readonly string[], cwd: string, options: { readonly thrown?: unknown; readonly stdin?: () => Promise<string> } = {}): Promise<Refused> {
+  let stderr = '';
+  const thrown = 'thrown' in options ? options.thrown : new Error('the stream is gone');
+  const code = await run(argv, {
+    stdout: {
+      write: () => {
+        throw thrown;
       },
-      stderr: { write: (text: string) => (stderr += text) },
-      cwd,
-      env: {},
-      ...(options.stdin === undefined ? {} : { stdin: options.stdin }),
-    });
-    return { code, stderr };
-  }
+    },
+    stderr: { write: (text: string) => (stderr += text) },
+    cwd,
+    env: {},
+    ...(options.stdin === undefined ? {} : { stdin: options.stdin }),
+  });
+  return { code, stderr };
+}
 
+describe('an error the harness did not expect', () => {
   // The stack, so a report of it says where: the message alone names no line.
   const GONE = /^spec-harness: unexpected error: Error: the stream is gone\n {4}at [^]*\n$/;
   const BROKE = /^spec-harness: unexpected error: Error: the pipe broke\n {4}at [^]*\n$/;
@@ -132,6 +132,52 @@ describe('an error the harness did not expect', () => {
       code: 2,
       stderr: `spec-harness: ${outside} is not inside a git work tree; spec-harness measures rounds by their commits\n`,
     });
+  });
+});
+
+describe('a reader that closed the output', () => {
+  // `spec-harness context | head`: the write fails with EPIPE once head has
+  // left. The answer was not delivered, which is still 2, and nothing in the
+  // harness is at fault, so no stack says a defect was found.
+  const failed = (code: string): Error => Object.assign(new Error(`${code}: the write failed`), { code, syscall: 'write' });
+  const CLOSED = { code: 2, stderr: 'spec-harness: stdout was closed before all of the output was written\n' };
+
+  it('ends the run with exit 2 and one line that says so, before a command and inside one', async () => {
+    expect(await refusing(['--version'], ROOT, { thrown: failed('EPIPE') })).toEqual(CLOSED);
+    expect(await refusing(['--help'], ROOT, { thrown: failed('EPIPE') })).toEqual(CLOSED);
+    const repo = repository({ [BRIEF_FILE]: brief({ protected: ['src/db/schema.ts'] }), 'src/db/schema.ts': 'x\n' });
+    expect(await refusing(['guard', 'src/db/schema.ts', '--brief', '1', '--format', 'json'], repo.root, { thrown: failed('EPIPE') })).toEqual(CLOSED);
+    expect(await refusing(['doctor'], repo.root, { thrown: failed('EPIPE') })).toEqual(CLOSED);
+  });
+
+  it('keeps the stack of a write that failed for any other reason', async () => {
+    // A disk that filled up under `> audit.json` is not a reader that left.
+    const result = await refusing(['--version'], ROOT, { thrown: failed('ENOSPC') });
+    expect(result.code).toBe(2);
+    expect(result.stderr).toMatch(/^spec-harness: unexpected error: Error: ENOSPC: the write failed\n {4}at /);
+  });
+
+  it('reads the code of the error, not its words', async () => {
+    const result = await refusing(['--version'], ROOT, { thrown: new Error('EPIPE: broken pipe, write') });
+    expect(result.code).toBe(2);
+    expect(result.stderr).toMatch(/^spec-harness: unexpected error: Error: EPIPE: broken pipe, write\n {4}at /);
+  });
+});
+
+describe('a git command that failed', () => {
+  it('is reported as what git said, on one line with no stack, and exit 2', async () => {
+    // It ended on `unexpected error: GitError:` and a stack, as a defect would.
+    const repo = repository({ 'a.txt': 'a\n' });
+    repo.write('a.txt', 'b\n');
+    repo.git('add', 'a.txt');
+    expect((await cli(['hook', 'git'], repo.root)).code).toBe(0);
+    // An index git cannot read: the hook cannot learn what is staged.
+    repo.write('.git/index', 'no index');
+    const unread = await cli(['hook', 'git'], repo.root);
+    expect(unread.code).toBe(2);
+    expect(unread.stdout).toBe('');
+    expect(unread.stderr).toMatch(/^spec-harness: git diff --cached failed: fatal: [^]*\S\n$/);
+    expect(unread.stderr).not.toMatch(/\n {4}at /);
   });
 });
 
@@ -599,5 +645,69 @@ describe('the built command line', () => {
     expect(result.stderr).toMatch(/^spec-harness: unexpected error: Error: thrown where nothing awaits\n {4}at /);
     // The run had answered by then, and its answer is not printed twice.
     expect(result.stdout).toBe(`${VERSION}\n`);
+  });
+
+  describe('with an output its reader closed', () => {
+    // The process's own streams never throw this where run awaits it (held
+    // in process, above): the write fails, and the stream reports it as an
+    // event, which only the launcher can answer.
+    const CLOSED = 'spec-harness: stdout was closed before all of the output was written\n';
+
+    /**
+     * The launcher with one of its outputs closed by its reader before the run
+     * writes to it, as stdout is behind `| head` once head has left. What the
+     * other output was sent is the answer. A server that outlives the test is
+     * ended by the handle the test holds.
+     */
+    function closing(stream: 'stdout' | 'stderr', args: readonly string[], input?: string): Promise<{ code: number; read: string }> {
+      return new Promise((resolve, reject) => {
+        const child = spawn(process.execPath, [BIN, ...args], {
+          cwd: ROOT,
+          env: { ...process.env, SPEC_BRIEF: '' },
+          stdio: ['pipe', 'pipe', 'pipe'],
+          windowsHide: true,
+        });
+        child[stream].destroy();
+        const open = stream === 'stdout' ? child.stderr : child.stdout;
+        let read = '';
+        open.setEncoding('utf8');
+        open.on('data', (chunk: string) => (read += chunk));
+        const overdue = setTimeout(() => child.kill(), 60_000);
+        child.once('error', reject);
+        child.once('close', (code) => {
+          clearTimeout(overdue);
+          resolve({ code: code ?? -1, read });
+        });
+        // Held open after a request, so that only the closed output ends a server.
+        child.stdin.on('error', () => {});
+        if (input === undefined) child.stdin.end();
+        else child.stdin.write(input);
+      });
+    }
+
+    it('ends with exit 2 and one line on stderr, with no stack', async () => {
+      for (const args of [['--help'], ['guard', 'README.md'], ['doctor', '--format', 'json']]) {
+        expect(await closing('stdout', args), args.join(' ')).toEqual({ code: 2, read: CLOSED });
+      }
+    });
+
+    it('ends the server the same way, at the first answer it cannot write', async () => {
+      const initialize = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'test', version: '0' } } });
+      expect(await closing('stdout', ['mcp'], `${initialize}\n`)).toEqual({ code: 2, read: CLOSED });
+    });
+
+    it('says nothing when stderr is the one that closed, on stdout either, and still exits 2', async () => {
+      // Left to Node, the error of that write is exit 1.
+      expect(await closing('stderr', ['guard', '--frobnicate'])).toEqual({ code: 2, read: '' });
+    });
+
+    // A shell's pipe, where Node's own child is a socket pair: the reader has
+    // left by the time the run writes. Without a shell there is no pipeline
+    // to make, and cmd's has no way to hand back the exit code of its left side.
+    it.skipIf(process.platform === 'win32')('says so behind a shell pipe whose reader has left', () => {
+      const pipeline = '{ sleep 1; "$0" "$1" --help; echo "exit $?" >&2; } | true';
+      const result = spawnSync('sh', ['-c', pipeline, process.execPath, BIN], { cwd: ROOT, encoding: 'utf8' });
+      expect(result.stderr).toBe(`${CLOSED}exit 2\n`);
+    });
   });
 });
