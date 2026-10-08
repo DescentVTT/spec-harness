@@ -172,6 +172,37 @@ fails says `cannot check this write`, with exit 2. The server answers a
 request that fails with an error for that request and serves the next. A
 caller of `run` or `main` from the package gets 2 where it got a rejection.
 
+*Amended again 2026-10-08.* An exit 2 the harness could foresee says so in a
+line. The amendment above printed two things as `unexpected error:` with a
+stack that are no defect of the harness's, and a stack sends a person looking
+for one. Measured on 0.11.0 through the launcher (Windows 11, Node 24.18.1):
+
+- **A reader that closed the output.** `spec-harness --help` into a reader
+  that had already left printed `spec-harness: unexpected error: Error:
+  EPIPE: broken pipe, write` and eight lines of stack, exit 2; so did
+  `doctor`, `guard`, `escalate --list` and `init`, and the server at the
+  first answer it could not write. It is now one line,
+  `spec-harness: stdout was closed before all of the output was written`, in
+  the words every tool of the family uses (spec-core's ADR-0005), and exit 2
+  as before: the answer did not arrive. Every time, it arrived as the
+  stream's `error` event, which nothing awaits, and never as an error thrown
+  where `run` awaits: so the launcher answers it, and `run` answers in the
+  same words where a write does throw it, as a caller's own stream may. It
+  is told from every other error by its code, `EPIPE`: stdout and stderr are
+  the only pipes the harness writes to. When stderr is the one that closed
+  there is nowhere left to say anything: nothing is written, to stdout
+  either, and the exit is 2. A write that fails for another reason, a full
+  disk, keeps `unexpected error:` and its stack. A hook's answer before a
+  write is as it was: a check that fails for any reason, this one included,
+  says `cannot check this write`, exit 2, and the write waits.
+- **A git command that failed.** `hook git` in a repository whose index git
+  could not read printed `spec-harness: unexpected error: GitError: git diff
+  --cached failed: fatal: .git/index: index file smaller than expected` and
+  a stack. `GitError` is the harness's own error, with a message written
+  for a person, and `run` now names it with the others it expects: the
+  message alone, `spec-harness: git diff --cached failed: fatal: ...`, exit
+  2. So for the diff `audit` reads and the worktree `probe` adds.
+
 ## Consequences
 
 An agent that writes through a shell passes the guard and is caught at the
