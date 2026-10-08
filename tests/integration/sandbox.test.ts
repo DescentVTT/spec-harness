@@ -413,6 +413,25 @@ function timed<T>(start: () => Promise<T>, seconds: number): { answered: Promise
 }
 
 /**
+ * Runs `timeout`, which is what a command's timer runs, and answers what the
+ * bound on the wait for the command's output will run once it has passed:
+ * the one timer of three seconds set meanwhile (ADR-0003). A test runs that
+ * by hand as well and is spared the wait, where the built command line, run
+ * as a person runs it, waits the three seconds out.
+ */
+function bounded(timeout: () => void): () => void {
+  const timers = vi.spyOn(globalThis, 'setTimeout');
+  try {
+    timeout();
+    const set = timers.mock.calls.filter(([, ms]) => ms === 3_000);
+    expect(set, 'the timers of three seconds that the timeout set').toHaveLength(1);
+    return set[0]?.[0] as () => void;
+  } finally {
+    timers.mockRestore();
+  }
+}
+
+/**
  * A process of this file's own, to be given a command's id as the system
  * gives an id to another process once nothing holds its last owner. It leads
  * a process group where there are groups, so a signal to the group of that
@@ -864,7 +883,7 @@ describe('a command stopped at its timeout while something the stop cannot reach
   // without bound, and the probe with it.
   const SAID = ', and something it started was left running, holding its output';
 
-  it('is answered within a bound of its timeout, with what it had printed, and its output is let go while the holder runs on', async () => {
+  it('is answered once a bound of three seconds on the wait has passed, with what it had printed, and its output is let go while the holder runs on', async () => {
     const { runCommand: run, started } = await watchedSandbox();
     const name = named('holder');
     const { answered, timeout } = timed(() => run(leaving(name, 'outside its group', named('command'), 'printed'), temp(), 600), 600);
@@ -878,19 +897,24 @@ describe('a command stopped at its timeout while something the stop cannot reach
     // Node says a command is closed once nothing of its output is open on
     // this side: until then the open output keeps the process from ending.
     const closed = new Promise<void>((resolve) => command.once('close', () => resolve()));
-    const stopped = Date.now();
-    timeout();
-    const answer = await within(answered, 60, 'the command to answer');
-    // The three seconds the sandbox waits for what it stopped (ADR-0003).
-    expect(Date.now() - stopped).toBeLessThan(15_000);
-    expect(answer).toEqual({ exitCode: null, output: 'printed\n', outputHeld: true });
+    let answer: unknown = null;
+    void answered.then((run) => {
+      answer = run;
+    });
+    const bound = bounded(timeout);
+    // Until the bound passes the sandbox waits, as it does for a command
+    // that its timeout stopped whole and whose output is only now closing.
+    await sleep(100);
+    expect(answer, 'an answer before the bound').toBeNull();
+    bound();
+    expect(await within(answered, 60, 'the command to answer')).toEqual({ exitCode: null, output: 'printed\n', outputHeld: true });
     await within(closed, 30, 'the sandbox to let go of the output');
     expect(over, 'the holder ended').toBe(false);
   });
 
   // Through `probe`, for what a person is told. The command's timeout, ten
   // minutes, is run by hand once the command has ended and left the holder,
-  // as `timed` runs one.
+  // as `timed` runs one, and the bound after it.
   it.each([
     {
       line: 'run',
@@ -924,7 +948,7 @@ describe('a command stopped at its timeout while something the stop cannot reach
     const timeout = timers.mock.calls.find(([, ms]) => ms === 600_000)?.[0] as (() => void) | undefined;
     timers.mockRestore();
     expect(timeout, 'the timer of the command').toBeDefined();
-    timeout?.();
+    bounded(timeout as () => void)();
     const result = await within(probed, 60, 'the probe to answer');
     expect(over, 'the holder ended').toBe(false);
     expect(result.stderr).toBe(told(left));
@@ -934,9 +958,10 @@ describe('a command stopped at its timeout while something the stop cannot reach
   });
 
   // The command line as a person runs it, which alone shows that the process
-  // ends: an output left open keeps Node from ending, with the verdict
-  // already printed. Here the holder runs where the command ran, in the
-  // worktree, as what a probe's command leaves behind does.
+  // ends, and when: an output left open keeps Node from ending, with the
+  // verdict already printed. Here the timeout and the bound pass by the
+  // clock, and the holder runs where the command ran, in the worktree, as
+  // what a probe's command leaves behind does.
   it('does not keep `probe` from ending: the verdict is printed, the exit is the verdict\'s, and git lists no worktree', async () => {
     const leave = [
       "const { spawn } = require('node:child_process');",
@@ -944,9 +969,9 @@ describe('a command stopped at its timeout while something the stop cannot reach
       'holder.unref();',
       "console.log('printed');",
     ].join('\n');
-    // Ten seconds for a command that ends at once: stopped sooner, while it
-    // still ran, it would take the holder with it on Windows.
-    const body = ['## Probes', '', '```probe', 'id: v', 'run: node leave.js', 'signature: expected fixed', 'timeout: 10', '```', '', '```probe-file leave.js', leave, '```', ''].join('\n');
+    // Five seconds for a command that ends at once: stopped while it still
+    // ran, it would take the holder with it on Windows.
+    const body = ['## Probes', '', '```probe', 'id: v', 'run: node leave.js', 'signature: expected fixed', 'timeout: 5', '```', '', '```probe-file leave.js', leave, '```', ''].join('\n');
     const repo = repository({ [BRIEF_FILE]: brief({ affected: ['src/**'], body }) }, { probes: { runs: 1 } });
     repo.git('checkout', '-q', '-b', 'brief/001-fix');
     const name = named('holder');
@@ -959,14 +984,16 @@ describe('a command stopped at its timeout while something the stop cannot reach
       void holder.ended.then(() => {
         over = true;
       });
+      // The five seconds, the three of the bound, and on Windows three more
+      // twice for a directory that cannot be deleted (ADR-0003).
       const result = await within(ended, 120, 'end of the probe while the holder runs');
       expect(over, 'the holder ended').toBe(false);
       const lines = result.stderr.split('\n').filter((text) => text !== '');
       // On Windows a directory something runs in cannot be deleted, and the
       // worktree is named as it is left; elsewhere it is deleted under the holder.
       if (process.platform === 'win32') directory = /^spec-harness: the temporary worktree at (.+) could not be deleted and is left there: ./.exec(lines.pop() ?? '')?.[1] ?? '';
-      expect(lines, result.stderr).toEqual([`spec-harness: probe v is invalid at base: run 1 of 1: stopped after 10 seconds${SAID}; its output ended:`, 'printed']);
-      expect(result.stdout).toContain(`| 1/1 | invalid | stopped after 10 seconds${SAID} |`);
+      expect(lines, result.stderr).toEqual([`spec-harness: probe v is invalid at base: run 1 of 1: stopped after 5 seconds${SAID}; its output ended:`, 'printed']);
+      expect(result.stdout).toContain(`| 1/1 | invalid | stopped after 5 seconds${SAID} |`);
       expect(result.code).toBe(1);
       expect(directory === '', result.stderr).toBe(process.platform !== 'win32');
       expect(worktrees(repo)).toHaveLength(1);

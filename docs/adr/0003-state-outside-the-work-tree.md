@@ -220,9 +220,9 @@ and no wait ends the rest - the sandbox closes its own ends of the command's
 output and answers: stopped at its timeout, with what was printed until
 then, and with its output still held. Each twelve above became 5.0 seconds,
 5.3 in the third row on Windows, and the other rows are as they were. `probe`
-on Windows, over a run with a ten-second timeout, ended inside 25 seconds:
-the three seconds, and three more twice for a directory that cannot be
-deleted, as said above of one.
+on Windows, over a run with a five-second timeout, ended inside 17 seconds:
+the five, the three of the bound, and three more twice for a directory that
+cannot be deleted, as said above of one.
 
 - **What holds the output is not stopped.** The sandbox has no id of it: a
   process out of the group and out of the tree is what no id the sandbox
@@ -284,8 +284,8 @@ produced, so this is read from the code and not measured: its command is
 answered at the bound all the same, since the answer does not wait for the
 shell, and Node then waits for that shell before it ends.
 macOS was not measured by hand: the integration suite runs there, and holds
-on every platform that a command left with its output held is answered
-within the bound, that what holds it runs on, and that `probe` ends.
+on every platform that a command left with its output held is answered once
+the bound has passed, that what holds it runs on, and that `probe` ends.
 
 ## Consequences
 
