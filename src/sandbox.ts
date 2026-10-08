@@ -53,8 +53,11 @@ function taken(pid: number): boolean {
 }
 
 /**
- * Stops a command with everything it started, forced: SIGKILL to its process
- * group on Linux and macOS, taskkill over its tree on Windows.
+ * Stops a command with what can be reached of what it started, forced:
+ * SIGKILL to its process group on Linux and macOS, taskkill over its tree on
+ * Windows. A process that left the group is not in it, and taskkill follows
+ * a tree from parent to child while each parent runs: one whose parent has
+ * ended is found under no root. Such a process runs on (ADR-0003).
  *
  * Both name the command by its id, and the id is the command's only while
  * something holds it (ADR-0003). Node holds the command's shell until it has
@@ -243,14 +246,31 @@ export async function withWorktree<T>(repository: string, revision: string, work
 export interface CommandRun {
   /** `null` when the command was stopped at its timeout. */
   readonly exitCode: number | null;
+  /** What the command had printed by the time it was answered. */
   readonly output: string;
+  /**
+   * Set on a command that was stopped at its timeout and answered with its
+   * output still open: something it started holds the output where the stop
+   * did not reach it, and runs on (ADR-0003).
+   */
+  readonly outputHeld?: true;
 }
 
 /**
- * Runs a command line in a directory, output and errors interleaved, stopped
- * with everything it started when it outlives `timeoutSeconds` or the process
+ * Runs a command line in a directory, output and errors interleaved, until
+ * its output closes. A command that outlives `timeoutSeconds` is stopped
+ * with what `stop` reaches of it, as is one still running when the process
  * is interrupted or exits. Once the process is interrupted it never answers:
  * the job waiting on it would otherwise carry on in a worktree being removed.
+ *
+ * The timeout bounds the wait as well as the command. What the stop reached
+ * lets go of the output in the time the system takes to end it, and the
+ * command answers then. What still holds the output `SETTLE_MS` later is
+ * what `stop` does not reach, and no wait would end it: the sandbox lets go
+ * of the output instead, and answers with what was printed and with
+ * `outputHeld`. Letting go is what the end of this process would do to
+ * whatever holds the output, only sooner, and without it the open output
+ * keeps this process from ending once its work is done.
  *
  * Through the shell, on purpose: a probe's command is a line from the
  * repository's own brief - `npm test -- x` - which the person approved with
@@ -293,10 +313,22 @@ export function runCommand(line: string, cwd: string, timeoutSeconds: number): P
     // and its mutants are equivalent.
     child.stdout?.on('data', keep);
     child.stderr?.on('data', keep);
+    const answer = (run: CommandRun): void => {
+      if (!ending) resolve(run);
+    };
     let stopped = false;
+    let settling: NodeJS.Timeout | undefined;
     const timer = setTimeout(() => {
       stopped = true;
       stop(child);
+      settling = setTimeout(() => {
+        // With both let go, 'close' follows as soon as Node has seen the
+        // shell end, and takes the command off the list of those running.
+        // The streams exist, as above, so the mutants of `?.` are equivalent.
+        child.stdout?.destroy();
+        child.stderr?.destroy();
+        answer({ exitCode: null, output, outputHeld: true });
+      }, SETTLE_MS);
     }, timeoutSeconds * 1000);
     child.on('error', (error) => {
       // 'close' follows the error of a spawn that failed, and clears the
@@ -306,8 +338,10 @@ export function runCommand(line: string, cwd: string, timeoutSeconds: number): P
     });
     child.on('close', (code) => {
       clearTimeout(timer);
+      clearTimeout(settling);
       running.delete(child);
-      if (!ending) resolve({ exitCode: stopped ? null : (code ?? 1), output });
+      // The second answer of a command already answered as held does nothing.
+      answer({ exitCode: stopped ? null : (code ?? 1), output });
     });
   });
 }
