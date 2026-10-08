@@ -268,6 +268,8 @@ async function doctorCommand(options: Options, io: CliIO): Promise<number> {
   // A ruling counts only by a signature checked against the allowed signers
   // on the base, and only once spec-brief's archive asks the plugin about it.
   // A --base given nothing is no base, said as the brief's is, in the report.
+  // Nothing below asks what kind a base is but whether it is resolved, so the
+  // mutant that names this one otherwise is equivalent.
   const base: Base =
     options.base !== undefined && isBlank(options.base)
       ? { kind: 'unresolved', reason: emptyValue('--base', 'base', options.base) }

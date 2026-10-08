@@ -9,7 +9,16 @@ only fixes, reports less or documents, so `^0.7.0` takes only releases that
 cannot turn a run red. The family's policy is
 [spec-core's ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
-## Unreleased
+## 0.12.0
+
+A probe's command is answered when its shell ends, by the shell's exit code,
+where one that left something holding its output was waited for until its
+timeout and then called stopped. And an input that is set and names nothing
+is refused by a line that names it, where it was read as if it had not been
+given: an option another command reads, an argument a command does not
+take, an empty `--root`, `--brief` or `--base`, an escalation with an empty
+path or reason, from the command line or through the server. Every command
+line a release's `init` wrote is read as it was.
 
 ### Changed
 

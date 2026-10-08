@@ -221,6 +221,10 @@ async function interrupted(signal: NodeJS.Signals): Promise<void> {
   ending = true;
   const stopping = [...running];
   for (const child of stopping) stop(child);
+  // A command the stop ended is answered `SETTLE_MS` after its shell ended,
+  // its output let go, so every one of them closes by then and the first of
+  // the two below is over as soon as the second. The second is for a shell
+  // the stop did not end, which no test can make: its mutant survives.
   await Promise.race([
     Promise.all(stopping.map((child) => new Promise((resolve) => child.once('close', resolve)))),
     new Promise((resolve) => setTimeout(resolve, SETTLE_MS)),
