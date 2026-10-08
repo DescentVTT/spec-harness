@@ -200,11 +200,14 @@ export async function rulingsCommand(options: Options, io: CliIO): Promise<numbe
 /* ------------------------------------------------------------------- probe */
 
 /**
- * What is said of a command answered at its timeout with its output still
- * held: of a run, in its evidence, and of a `setup`, in why the probe
- * stopped. The timeout stopped what it could reach, and what holds the
- * output is not that: it runs on until it ends or a person ends it, and the
- * person is the one who can find it (ADR-0003).
+ * What is said of a command answered with its output still held, three
+ * seconds after its shell ended or after its timeout: of a run, in its
+ * evidence, and of a `setup`, in why the probe stopped or, where the setup
+ * passed, in a line of its own. What holds the output is no part of the
+ * command and was not stopped with it. What the sandbox can reach of it is
+ * stopped when the probe is done at that commit; the rest runs on until it
+ * ends or a person ends it, and the person is the one who can find it
+ * (ADR-0003).
  */
 const LEFT_RUNNING = ', and something it started was left running, holding its output';
 
@@ -218,8 +221,8 @@ async function runProbe(directory: string, probe: ProbeSpec, runs: number, timeo
     // type, and its mutant is equivalent.
     const junit = report === null || !existsSync(report) ? null : readJUnit(await readFile(report, 'utf8'));
     const judged = classify(probe, { exitCode: run.exitCode, output: run.output, junit });
-    // Only a run stopped at its timeout is answered so, and this follows
-    // what `classify` says of one.
+    // After whatever `classify` says of the run: red, green or stopped, it
+    // is judged by its shell, and what it left is said beside the verdict.
     classified.push(run.outputHeld ? { ...judged, detail: `${judged.detail}${LEFT_RUNNING}` } : judged);
   }
   return classified;
@@ -257,6 +260,10 @@ export async function probeCommand(options: Options, io: CliIO): Promise<number>
         // and may have printed nothing: how long it was given is the reason.
         const how = run.exitCode === null ? `was stopped after ${timeout} seconds` : 'failed';
         if (run.exitCode !== 0) throw new UsageError(`the probe setup "${setup}" ${how} at ${label}${run.outputHeld ? LEFT_RUNNING : ''}:\n${endOfOutput(run.output)}`);
+        // A setup that passed says nothing else, and the runs after it start
+        // beside what it left: on the standard error, whatever the format,
+        // since the document has no place for a setup.
+        if (run.outputHeld) io.stderr.write(`spec-harness: the probe setup "${setup}" passed at ${label}${LEFT_RUNNING}\n`);
       }
       for (const probe of probes) {
         const runs = await runProbe(directory, probe, probe.runs ?? workspace.config.probes.runs, probe.timeout ?? workspace.config.probes.timeout);

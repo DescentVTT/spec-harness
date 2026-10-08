@@ -1518,10 +1518,18 @@ describe('a command', () => {
     expect(Date.now() - started).toBeLessThan(30_000);
   });
 
-  it('that cannot be started answers 127, as a shell does, with the reason as its output', async () => {
-    const run = await runCommand('node -e "1"', join(temp(), 'missing'), 30);
-    expect(run.exitCode).toBe(127);
-    expect(run.output).toMatch(/ENOENT\n$/);
+  it('that cannot be started answers 127, as a shell does, with the reason as its output, and leaves no timer behind', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const run = await runCommand('node -e "1"', join(temp(), 'missing'), 30);
+      expect(run.exitCode).toBe(127);
+      expect(run.output).toMatch(/ENOENT\n$/);
+      // No shell ended, whose end would have cleared its timeout: left set,
+      // it keeps the process from ending for as long as the command was given.
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('leaves no timer behind once it ends, so nothing is stopped later under its id', async () => {
