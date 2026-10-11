@@ -14,6 +14,8 @@
  * directory, is asked of the caller.
  */
 
+import { literal } from './literal.js';
+
 /** A command line as the parser read it; what `parseOptions` returns is one. */
 export interface CommandLine {
   readonly command: string | undefined;
@@ -52,7 +54,7 @@ const one = (value: string | undefined): readonly string[] => (value === undefin
  * parser refuses any other, the empty one with them. Nor is `--note`, which
  * `rule` refuses by name itself.
  */
-const VALUED = {
+const VALUED = literal({
   brief: { of: (line) => one(line.brief), says: "names no brief; give it a brief's id, or leave it out for the one SPEC_BRIEF or the branch names" },
   base: { of: (line) => one(line.base), says: 'names no commit; give it a branch or a commit, or leave it out for the configured base' },
   root: { of: (line) => one(line.root), says: 'names no directory; give it one, or leave it out to run in the current directory' },
@@ -62,7 +64,7 @@ const VALUED = {
   recommend: { of: (line) => one(line.recommend), says: 'recommends nothing; say which option and why, or leave it out' },
   show: { of: (line) => one(line.show), says: 'names no escalation; give it an id, as spec-harness escalate --list prints them' },
   id: { of: (line) => one(line.id), says: "names no probe; give it a probe's id, or leave it out to run every probe" },
-} as const satisfies Record<string, Valued>;
+}) satisfies Record<string, Valued>;
 
 export type ValuedOption = keyof typeof VALUED;
 
@@ -97,11 +99,11 @@ interface Shape {
   readonly modes?: readonly { readonly option: string; readonly beside: readonly string[] }[];
 }
 
-const NO_ARGUMENT = { limit: { most: 0, takes: 'no argument' } } as const;
-const ONE_BRIEF = {
+const NO_ARGUMENT = literal({ limit: { most: 0, takes: 'no argument' } });
+const ONE_BRIEF = literal({
   limit: { most: 1, takes: "one argument at most, a brief's id" },
   argument: { role: 'the brief', instead: "give it a brief's id, or leave it out for the one --brief, SPEC_BRIEF or the branch names", option: 'brief' },
-} as const;
+});
 
 /**
  * Every command, with what it reads of a command line. An option is listed
@@ -110,7 +112,7 @@ const ONE_BRIEF = {
  * neither takes `--base` or `--brief`, and taking them would tell someone
  * the base or the brief had been set.
  */
-const SHAPE = {
+const SHAPE = literal({
   context: { options: ['brief', 'base', 'root', 'format'], ...ONE_BRIEF },
   guard: {
     options: ['brief', 'base', 'root', 'format', 'strict'],
@@ -143,7 +145,7 @@ const SHAPE = {
   // that acts on it stops: a brief or a base that names nothing is a line of
   // doctor's report.
   doctor: { options: ['brief', 'base', 'root', 'format', 'strict'], ...NO_ARGUMENT, reports: ['brief', 'base'] },
-} as const satisfies Record<string, Shape>;
+}) satisfies Record<string, Shape>;
 
 /** Every command there is: the command line dispatches on these names and no other. */
 export type Command = keyof typeof SHAPE;
@@ -156,7 +158,7 @@ function listed(options: readonly string[]): string {
   const names = options.map((option) => `--${option}`);
   // Every command reads at least `--root`, so a list is never empty.
   if (names.length === 1) return `its only option is ${names[0] as string}`;
-  return `its options are ${names.slice(0, -1).join(', ')} and ${names.at(-1) as string}`;
+  return `its options are ${names.slice(0, -1).join(', ')} and ${names.at(-1)!}`;
 }
 
 /**

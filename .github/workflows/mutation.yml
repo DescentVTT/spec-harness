@@ -14,7 +14,8 @@ name: Mutation
 # every test (scripts/mutation-shards.mjs), a mutant's quickest test files
 # first (vitest.mutation.config.ts), and the job after them merges the
 # reports and applies the `break` in stryker.config.mjs once, to the merged
-# score.
+# score. The same step counts what the merged report could not hold, the
+# code under a TypeScript `as` (scripts/mutation-unmeasured.mjs).
 on:
   schedule:
     # An hour after spec-guard's and two after spec-brief's and spec-graph's,
@@ -129,8 +130,14 @@ jobs:
           pattern: mutation-full-shard-*
           path: reports/shards
 
+      # The score, and then what no score holds: the places a mutator applies
+      # that stand under a TypeScript `as`, of which Stryker makes no mutant.
+      # More of them than scripts/mutation-unmeasured.mjs records as left fails
+      # the sweep, as a score under the `break` does.
       - name: Merge the shards and apply the gate
-        run: node scripts/mutation-shards.mjs merge reports/shards
+        run: |
+          node scripts/mutation-shards.mjs merge reports/shards
+          node scripts/mutation-unmeasured.mjs reports/mutation/mutation.json
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()

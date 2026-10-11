@@ -166,7 +166,7 @@ export function readProbes(blocks: readonly CodeBlock[]): ProbeSet {
     const runs = count('runs');
     const timeout = count('timeout');
     if (typeof runs === 'string' || typeof timeout === 'string') {
-      problems.push({ line: block.line, message: (typeof runs === 'string' ? runs : timeout) as string });
+      problems.push({ line: block.line, message: typeof runs === 'string' ? runs : (timeout as string) });
       continue;
     }
     if (probes.some((probe) => probe.id === id)) {

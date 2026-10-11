@@ -87,7 +87,10 @@ function optionsField(text: string): { value: string; rest: string } | null {
 
 /** A key type or a key: up to the next space or tab. */
 function word(text: string): { value: string; rest: string } {
-  const [, value, rest] = /^([^ \t]*)[ \t]*(.*)$/s.exec(text) as RegExpExecArray;
+  // Each part of the pattern can match nothing, so it matches any text from
+  // its start, and its last part runs to the end: the match is never null,
+  // and either anchor is equivalent to its mutant.
+  const [, value, rest] = /^([^ \t]*)[ \t]*(.*)$/s.exec(text)!;
   return { value: value as string, rest: rest as string };
 }
 
@@ -117,7 +120,9 @@ function readOptions(text: string): Options | { refused: string } {
   let certAuthority = false;
   let at = 0;
   while (at < text.length) {
-    const name = (/^[^,="]*/.exec(text.slice(at)) as RegExpExecArray)[0];
+    // Nothing is a match too, so there is one at the start of any text: the
+    // match is never null, and the anchor is equivalent to its mutant.
+    const name = /^[^,="]*/.exec(text.slice(at))![0];
     const key = name.toLowerCase();
     at += name.length;
     const valued = text.charAt(at) === '=';

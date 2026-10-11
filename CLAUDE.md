@@ -45,6 +45,17 @@ files run the quickest first there (`vitest.mutation.config.ts`), and a
 static mutant that survives runs them all, so a second added to the suite is
 a second for each of those in every sweep.
 
+Stryker makes no mutant of anything that stands under a TypeScript `as`, a
+const assertion with the rest, so nothing a mutator reads stands under one:
+a value is hoisted and the assertion put on its name, `!` says an index or
+a match is there, a declaration takes the type where the value is `any`,
+`satisfies` holds a table to a type, and `literal()` (`src/literal.ts`)
+gives a table the types `as const` would.
+`scripts/mutation-unmeasured.mjs` counts the places a mutator applies
+under an `as`; `tests/mutation-unmeasured.test.ts` holds the sources to
+its count on every change, and the full sweep's score step holds the merged
+report to it ([ADR-0010](docs/adr/0010-toolchain-and-verification.md)).
+
 Vitest stays on 4 while Stryker's runner runs no test against a mutant on 5,
 where the core sweep read 3.83%: Dependabot proposes no major of it,
 `tests/source.test.ts` fails one made by hand, and ADR-0010 has the reason
@@ -81,6 +92,7 @@ has the labels and the steps that move an image.
 | `git.ts`, `fs.ts`, `siblings.ts`, `host.ts`, `sandbox.ts` | The edges; `host.ts` asks Claude Code its release. |
 | `configure.ts` | What `init` writes into each tool's configuration. |
 | `usage.ts` | What a command line has to be before it runs: the options each command reads, the arguments it takes, and the refusal of what names nothing. |
+| `literal.ts` | A table with the types a const assertion gives it, written where a sweep mutates it. |
 | `cli.ts`, `commands.ts`, `setup.ts`, `server.ts` | The command line, `init`, and the MCP server. |
 
 ## Prose

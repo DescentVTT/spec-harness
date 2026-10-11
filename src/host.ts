@@ -94,7 +94,7 @@ export async function claudeVersion(env: Readonly<Record<string, string | undefi
   // stops a claude that never answers, which a test would wait on for its
   // length, so their mutants are equivalent in the suite.
   return new Promise((resolve) => {
-    const failed = (error: Error): void => resolve({ missing: `${file} --version failed: ${error.message.split('\n')[0] as string}` });
+    const failed = (error: Error): void => resolve({ missing: `${file} --version failed: ${error.message.split('\n')[0]!}` });
     try {
       execFile(file, ['--version'], { encoding: 'utf8', windowsHide: true, timeout: 15_000, shell: false }, (error, stdout) => {
         if (error !== null) failed(error);

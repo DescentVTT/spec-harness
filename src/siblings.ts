@@ -61,7 +61,8 @@ export function declaredVersion(file: string): unknown {
   // out of it answers undefined as well, and a Buffer parses as its text:
   // the empty catch and the encoding are equivalent to their mutants.
   try {
-    return (JSON.parse(readFileSync(file, 'utf8')) as { version?: unknown }).version;
+    const manifest: { version?: unknown } = JSON.parse(readFileSync(file, 'utf8'));
+    return manifest.version;
   } catch {
     return undefined;
   }
