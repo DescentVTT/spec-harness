@@ -70,7 +70,8 @@ Commands:
   hook git            Answer git's pre-commit hook for the staged files.
   escalate            Ask a person to rule: --path <file> (repeatable) --reason <why>
                       [--option "<label>: <cost>"]... [--recommend <text>].
-                      --list shows what waits; --show <id> prints one memo.
+                      --list shows what waits; --show <id> prints one memo. Neither
+                      raises a request: beside one, only --root and --format are read.
   rule <id>           Record a person's ruling in the brief: --allow or --deny, with
                       --note <text>. It counts once committed signed.
   rulings [brief]     The brief's rulings, and whether each one's signature verifies.
@@ -103,10 +104,11 @@ Options:
   --strict            Warnings fail the run. For guard, audit, premises and doctor.
   --help, --version
 
-An option a command does not read, an argument it does not take, and an option or an
-argument given an empty value are refused, exit 2, not read as if they were not there.
-doctor says an empty --brief or --base in its report, and hook claude reads its line
-as every release has.
+An option a command does not read, an argument it does not take, an option or an
+argument given an empty value, and a brief given both as the argument and as --brief
+are refused, exit 2, not read as if they were not there. doctor says an empty --brief
+or --base in its report. hook claude reads its line as every release has, and says a
+--root that is not a directory with exit 1, refusing nothing.
 
 Exit codes: 0 clean, 1 refused or found something, 2 the answer cannot be trusted.
 `;

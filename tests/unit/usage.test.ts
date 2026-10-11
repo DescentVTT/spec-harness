@@ -108,13 +108,28 @@ describe('the help', () => {
   it('says what is refused, and the two commands that read their line another way', () => {
     expect(HELP).toContain(
       [
-        'An option a command does not read, an argument it does not take, and an option or an',
-        'argument given an empty value are refused, exit 2, not read as if they were not there.',
-        'doctor says an empty --brief or --base in its report, and hook claude reads its line',
-        'as every release has.',
+        'An option a command does not read, an argument it does not take, an option or an',
+        'argument given an empty value, and a brief given both as the argument and as --brief',
+        'are refused, exit 2, not read as if they were not there. doctor says an empty --brief',
+        'or --base in its report. hook claude reads its line as every release has, and says a',
+        '--root that is not a directory with exit 1, refusing nothing.',
         '',
       ].join('\n'),
     );
+  });
+
+  it('says of --list and --show that neither raises a request, and what each reads beside it', () => {
+    expect(HELP).toContain(
+      ['                      --list shows what waits; --show <id> prints one memo. Neither', '                      raises a request: beside one, only --root and --format are read.', ''].join('\n'),
+    );
+    // Which the command line holds: every other option of escalate is refused beside either.
+    for (const mode of [['--list'], ['--show', 'E-012-1']]) {
+      for (const option of (TAKES['escalate'] as readonly string[]).filter((name) => name !== 'list' && name !== 'show')) {
+        const answer = refused(['escalate', ...mode, ...(GIVEN[option] as readonly string[])]);
+        if (option === 'root' || option === 'format') expect(answer, `${mode[0]} --${option}`).toBeNull();
+        else expect(answer, `${mode[0]} --${option}`).toBe(`escalate ${mode[0]} does not take --${option}; beside ${mode[0]} its options are --root and --format`);
+      }
+    }
   });
 });
 
@@ -140,6 +155,87 @@ describe('an option a command does not read', () => {
     expect(refused(['doctor', '--id', ''])).toBe('doctor does not take --id; its options are --brief, --base, --root, --format and --strict');
     expect(refused(['mcp', '--strict', '--note', 'x'])).toBe('mcp does not take --strict; its only option is --root');
     expect(refused(['mcp', '--note', 'x', '--strict'])).toBe('mcp does not take --note; its only option is --root');
+  });
+});
+
+describe('an option beside one that leaves it unread', () => {
+  const beside = (mode: string): string => `; beside --${mode} its options are --root and --format`;
+
+  it('is refused by the pair: --list reads no part of a request, no brief and no --show', () => {
+    // Each printed the list, exit 0, and what stood beside --list did nothing.
+    for (const [option, given] of [
+      ['path', ['--path', 'src/a.ts']],
+      ['reason', ['--reason', 'why']],
+      ['option', ['--option', 'Allow: one column']],
+      ['recommend', ['--recommend', 'Allow.']],
+      ['brief', ['--brief', '012']],
+      ['show', ['--show', 'E-012-1']],
+    ] as const) {
+      expect(refused(['escalate', '--list', ...given]), option).toBe(`escalate --list does not take --${option}${beside('list')}`);
+    }
+  });
+
+  it('is refused by the pair: --show reads no part of a request and no brief', () => {
+    for (const [option, given] of [
+      ['path', ['--path', 'src/a.ts']],
+      ['reason', ['--reason', 'why']],
+      ['option', ['--option', 'Allow: one column']],
+      ['recommend', ['--recommend', 'Allow.']],
+      ['brief', ['--brief', '012']],
+    ] as const) {
+      expect(refused(['escalate', '--show', 'E-012-1', ...given]), option).toBe(`escalate --show does not take --${option}${beside('show')}`);
+    }
+  });
+
+  it('is the first such option on the line, wherever --list stands, and --list decides over --show as the command does', () => {
+    expect(refused(['escalate', '--path', 'a.ts', '--reason', 'why', '--list'])).toBe(`escalate --list does not take --path${beside('list')}`);
+    expect(refused(['escalate', '--reason', 'why', '--list', '--path', 'a.ts'])).toBe(`escalate --list does not take --reason${beside('list')}`);
+    expect(refused(['escalate', '--show', 'E-012-1', '--list'])).toBe(`escalate --list does not take --show${beside('list')}`);
+    // Before a value it was given nothing for, as an option no command reads is.
+    expect(refused(['escalate', '--list', '--path', ''])).toBe(`escalate --list does not take --path${beside('list')}`);
+  });
+
+  it('is neither --root nor --format, which both read, nor anything in a request that has neither', () => {
+    for (const argv of [
+      ['escalate', '--list'],
+      ['escalate', '--list', '--format', 'json', '--root', 'elsewhere'],
+      ['escalate', '--show', 'E-012-1'],
+      ['escalate', '--root', 'elsewhere', '--show', 'E-012-1', '--format', 'json'],
+      ['escalate', '--path', 'a.ts', '--reason', 'why', '--option', 'Allow', '--recommend', 'Allow.', '--brief', '012', '--format', 'json', '--root', 'elsewhere'],
+    ]) {
+      expect(refused(argv), argv.join(' ')).toBeNull();
+    }
+    // An empty id is still said as an empty id.
+    expect(refused(['escalate', '--show', ''])).toMatch(/^--show is "", which names no escalation; /);
+  });
+});
+
+describe('a brief named twice', () => {
+  it('is refused, the argument beside --brief, whatever the two hold', () => {
+    // The argument won with no word: `audit 012 --brief 013` audited 012.
+    for (const command of ['context', 'rulings', 'audit', 'probe']) {
+      expect(refused([command, '012', '--brief', '013']), command).toBe(`${command} was given the brief twice, as its argument "012" and as --brief "013"; give one of them`);
+    }
+    expect(refused(['context', '--brief', '012', '012'])).toBe('context was given the brief twice, as its argument "012" and as --brief "012"; give one of them');
+    // Before either is asked what it names.
+    expect(refused(['audit', '012', '--brief', ''])).toBe('audit was given the brief twice, as its argument "012" and as --brief ""; give one of them');
+    expect(refused(['audit', '', '--brief', '012'])).toBe('audit was given the brief twice, as its argument "" and as --brief "012"; give one of them');
+  });
+
+  it('is not one named once, by either, nor a path or an escalation beside --brief', () => {
+    for (const argv of [
+      ['context', '012'],
+      ['context', '--brief', '012'],
+      ['audit', '012', '--base', 'main', '--strict'],
+      ['probe', '--brief', '012', '--id', 'p'],
+      // A guard's arguments are paths, and git's hook takes a word.
+      ['guard', '012', '--brief', '012'],
+      ['hook', 'git', '--brief', '012'],
+    ]) {
+      expect(refused(argv), argv.join(' ')).toBeNull();
+    }
+    // More arguments than the command takes is said as that.
+    expect(refused(['context', '012', '013', '--brief', '014'])).toBe('context takes one argument at most, a brief\'s id, not "012", "013"');
   });
 });
 
@@ -274,6 +370,12 @@ describe("Claude Code's hook", () => {
       ['--base', ' '],
       ['--root', ''],
       ['--path', '', '--reason', ''],
+      // What every other command refuses as a pair, or as a brief named twice.
+      ['--list', '--path', 'src/a.ts'],
+      ['--show', 'E-012-1', '--brief', '012'],
+      ['012', '--brief', '013'],
+      // And a root that is not there, which the hook says itself, with exit 1.
+      ['--root', 'nowhere'],
     ]) {
       expect(refused(['hook', 'claude', ...rest], () => false), rest.join(' ')).toBeNull();
     }
