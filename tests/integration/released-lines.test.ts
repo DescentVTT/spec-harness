@@ -11,7 +11,7 @@
  * every write of a session (ADR-0005, ADR-0012).
  *
  * The lines are data, read from the tags: `src/setup.ts`, `src/configure.ts`,
- * `hooks/hooks.json` and `.mcp.json` at v0.1.0 to v0.12.0. A line is added
+ * `hooks/hooks.json` and `.mcp.json` at v0.1.0 to v0.13.0. A line is added
  * here when a release changes what it writes, and none is taken out.
  */
 
@@ -41,17 +41,17 @@ const HOOKS = "the guard hooks init wrote into .claude/settings.json, and the pl
 
 const WRITTEN: readonly Written[] = [
   { releases: '0.1.0 to 0.1.1', where: HOOKS, line: 'npx --no-install spec-harness hook claude' },
-  { releases: '0.1.2 to 0.12.0', where: HOOKS, line: ['node', `\${CLAUDE_PROJECT_DIR}/${SCRIPT}`, 'hook', 'claude'] },
+  { releases: '0.1.2 to 0.13.0', where: HOOKS, line: ['node', `\${CLAUDE_PROJECT_DIR}/${SCRIPT}`, 'hook', 'claude'] },
   { releases: '0.1.0 to 0.1.1', where: "the server init registered in .mcp.json, and the plugin's .mcp.json", line: ['npx', '--no-install', 'spec-harness', 'mcp'] },
-  { releases: '0.1.2 to 0.12.0', where: 'the server init registered in .mcp.json', line: ['node', `\${CLAUDE_PROJECT_DIR:-.}/${SCRIPT}`, 'mcp', '--root', '${CLAUDE_PROJECT_DIR:-.}'] },
-  { releases: '0.1.2 to 0.12.0', where: "the plugin's .mcp.json", line: ['node', `\${CLAUDE_PROJECT_DIR}/${SCRIPT}`, 'mcp', '--root', '${CLAUDE_PROJECT_DIR}'] },
+  { releases: '0.1.2 to 0.13.0', where: 'the server init registered in .mcp.json', line: ['node', `\${CLAUDE_PROJECT_DIR:-.}/${SCRIPT}`, 'mcp', '--root', '${CLAUDE_PROJECT_DIR:-.}'] },
+  { releases: '0.1.2 to 0.13.0', where: "the plugin's .mcp.json", line: ['node', `\${CLAUDE_PROJECT_DIR}/${SCRIPT}`, 'mcp', '--root', '${CLAUDE_PROJECT_DIR}'] },
   {
     releases: '0.1.0 to 0.9.1',
     where: "the pre-commit hook init --git-hook wrote, and the line init and doctor gave for a hook of the repository's own",
     line: 'npx --no-install spec-harness hook git',
   },
-  { releases: '0.10.0 to 0.12.0', where: 'the pre-commit hook init --git-hook wrote, with bin set to the script', line: 'node "$bin" hook git' },
-  { releases: '0.10.0 to 0.12.0', where: "the line init and doctor give for a hook of the repository's own", line: `node ${SCRIPT} hook git` },
+  { releases: '0.10.0 to 0.13.0', where: 'the pre-commit hook init --git-hook wrote, with bin set to the script', line: 'node "$bin" hook git' },
+  { releases: '0.10.0 to 0.13.0', where: "the line init and doctor give for a hook of the repository's own", line: `node ${SCRIPT} hook git` },
 ];
 
 /** The words of a line, as a shell splits one that holds no space inside a word. */
@@ -150,6 +150,16 @@ describe('the lines the releases wrote', () => {
     }
   });
 
+  it('are read argument for argument: the command, the word after it, and a root only where one is written', () => {
+    // The parser is asked first, and a line it refused would be one no release ever had refused.
+    const read = (argv: readonly string[]): unknown => (({ command, positionals, given, root }) => ({ command, positionals, given, root }))(parseOptions(argv));
+    expect(read(['hook', 'claude'])).toEqual({ command: 'hook', positionals: ['claude'], given: [], root: undefined });
+    expect(read(['hook', 'git'])).toEqual({ command: 'hook', positionals: ['git'], given: [], root: undefined });
+    expect(read(['mcp'])).toEqual({ command: 'mcp', positionals: [], given: [], root: undefined });
+    expect(read(['mcp', '--root', '.'])).toEqual({ command: 'mcp', positionals: [], given: ['root'], root: '.' });
+    expect(read(['mcp', '--root', '/the/project'])).toEqual({ command: 'mcp', positionals: [], given: ['root'], root: '/the/project' });
+  });
+
   it('name the root of a server by the placeholder they find its script with, so a root filled with nothing never ran', () => {
     // --root "" is refused now, where it ran in the directory the server was
     // started in. No line here was ever handed it and ran: the placeholder
@@ -202,7 +212,7 @@ describe('each line, run', () => {
 describe("Claude Code's hook, with more on its line than a release wrote", () => {
   // Every other command refuses these. The hook reads its line as 0.11.1
   // did: a settings file is not the harness's to rewrite, and a refusal here
-  // is exit 2 before every write, the one that would mend the line included.
+  // would be exit 2 before every write, the one that mends the line included.
   it('answers as it did: what it does not read is passed over, and the write is still refused', async () => {
     for (const rest of [['extra', '--strict', '--format', 'json', '--note', 'x', '--list', '--id', ''], ['--brief', ' ', '--base', '']]) {
       const result = await cli(['hook', 'claude', ...rest], repo.root, { stdin: QUESTION() });
@@ -274,5 +284,140 @@ describe("Claude Code's hook, with a --root on its line that is not there", () =
     const result = await cli(['hook', 'claude', '--root', '', '001', '--brief', '001', '--list', '--path', 'src/a.ts', '--show', 'E-001-1'], repo.root, { stdin: QUESTION() });
     expect(result).toMatchObject({ code: 0, stderr: '' });
     expect(JSON.parse(result.stdout)).toMatchObject({ hookSpecificOutput: { permissionDecision: 'deny' } });
+  });
+});
+
+describe("Claude Code's hook, on a line the parser cannot read", () => {
+  // An option no command has, an option left without its value, a --format
+  // or an --at that is none: each was exit 2 before the question was read,
+  // which to Claude Code holds the write, and every write after it, the one
+  // that mends the line among them. It is said as a root that is not there
+  // is: one line, exit 1, where there is a write the line leaves unchecked
+  // (ADR-0005).
+  const OFF = '), so the guard is off and this write is not checked; mend it in Claude Code\'s settings, where init writes "hook claude" and nothing after it\n';
+  const said = (wrong: string): string => `spec-harness: the hook's line cannot be read (${wrong}${OFF}`;
+
+  /** Lines node's parser refuses, each with how its refusal starts: the rest is node's to word. */
+  const REFUSED: readonly (readonly [readonly string[], string])[] = [
+    [['--nope'], "Unknown option '--nope'"],
+    [['--nope=value', 'extra'], "Unknown option '--nope'"],
+    [['-x'], "Unknown option '-x'"],
+    [['--root'], "Option '--root <value>' argument missing"],
+    [['--brief'], "Option '--brief <value>' argument missing"],
+    [['--strict=yes'], "Option '--strict' does not take an argument"],
+    [['--format'], "Option '--format <value>' argument missing"],
+  ];
+
+  /** Lines that parse, and name a format or a probe position that is none: the harness's own words. */
+  const NONE: readonly (readonly [readonly string[], string])[] = [
+    [['--format', 'xml'], '--format must be pretty, json, gitlab, sarif or github, not "xml"'],
+    [['--format', ''], '--format must be pretty, json, gitlab, sarif or github, not ""'],
+    [['--format', 'gitlab'], '--format gitlab is for audit and premises; hook prints pretty or json'],
+    [['--at', 'sideways'], '--at must be base, head or both, not "sideways"'],
+  ];
+
+  it('says so in one line with exit 1, before a write and after one, and holds no write for it', async () => {
+    for (const event of ['PreToolUse', 'PostToolUse']) {
+      for (const [rest, starts] of REFUSED) {
+        const result = await cli(['hook', 'claude', ...rest], repo.root, { stdin: QUESTION(event) });
+        const where = `${event}: ${rest.join(' ')}`;
+        expect({ code: result.code, stdout: result.stdout }, where).toEqual({ code: 1, stdout: '' });
+        expect(result.stderr.startsWith(`spec-harness: the hook's line cannot be read (${starts}`), `${where}: ${result.stderr}`).toBe(true);
+        expect(result.stderr.endsWith(OFF), where).toBe(true);
+        // One line: Claude Code shows the first of a hook that exits 1.
+        expect(result.stderr.indexOf('\n'), where).toBe(result.stderr.length - 1);
+      }
+      for (const [rest, wrong] of NONE) {
+        expect(await cli(['hook', 'claude', ...rest], repo.root, { stdin: QUESTION(event) }), `${event}: ${rest.join(' ')}`).toEqual({ code: 1, stdout: '', stderr: said(wrong) });
+      }
+    }
+  });
+
+  it('keeps on one line what node says in three of an option that may have lost its value', async () => {
+    const result = await cli(['hook', 'claude', '--root', '--brief', '001'], repo.root, { stdin: QUESTION() });
+    expect({ code: result.code, stdout: result.stdout }).toEqual({ code: 1, stdout: '' });
+    expect(result.stderr).toBe(
+      said("Option '--root' argument is ambiguous. Did you forget to specify the option argument for '--root'? To specify an option argument starting with a dash use '--root=-XYZ'."),
+    );
+  });
+
+  it('is exit 1 whatever else stands on the line or names the brief, never the exit 2 that holds every write, and never an answer', async () => {
+    // --brief 404 alone holds the write, exit 2, and so does SPEC_BRIEF: a line that cannot be read names no round.
+    for (const rest of [['--brief', '404', '--nope'], ['--nope', '--root', join(repo.root, 'nowhere')], ['--version', '--nope'], ['--help=1'], ['extra', '--list', '--nope']]) {
+      for (const event of ['PreToolUse', 'PostToolUse']) {
+        const result = await cli(['hook', 'claude', ...rest], repo.root, { stdin: QUESTION(event), env: { SPEC_BRIEF: '404' } });
+        expect({ code: result.code, stdout: result.stdout }, `${event}: ${rest.join(' ')}`).toEqual({ code: 1, stdout: '' });
+        expect(result.stderr.endsWith(OFF), `${event}: ${rest.join(' ')}`).toBe(true);
+      }
+    }
+  });
+
+  it("is the hook's line wherever the option stands, and a value before the command is not taken for it", async () => {
+    for (const argv of [['--nope', 'hook', 'claude'], ['hook', '--nope', 'claude'], ['--root', repo.root, 'hook', 'claude', '--nope'], ['hook', 'claude', 'extra', '-x']]) {
+      const result = await cli(argv, repo.root, { stdin: QUESTION() });
+      expect({ code: result.code, stdout: result.stdout }, argv.join(' ')).toEqual({ code: 1, stdout: '' });
+      expect(result.stderr.endsWith(OFF), argv.join(' ')).toBe(true);
+    }
+  });
+
+  it('keeps what the hook answered before it: a question it cannot read, and a tool that writes no file', async () => {
+    expect(await cli(['hook', 'claude', '--nope'], repo.root, { stdin: 'not json' })).toEqual({ code: 1, stdout: '', stderr: 'spec-harness: the hook input is not JSON\n' });
+    expect(await cli(['hook', 'claude', '--format', 'xml'], repo.root, { stdin: '{"tool_name":"Write"}' })).toEqual({ code: 1, stdout: '', stderr: 'spec-harness: the hook input names no event or tool\n' });
+    const bash = JSON.stringify({ session_id: 's', cwd: repo.root, hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: 'ls' } });
+    for (const rest of [['--nope'], ['--root'], ['--at', 'sideways']]) {
+      expect(await cli(['hook', 'claude', ...rest], repo.root, { stdin: bash }), rest.join(' ')).toEqual({ code: 0, stdout: '', stderr: '' });
+    }
+  });
+
+  it("is the hook's alone: git's hook, a hook that is neither and every other command stop on the same line, exit 2", async () => {
+    // git stops one commit on a line a person reads, who can then mend the hook.
+    const git = await cli(['hook', 'git', '--nope'], repo.root, { stdin: QUESTION() });
+    expect({ code: git.code, stdout: git.stdout }).toEqual({ code: 2, stdout: '' });
+    expect(git.stderr.startsWith("spec-harness: Unknown option '--nope'")).toBe(true);
+    expect(git.stderr).not.toContain('the guard is off');
+    expect(await cli(['hook', 'git', '--format', 'xml'], repo.root, { stdin: QUESTION() })).toEqual({
+      code: 2,
+      stdout: '',
+      stderr: 'spec-harness: --format must be pretty, json, gitlab, sarif or github, not "xml"\n',
+    });
+    // A line that does not say whose hook it is, is nobody's: the word claude taken for a value, misspelt, or left out.
+    for (const argv of [['hook', '--brief', 'claude', '--nope'], ['hook', 'claud', '--nope'], ['hook', '--nope'], ['guard', 'claude', '--nope'], ['--nope']]) {
+      const result = await cli(argv, repo.root, { stdin: QUESTION() });
+      expect({ code: result.code, stdout: result.stdout }, argv.join(' ')).toEqual({ code: 2, stdout: '' });
+      expect(result.stderr.startsWith("spec-harness: Unknown option '--nope'"), argv.join(' ')).toBe(true);
+    }
+  });
+});
+
+describe("Claude Code's hook, whatever is on its line", () => {
+  // The two things a line must never do: answer `allow`, which would skip
+  // the person's own permission prompt, and hold a write, exit 2, for what is
+  // wrong with the line itself. Exit 2 is for a write the hook could not
+  // check, as for the brief that is named and is not one, above.
+  const LINES: readonly (readonly string[])[] = [
+    // Read, and passed over: the word as an option, an argument and a value.
+    ['--allow', 'allow', '--note', 'allow'],
+    // Not read, or with a root that is not there: said, and nothing answered.
+    ['--allow', '--nope'],
+    ['--allow=allow'],
+    ['--root'],
+    ['--format', 'allow'],
+    ['--at', 'allow'],
+    ['--allow', '--root', 'nowhere'],
+  ];
+
+  it('never answers allow, and never holds a write for its own line: one the round may make, one it may not, one outside its scope', async () => {
+    const before = (path: string): string =>
+      JSON.stringify({ session_id: 's', cwd: repo.root, hook_event_name: 'PreToolUse', tool_name: 'Write', tool_input: { file_path: join(repo.root, ...path.split('/')), content: 'x' } });
+    for (const rest of LINES) {
+      for (const path of ['src/auth/a.ts', 'src/db/schema.ts', 'README.md']) {
+        const result = await cli(['hook', 'claude', ...rest], repo.root, { stdin: before(path) });
+        const where = `${rest.join(' ')} | ${path}`;
+        expect(result.stdout, where).not.toContain('"allow"');
+        expect([0, 1], where).toContain(result.code);
+        // The line that is read still decides: the protected file is refused.
+        if (rest === LINES[0] && path === 'src/db/schema.ts') expect(JSON.parse(result.stdout)).toMatchObject({ hookSpecificOutput: { permissionDecision: 'deny' } });
+      }
+    }
   });
 });

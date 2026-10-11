@@ -15,7 +15,7 @@
 import base from './stryker.config.mjs';
 
 export const PURE_RANGES = {
-  'src/workspace.ts:78-147': 'parseOptions',
+  'src/workspace.ts:92-161': 'parseOptions',
 };
 
 export default {

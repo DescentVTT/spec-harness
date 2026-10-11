@@ -27,7 +27,7 @@ import {
 import { isDirectory } from './fs.js';
 import { GitError, show, stagedChanges } from './git.js';
 import type { Decision } from './guard.js';
-import { claudeResponse, gitResponse, parseClaudeHook } from './hooks.js';
+import { claudeResponse, gitResponse, parseClaudeHook, type HookRequest } from './hooks.js';
 import { claudeVersion } from './host.js';
 import { premisesCommand } from './premises.js';
 import { createReader } from './reader.js';
@@ -36,7 +36,7 @@ import { mcpCommand } from './server.js';
 import { gitHook, initCommand } from './setup.js';
 import { notFido2, readAllowedSigners } from './signers.js';
 import { SiblingError } from './siblings.js';
-import { emptyValue, isBlank, noDirectory, refusal, type Command } from './usage.js';
+import { emptyValue, isBlank, isClaudeHook, noDirectory, refusal, type Command } from './usage.js';
 import { checkClaudeCode, CLAUDE_CODE_MINIMUM, MINIMUM_VERSIONS } from './versions.js';
 import {
   activeBrief,
@@ -52,6 +52,7 @@ import {
   version,
   type CliIO,
   type Options,
+  type UnreadableLine,
   type Workspace,
 } from './workspace.js';
 
@@ -108,7 +109,8 @@ An option a command does not read, an argument it does not take, an option or an
 argument given an empty value, and a brief given both as the argument and as --brief
 are refused, exit 2, not read as if they were not there. doctor says an empty --brief
 or --base in its report. hook claude reads its line as every release has, and says a
---root that is not a directory with exit 1, refusing nothing.
+line it cannot read, and a --root that is not a directory, with exit 1: it refuses
+nothing for either.
 
 Exit codes: 0 clean, 1 refused or found something, 2 the answer cannot be trusted.
 `;
@@ -167,42 +169,70 @@ async function readStdin(io: CliIO): Promise<string> {
   return Buffer.concat(chunks).toString('utf8');
 }
 
+/**
+ * The write Claude Code asks the hook about, or the exit code that answers
+ * already: 1 for a question that cannot be read, 0 for a tool that writes
+ * no file. Asked before anything on the hook's own line is, so that a line
+ * that is wrong is said where there is a write it leaves unchecked.
+ */
+async function writeAsked(io: CliIO): Promise<HookRequest | number> {
+  let question: string;
+  try {
+    question = await readStdin(io);
+  } catch (error) {
+    // A question that could not be read is one the hook cannot see, as one
+    // it cannot parse is, below: it has no event to hold a write by.
+    io.stderr.write(`spec-harness: the hook input could not be read: ${(error as Error).message}\n`);
+    return EXIT_FAILED;
+  }
+  const request = parseClaudeHook(question);
+  if ('error' in request) {
+    // A hook that cannot read its question refuses nothing it cannot see,
+    // but says so where the person reads it: a non-blocking error.
+    io.stderr.write(`spec-harness: ${request.error}\n`);
+    return EXIT_FAILED;
+  }
+  return request.paths.length === 0 ? EXIT_OK : request;
+}
+
+/**
+ * What is wrong with the hook's own line, said and nothing refused for it:
+ * one line, since Claude Code shows the first line of the stderr of a hook
+ * that exits 1 and goes on with the write, where exit 2 would hold every
+ * write of the session, the one that mends the line among them (ADR-0005).
+ */
+function guardOff(io: CliIO, wrong: string, mend: string): number {
+  io.stderr.write(`spec-harness: ${wrong}, so the guard is off and this write is not checked; ${mend}\n`);
+  return EXIT_FAILED;
+}
+
+/**
+ * Claude Code's hook on a line the parser refused: an option no command has,
+ * an option left without its value, a --format or an --at that is none. It
+ * was exit 2 before the question was read, for the line a settings file
+ * holds as for one typed at a terminal. The parser's words are kept, on one
+ * line: what node says of an option that may have lost its value is three.
+ */
+async function unreadHookLine(said: string, io: CliIO): Promise<number> {
+  const request = await writeAsked(io);
+  if (typeof request === 'number') return request;
+  return guardOff(io, `the hook's line cannot be read (${said.split('\n').join(' ')})`, 'mend it in Claude Code\'s settings, where init writes "hook claude" and nothing after it');
+}
+
 async function hookCommand(options: Options, io: CliIO): Promise<number> {
   const kind = options.positionals[0];
   if (kind === 'claude') {
-    let question: string;
-    try {
-      question = await readStdin(io);
-    } catch (error) {
-      // A question that could not be read is one the hook cannot see, as one
-      // it cannot parse is, below: it has no event to hold a write by.
-      io.stderr.write(`spec-harness: the hook input could not be read: ${(error as Error).message}\n`);
-      return EXIT_FAILED;
-    }
-    const request = parseClaudeHook(question);
-    if ('error' in request) {
-      // A hook that cannot read its question refuses nothing it cannot see,
-      // but says so where the person reads it: a non-blocking error.
-      io.stderr.write(`spec-harness: ${request.error}\n`);
-      return EXIT_FAILED;
-    }
-    if (request.paths.length === 0) return EXIT_OK;
+    const request = await writeAsked(io);
+    if (typeof request === 'number') return request;
     // An empty root is the directory the hook was started in: git starts
     // there when it is handed no directory, so the hook has guarded there
     // for an empty root in every release.
     const root = options.root === '' ? io.cwd : options.root;
     // A root written on the hook's line that is a file, or is not there: git
     // starts in neither, which read as a session outside a work tree, exit 0
-    // and no word, and the guard someone had configured was off. It is said,
-    // and refuses nothing: exit 1 is to Claude Code an error that does not
-    // block, whose first line of stderr it shows the person, where exit 2
-    // would hold every write of the session, the one that mends the line
-    // among them (ADR-0005).
+    // and no word, and the guard someone had configured was off.
     if (root !== undefined && !isDirectory(root)) {
-      io.stderr.write(
-        `spec-harness: ${noDirectory(root)}, so the guard is off and this write is not checked; give the hook's line a directory that exists, or leave --root out for the project Claude Code names\n`,
-      );
-      return EXIT_FAILED;
+      return guardOff(io, noDirectory(root), "give the hook's line a directory that exists, or leave --root out for the project Claude Code names");
     }
     const cwd = request.cwd ?? io.cwd;
     let workspace: Workspace;
@@ -410,7 +440,12 @@ async function dispatch(argv: readonly string[], io: CliIO): Promise<number> {
   try {
     options = parseOptions(argv);
   } catch (error) {
-    io.stderr.write(`spec-harness: ${(error as Error).message}\n`);
+    // The parser throws nothing but its refusal of the line, which holds
+    // whose line it was. Claude Code's hook says its own, and holds no
+    // write for it.
+    const refused = error as UnreadableLine;
+    if (isClaudeHook(refused.words[0], refused.words[1])) return unreadHookLine(refused.message, io);
+    io.stderr.write(`spec-harness: ${refused.message}\n`);
     return EXIT_ERROR;
   }
   if (options.version) {

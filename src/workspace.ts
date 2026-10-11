@@ -29,6 +29,20 @@ export class UsageError extends Error {
   }
 }
 
+/**
+ * A command line the parser refused, with the command and the arguments on
+ * it. Whose line it was decides what the refusal is: Claude Code's hook says
+ * it and holds no write for it, where every other command stops (cli.ts).
+ */
+export class UnreadableLine extends UsageError {
+  readonly words: readonly string[];
+
+  constructor(message: string, words: readonly string[]) {
+    super(message);
+    this.words = words;
+  }
+}
+
 export interface CliIO {
   readonly stdout: { write(text: string): unknown };
   readonly stderr: { write(text: string): unknown };
@@ -76,49 +90,49 @@ export interface Options {
 }
 
 export function parseOptions(argv: readonly string[]): Options {
+  const options = {
+    brief: { type: 'string' },
+    base: { type: 'string' },
+    root: { type: 'string' },
+    format: { type: 'string' },
+    strict: { type: 'boolean' },
+    write: { type: 'boolean' },
+    'git-hook': { type: 'boolean' },
+    path: { type: 'string', multiple: true },
+    reason: { type: 'string' },
+    option: { type: 'string', multiple: true },
+    recommend: { type: 'string' },
+    list: { type: 'boolean' },
+    show: { type: 'string' },
+    allow: { type: 'boolean' },
+    deny: { type: 'boolean' },
+    note: { type: 'string' },
+    id: { type: 'string' },
+    at: { type: 'string' },
+    help: { type: 'boolean', short: 'h' },
+    version: { type: 'boolean', short: 'v' },
+  } as const;
   let parsed;
   try {
-    parsed = parseArgs({
-      args: [...argv],
-      allowPositionals: true,
-      strict: true,
-      options: {
-        brief: { type: 'string' },
-        base: { type: 'string' },
-        root: { type: 'string' },
-        format: { type: 'string' },
-        strict: { type: 'boolean' },
-        write: { type: 'boolean' },
-        'git-hook': { type: 'boolean' },
-        path: { type: 'string', multiple: true },
-        reason: { type: 'string' },
-        option: { type: 'string', multiple: true },
-        recommend: { type: 'string' },
-        list: { type: 'boolean' },
-        show: { type: 'string' },
-        allow: { type: 'boolean' },
-        deny: { type: 'boolean' },
-        note: { type: 'string' },
-        id: { type: 'string' },
-        at: { type: 'string' },
-        help: { type: 'boolean', short: 'h' },
-        version: { type: 'boolean', short: 'v' },
-      },
-    });
+    parsed = parseArgs({ args: [...argv], allowPositionals: true, strict: true, options });
   } catch (error) {
-    throw new UsageError((error as Error).message);
+    // Read again with nothing refused, for whose line it was and nothing
+    // else: an option no command has is passed over, one left without its
+    // value takes none, and no value read this way is used. The same table,
+    // so that a value is not taken for the command it stands before.
+    throw new UnreadableLine((error as Error).message, parseArgs({ args: [...argv], strict: false, options }).positionals);
   }
   const { values, positionals } = parsed;
   const format = (values.format ?? 'pretty') as Options['format'];
   const formats: readonly Options['format'][] = ['pretty', 'json', 'gitlab', 'sarif', 'github'];
-  if (!formats.includes(format)) throw new UsageError(`--format must be pretty, json, gitlab, sarif or github, not "${format}"`);
+  if (!formats.includes(format)) throw new UnreadableLine(`--format must be pretty, json, gitlab, sarif or github, not "${format}"`, positionals);
   const command = positionals[0];
   // Only the commands whose findings have places print them for a forge.
   if (command !== undefined && command !== 'audit' && command !== 'premises' && format !== 'pretty' && format !== 'json') {
-    throw new UsageError(`--format ${format} is for audit and premises; ${command} prints pretty or json`);
+    throw new UnreadableLine(`--format ${format} is for audit and premises; ${command} prints pretty or json`, positionals);
   }
   const at = values.at;
-  if (at !== undefined && at !== 'base' && at !== 'head' && at !== 'both') throw new UsageError(`--at must be base, head or both, not "${at}"`);
+  if (at !== undefined && at !== 'base' && at !== 'head' && at !== 'both') throw new UnreadableLine(`--at must be base, head or both, not "${at}"`, positionals);
   return {
     command,
     positionals: positionals.slice(1),
