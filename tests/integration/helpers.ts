@@ -198,7 +198,13 @@ export interface Captured {
   readonly stderr: string;
 }
 
-/** The CLI, in-process, with its output captured and an environment of the test's own. */
+/**
+ * The CLI, in-process, with its output captured and an environment and an
+ * input of the test's own. The input is empty where the test gives none:
+ * left to the process's, a command that came to read it, as a mutant of the
+ * command line can, would wait on the test runner's stdin until the test's
+ * clock ran out, where it now fails at once.
+ */
 export async function cli(
   argv: readonly string[],
   cwd: string,
@@ -206,13 +212,13 @@ export async function cli(
 ): Promise<Captured> {
   let stdout = '';
   let stderr = '';
-  const stdin = options.stdin;
+  const stdin = options.stdin ?? '';
   const io: CliIO = {
     stdout: { write: (text: string) => (stdout += text) },
     stderr: { write: (text: string) => (stderr += text) },
     cwd,
     env: options.env ?? {},
-    ...(stdin === undefined ? {} : { stdin: async () => stdin }),
+    stdin: async () => stdin,
   };
   const code = await run(argv, io);
   return { code, stdout, stderr };

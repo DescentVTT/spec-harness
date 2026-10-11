@@ -367,6 +367,101 @@ What was measured for this and left as it was:
   expected, and a line the parser cannot read, such as an option no command
   has or `--root` with no value after it.
 
+*Amended again 2026-10-11.* A line Claude Code's hook cannot read is said,
+with exit 1, and holds no write. The amendment above left it among the
+hook's exits of 2: the parser refuses a line before any command is known, so
+`hook claude` was refused as every command is. Measured on 0.13.0 through
+the launcher (Windows 11, Node 24.18.1, git 2.55), before a write to a file
+the brief protects and after a write outside its scope, each of these was
+exit 2, the parser's words on stderr, and the question never read:
+
+- an option no command has, long or short, with a value or without:
+  `--nope`, `--nope=value`, `-x`, and the same before `hook` or between
+  `hook` and `claude`;
+- an option left without its value: `--root` or `--brief` at the end of the
+  line, as `--root $DIR` is in a shell where the variable is not set, and
+  `--root --brief 001`, which node says in three lines;
+- a value given to an option that takes none, `--strict=yes`;
+- a `--format` that is none, or one of the three the hook has no use for,
+  and an `--at` that is none: `--format xml`, `--format ""`, `--format
+  gitlab`, `--at sideways`.
+
+That is the line the amendment of 2026-10-09 exempted, in the same settings
+file, holding the same writes, the one that mends it among them. Each is now
+exit 1 and one line on stderr:
+
+    spec-harness: the hook's line cannot be read (Option '--root <value>' argument missing), so the guard is off and this write is not checked; mend it in Claude Code's settings, where init writes "hook claude" and nothing after it
+
+- **Exit 1, by Claude Code's hooks reference as it reads today.** The page
+  (<https://code.claude.com/docs/en/hooks>, *Exit code output*, read
+  2026-10-11) names a hook that exits with any code but 0 and 2 a
+  non-blocking error, and says of one: "The action goes ahead". The table
+  under the same heading has the notice in the transcript carry the first
+  line of the hook's stderr where its stdout holds no JSON, so the parser's
+  words are put on one line, between brackets, with what follows from them
+  and what to do after. After a write there is nothing to hold either way:
+  the page shows the stderr of a PostToolUse hook's exit 2 to the model,
+  and the first line of that of its exit 1 to the person.
+- **A hook entry can ask Claude Code to hold the write all the same.** The
+  page documents `onFailure` on a hook's entry, read by Claude Code 2.1.295
+  and later: set to `"block"`, a hook that fails, by an exit code other than
+  0 and 2 among other ways, does what exit 2 does on its event. Neither
+  `init` nor the plugin writes the field. Where a person has set it, the
+  hook's exit 1 holds the write, for its line as for a question it cannot
+  read, which is what the field asks for.
+- **Said where a root that is not there is said.** A question that cannot
+  be read or parsed is said first, a tool that writes no file is answered
+  with nothing, exit 0, and then the line is said, before a write and after
+  one. Whatever else stands on it, or names the brief, the exit is 1:
+  `--brief 404 --nope`, and `--nope` under `SPEC_BRIEF=404`, name no round,
+  since nothing is read from a line that cannot be read.
+- **Whose line it is, where the parser gave no command.** The line is read
+  a second time with nothing refused, by the same table of options, so that
+  a value is not taken for the command it stands before: an option no
+  command has is passed over, and one left without its value takes none.
+  Only the command and the argument after it are read from that, and no
+  value: `hook` and `claude`, as on a line that parsed. A line that does
+  not say so is nobody's, and is exit 2 as it was: `hook` alone, `hook
+  claud`, `hook --brief claude --nope`, where the word is the brief's
+  value.
+- **Exit 2 from the hook is for a write it could not check**, and for
+  nothing on its own line that it cannot read: a configuration that does
+  not load, briefs that cannot be read, an error nothing expected, and a
+  brief that is named and is not one. The last may stand on the line,
+  `--brief 404`. That line is read, and what it names is missing from the
+  repository, as it is when `SPEC_BRIEF` or the branch names it (ADR-0004):
+  it holds the write as it did.
+- **`hook git` is left as it is.** Measured with a protected file staged:
+  `hook git --nope`, `--root` with no value, `--format xml`, `--at
+  sideways`, `--strict`, an argument after `git`, a `--root` that is empty
+  or not there, and `--brief 404` are each exit 2 and one line that names
+  the fault, three for the option that may have lost its value, and git
+  stops the commit. A pre-commit hook stops one commit in front of the
+  person who made it, who reads the line and mends the hook; nothing there
+  waits on a write the hook itself would have to allow.
+- **No line a release wrote meets it.** 0.13.0 wrote the lines 0.12.0 wrote
+  (ADR-0012), `hook claude` and nothing after it, and
+  `tests/integration/released-lines.test.ts` holds each of the five lines
+  the releases hand the harness to the command, the argument and the root
+  it is read as.
+
+An exit code that changed is a minor release (spec-core's ADR-0009). What
+was measured for this and left as it was:
+
+- **`--help` and `--version` on the hook's line** answer as they do on every
+  line, `-h` and `-v` too: the help or the version on stdout, exit 0, and no
+  write checked. Claude Code takes that for a hook that succeeded, so
+  nothing in the transcript says the guard is off. A person who asks the
+  hook for its help at a terminal is answered the same way, and the harness
+  cannot tell the two apart without waiting for a question that never comes
+  at a terminal. No release wrote either on the line.
+- **An option given twice** is read as its last value, which is the
+  parser's reading for every command: `--root a --root b` is `b`, and
+  `--brief 404 --brief 001` is brief 001.
+- **A hook that is not named** on its line, `hook` alone or a word that is
+  neither `claude` nor `git`, is exit 2 from a settings file as from a
+  terminal.
+
 ## Consequences
 
 An agent that writes through a shell passes the guard and is caught at the

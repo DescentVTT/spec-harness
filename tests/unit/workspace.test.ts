@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { DEFAULT_CONFIG } from '../../src/config.js';
-import { describeActive, EXIT_ERROR, EXIT_FAILED, EXIT_OK, namedId, namesNoBrief, parseOptions, UsageError, type Workspace } from '../../src/workspace.js';
+import { describeActive, EXIT_ERROR, EXIT_FAILED, EXIT_OK, namedId, namesNoBrief, parseOptions, UnreadableLine, UsageError, type Workspace } from '../../src/workspace.js';
 import { row } from './helpers.js';
 
 function usage(argv: string[]): string {
@@ -11,6 +11,17 @@ function usage(argv: string[]): string {
     expect(error).toBeInstanceOf(UsageError);
     expect((error as Error).name).toBe('UsageError');
     return (error as Error).message;
+  }
+  throw new Error('parseOptions accepted the arguments');
+}
+
+/** The command and the arguments a refusal says were on the line. */
+function words(argv: string[]): readonly string[] {
+  try {
+    parseOptions(argv);
+  } catch (error) {
+    expect(error).toBeInstanceOf(UnreadableLine);
+    return (error as UnreadableLine).words;
   }
   throw new Error('parseOptions accepted the arguments');
 }
@@ -142,6 +153,26 @@ describe('options', () => {
     expect(usage(['guard', '--force'])).toContain("Unknown option '--force'");
     expect(usage(['guard', '--brief'])).toContain('--brief');
     expect(usage(['guard', '--strict=yes'])).toContain('--strict');
+  });
+
+  it('says with each refusal whose line it was: the command and its arguments, read with nothing refused', () => {
+    // What tells Claude Code's hook, which holds no write for its own line, from every command that stops.
+    expect(words(['hook', 'claude', '--nope'])).toEqual(['hook', 'claude']);
+    expect(words(['hook', 'claude', '-x', '--nope=value'])).toEqual(['hook', 'claude']);
+    expect(words(['guard', 'a.ts', '--force', 'b.ts'])).toEqual(['guard', 'a.ts', 'b.ts']);
+    expect(words(['--nope'])).toEqual([]);
+    // An option left without its value takes none, at the end of the line or before another option.
+    expect(words(['hook', 'claude', '--root'])).toEqual(['hook', 'claude']);
+    expect(words(['hook', 'claude', '--root', '--brief', '001'])).toEqual(['hook', 'claude', '001']);
+    expect(words(['hook', 'claude', '--strict=yes'])).toEqual(['hook', 'claude']);
+    // A value is not taken for the command it stands before, nor the command for a value.
+    expect(words(['--root', 'elsewhere', 'hook', 'claude', '--nope'])).toEqual(['hook', 'claude']);
+    expect(words(['hook', '--brief', 'claude', '--nope'])).toEqual(['hook']);
+    expect(words(['escalate', '--path', 'a.ts', '--path', 'b.ts', '--nope'])).toEqual(['escalate']);
+    // A format or a probe position that is none is refused on a line that parsed, whose words are known.
+    expect(words(['hook', 'claude', '--format', 'xml'])).toEqual(['hook', 'claude']);
+    expect(words(['hook', 'claude', '--format', 'sarif', 'extra'])).toEqual(['hook', 'claude', 'extra']);
+    expect(words(['probe', '012', '--at', 'tip'])).toEqual(['probe', '012']);
   });
 });
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { HELP } from '../../src/cli.js';
-import { emptyValue, isBlank, refusal } from '../../src/usage.js';
+import { emptyValue, isBlank, isClaudeHook, refusal } from '../../src/usage.js';
 import { parseOptions, UsageError } from '../../src/workspace.js';
 
 /** Why a command line is refused, with every `--root` a directory unless the test names those that are. */
@@ -112,7 +112,8 @@ describe('the help', () => {
         'argument given an empty value, and a brief given both as the argument and as --brief',
         'are refused, exit 2, not read as if they were not there. doctor says an empty --brief',
         'or --base in its report. hook claude reads its line as every release has, and says a',
-        '--root that is not a directory with exit 1, refusing nothing.',
+        'line it cannot read, and a --root that is not a directory, with exit 1: it refuses',
+        'nothing for either.',
         '',
       ].join('\n'),
     );
@@ -378,6 +379,13 @@ describe("Claude Code's hook", () => {
       ['--root', 'nowhere'],
     ]) {
       expect(refused(['hook', 'claude', ...rest], () => false), rest.join(' ')).toBeNull();
+    }
+  });
+
+  it('is known by its command and the argument after it, on a line that parsed and on one that did not', () => {
+    expect(isClaudeHook('hook', 'claude')).toBe(true);
+    for (const [command, argument] of [['hook', 'git'], ['hook', undefined], ['hook', 'Claude'], ['guard', 'claude'], ['claude', 'hook'], [undefined, 'claude'], [undefined, undefined]] as const) {
+      expect(isClaudeHook(command, argument), `${command} ${argument}`).toBe(false);
     }
   });
 
