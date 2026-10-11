@@ -9,6 +9,34 @@ only fixes, reports less or documents, so `^0.7.0` takes only releases that
 cannot turn a run red. The family's policy is
 [spec-core's ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
+## Unreleased
+
+### Changed
+
+- **`doctor` reads the line of Claude Code's hook as the hook reads it.** It
+  knew the hook only where its command and arguments were exactly what
+  `init` writes, or what 0.1 wrote: a line with `--root
+  ${CLAUDE_PROJECT_DIR}` added by hand, which guards, was reported as
+  `neither the spec-harness plugin nor the hooks init writes, so Claude Code
+  guards no write`, and a line that turns the guard off was reported the
+  same way, with exit 0. It now knows the hook by its command and the words
+  `hook claude`, whatever else is on the line, and reads the rest through
+  the code the hook reads it with. A line that guards with more on it than
+  `init` writes is said as it is and fails nothing. A line the hook cannot
+  read, and a `--root` that is not a directory, are said in the hook's own
+  words, as a guard that is off, and `doctor` exits 1. A line with no
+  `args`, which a shell reads first, is *cannot tell* where the shell would
+  change what follows the command: said, and a failure under `--strict`.
+  `"onFailure": "block"` on the entry is said in a note, with what it
+  changes. `--format json` has each line as `claudeCode.lines`
+  ([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
+  Upgrading: a hook's line changed by hand is now the guard to `doctor`, so
+  it asks Claude Code its release for it, and beside the plugin it is the
+  double install it always was, exit 1. Where `doctor` now exits 1 for a
+  line, the guard was off already: mend the line it names, or write
+  `hook claude` and nothing after it, as `init` does. The lines `init` and
+  the plugin wrote are reported as before.
+
 ## 0.14.0
 
 `hook claude` says a line of its own that it cannot read with exit 1 and

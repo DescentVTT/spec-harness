@@ -177,6 +177,77 @@ export function noDirectory(root: string): string {
   return `--root is "${root}", which is not a directory`;
 }
 
+/** What is wrong with the line of Claude Code's hook, and what mends it. */
+export interface LineFault {
+  readonly wrong: string;
+  readonly mend: string;
+}
+
+/**
+ * What Claude Code's hook does with its own line, as far as the line decides
+ * it: it guards, in the root the line gives it where it gives one, or the
+ * guard is off, for a fault the hook says with exit 1 and holds no write for
+ * (ADR-0005). The hook reads its line through the three functions below, and
+ * `doctor` reads a line it finds in Claude Code's settings through the same
+ * three, so what it says of a line is what the hook does with it.
+ */
+export type HookLine = { readonly state: 'guards'; readonly root: string | undefined } | GuardOff;
+
+export interface GuardOff {
+  readonly state: 'off';
+  readonly fault: LineFault;
+}
+
+/**
+ * A line the parser refused: an option no command has, an option left
+ * without its value, a `--format` or an `--at` that is none. The parser's
+ * words are kept, on one line: what node says of an option that may have
+ * lost its value is three.
+ */
+export function unreadHookLine(said: string): GuardOff {
+  return { state: 'off', fault: { wrong: `the hook's line cannot be read (${said.split('\n').join(' ')})`, mend: 'mend it in Claude Code\'s settings, where init writes "hook claude" and nothing after it' } };
+}
+
+/**
+ * A line that parsed, by the root it gives. An empty root is the directory
+ * the hook was started in: git starts there when it is handed no directory,
+ * so the hook has guarded there for an empty root in every release. A root
+ * that is a file, or is not there, is one git starts in neither of, which
+ * read as a session outside a work tree, exit 0 and no word, and the guard
+ * someone had configured was off.
+ */
+export function readHookLine(root: string | undefined, cwd: string, isDirectory: (path: string) => boolean): HookLine {
+  const given = root === '' ? cwd : root;
+  if (given !== undefined && !isDirectory(given)) {
+    return { state: 'off', fault: { wrong: noDirectory(given), mend: "give the hook's line a directory that exists, or leave --root out for the project Claude Code names" } };
+  }
+  return { state: 'guards', root: given };
+}
+
+/**
+ * What Claude Code's hook does with the words it is handed, or `null` for
+ * words that are not its line: read by the parser the command line reads
+ * every line with, and known by its command and the argument after it on a
+ * line that parsed and on one that did not, as the command line knows it
+ * (cli.ts). `parse` is that parser, which throws its refusal with the words
+ * it could still read.
+ */
+export function claudeHookLine(
+  words: readonly string[],
+  parse: (argv: readonly string[]) => CommandLine,
+  cwd: string,
+  isDirectory: (path: string) => boolean,
+): HookLine | null {
+  let line: CommandLine;
+  try {
+    line = parse(words);
+  } catch (error) {
+    const refused = error as { readonly message: string; readonly words: readonly string[] };
+    return isClaudeHook(refused.words[0], refused.words[1]) ? unreadHookLine(refused.message) : null;
+  }
+  return isClaudeHook(line.command, line.positionals[0]) ? readHookLine(line.root, cwd, isDirectory) : null;
+}
+
 /**
  * Why the command line is refused, or `null` when the command can run:
  * an option it does not read, alone or beside another, an argument it does

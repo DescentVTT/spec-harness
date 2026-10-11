@@ -464,6 +464,131 @@ was measured for this and left as it was:
   neither `claude` nor `git`, is exit 2 from a settings file as from a
   terminal.
 
+*Amended 2026-10-12.* `doctor` reads the line of Claude Code's hook as the
+hook reads it. The amendment of 2026-10-11 found that `doctor` knew a hook
+as the harness's only where its command and arguments were exactly those
+`init` writes, or the line 0.1 wrote, and left it. Measured on 0.14.0
+through the launcher (Windows 11, Node 24.18.1, git 2.55), in a repository
+with a brief that protects a file: each line written into
+`.claude/settings.json` under both events, `doctor` run there, and the
+hook handed the words Claude Code hands it for that line, before a write to
+the protected file. "No guard" is `doctor`'s `neither the spec-harness
+plugin nor the hooks init writes, so Claude Code guards no write`.
+
+| What follows the harness's command | The hook, before the write | `doctor` on 0.14.0 | `doctor` now |
+| --- | --- | --- | --- |
+| `hook claude`, as 0.1.2 to 0.14.0 write it, and as 0.1 wrote it | refuses the write | init's entries, exit 0 | the same |
+| `hook claude`, the script named without the placeholder, or today's line written for a shell | refuses the write | no guard, exit 0 | init's entries, exit 0 |
+| `hook claude --root ${CLAUDE_PROJECT_DIR}` | refuses the write | no guard, exit 0 | init's entries; the line, and that it guards; exit 0 |
+| `--brief 001`, `--base main`, `--strict --format json`, or an argument after `claude` | refuses the write | no guard, exit 0 | init's entries; the line, and that it guards; exit 0 |
+| `--root ""` | refuses the write, from the directory it was started in | no guard, exit 0 | init's entries; the line, and that it guards; exit 0 |
+| `--nope`, `--root` with no value, `--format xml` | exit 1, the line cannot be read, and the write goes on | no guard, exit 0 | the guard is off, in the hook's words; exit 1 |
+| `--root` a file, or a directory that is not there, written out or under the placeholder | exit 1, not a directory, and the write goes on | no guard, exit 0 | the guard is off, in the hook's words; exit 1 |
+| `--brief 404` | exit 2, and the write is held | no guard, exit 0 | init's entries; the line, and that it guards; exit 0 |
+| `hook claude` with `"onFailure": "block"` on its entry | refuses the write | init's entries, exit 0 | the same, and a note on the field |
+| a shell's line with `--root "${CLAUDE_PROJECT_DIR}"` after `hook claude` | refuses the write | no guard, exit 0 | cannot tell; exit 0, and 1 under `--strict` |
+| the same script with `hook git` or `guard`, and another program's hook | not Claude Code's hook | no guard, exit 0 | the same |
+
+It was the same in `.claude/settings.local.json` and in the user's
+settings. So a line a person had added `--root ${CLAUDE_PROJECT_DIR}` to,
+which guards, was reported as no guard at all; a line that turns the guard
+off was reported in the same words, with exit 0; and beside the plugin
+neither was the double install it is.
+
+- **Known by its command and the words `hook claude`.** A hook's entry
+  runs the harness where a word of its line is `spec-harness` or
+  `spec-harness.js`, alone or at the end of a path: the script by any
+  path, the name as `npx` is given it, the package's scoped name. What
+  follows that word is the line the harness is handed. It is Claude Code's
+  hook where the command line would take it for one: read by the parser
+  every line is read by, `hook` its command and `claude` the argument
+  after it, on a line that parsed and on one that did not, so an option
+  before the two words, or between them, leaves it the hook's line here as
+  it does when the hook is started. The same script under `hook git`,
+  `guard` or `mcp` is another command's line, and is not reported.
+- **Read by the hook's own code.** What the hook does with its line, as far
+  as the line decides it, is three functions of `src/usage.ts`: a line the
+  parser refused, a line that parsed and the root it gives, and the two
+  behind the parser. `hook claude` itself now answers through the first
+  two, where it held the same lines of code in the command line, and
+  `doctor` reads a line it finds through the third. There is no second
+  reading to drift from the first, and a test runs the hook on the words of
+  a line and holds `doctor` to its answer: a write refused where `doctor`
+  says the line guards, and the hook's own sentence, to the word, where it
+  says the guard is off.
+- **As a session started at the root hands it over.** Claude Code fills
+  `${CLAUDE_PROJECT_DIR}` in a hook's command and arguments with the
+  project root where the session started (its hooks reference,
+  <https://code.claude.com/docs/en/hooks>, *Reference scripts by path*,
+  read 2026-10-12), and `doctor` fills it with the root it runs in. An
+  empty `--root` is the directory the hook is started in, which is there,
+  and a relative one is read from the root. A session started in a
+  subdirectory, or one that has changed directory, can hand the hook
+  another path than `doctor` read; a line that names its root by the
+  placeholder or by an absolute path is read the same from anywhere.
+- **Guards, off, or cannot tell.** A line that guards and holds no more
+  than a release wrote is reported with nothing to say of it, as it was. A
+  line that guards with more on it is said as it is, with its root where it
+  gives one, and fails nothing. A line the hook cannot read, and a root that
+  is a file or is not there, are said in the hook's words for them, as a
+  guard that is off, and `doctor` exits 1: a guard someone set up, which
+  checks no write, is what a diagnosis is run to find.
+- **A shell's line is read only as far as it can be.** A hook with no
+  `args` is handed to a shell, which splits it, expands its variables and
+  drops its quotes before the harness sees a word (the reference, *Exec
+  form and shell form*). The line 0.1 wrote is such a line, and holds
+  nothing a shell changes: it is split at its spaces and read. Where what
+  follows the command holds a quote, a variable or anything else a shell
+  rewrites, only the shell can say what the hook is handed, and `doctor`
+  does not guess: the line is known as the guard, reported as *cannot
+  tell*, never as fine, and `--strict` fails it, as it fails a Claude Code
+  whose release cannot be told (ADR-0012). The decision was to say of every
+  line what the hook would do with it; for these lines that would take a
+  second reading of a shell's syntax, and the note says how to write the
+  line so that it is read: with `args`, where each word reaches the hook
+  as it stands.
+- **`onFailure` is said in a note.** The reference has the field on a
+  command hook's entry, `"continue"` by default, read by Claude Code
+  2.1.295 and later, and says of `"block"`: "a failure does what exit code
+  2 does on that event" (*Block the action when a hook fails*, read
+  2026-10-12). Among the failures it lists are a hook that cannot start,
+  one that reaches its timeout, and an exit code other than 0 and 2. So
+  with the field set, the hook's exit 1 holds a write before it: for a
+  question it cannot read, and for a line of its own that turns the guard
+  off, which is then every write of the session, the one that mends the
+  line among them. The note says which of the two the line is. It fails
+  nothing: the field is a person's choice, and `doctor` exits 1 for the
+  line that is off with it or without it. After a write there is nothing
+  to hold either way.
+- **`--format json` has each line** as `claudeCode.lines`: the file, the
+  events, the line as written, its state, `onFailure`, and what is said of
+  it. The field is added, so no `schemaVersion` moves.
+- **No line a release wrote is read another way.** The hook's lines of
+  0.1.0 to 0.14.0 are `hook claude` and nothing after it, and
+  `tests/integration/released-lines.test.ts` holds `doctor` to reporting
+  each as the guard with nothing more to say.
+
+An exit code that can change for a tree that passed is a minor release
+(spec-core's ADR-0009). What was measured for this and left as it was:
+
+- **A `--brief` on the line that names no brief.** The hook holds every
+  write for it, exit 2, and `doctor` says of the line that it guards: it
+  reads the line, and asks spec-brief only about the brief it is given
+  itself. The brief `doctor` reports is the one its own flag,
+  `SPEC_BRIEF` or the branch names.
+- **The plugin's own hooks.** `doctor` reads `enabledPlugins` and no line
+  of the plugin's `hooks/hooks.json`, which is a release's file in a
+  directory Claude Code keeps.
+- **`init` knows only the lines it and 0.1 wrote.** Beside a hook written
+  another way it adds its own, and the file then holds two lines that both
+  guard, which `doctor` lists and does not count as the double install it
+  is; beside the plugin, `init` reports `skip` for such a file where
+  `doctor` exits 1 for the double install.
+- **What else on an entry decides whether the hook runs**: its `matcher`,
+  an `if`, `async`, the event it stands under, `disableAllHooks`. None
+  is read. A line under PreToolUse alone, or PostToolUse alone, is named
+  with its event.
+
 ## Consequences
 
 An agent that writes through a shell passes the guard and is caught at the

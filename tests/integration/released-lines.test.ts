@@ -15,15 +15,15 @@
  * here when a release changes what it writes, and none is taken out.
  */
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { GIT_HOOK_LINE, GUARD_HOOK, mcpServer, PRE_COMMIT, PROJECT_DIR, PROJECT_DIR_OR_HERE } from '../../src/configure.js';
-import { refusal } from '../../src/usage.js';
+import { GIT_HOOK_LINE, GUARD_HOOK, mcpServer, PRE_COMMIT, PROJECT_DIR, PROJECT_DIR_OR_HERE, reportHooks } from '../../src/configure.js';
+import { claudeHookLine, refusal } from '../../src/usage.js';
 import { parseOptions } from '../../src/workspace.js';
-import { brief, BRIEF_FILE, cleanup, cli, repository, ROOT, temp, type Repository } from './helpers.js';
+import { brief, BRIEF_FILE, cleanup, cli, parsed, repository, ROOT, temp, type Repository } from './helpers.js';
 
 afterAll(cleanup);
 
@@ -385,6 +385,50 @@ describe("Claude Code's hook, on a line the parser cannot read", () => {
       const result = await cli(argv, repo.root, { stdin: QUESTION() });
       expect({ code: result.code, stdout: result.stdout }, argv.join(' ')).toEqual({ code: 2, stdout: '' });
       expect(result.stderr.startsWith("spec-harness: Unknown option '--nope'"), argv.join(' ')).toBe(true);
+    }
+  });
+});
+
+describe("doctor, of the hook's line in Claude Code's settings", () => {
+  // doctor reads a line by the hook's own reading of it (usage.ts), so what
+  // it says of a line is what the hook does with that line (ADR-0005).
+  const entry = (line: Written['line']): unknown => (typeof line === 'string' ? { type: 'command', command: line } : { type: 'command', command: line[0], args: line.slice(1) });
+  const held = (...hooks: unknown[]): unknown => ({ hooks: { PreToolUse: [{ matcher: 'Edit|Write', hooks }], PostToolUse: [{ matcher: 'Edit|Write', hooks }] } });
+
+  it('reads each line a release wrote for the hook as the guard, with nothing more to say of it', () => {
+    const hooks = WRITTEN.filter((written) => wordsOf(written.line).at(-1) === 'claude');
+    expect(hooks).toHaveLength(2);
+    for (const written of hooks) {
+      const said = reportHooks([{ file: '.claude/settings.json', settings: held(entry(written.line)) }], '/the/project', (words) => claudeHookLine(words, parseOptions, '/the/project', () => false));
+      expect(said, written.releases).toEqual([{ file: '.claude/settings.json', events: ['PreToolUse', 'PostToolUse'], line: ['hook', 'claude'], state: 'guards', onFailure: null, detail: null, note: null }]);
+    }
+  });
+
+  it('says what the hook does: a write refused where it says the line guards, and the hook\'s own words where it says the guard is off', async () => {
+    const LINES: readonly (readonly string[])[] = [['--root', PROJECT_DIR, '--brief', '001'], ['--root', 'nowhere'], ['--format', 'xml']];
+    repo.write('.claude/settings.json', JSON.stringify(held(...LINES.map((rest) => entry(['node', `${PROJECT_DIR}/${SCRIPT}`, 'hook', 'claude', ...rest])))));
+    try {
+      const doctor = parsed<{ root: string; claudeCode: { lines: { line: string[]; state: string; detail: string }[] } }>(await cli(['doctor', '--format', 'json'], repo.root));
+      expect(doctor.claudeCode.lines.map((line) => [line.line.slice(2), line.state])).toEqual([
+        [LINES[0], 'guards'],
+        [LINES[1], 'off'],
+        [LINES[2], 'off'],
+      ]);
+      for (const [index, rest] of LINES.entries()) {
+        const said = doctor.claudeCode.lines[index] as { state: string; detail: string };
+        // The words Claude Code hands the hook: the project filled in.
+        const result = await cli(['hook', 'claude', ...rest.map((word) => word.split(PROJECT_DIR).join(doctor.root))], repo.root, { stdin: QUESTION() });
+        if (said.state === 'guards') {
+          expect(result, rest.join(' ')).toMatchObject({ code: 0, stderr: '' });
+          expect(JSON.parse(result.stdout), rest.join(' ')).toMatchObject({ hookSpecificOutput: { permissionDecision: 'deny' } });
+        } else {
+          const where = `"hook claude ${rest.join(' ')}" in .claude/settings.json: `;
+          expect(said.detail.startsWith(where), said.detail).toBe(true);
+          expect(result, rest.join(' ')).toEqual({ code: 1, stdout: '', stderr: `spec-harness: ${said.detail.slice(where.length).replace('no write is checked', 'this write is not checked')}\n` });
+        }
+      }
+    } finally {
+      rmSync(join(repo.root, '.claude'), { recursive: true, force: true });
     }
   });
 });
