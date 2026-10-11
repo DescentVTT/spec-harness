@@ -73,8 +73,8 @@
     }
   },
   "devDependencies": {
-    "@descent-vtt/spec-brief": "^0.7.0",
-    "@descent-vtt/spec-guard": "^0.22.0",
+    "@descent-vtt/spec-brief": "^0.8.0",
+    "@descent-vtt/spec-guard": "^0.23.0",
     "@stryker-mutator/core": "^10.0.0",
     "@stryker-mutator/vitest-runner": "^10.0.0",
     "@types/node": "^22.20.4",
