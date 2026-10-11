@@ -86,7 +86,20 @@ so a sweep counts it killed now and then, as 0.12.0's did and those of
 38144471044) read 97.51% over 8,355 mutants, 96.48% with every timeout
 lost, in shards of 12m24s to 17m00s, and the `break` stays 95: it has 65
 mutants more than 0.13.0's and 65 more killed, and its 177 survivors and
-31 without coverage are 0.13.0's, mutant for mutant.
+31 without coverage are 0.13.0's, mutant for mutant. For 0.15.0 the sweep
+of 3c3b1f1 (run 38174911926) read 97.51% over 8,778 mutants, 96.56% with
+every timeout lost, in shards of 12m16s to 19m22s, and the `break` stays
+95. It is the first for a release since nothing a mutator reads stands
+under an `as` (the amendment of 2026-10-12): its 188 survivors are
+0.14.0's 177, the ten equivalents that amendment records, and the body of
+`literal()` in `src/literal.ts`, which is neither. With that body emptied
+every table built through it is nothing, each module that reads one
+throws as it loads, and a file that does not load is no failure to a
+sweep. The sweep of the change itself had killed it through a test of
+`configure.ts`; that test's file loads `usage.ts` since `doctor` reads a
+hook's line, and no longer runs under the mutant.
+`tests/unit/literal.test.ts`, added with the release, loads the function
+alone and fails for it, which the release's core sweep shows.
 
 One runner took 69 to 130 minutes for the full sweep. Before any sharded
 sweep ran, the report of eb39599 was cut into shards the way Stryker writes
