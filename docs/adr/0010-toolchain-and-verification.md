@@ -82,7 +82,11 @@ the sweep of 618dff0 (run 38127053349) read 97.49% over 8,290 mutants,
 (`src/round.ts`), which the comment beside it has as equivalent. The file
 is then named by the digest's bytes, and a path refuses a NUL among them,
 so a sweep counts it killed now and then, as 0.12.0's did and those of
-0.11.0 and 0.11.1 did not.
+0.11.0 and 0.11.1 did not. For 0.14.0 the sweep of 36a6c8e (run
+38144471044) read 97.51% over 8,355 mutants, 96.48% with every timeout
+lost, in shards of 12m24s to 17m00s, and the `break` stays 95: it has 65
+mutants more than 0.13.0's and 65 more killed, and its 177 survivors and
+31 without coverage are 0.13.0's, mutant for mutant.
 
 One runner took 69 to 130 minutes for the full sweep. Before any sharded
 sweep ran, the report of eb39599 was cut into shards the way Stryker writes

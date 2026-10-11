@@ -9,7 +9,13 @@ only fixes, reports less or documents, so `^0.7.0` takes only releases that
 cannot turn a run red. The family's policy is
 [spec-core's ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
-## Unreleased
+## 0.14.0
+
+`hook claude` says a line of its own that it cannot read with exit 1 and
+holds no write for it, where exit 2 held every write of the session. And
+where spec-guard refuses for a spec pattern that matched no file, the
+context packet lists the rules of the files that did match, under a
+sentence that names the pattern, where it listed none.
 
 ### Changed
 
