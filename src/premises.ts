@@ -29,7 +29,7 @@ import { formatFindings } from './formats.js';
 import { createReader } from './reader.js';
 import { briefText } from './round.js';
 import type { Finding } from './types.js';
-import { EXIT_ERROR, EXIT_FAILED, EXIT_OK, json, openWorkspace, version, type CliIO, type Options } from './workspace.js';
+import { EXIT_ERROR, EXIT_FAILED, EXIT_OK, json, namesNoBrief, openWorkspace, UsageError, version, type CliIO, type Options } from './workspace.js';
 
 export async function premisesCommand(options: Options, io: CliIO): Promise<number> {
   const workspace = await openWorkspace(options, io);
@@ -38,6 +38,15 @@ export async function premisesCommand(options: Options, io: CliIO): Promise<numb
   const live = briefs.filter((brief) => brief.phase === 'live');
   const fromBranch = briefIdFromBranch(workspace.config.branches, workspace.branch);
   const active = findActive(briefs, { flag: options.brief, environment: io.env['SPEC_BRIEF'], branch: fromBranch });
+  // A name given to this run that names no brief is not read as no round:
+  // the run would hold the round's own premise against it, and answer for a
+  // round other than the one its caller named (ADR-0004). The branch is not
+  // given to the run. CI runs this on every branch, and one whose name only
+  // reads as a brief's, `fix/brief-list-order`, is no round's: it is read
+  // as no round, which holds every premise to account, as it was. So is an
+  // archived brief, whose round is closed and retires nothing: what the
+  // round's own branch reads once it has archived its brief.
+  if (active.kind === 'unknown' && active.source !== 'branch') throw new UsageError(namesNoBrief(active));
   const round = active.kind === 'found' ? active.brief.file : null;
   if (live.length === 0) {
     if (options.format === 'json') io.stdout.write(json('premises', { ok: true, checked: 0, findings: [] }));
