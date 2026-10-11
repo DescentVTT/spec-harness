@@ -9,7 +9,13 @@ only fixes, reports less or documents, so `^0.7.0` takes only releases that
 cannot turn a run red. The family's policy is
 [spec-core's ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
-## Unreleased
+## 0.15.0
+
+`doctor` reads the line of Claude Code's hook as the hook itself reads it:
+a line with more on it than `init` writes is said to guard where it does,
+and a line the hook cannot read, or whose `--root` is no directory, is said
+as a guard that is off, exit 1, where each was reported as no guard at all
+or not reported.
 
 ### Changed
 
