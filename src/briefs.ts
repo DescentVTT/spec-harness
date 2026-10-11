@@ -90,8 +90,12 @@ export function parseBriefList(document: unknown): BriefRow[] {
   });
 }
 
-/** How the active brief was named, for messages. */
-export type ActiveSource = 'flag' | 'environment' | 'branch';
+/**
+ * How the active brief was named, for messages. An argument is the id a
+ * command takes after its name, or a tool call's `brief`: said to be the
+ * flag's, it sent a person looking for a `--brief` nobody had typed.
+ */
+export type ActiveSource = 'argument' | 'flag' | 'environment' | 'branch';
 
 export type ActiveBrief =
   | { readonly kind: 'found'; readonly brief: BriefRow; readonly source: ActiveSource }
@@ -100,13 +104,18 @@ export type ActiveBrief =
   | { readonly kind: 'archived'; readonly brief: BriefRow; readonly source: ActiveSource };
 
 /**
- * The brief a round is working on: named by a flag, by `SPEC_BRIEF`, or by
- * the branch - never guessed from which brief happens to be the only active
- * one (ADR-0004).
+ * The brief a round is working on: named by an argument, by a flag, by
+ * `SPEC_BRIEF`, or by the branch - never guessed from which brief happens to
+ * be the only active one (ADR-0004).
  */
 export function findActive(
   briefs: readonly BriefRow[],
-  named: { readonly flag?: string | undefined; readonly environment?: string | undefined; readonly branch?: string | null | undefined },
+  named: {
+    readonly argument?: string | undefined;
+    readonly flag?: string | undefined;
+    readonly environment?: string | undefined;
+    readonly branch?: string | null | undefined;
+  },
 ): ActiveBrief {
   const pick = (id: string, source: ActiveSource): ActiveBrief => {
     const matches = briefs.filter((brief) => sameId(brief.id, id));
@@ -116,6 +125,7 @@ export function findActive(
     if (archived !== undefined) return { kind: 'archived', brief: archived, source };
     return { kind: 'unknown', id, source };
   };
+  if (named.argument !== undefined && named.argument.trim() !== '') return pick(named.argument.trim(), 'argument');
   if (named.flag !== undefined && named.flag.trim() !== '') return pick(named.flag.trim(), 'flag');
   if (named.environment !== undefined && named.environment.trim() !== '') return pick(named.environment.trim(), 'environment');
   if (named.branch !== undefined && named.branch !== null) return pick(named.branch, 'branch');

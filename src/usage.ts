@@ -80,16 +80,27 @@ interface Shape {
   readonly options: readonly string[];
   /** The most arguments it takes, with that said for the refusal of one more; `null` where it takes any number. */
   readonly limit: { readonly most: number; readonly takes: string } | null;
-  /** What an argument of it is, and what to do about an empty one; absent where it takes none, or says so itself. */
-  readonly argument?: { readonly role: string; readonly instead: string };
+  /**
+   * What an argument of it is, and what to do about an empty one; absent
+   * where it takes none, or says so itself. `option` is the option that
+   * names the same thing, where there is one: the two together are refused.
+   * Only a brief is named both ways.
+   */
+  readonly argument?: { readonly role: string; readonly instead: string; readonly option?: 'brief' };
   /** The options whose empty value the command says in its own report. */
   readonly reports?: readonly string[];
+  /**
+   * The options that make the command another one, each with the only
+   * options it reads beside it. The first on the list that is given decides,
+   * as the command itself decides.
+   */
+  readonly modes?: readonly { readonly option: string; readonly beside: readonly string[] }[];
 }
 
 const NO_ARGUMENT = { limit: { most: 0, takes: 'no argument' } } as const;
 const ONE_BRIEF = {
   limit: { most: 1, takes: "one argument at most, a brief's id" },
-  argument: { role: 'the brief', instead: "give it a brief's id, or leave it out for the one --brief, SPEC_BRIEF or the branch names" },
+  argument: { role: 'the brief', instead: "give it a brief's id, or leave it out for the one --brief, SPEC_BRIEF or the branch names", option: 'brief' },
 } as const;
 
 /**
@@ -107,7 +118,16 @@ const SHAPE = {
     argument: { role: 'a path', instead: 'give it the paths the round would write' },
   },
   hook: { options: ['brief', 'base', 'root'], limit: { most: 1, takes: 'one argument, "claude" or "git"' } },
-  escalate: { options: ['brief', 'root', 'format', 'path', 'reason', 'option', 'recommend', 'list', 'show'], ...NO_ARGUMENT },
+  // `--list` and `--show` print what waits and raise nothing: neither reads
+  // the parts of a request, nor a brief, since what waits is every round's.
+  escalate: {
+    options: ['brief', 'root', 'format', 'path', 'reason', 'option', 'recommend', 'list', 'show'],
+    ...NO_ARGUMENT,
+    modes: [
+      { option: 'list', beside: ['root', 'format'] },
+      { option: 'show', beside: ['root', 'format'] },
+    ],
+  },
   rule: {
     options: ['root', 'format', 'allow', 'deny', 'note'],
     limit: { most: 1, takes: "one argument, the escalation's id" },
@@ -151,12 +171,18 @@ function isClaudeHook(line: CommandLine): boolean {
   return line.command === 'hook' && line.positionals[0] === 'claude';
 }
 
+/** The words for a `--root` that is a file, or is not there, wherever it is said. */
+export function noDirectory(root: string): string {
+  return `--root is "${root}", which is not a directory`;
+}
+
 /**
  * Why the command line is refused, or `null` when the command can run:
- * an option it does not read, an argument it does not take, a value or an
- * argument that names nothing, a `--root` that is no directory. Asked once a
- * command is known and neither `--help` nor `--version` answers instead; a
- * command with no shape is none, which its caller says.
+ * an option it does not read, alone or beside another, an argument it does
+ * not take, a brief named twice, a value or an argument that names nothing,
+ * a `--root` that is no directory. Asked once a command is known and neither
+ * `--help` nor `--version` answers instead; a command with no shape is none,
+ * which its caller says.
  */
 export function refusal(line: CommandLine, isDirectory: (path: string) => boolean): string | null {
   const { command, positionals } = line;
@@ -167,8 +193,23 @@ export function refusal(line: CommandLine, isDirectory: (path: string) => boolea
   if (shape === undefined || isClaudeHook(line)) return null;
   const stray = line.given.find((option) => !shape.options.includes(option));
   if (stray !== undefined) return `${command} does not take --${stray}; ${listed(shape.options)}`;
+  // An option the command reads, beside one that leaves it unread:
+  // `escalate --list --path src/a.ts` printed the list, exit 0, and the
+  // request it also spelled out was never raised.
+  const mode = shape.modes?.find((candidate) => line.given.includes(candidate.option));
+  if (mode !== undefined) {
+    const unread = line.given.find((option) => option !== mode.option && !mode.beside.includes(option));
+    if (unread !== undefined) return `${command} --${mode.option} does not take --${unread}; beside --${mode.option} ${listed(mode.beside)}`;
+  }
   if (shape.limit !== null && positionals.length > shape.limit.most) {
     return `${command} takes ${shape.limit.takes}, not ${positionals.map((argument) => JSON.stringify(argument)).join(', ')}`;
+  }
+  // One thing named two ways, whatever the two hold: the argument won with
+  // no word, so `audit 012 --brief 013` audited 012 for someone who had
+  // also typed 013.
+  const { argument } = shape;
+  if (argument?.option !== undefined && positionals.length > 0 && line.given.includes(argument.option)) {
+    return `${command} was given ${argument.role} twice, as its argument ${JSON.stringify(positionals[0])} and as --${argument.option} ${JSON.stringify(line[argument.option])}; give one of them`;
   }
   for (const [option, valued] of Object.entries(VALUED) as [ValuedOption, Valued][]) {
     if (shape.reports?.includes(option)) continue;
@@ -184,7 +225,7 @@ export function refusal(line: CommandLine, isDirectory: (path: string) => boolea
   // ended saying the path was outside a work tree, which named neither the
   // option nor what was wrong with what it was given.
   if (line.root !== undefined && !isDirectory(line.root)) {
-    return `--root is "${line.root}", which is not a directory; give it one that exists, or leave it out to run in the current directory`;
+    return `${noDirectory(line.root)}; give it one that exists, or leave it out to run in the current directory`;
   }
   return null;
 }

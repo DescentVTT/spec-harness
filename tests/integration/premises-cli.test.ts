@@ -7,6 +7,8 @@ import { join } from 'node:path';
 
 import { afterAll, describe, expect, it } from 'vitest';
 
+import { briefIdFromBranch } from '../../src/branch.js';
+import { DEFAULT_CONFIG } from '../../src/config.js';
 import specHarnessPlugin, { waive } from '../../src/plugin.js';
 import { brief, BRIEF_FILE, cleanup, cli, parsed, repository, SPEC_BRIEF, temp, write } from './helpers.js';
 
@@ -192,6 +194,55 @@ describe('premises in a CI run on a detached head', () => {
     expect((await cli(['doctor'], repo.root, { env: { GITHUB_HEAD_REF: 'brief/001-retire' } })).stdout).toContain(
       '\nbranch  brief/001-retire (detached; GITHUB_HEAD_REF names it)\nbrief   001\n',
     );
+  });
+});
+
+describe('premises for a brief that is named and is not one', () => {
+  const body = ['## The Defect, Measured', '', '<!-- @assert-count target="src" symbol="legacyCall" min="1" -->', ''].join('\n');
+  const files = { [BRIEF_FILE]: brief({ affected: ['src/**'], body }), 'briefs/archive/003_old.md': brief({ title: '003 - Old', status: 'archived' }), 'src/a.ts': 'modernCall();\n' };
+  /** What a run that reads no round says of the fixture: its one premise no longer holds. */
+  const asNoRound = { code: 1, stderr: '' };
+
+  it('is refused by what named it, the flag or SPEC_BRIEF, exit 2 and nothing printed, where the name was read as no round', async () => {
+    // Each ran as if no brief were named: the premise was held against a
+    // round whose caller believed it had named it, exit 1.
+    const repo = repository(files);
+    expect(await cli(['premises', '--brief', '999'], repo.root)).toEqual({ code: 2, stdout: '', stderr: 'spec-harness: the flag names brief 999, and spec-brief knows no such brief\n' });
+    expect(await cli(['premises', '--format', 'json'], repo.root, { env: { SPEC_BRIEF: '999' } })).toEqual({
+      code: 2,
+      stdout: '',
+      stderr: 'spec-harness: the environment names brief 999, and spec-brief knows no such brief\n',
+    });
+  });
+
+  it('is refused where no brief is live as well, and not where spec-brief is not there to say what it knows', async () => {
+    const none = repository({ 'briefs/archive/001_done.md': brief({ status: 'archived' }) });
+    expect(await cli(['premises', '--brief', '999'], none.root)).toEqual({ code: 2, stdout: '', stderr: 'spec-harness: the flag names brief 999, and spec-brief knows no such brief\n' });
+    // No spec-brief, installed or named: the answer is what it was, and is about spec-brief.
+    const bare = repository({}, null);
+    const result = await cli(['premises', '--brief', '999'], bare.root);
+    expect(result).toMatchObject({ code: 2, stdout: '' });
+    expect(result.stderr).toMatch(/^spec-harness: spec-brief is not installed here: /);
+  });
+
+  it('is neither a branch whose name only reads as a brief\'s, nor a brief spec-brief has archived: each is read as no round, as it was', async () => {
+    const repo = repository(files);
+    // CI runs premises on every branch, and this one is no round's: it names
+    // "list" under the default templates. The guard holds a write there; a
+    // pull request's premises are still judged.
+    expect(briefIdFromBranch(DEFAULT_CONFIG.branches, 'fix/brief-list-order')).toBe('list');
+    repo.git('checkout', '-q', '-b', 'fix/brief-list-order');
+    const unknown = await cli(['premises', '--format', 'json'], repo.root);
+    expect(unknown).toMatchObject(asNoRound);
+    expect(parsed<{ findings: { rule: string }[] }>(unknown).findings.map((f) => f.rule)).toEqual(['stale-premise']);
+    // An archived brief's round is closed and retires nothing, whatever
+    // names it: the flag, or the branch of a round once the round has
+    // archived its brief.
+    expect(await cli(['premises', '--brief', '3'], repo.root)).toMatchObject(asNoRound);
+    repo.git('checkout', '-q', '-b', 'brief/003-old');
+    const archived = await cli(['premises', '--format', 'json'], repo.root);
+    expect(archived).toMatchObject(asNoRound);
+    expect(parsed<{ premises: number; findings: { rule: string }[] }>(archived)).toMatchObject({ premises: 1, findings: [{ rule: 'stale-premise' }] });
   });
 });
 

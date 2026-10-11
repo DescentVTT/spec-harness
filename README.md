@@ -74,7 +74,8 @@ A name that names no brief is not passed over for the next ([ADR-0004](https://g
 
 - `--brief` given nothing, `--brief ""`, is refused, as `--brief "$ID"` is where the variable is not set: it was read as the option left out, and the branch's brief answered.
 - `SPEC_BRIEF` set and empty, or to space alone, is as unset. A hook's settings and a pipeline's `env` block set it whether or not a round is under way, and the branch then names the brief, which `doctor` shows.
-- An id spec-brief does not know, or one it has archived, is not passed over either, whichever of the three names it: a command that acts on the brief stops with exit 2, and `doctor` says so in its report.
+- An id spec-brief does not know, or one it has archived, is not passed over either, whichever of the three names it: a command that acts on the brief stops with exit 2, and `doctor` says so in its report. The line says what named it: `the flag names brief 999, and spec-brief knows no such brief`, or `the environment`, `the branch`, or `the argument` for `context 999`.
+- `context`, `rulings`, `audit` and `probe` take the brief's id as their argument as well, which comes before all three. The argument beside `--brief` is refused, whatever the two hold: one of them would not be read.
 
 ## Commands
 
@@ -131,6 +132,7 @@ Paths are compared as the filesystem spells them, links resolved and case correc
 - `spec-harness hook claude` answers Claude Code's PreToolUse and PostToolUse hooks: a refusal before the write, with the reason and the next step; a warning after a write outside the scope. It never answers `allow`, which would skip the person's own permission prompt. When it cannot answer - the configuration does not load, the briefs cannot be read, the harness meets an error it did not expect - it exits 2, and before a write Claude Code then holds the write.
 - `spec-harness hook git` is a pre-commit hook for any agent or none. `init --git-hook` writes it; in a hook of your own it is the line `node node_modules/@descent-vtt/spec-harness/bin/spec-harness.js hook git`.
 - `hook claude` passes over whatever else is on its line that it does not read, as every release has, where every other command [refuses it](#an-input-that-names-nothing): its line is in settings a later release cannot rewrite, and exit 2 from it holds every write.
+- A `--root` on the hook's line that is a file, or is not there, is a guard that was set up and is off: `hook claude` says so on stderr and exits 1, which Claude Code shows as a hook error while the write goes on. It refuses nothing for it. No release wrote a `--root` there; without one the hook reads the project Claude Code names, then the session's directory, and outside a git work tree it has nothing to guard and says nothing.
 
 A guard is a guardrail - an agent that writes through a shell passes it - so the audit and spec-brief's archive are the gates ([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
 
@@ -150,6 +152,8 @@ git commit -S -m "ruling R-012-1: allow" -- briefs/012_rotate-tokens.md
 ```
 
 A memo is what a person rules on, so none is written with a part that says nothing: a path, the reason, a recommendation or an option that is empty is [refused](#an-input-that-names-nothing), by `escalate` and by the server's `request_escalation` alike. An option is `"<label>: <cost>"`: the label names the choice and may not be empty, and the cost may be left out, the memo then giving the choice alone.
+
+`escalate --list` prints every request that waits, whichever round raised it, and `escalate --show <id>` one memo. Neither raises a request, so neither reads `--path`, `--reason`, `--option`, `--recommend` or `--brief`, and either beside one of them is [refused](#an-input-that-names-nothing): the request was never raised, and the list looked like an answer to it.
 
 A ruling is a row in the brief's `## Rulings` table. It **counts** when the commit that last changed the row is signed by a key the **base branch's** `.github/allowed_signers` lists. The file is `rulings.allowedSigners` in `.spec-harness.json`, `.github/allowed_signers` by default.
 
@@ -307,8 +311,10 @@ Is every live brief still about something true? It runs spec-guard over the live
 - Goals are left to `audit`, since a goal fails until its round is done.
 - For the same reason, the premise of the brief a round is working on - the one `--brief`, `SPEC_BRIEF` or the branch names - is reported as `audit` reports it, `premise-retired`, a note that fails nothing: on the round's branch, a premise that no longer holds is the work being done.
 - A premise spec-guard cannot read is `assertion-unreadable`, a warning, as in the audit: nothing checks it, so `--strict` fails the run on it, and the summary counts it apart from the premises that were checked.
+- A brief `--brief` or `SPEC_BRIEF` names that spec-brief does not know is refused, exit 2, as every command that acts on a brief refuses it: read as no round, it held the round's own premise against it.
+- A branch whose name reads as a brief's and names none is read as no round, as before, and so is a brief spec-brief has archived. CI runs `premises` on every branch, and `fix/brief-list-order`, which names `list` under the default `branches`, is no round's; an archived brief is a closed round, which retires no premise, and is what the branch of a round names once the round has archived it.
 
-Run it in CI: exit 1 when a premise is stale, exit 2 when spec-guard is not there to ask. `--format gitlab`, `sarif` or `github` prints its findings for a forge, as `audit` does.
+Run it in CI: exit 1 when a premise is stale, exit 2 when spec-guard is not there to ask, or `--brief` or `SPEC_BRIEF` names a brief that is not one. `--format gitlab`, `sarif` or `github` prints its findings for a forge, as `audit` does.
 
 ### `mcp`
 
@@ -392,6 +398,8 @@ An option, an argument or a value that is given and names nothing is refused: ex
   | `mcp` | `--root` |
 
   `init` chooses the base itself, and the server is told the brief and the base by each call, so neither takes `--base` or `--brief`: taking one would say the base or the brief had been set.
+- **An option beside one that leaves it unread.** `escalate --list` and `escalate --show <id>` print what waits and raise nothing, and beside either only `--root` and `--format` are read: `escalate --list does not take --path; beside --list its options are --root and --format`. A request spelled out beside `--list` printed the list, exit 0, and was never raised.
+- **A brief named twice.** `context`, `rulings`, `audit` and `probe` take the brief as their argument or as `--brief`, and refuse the two together, whatever they hold: `audit was given the brief twice, as its argument "012" and as --brief "013"; give one of them`. The argument won with no word. `SPEC_BRIEF` and the branch beside either are the [order](#which-brief) as it stands.
 - **An argument a command does not take.** `context`, `rulings`, `audit` and `probe` take one brief's id at most, `rule` one escalation's id, `guard` its paths and `hook` the word `claude` or `git`; `escalate`, `premises`, `init`, `mcp` and `doctor` take none. `init mydir` set up the directory it stood in; `init --root mydir` sets up another.
 - **A value that names nothing.** An option that takes a value refuses one that is empty or only space, by the option's name: `--brief is "", which names no brief`. So does an argument, as in `guard ""`. No option gives an empty value a meaning: leave the option out for what the command does without it.
 - **A `--root` that is no directory**, a file or a path that is not there: `--root is "nowhere", which is not a directory`.
@@ -400,10 +408,12 @@ An option, an argument or a value that is given and names nothing is refused: ex
 `--help` and `--version` answer whatever else is on the line. Three things are read another way, each for its reason:
 
 - **`hook claude` reads its line as every release has.** The line is in `.claude/settings.json` and in the Claude Code plugin of every release since 0.1.0, which a later release cannot rewrite, and exit 2 from it holds every write of a session, the one that would mend the line among them. So what it does not read is passed over as before, an empty `--brief` with the rest; an option no command has is exit 2 there, as it always was. The releases have handed the harness five command lines, `hook claude`, `hook git`, `mcp`, and `mcp --root` with the project or with `.`, and each is read as the release that wrote it read it ([ADR-0012](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0012-one-way-into-claude-code.md)).
+
+  One thing on its line is said, and still refuses nothing: a `--root` that is a file, or is not there. It read as a session outside a git work tree, exit 0 and no word, and the guard was off. It is now one line on stderr and exit 1, `--root is "nowhere", which is not a directory, so the guard is off and this write is not checked`, with what to do. Claude Code does not block a tool call on exit 1: it goes on with the write and shows the line as a hook error in the transcript. No release wrote a `--root` on the hook's line, so this is a line a person changed. An empty `--root` is the directory the hook was started in, and guards there, as before.
 - **`doctor` says an empty `--brief` or `--base` in its report**, as it says a brief spec-brief does not know: a diagnosis is what a person runs when something is wrong, and it reports what is wrong with what it was given.
 - **`SPEC_BRIEF` set and empty is as unset**, since what sets it sets it whether or not there is a round ([Which brief](#which-brief)).
 
-**In a tool call.** The server's tools refuse the same in their arguments, with a tool error that names the argument, as in `"paths[1]" is "", which names no file`: an empty `brief` or `base`, an empty path, an empty `recommendation`, an option whose `label` is empty. An argument a tool does not take was refused already.
+**In a tool call.** The server's tools refuse the same in their arguments, with a tool error that names the argument, as in `"paths[1]" is "", which names no file`: an empty `brief` or `base`, an empty path, an empty `recommendation`, an option whose `label` is empty. An argument a tool does not take was refused already. A `brief` spec-brief does not know, or has archived, is said of the argument too, `"brief" names brief 999, and spec-brief knows no such brief`, where the line called it the flag.
 
 ## As a Claude Code plugin
 

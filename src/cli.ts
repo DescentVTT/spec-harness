@@ -36,7 +36,7 @@ import { mcpCommand } from './server.js';
 import { gitHook, initCommand } from './setup.js';
 import { notFido2, readAllowedSigners } from './signers.js';
 import { SiblingError } from './siblings.js';
-import { emptyValue, isBlank, refusal, type Command } from './usage.js';
+import { emptyValue, isBlank, noDirectory, refusal, type Command } from './usage.js';
 import { checkClaudeCode, CLAUDE_CODE_MINIMUM, MINIMUM_VERSIONS } from './versions.js';
 import {
   activeBrief,
@@ -70,7 +70,8 @@ Commands:
   hook git            Answer git's pre-commit hook for the staged files.
   escalate            Ask a person to rule: --path <file> (repeatable) --reason <why>
                       [--option "<label>: <cost>"]... [--recommend <text>].
-                      --list shows what waits; --show <id> prints one memo.
+                      --list shows what waits; --show <id> prints one memo. Neither
+                      raises a request: beside one, only --root and --format are read.
   rule <id>           Record a person's ruling in the brief: --allow or --deny, with
                       --note <text>. It counts once committed signed.
   rulings [brief]     The brief's rulings, and whether each one's signature verifies.
@@ -103,10 +104,11 @@ Options:
   --strict            Warnings fail the run. For guard, audit, premises and doctor.
   --help, --version
 
-An option a command does not read, an argument it does not take, and an option or an
-argument given an empty value are refused, exit 2, not read as if they were not there.
-doctor says an empty --brief or --base in its report, and hook claude reads its line
-as every release has.
+An option a command does not read, an argument it does not take, an option or an
+argument given an empty value, and a brief given both as the argument and as --brief
+are refused, exit 2, not read as if they were not there. doctor says an empty --brief
+or --base in its report. hook claude reads its line as every release has, and says a
+--root that is not a directory with exit 1, refusing nothing.
 
 Exit codes: 0 clean, 1 refused or found something, 2 the answer cannot be trusted.
 `;
@@ -185,10 +187,27 @@ async function hookCommand(options: Options, io: CliIO): Promise<number> {
       return EXIT_FAILED;
     }
     if (request.paths.length === 0) return EXIT_OK;
+    // An empty root is the directory the hook was started in: git starts
+    // there when it is handed no directory, so the hook has guarded there
+    // for an empty root in every release.
+    const root = options.root === '' ? io.cwd : options.root;
+    // A root written on the hook's line that is a file, or is not there: git
+    // starts in neither, which read as a session outside a work tree, exit 0
+    // and no word, and the guard someone had configured was off. It is said,
+    // and refuses nothing: exit 1 is to Claude Code an error that does not
+    // block, whose first line of stderr it shows the person, where exit 2
+    // would hold every write of the session, the one that mends the line
+    // among them (ADR-0005).
+    if (root !== undefined && !isDirectory(root)) {
+      io.stderr.write(
+        `spec-harness: ${noDirectory(root)}, so the guard is off and this write is not checked; give the hook's line a directory that exists, or leave --root out for the project Claude Code names\n`,
+      );
+      return EXIT_FAILED;
+    }
     const cwd = request.cwd ?? io.cwd;
     let workspace: Workspace;
     try {
-      workspace = await openWorkspace({ ...options, root: options.root ?? io.env['CLAUDE_PROJECT_DIR'] ?? cwd }, io);
+      workspace = await openWorkspace({ ...options, root: root ?? io.env['CLAUDE_PROJECT_DIR'] ?? cwd }, io);
     } catch (error) {
       if (error instanceof UsageError) return EXIT_OK;
       throw error;

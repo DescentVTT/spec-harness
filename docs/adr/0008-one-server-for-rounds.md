@@ -25,3 +25,10 @@ answered for the branch's brief and an empty `base` with no ruling
 verified, and the agent took either for the answer to what it had asked. A
 prompt's argument left empty is still the prompt alone: a client sends an
 empty one for a field a person left blank.
+
+*Amended 2026-10-11.* A `brief` that names no brief spec-brief knows, or one
+it has archived, is said of the argument, as every other tool error is:
+`"brief" names brief 999, and spec-brief knows no such brief`. The tool
+error read `the flag names brief 999`, in the command line's words for
+`--brief`, and a tool call has no flag (ADR-0004). What a tool refuses is as
+it was.

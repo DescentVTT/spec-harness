@@ -105,8 +105,10 @@ async function round(workspace: Workspace, env: CliIO['env'], id: unknown): Prom
   if (id !== undefined && isBlank(id)) return namesNothing('brief', 'brief', id);
   const briefs = await workspace.siblings.briefs();
   const fromBranch = briefIdFromBranch(workspace.config.branches, workspace.branch);
-  const active = findActive(briefs, { flag: id, environment: env['SPEC_BRIEF'], branch: fromBranch });
-  const { brief, note, problem } = describeActive(active);
+  const active = findActive(briefs, { argument: id, environment: env['SPEC_BRIEF'], branch: fromBranch });
+  // Named as every argument of a tool is, where it was called the flag, and
+  // a tool call has none.
+  const { brief, note, problem } = describeActive(active, '"brief"');
   if (problem !== null) return toolError(problem);
   if (brief === null) return toolError(note);
   return { brief, briefs };

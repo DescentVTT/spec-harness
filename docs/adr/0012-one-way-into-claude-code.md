@@ -188,6 +188,15 @@ script's path starts at the top of the filesystem, and node has none to
 start. `hook claude` is read as before whatever else is on its line
 (ADR-0005), so a line a person changed by hand guards as it did.
 
+*Amended 2026-10-11.* 0.12.0 wrote the lines 0.11.1 wrote, read from its
+tag as the rest were, so each row above that ends at 0.11.1 ends at 0.12.0,
+and the test's table says so. Of the lines in the table, the two that carry
+a `--root` are the server's, and no hook's line ever did. So when
+`hook claude` began to say a `--root` that is not a directory, with exit 1
+and nothing refused (ADR-0005), no line a release wrote was read another
+way: the test holds that none of the hooks' lines carries one, and runs the
+hook with a root that is not there, with an empty one and with none.
+
 ## Consequences
 
 - A plugin turned on by managed settings or `--settings` is invisible to

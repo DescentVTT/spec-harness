@@ -99,7 +99,7 @@ export function isDirectory(path: string): boolean {
   try {
     return statSync(path).isDirectory();
   } catch {
-    // Its one caller reads the answer with `!`, so the mutant that answers
+    // Each caller reads the answer with `!`, so the mutant that answers
     // nothing here is equivalent.
     return false;
   }

@@ -11,7 +11,7 @@
  * every write of a session (ADR-0005, ADR-0012).
  *
  * The lines are data, read from the tags: `src/setup.ts`, `src/configure.ts`,
- * `hooks/hooks.json` and `.mcp.json` at v0.1.0 to v0.11.1. A line is added
+ * `hooks/hooks.json` and `.mcp.json` at v0.1.0 to v0.12.0. A line is added
  * here when a release changes what it writes, and none is taken out.
  */
 
@@ -41,17 +41,17 @@ const HOOKS = "the guard hooks init wrote into .claude/settings.json, and the pl
 
 const WRITTEN: readonly Written[] = [
   { releases: '0.1.0 to 0.1.1', where: HOOKS, line: 'npx --no-install spec-harness hook claude' },
-  { releases: '0.1.2 to 0.11.1', where: HOOKS, line: ['node', `\${CLAUDE_PROJECT_DIR}/${SCRIPT}`, 'hook', 'claude'] },
+  { releases: '0.1.2 to 0.12.0', where: HOOKS, line: ['node', `\${CLAUDE_PROJECT_DIR}/${SCRIPT}`, 'hook', 'claude'] },
   { releases: '0.1.0 to 0.1.1', where: "the server init registered in .mcp.json, and the plugin's .mcp.json", line: ['npx', '--no-install', 'spec-harness', 'mcp'] },
-  { releases: '0.1.2 to 0.11.1', where: 'the server init registered in .mcp.json', line: ['node', `\${CLAUDE_PROJECT_DIR:-.}/${SCRIPT}`, 'mcp', '--root', '${CLAUDE_PROJECT_DIR:-.}'] },
-  { releases: '0.1.2 to 0.11.1', where: "the plugin's .mcp.json", line: ['node', `\${CLAUDE_PROJECT_DIR}/${SCRIPT}`, 'mcp', '--root', '${CLAUDE_PROJECT_DIR}'] },
+  { releases: '0.1.2 to 0.12.0', where: 'the server init registered in .mcp.json', line: ['node', `\${CLAUDE_PROJECT_DIR:-.}/${SCRIPT}`, 'mcp', '--root', '${CLAUDE_PROJECT_DIR:-.}'] },
+  { releases: '0.1.2 to 0.12.0', where: "the plugin's .mcp.json", line: ['node', `\${CLAUDE_PROJECT_DIR}/${SCRIPT}`, 'mcp', '--root', '${CLAUDE_PROJECT_DIR}'] },
   {
     releases: '0.1.0 to 0.9.1',
     where: "the pre-commit hook init --git-hook wrote, and the line init and doctor gave for a hook of the repository's own",
     line: 'npx --no-install spec-harness hook git',
   },
-  { releases: '0.10.0 to 0.11.1', where: 'the pre-commit hook init --git-hook wrote, with bin set to the script', line: 'node "$bin" hook git' },
-  { releases: '0.10.0 to 0.11.1', where: "the line init and doctor give for a hook of the repository's own", line: `node ${SCRIPT} hook git` },
+  { releases: '0.10.0 to 0.12.0', where: 'the pre-commit hook init --git-hook wrote, with bin set to the script', line: 'node "$bin" hook git' },
+  { releases: '0.10.0 to 0.12.0', where: "the line init and doctor give for a hook of the repository's own", line: `node ${SCRIPT} hook git` },
 ];
 
 /** The words of a line, as a shell splits one that holds no space inside a word. */
@@ -89,8 +89,8 @@ beforeAll(() => {
   repo.git('add', 'src/db/schema.ts');
 });
 
-const QUESTION = (): string =>
-  JSON.stringify({ session_id: 's', cwd: repo.root, hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: join(repo.root, 'src', 'db', 'schema.ts'), old_string: 'a', new_string: 'b' } });
+const QUESTION = (event = 'PreToolUse'): string =>
+  JSON.stringify({ session_id: 's', cwd: repo.root, hook_event_name: event, tool_name: 'Edit', tool_input: { file_path: join(repo.root, 'src', 'db', 'schema.ts'), old_string: 'a', new_string: 'b' } });
 
 const SESSION = `${[
   { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 't', version: '1' } } },
@@ -163,6 +163,14 @@ describe('the lines the releases wrote', () => {
       expect(words[1]).toBe(`${root}/${SCRIPT}`);
     }
   });
+
+  it("put no --root on a hook's line: one that stands there, and what the hook says of it, is a person's", () => {
+    // Claude Code's hook says a root that is not there, with exit 1. Every
+    // line a release wrote for a hook is still handed to it without one.
+    const hooks = WRITTEN.filter((written) => wordsOf(written.line).includes('hook'));
+    expect(hooks.map((written) => wordsOf(written.line).at(-1))).toEqual(['claude', 'claude', 'git', 'git', 'git']);
+    for (const written of hooks) expect(wordsOf(written.line), written.releases).not.toContain('--root');
+  });
 });
 
 describe('each line, run', () => {
@@ -205,7 +213,8 @@ describe("Claude Code's hook, with more on its line than a release wrote", () =>
 
   it('keeps its own answers: exit 1 for a question it cannot read, exit 0 outside a work tree, exit 2 for a brief that is not one', async () => {
     expect(await cli(['hook', 'claude', 'extra', '--strict'], repo.root, { stdin: 'not json' })).toEqual({ code: 1, stdout: '', stderr: 'spec-harness: the hook input is not JSON\n' });
-    expect(await cli(['hook', 'claude', '--root', join(repo.root, 'nowhere')], repo.root, { stdin: QUESTION() })).toEqual({ code: 0, stdout: '', stderr: '' });
+    // A root that is there and is no work tree is a session outside one.
+    expect(await cli(['hook', 'claude', '--root', temp()], repo.root, { stdin: QUESTION() })).toEqual({ code: 0, stdout: '', stderr: '' });
     expect(await cli(['hook', 'claude', '--brief', '404'], repo.root, { stdin: QUESTION() })).toEqual({
       code: 2,
       stdout: '',
@@ -216,5 +225,54 @@ describe("Claude Code's hook, with more on its line than a release wrote", () =>
   it("is the only line read so: git's hook refuses what it does not take, and the commit waits on a line that says why", async () => {
     expect(await cli(['hook', 'git', 'extra'], repo.root)).toEqual({ code: 2, stdout: '', stderr: 'spec-harness: hook takes one argument, "claude" or "git", not "git", "extra"\n' });
     expect(await cli(['hook', 'git', '--strict'], repo.root)).toEqual({ code: 2, stdout: '', stderr: 'spec-harness: hook does not take --strict; its options are --brief, --base and --root\n' });
+  });
+});
+
+describe("Claude Code's hook, with a --root on its line that is not there", () => {
+  // No release wrote a --root on the hook's line: one that stands there is a
+  // person's. A root that is a file, or is not there, read as a session
+  // outside a work tree: exit 0, no word, and the write went on unguarded.
+  // It is said now, and with exit 1: to Claude Code an error that does not
+  // block, whose first line of stderr it shows the person. Exit 2 would hold
+  // every write of the session over a line only a write can mend (ADR-0005).
+  const said = (root: string): string =>
+    `spec-harness: --root is "${root}", which is not a directory, so the guard is off and this write is not checked; give the hook's line a directory that exists, or leave --root out for the project Claude Code names\n`;
+
+  it('says so in one line with exit 1, before a write and after one, and refuses nothing', async () => {
+    const nowhere = join(repo.root, 'nowhere');
+    for (const event of ['PreToolUse', 'PostToolUse']) {
+      expect(await cli(['hook', 'claude', '--root', nowhere], repo.root, { stdin: QUESTION(event) }), event).toEqual({ code: 1, stdout: '', stderr: said(nowhere) });
+    }
+    const file = join(repo.root, 'src', 'db', 'schema.ts');
+    expect(await cli(['hook', 'claude', '--root', file], repo.root, { stdin: QUESTION() })).toEqual({ code: 1, stdout: '', stderr: said(file) });
+    // Space alone names no directory either; git started in none for it.
+    expect(await cli(['hook', 'claude', '--root', ' '], repo.root, { stdin: QUESTION() })).toEqual({ code: 1, stdout: '', stderr: said(' ') });
+  });
+
+  it('is exit 1 whatever stands beside it, never the exit 2 that holds every write, and never an answer', async () => {
+    const nowhere = join(repo.root, 'nowhere');
+    // --brief 404 alone holds the write, exit 2: the root is asked about first, since no brief can be read without one.
+    for (const rest of [['--brief', '404'], ['--brief', '', '--base', ' '], ['001', '--brief', '001', '--list', '--path', 'src/a.ts', '--strict']]) {
+      const result = await cli(['hook', 'claude', '--root', nowhere, ...rest], repo.root, { stdin: QUESTION() });
+      expect(result, rest.join(' ')).toEqual({ code: 1, stdout: '', stderr: said(nowhere) });
+    }
+  });
+
+  it('keeps what the hook answered before it: a question it cannot read, and a tool that writes no file', async () => {
+    const nowhere = join(repo.root, 'nowhere');
+    expect(await cli(['hook', 'claude', '--root', nowhere], repo.root, { stdin: 'not json' })).toEqual({ code: 1, stdout: '', stderr: 'spec-harness: the hook input is not JSON\n' });
+    const bash = JSON.stringify({ session_id: 's', cwd: repo.root, hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: 'ls' } });
+    expect(await cli(['hook', 'claude', '--root', nowhere], repo.root, { stdin: bash })).toEqual({ code: 0, stdout: '', stderr: '' });
+  });
+
+  it('guards as it did where the root is empty, in the directory the hook was started in, whatever else another command would refuse', async () => {
+    // An empty root is what an unset variable leaves on a line written by
+    // hand, and git starts where the hook did for it: the write is refused,
+    // as in every release, not waved through with a line about the root.
+    // Beside it, what every other command refuses since: an option --list
+    // leaves unread, and a brief named twice.
+    const result = await cli(['hook', 'claude', '--root', '', '001', '--brief', '001', '--list', '--path', 'src/a.ts', '--show', 'E-001-1'], repo.root, { stdin: QUESTION() });
+    expect(result).toMatchObject({ code: 0, stderr: '' });
+    expect(JSON.parse(result.stdout)).toMatchObject({ hookSpecificOutput: { permissionDecision: 'deny' } });
   });
 });

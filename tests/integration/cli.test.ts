@@ -61,6 +61,11 @@ describe('an input that is set and names nothing', () => {
     await refused(['context', '--brief', ' '], '--brief is " ", which names no brief; give it a brief\'s id, or leave it out for the one SPEC_BRIEF or the branch names');
     await refused(['audit', '--base', ''], '--base is "", which names no commit; give it a branch or a commit, or leave it out for the configured base');
     await refused(['guard', 'src/a.ts', '--root', ''], '--root is "", which names no directory; give it one, or leave it out to run in the current directory');
+    // A request spelled out beside --list printed the list and was never
+    // raised, and a brief named twice was the argument's with no word.
+    await refused(['escalate', '--list', '--path', 'src/a.ts', '--reason', 'why'], 'escalate --list does not take --path; beside --list its options are --root and --format');
+    await refused(['escalate', '--show', 'E-001-1', '--brief', '1'], 'escalate --show does not take --brief; beside --show its options are --root and --format');
+    await refused(['audit', '1', '--brief', '1'], 'audit was given the brief twice, as its argument "1" and as --brief "1"; give one of them');
     // init mydir set up the directory it stood in, and wrote there.
     await refused(['init', 'mydir', '--write'], 'init takes no argument, not "mydir"');
     expect(existsSync(join(repo.root, '.claude'))).toBe(false);

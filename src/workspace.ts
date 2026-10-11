@@ -6,7 +6,7 @@
 import { readFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
 
-import { findActive, type ActiveBrief } from './briefs.js';
+import { findActive, type ActiveBrief, type ActiveSource } from './briefs.js';
 import { briefIdFromBranch, ciBranch } from './branch.js';
 import type { HarnessConfig } from './config.js';
 import { loadConfig } from './fs.js';
@@ -196,12 +196,28 @@ export async function activeBrief(workspace: Workspace, options: Options, env: C
 }
 
 /**
+ * What named a brief, as its caller knows it. An argument is the command
+ * line's by default, the id after the command; a tool call's is its `brief`,
+ * which the server says as it says every argument, by its name in quotes.
+ */
+function namedBy(source: ActiveSource, argument: string): string {
+  return source === 'argument' ? argument : `the ${source}`;
+}
+
+/** What is said of a name that names no brief spec-brief knows, by what named it. */
+export function namesNoBrief(active: Extract<ActiveBrief, { kind: 'unknown' }>, argument = 'the argument'): string {
+  return `${namedBy(active.source, argument)} names brief ${active.id}, and spec-brief knows no such brief`;
+}
+
+/**
  * The brief a command acts on, or why there is none: a note when nothing names
  * one, which a command that needs a brief refuses with, or a problem when what
- * names one is wrong.
+ * names one is wrong. `argument` is what the caller calls an argument that
+ * named it.
  */
 export function describeActive(
   active: ActiveBrief,
+  argument = 'the argument',
 ): { brief: BriefRow; note: undefined; problem: null } | { brief: null; note: string; problem: null } | { brief: null; note: undefined; problem: string } {
   switch (active.kind) {
     case 'found':
@@ -209,12 +225,12 @@ export function describeActive(
     case 'none':
       return { brief: null, note: active.reason, problem: null };
     case 'unknown':
-      return { brief: null, note: undefined, problem: `the ${active.source} names brief ${active.id}, and spec-brief knows no such brief` };
+      return { brief: null, note: undefined, problem: namesNoBrief(active, argument) };
     case 'archived':
       return {
         brief: null,
         note: undefined,
-        problem: `the ${active.source} names brief ${active.brief.id}, which is archived; a closed round writes nothing`,
+        problem: `${namedBy(active.source, argument)} names brief ${active.brief.id}, which is archived; a closed round writes nothing`,
       };
   }
 }
