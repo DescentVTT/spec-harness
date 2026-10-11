@@ -34,8 +34,8 @@ export default {
   clearTextReporter: { allowColor: false, maxTestsToLog: 0, reportScoreTable: true },
   timeoutMS: 20000,
   dryRunTimeoutMinutes: 30,
-  // The full sweep of 36a6c8e read 97.51% over 8,355 mutants (ADR-0010);
-  // losing its 86 timeout kills would leave 96.48%. The break sits under that
+  // The full sweep of 7b22db2 read 97.47% over 8,564 mutants (ADR-0010);
+  // losing its 91 timeout kills would leave 96.40%. The break sits under that
   // worst case and moves only up. The core sweep's gate is in its own file.
   thresholds: { high: 95, low: 90, break: 95 },
 };
