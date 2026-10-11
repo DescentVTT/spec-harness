@@ -121,6 +121,7 @@ describe('the tools', () => {
       unreadableScope: [],
       unreadableProtections: [],
       unreadableRulingPaths: [],
+      unmatchedSpecs: [],
     });
     const next = await tool('start_round').call({ brief: '2' });
     expect(next.structured).toEqual({
@@ -133,6 +134,7 @@ describe('the tools', () => {
       unreadableScope: [{ pattern: 'src/[a', reason: 'a "[" is never closed' }],
       unreadableProtections: [{ pattern: '{./,lib}', reason: 'the braces expand to "./", which names no path' }],
       unreadableRulingPaths: [],
+      unmatchedSpecs: [],
     });
     expect(next.text).toContain('May write:\n- `src/[a`, which the guard cannot read: a "[" is never closed; it puts no path in the scope\n');
     expect(next.text).toContain('The scope could not be read: no pattern in `affectedFiles` can be read');

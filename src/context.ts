@@ -17,7 +17,7 @@
  * decides.
  */
 
-import { readQueryRules } from './answers.js';
+import { readQueryRules, readQueryUnmatched } from './answers.js';
 import { sameId } from './branch.js';
 import type { UnreadableFrontMatterLine } from './document.js';
 import { rooted, whyUnreadable } from './guard.js';
@@ -46,21 +46,30 @@ export interface RuleInForce {
 /**
  * The rules in force for the scope; `none` when spec-guard reads no
  * specification here, so none can be in force; `unavailable` when the rules
- * could not be read.
+ * could not be read; and the rules of the `rest` when spec patterns matched
+ * no file beside others that did, with those patterns, as written, as
+ * `unmatched`: a rule kept under one of them is in no list.
  */
-export type Rules = readonly RuleInForce[] | { readonly none: string } | { readonly unavailable: string };
+export type Rules =
+  | readonly RuleInForce[]
+  | { readonly none: string }
+  | { readonly unavailable: string }
+  | { readonly rest: readonly RuleInForce[]; readonly unmatched: readonly string[] };
 
 interface QueryDocument {
   readonly specFiles?: unknown;
+  readonly unmatchedSpecs?: unknown;
 }
 
 /**
- * spec-guard's answer to `query --json`, read. It exits 2 both when no spec
- * file matched its patterns - a repository that keeps none, or keeps them
- * where it does not look - and when it could not read the specs it has; only
- * the first prints a document, one with no spec file in it, so that is how
- * the two are told apart. What it said on stderr is the reason for the second.
- * A document of another shape is refused (answers.ts).
+ * spec-guard's answer to `query --json`, read. It exits 2 when no spec file
+ * matched its patterns - a repository that keeps none, or keeps them where it
+ * does not look - when a pattern matched none beside others that did, and
+ * when it could not read the specs it has. The first two print a document
+ * and are told by it: one with no spec file in it, and, since spec-guard
+ * 0.22.0, one that names the patterns as `unmatchedSpecs` and still holds the
+ * rules of every file that did match. What it said on stderr is the reason
+ * for the third. A document of another shape is refused (answers.ts).
  */
 export function readRules(answer: { readonly code: number; readonly document: unknown; readonly stderr: string }): Rules {
   const document = (answer.document ?? {}) as QueryDocument;
@@ -68,9 +77,17 @@ export function readRules(answer: { readonly code: number; readonly document: un
     if (Array.isArray(document.specFiles) && document.specFiles.length === 0) {
       return { none: 'no spec file matched its patterns ("specs" in its configuration, docs/**/*.md by default)' };
     }
-    const said = (answer.stderr.trim().split('\n')[0] ?? '').replace(/^spec-guard:\s*/, '');
-    return { unavailable: said === '' ? `spec-guard exited ${answer.code}` : `spec-guard exited ${answer.code}: ${said}` };
+    // Only a document that names such a pattern is an answer beside a
+    // refusal. Read as any other refusal, it took with it every rule the
+    // packet could have listed.
+    if (!Array.isArray(document.unmatchedSpecs) || document.unmatchedSpecs.length === 0) {
+      const said = (answer.stderr.trim().split('\n')[0] ?? '').replace(/^spec-guard:\s*/, '');
+      return { unavailable: said === '' ? `spec-guard exited ${answer.code}` : `spec-guard exited ${answer.code}: ${said}` };
+    }
   }
+  // Read whatever the exit code: the patterns are what the document says of
+  // its own rules, and a list without them would pass for a whole one.
+  const unmatched = readQueryUnmatched(answer.document);
   const seen = new Set<string>();
   const out: RuleInForce[] = [];
   for (const rules of readQueryRules(answer.document)) {
@@ -81,7 +98,7 @@ export function readRules(answer: { readonly code: number; readonly document: un
       out.push({ document: rule.document, line: rule.line, kind: rule.kind, description: rule.description, reason: rule.reason });
     }
   }
-  return out;
+  return unmatched.length === 0 ? out : { rest: out, unmatched };
 }
 
 export interface RulingInForce {
@@ -137,6 +154,8 @@ export interface ContextPacket {
   readonly unreadableProtections: readonly UnreadablePattern[];
   /** Paths of the rulings in force the guard cannot read, in the order the rulings are listed: each allows nothing. */
   readonly unreadableRulingPaths: readonly UnreadableRulingPath[];
+  /** spec-guard's spec patterns that matched no file beside others that did, as written: a rule kept under one is not among the rules listed. */
+  readonly unmatchedSpecs: readonly string[];
 }
 
 function list(items: readonly string[]): string {
@@ -184,6 +203,15 @@ function rulesSection(rules: Rules, scopeUnread: boolean, scopeRooted: boolean):
     const reason = rules.unavailable.endsWith('.') ? rules.unavailable.slice(0, -1) : rules.unavailable;
     return `The rules spec-guard holds this code to could not be read: ${reason}. Treat every ADR as binding until they can.`;
   }
+  if ('unmatched' in rules) {
+    // spec-guard refuses the question for such a pattern, and its answer
+    // still holds the rules of every spec file that matched: they are
+    // listed, under what the list lacks and why.
+    const one = rules.unmatched.length === 1;
+    const named = rules.unmatched.map((pattern) => `\`${pattern}\``).join(', ');
+    const lacks = `spec-guard's ${one ? 'pattern' : 'patterns'} ${named} matched no spec file, so a rule kept under ${one ? 'it' : 'them'} is not listed here; remove ${one ? 'the pattern' : 'them'} from spec-guard's \`specs\`.`;
+    return `${lacks}\n\n${rules.rest.length === 0 ? 'The spec files that did match hold no rule over this scope.' : grouped(rules.rest)}`;
+  }
   if (rules.length === 0) {
     // With no pattern of the scope readable, spec-guard was asked about no
     // path, so an empty answer is no answer: "no rule" would tell the agent
@@ -195,6 +223,11 @@ function rulesSection(rules: Rules, scopeUnread: boolean, scopeRooted: boolean):
       ? "No pattern in `affectedFiles` puts a path in the scope: each is rooted at the filesystem's root or cannot be read, so spec-guard was not asked for the rules over it. Treat every ADR as binding until the scope is fixed."
       : 'spec-guard holds no rule over this scope.';
   }
+  return grouped(rules);
+}
+
+/** The rules under the documents that state them; never given an empty list. */
+function grouped(rules: readonly RuleInForce[]): string {
   const byDocument = new Map<string, RuleInForce[]>();
   for (const rule of rules) byDocument.set(rule.document, [...(byDocument.get(rule.document) ?? []), rule]);
   const parts: string[] = [];
@@ -373,5 +406,6 @@ export function renderContext(input: ContextInput): ContextPacket {
     unreadableScope,
     unreadableProtections,
     unreadableRulingPaths,
+    unmatchedSpecs: 'unmatched' in input.rules ? input.rules.unmatched : [],
   };
 }

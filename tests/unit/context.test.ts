@@ -428,6 +428,97 @@ describe('the rules in force', () => {
     expect(readRules({ code: -1, document: { specFiles: 'none' }, stderr: 'killed' })).toEqual({ unavailable: 'spec-guard exited -1: killed' });
   });
 
+  it('lists the rules of the rest under the patterns that matched no file, and names the patterns in a field of their own', () => {
+    const rest = [
+      { document: 'docs/adr/0001.md', line: 5, kind: 'assert-absence', description: '"Legacy" must not appear in src', reason: 'it is gone' },
+      { document: 'docs/adr/0002.md', line: 9, kind: 'assert-layers', description: 'layers point inward', reason: null },
+    ];
+    const one = renderContext(input({ rules: { rest, unmatched: ['rfcs/*.md'] } }));
+    expect(section(one.markdown, 'Rules in force for this scope')).toBe(
+      [
+        '## Rules in force for this scope',
+        '',
+        "spec-guard's pattern `rfcs/*.md` matched no spec file, so a rule kept under it is not listed here; remove the pattern from spec-guard's `specs`.",
+        '',
+        '### docs/adr/0001.md',
+        '',
+        '- line 5: "Legacy" must not appear in src - it is gone',
+        '',
+        '### docs/adr/0002.md',
+        '',
+        '- line 9: layers point inward',
+        '',
+        '',
+      ].join('\n'),
+    );
+    expect(one.unmatchedSpecs).toEqual(['rfcs/*.md']);
+    // Never what is said of rules that could not be read at all: these could.
+    expect(one.markdown).not.toContain('could not be read');
+    expect(one.markdown).not.toContain('Treat every ADR as binding');
+
+    const two = renderContext(input({ rules: { rest, unmatched: ['rfcs/*.md', 'notes/**/*.md'] } }));
+    expect(section(two.markdown, 'Rules in force for this scope')).toContain(
+      "\n\nspec-guard's patterns `rfcs/*.md`, `notes/**/*.md` matched no spec file, so a rule kept under them is not listed here; remove them from spec-guard's `specs`.\n\n### docs/adr/0001.md\n",
+    );
+    expect(two.unmatchedSpecs).toEqual(['rfcs/*.md', 'notes/**/*.md']);
+  });
+
+  it('says the spec files that did match hold no rule, where they hold none, and never that spec-guard holds none', () => {
+    const packet = renderContext(input({ rules: { rest: [], unmatched: ['rfcs/*.md'] } }));
+    expect(section(packet.markdown, 'Rules in force for this scope')).toBe(
+      "## Rules in force for this scope\n\nspec-guard's pattern `rfcs/*.md` matched no spec file, so a rule kept under it is not listed here; remove the pattern from spec-guard's `specs`.\n\nThe spec files that did match hold no rule over this scope.\n\n",
+    );
+    expect(packet.markdown).not.toContain('spec-guard holds no rule over this scope');
+    expect(packet.unmatchedSpecs).toEqual(['rfcs/*.md']);
+  });
+
+  it('names no such pattern where spec-guard named none: rules listed, none held, none matched, or none read', () => {
+    const rule = { document: 'docs/adr/0001.md', line: 5, kind: 'assert-absence', description: 'd', reason: null };
+    for (const rules of [[rule], [], { none: 'no spec file matched its patterns' }, { unavailable: 'spec-guard is not installed here' }] as const) {
+      const packet = renderContext(input({ rules }));
+      expect(packet.unmatchedSpecs, JSON.stringify(rules)).toEqual([]);
+      expect(packet.markdown, JSON.stringify(rules)).not.toContain('matched no spec file,');
+    }
+  });
+
+  it('reads a refusal that still has an answer: the rules of the spec files that matched, and the patterns that matched none', () => {
+    const rule = (document: string, line: number, extra: Record<string, unknown> = {}) => ({ document, line, kind: 'assert-absence', description: `d${line}`, ...extra });
+    // As spec-guard 0.22.0 answers a query with "docs/**/*.md" and "rfcs/*.md" as its specs and no file under rfcs.
+    const document = {
+      specFiles: ['docs/adr/0001.md'],
+      unmatchedSpecs: ['rfcs/*.md'],
+      results: [{ path: 'src', rules: [rule('docs/adr/0001.md', 5, { reason: 'gone' }), rule('docs/adr/0001.md', 9, { inForce: false })] }],
+    };
+    const stderr = 'spec-guard: the pattern "rfcs/*.md" matched no spec file. Remove it from "specs" in package.json.\n';
+    const rest = [{ document: 'docs/adr/0001.md', line: 5, kind: 'assert-absence', description: 'd5', reason: 'gone' }];
+    expect(readRules({ code: 2, document, stderr })).toEqual({ rest, unmatched: ['rfcs/*.md'] });
+    // The spec files that matched may hold no rule over the paths asked about.
+    expect(readRules({ code: 2, document: { ...document, results: [{ path: 'src', rules: [] }] }, stderr })).toEqual({ rest: [], unmatched: ['rfcs/*.md'] });
+    // The document says it, whatever the exit code beside it.
+    expect(readRules({ code: 0, document, stderr: '' })).toEqual({ rest, unmatched: ['rfcs/*.md'] });
+    expect(readRules({ code: -1, document, stderr: 'killed' })).toEqual({ rest, unmatched: ['rfcs/*.md'] });
+  });
+
+  it('reads any other refusal as it did: no spec file at all, and a document that names no such pattern', () => {
+    const none = { none: 'no spec file matched its patterns ("specs" in its configuration, docs/**/*.md by default)' };
+    // No pattern matched a file: spec-guard 0.22.0 names the patterns there too, and there is no rest to list.
+    expect(readRules({ code: 2, document: { specFiles: [], unmatchedSpecs: ['rfcs/*.md'], results: [{ path: 'src', rules: [] }] }, stderr: '' })).toEqual(none);
+    const refused = { unavailable: 'spec-guard exited 2: docs/a.md: a directive cannot be read' };
+    const stderr = 'spec-guard: docs/a.md: a directive cannot be read\n';
+    for (const unmatchedSpecs of [undefined, [], 'rfcs/*.md', { 0: 'rfcs/*.md', length: 1 }, null]) {
+      expect(readRules({ code: 2, document: { specFiles: ['docs/a.md'], unmatchedSpecs, results: [] }, stderr }), JSON.stringify(unmatchedSpecs)).toEqual(refused);
+    }
+    // And an answer that names none is the list it was.
+    expect(readRules({ code: 0, document: { specFiles: ['docs/a.md'], unmatchedSpecs: [], results: [] }, stderr: '' })).toEqual([]);
+  });
+
+  it('refuses patterns or rules it cannot read beside them, never listing half an answer as a whole one', () => {
+    const answer = (document: unknown) => () => readRules({ code: 2, document, stderr: '' });
+    expect(answer({ specFiles: ['docs/a.md'], unmatchedSpecs: [5], results: [] })).toThrow('spec-guard query printed unmatchedSpecs[0] that is not text');
+    expect(answer({ specFiles: ['docs/a.md'], unmatchedSpecs: ['rfcs/*.md'], results: 5 })).toThrow('spec-guard query printed results that is not a list');
+    expect(() => readRules({ code: 0, document: { unmatchedSpecs: 'rfcs/*.md' }, stderr: '' })).toThrow('spec-guard query printed unmatchedSpecs that is not a list');
+  });
+
   it('tells the agent how the round works: guard, escalate, dispositions, audit', () => {
     // The one part of the packet that is workflow rather than fact; the agent reads it as written.
     expect(section(renderContext(input()).markdown, 'How this round works')).toBe(

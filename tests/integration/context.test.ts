@@ -2,7 +2,11 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { join } from 'node:path';
 
-import { brief, BRIEF_FILE, cleanup, cli, parsed, repository, SPEC_BRIEF, temp, write, type Repository } from './helpers.js';
+import { tools } from '../../src/server.js';
+import { declaredVersion } from '../../src/siblings.js';
+import { meets, parseVersion } from '../../src/versions.js';
+import { openWorkspace, parseOptions } from '../../src/workspace.js';
+import { brief, BRIEF_FILE, cleanup, cli, parsed, repository, ROOT, SPEC_BRIEF, temp, write, type Repository } from './helpers.js';
 
 afterAll(cleanup);
 
@@ -70,6 +74,7 @@ describe('context', () => {
       unreadableScope: [],
       unreadableProtections: [],
       unreadableRulingPaths: [],
+      unmatchedSpecs: [],
     });
   });
 
@@ -328,6 +333,51 @@ describe('context', () => {
     expect(result.stdout).toContain('The rules spec-guard holds this code to could not be read: spec-guard exited 2 without JSON: spec-guard: package.json: unknown option "bogus"');
     expect(result.stdout).toContain('. Treat every ADR as binding until they can.');
     expect(result.stdout).toContain('## The contract');
+  });
+
+  describe('where a spec pattern of spec-guard\'s matches no file beside others that do', () => {
+    // spec-guard 0.22.0 exits 2 there and still writes its document, with the
+    // rules of the files that matched and the patterns as `unmatchedSpecs`.
+    // An older one answers as if the pattern were not written, exit 0. The
+    // suite runs against either: the lockfile's release, and in CI's
+    // `test (minimum siblings)` the oldest this package runs (ADR-0011).
+    const installed = parseVersion(String(declaredVersion(join(ROOT, 'node_modules', '@descent-vtt', 'spec-guard', 'package.json'))));
+    const names = installed !== null && meets(installed, { major: 0, minor: 22, patch: 0, prerelease: false });
+    const RULE = '### docs/adr/0001-sessions.md\n\n- line 9: "LegacyGateway" must not appear in src/auth - the gateway is gone\n';
+    const SAID = "spec-guard's pattern `rfcs/*.md` matched no spec file, so a rule kept under it is not listed here; remove the pattern from spec-guard's `specs`.";
+    let renamed: Repository;
+
+    beforeAll(() => {
+      renamed = repository({
+        [BRIEF_FILE]: brief({ affected: ['src/**'] }),
+        'package.json': JSON.stringify({ specGuard: { specs: ['docs/**/*.md', 'rfcs/*.md'] } }),
+        'docs/adr/0001-sessions.md': ADR,
+        'src/auth/a.ts': 'a;\n',
+      });
+    });
+
+    it('lists the rules of the rest whichever spec-guard answers, and names the pattern above them and in JSON where spec-guard names it', async () => {
+      const result = await cli(['context', '1', '--format', 'json'], renamed.root);
+      expect(result).toMatchObject({ code: 0, stderr: '' });
+      const packet = parsed<{ markdown: string; unmatchedSpecs: string[] }>(result);
+      // It read as rules that could not be read, and the packet listed none.
+      expect(packet.markdown).toContain(RULE);
+      expect(packet.markdown).not.toContain('could not be read');
+      expect(packet.unmatchedSpecs).toEqual(names ? ['rfcs/*.md'] : []);
+      expect(packet.markdown.includes(SAID)).toBe(names);
+      if (names) expect(packet.markdown).toContain(`## Rules in force for this scope\n\n${SAID}\n\n${RULE}`);
+    });
+
+    it('says the same through the server, in start_round', async () => {
+      const workspace = await openWorkspace(parseOptions(['mcp']), { stdout: { write: () => true }, stderr: { write: () => true }, cwd: renamed.root, env: {} });
+      const start = tools(workspace, {}).find((tool) => tool.descriptor.name === 'start_round');
+      if (start === undefined) throw new Error('no start_round');
+      const started = await start.call({ brief: '1' });
+      expect(started.isError).toBeUndefined();
+      expect(started.structured).toMatchObject({ brief: '001', unmatchedSpecs: names ? ['rfcs/*.md'] : [] });
+      expect(started.text).toContain(RULE);
+      expect(started.text.includes(SAID)).toBe(names);
+    });
   });
 
   it('reads a percent-encoded link, and skips a link out of the repository, to its root, or to code whose name holds a document\'s extension', async () => {
