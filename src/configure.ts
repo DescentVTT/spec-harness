@@ -12,6 +12,7 @@ import { isAbsolute } from 'node:path';
 
 import { literal } from './literal.js';
 import type { AllowedSigner } from './signers.js';
+import type { HookLine } from './usage.js';
 import { parseGlobList } from './vendor/spec-core/pattern/index.js';
 import { CLAUDE_CODE_MINIMUM, type ClaudeCodeCheck } from './versions.js';
 
@@ -137,6 +138,145 @@ export function holdsGuard(settings: unknown): boolean {
   });
 }
 
+/** The harness's command on a line: its script, or its name, alone or at the end of a path. */
+function isLauncher(word: string): boolean {
+  const name = word.split(/[\\/]/).at(-1);
+  return name === 'spec-harness' || name === 'spec-harness.js';
+}
+
+/** Anything in a word that a shell reads before the program is handed it: a quote, a variable, an operator, a pattern. */
+const SHELL_READS = /[^A-Za-z0-9_./:=@%+,-]/;
+
+/** A line of the harness's in Claude Code's settings: what follows its command there. */
+export interface WrittenHook {
+  /** The events whose hooks hold the line, of the two the guard answers. */
+  readonly events: readonly string[];
+  /** What follows the harness's command, word for word as written. */
+  readonly words: readonly string[];
+  /**
+   * Whether a shell reads those words first, and can change them: a line
+   * with no `args`, which Claude Code hands to a shell, holding a quote, a
+   * variable or anything else a shell rewrites. What the hook is handed is
+   * then the shell's to say. With `args`, Claude Code hands each word over
+   * as it stands.
+   */
+  readonly shell: boolean;
+  /** Whether the entry sets `onFailure` to `"block"`. */
+  readonly blocks: boolean;
+}
+
+function writtenHook(hook: unknown): Omit<WrittenHook, 'events'> | null {
+  if (!isObject(hook)) return null;
+  const { command, args } = hook;
+  if (typeof command !== 'string') return null;
+  let line: string[];
+  // Without arguments the line is a shell's, which splits it at its spaces:
+  // at each one here, and what stands between two of them is no word.
+  if (args === undefined) line = command.split(/\s/).filter((word) => word !== '');
+  else if (Array.isArray(args) && args.every((arg): arg is string => typeof arg === 'string')) line = [command, ...args];
+  // Arguments that are not all text are no line Claude Code can start.
+  else return null;
+  const shell = args === undefined;
+  // A quote around the path of the command is the shell's, dropped to know the command by.
+  const at = line.findIndex((word) => isLauncher(shell ? word.replace(/["']/g, '') : word));
+  if (at === -1) return null;
+  const words = line.slice(at + 1);
+  return { words, shell: shell && words.some((word) => SHELL_READS.test(word)), blocks: hook['onFailure'] === 'block' };
+}
+
+/**
+ * Every line in Claude Code's settings that runs the harness, under the two
+ * events the guard answers: a line that stands under both, as init writes
+ * it, is one line. Whose line each is, the guard's or another command's, is
+ * the reader's to say (usage.ts): this knows the harness by its command
+ * alone.
+ */
+export function writtenHooks(settings: unknown): WrittenHook[] {
+  const hooks = field(settings, 'hooks');
+  if (!isObject(hooks)) return [];
+  const found: { events: string[]; words: readonly string[]; shell: boolean; blocks: boolean }[] = [];
+  for (const event of GUARDED_EVENTS) {
+    const groups = hooks[event];
+    if (!Array.isArray(groups)) continue;
+    for (const hook of groups.flatMap(hooksOf)) {
+      const written = writtenHook(hook);
+      if (written === null) continue;
+      const same = found.find((other) => other.shell === written.shell && other.blocks === written.blocks && sameStrings(other.words, written.words));
+      if (same === undefined) found.push({ events: [event], ...written });
+      else if (!same.events.includes(event)) same.events.push(event);
+    }
+  }
+  return found;
+}
+
+/** What doctor reports of one line of Claude Code's hook. */
+export interface HookReport {
+  /** The settings file that holds it, as a person finds it. */
+  readonly file: string;
+  readonly events: readonly string[];
+  /** What follows the harness's command, as written. */
+  readonly line: readonly string[];
+  /** `unknown`: a shell reads the line before the hook does, so what the hook is handed cannot be told. */
+  readonly state: 'guards' | 'off' | 'unknown';
+  readonly onFailure: 'block' | null;
+  /** What there is to say of the line, or `null` for the line a release wrote, which guards. */
+  readonly detail: string | null;
+  /** What `onFailure` changes, where the entry sets it to `"block"`. */
+  readonly note: string | null;
+}
+
+/**
+ * The release of Claude Code that reads `onFailure` on a hook's entry, by its
+ * hooks reference (https://code.claude.com/docs/en/hooks, read 2026-10-12).
+ */
+const ON_FAILURE_SINCE = '2.1.295';
+
+/** What `onFailure: "block"` changes for a line, named by `where` it stands, or `null` where the entry does not set it. */
+function describeOnFailure(where: string, blocks: boolean, off: boolean): string | null {
+  if (!blocks) return null;
+  const holds = `${where} sets onFailure to "block", so Claude Code ${ON_FAILURE_SINCE} or later holds a write when the hook fails`;
+  if (off) return `${holds}, which with this line is every write, the one that mends the line among them: mend it by hand`;
+  return `${holds}, where it lets the write go ahead without it: by its exit 1 for a question it cannot read, by not starting, or by running past its timeout`;
+}
+
+/**
+ * The lines of Claude Code's hook in the settings files, each with what the
+ * hook does with it. `read` is the hook's own reading of the words it is
+ * handed (usage.ts), `null` for a line that is not its; the words are handed
+ * to it as Claude Code hands them to the hook, each `${CLAUDE_PROJECT_DIR}`
+ * filled with `project`.
+ *
+ * A line that guards and holds no more than a release wrote is reported
+ * with nothing to say, as it always was. One with more on it is said as it
+ * is, and fails nothing. One the hook cannot read, or whose root is no
+ * directory, is a guard that is off: a problem, and doctor exits 1 for it.
+ */
+export function reportHooks(sources: readonly ClaudeSettings[], project: string, read: (words: readonly string[]) => HookLine | null): HookReport[] {
+  return sources.flatMap(({ file, settings }) =>
+    writtenHooks(settings).flatMap((hook): HookReport[] => {
+      const handed = read(hook.words.map((word) => word.split(PROJECT_DIR).join(project)));
+      if (handed === null) return [];
+      const both = GUARDED_EVENTS.every((event) => hook.events.includes(event));
+      // An empty word is shown as a shell spells one, where joined it would not show at all.
+      // A line that is not under both events is under one.
+      const where = `"${hook.words.map((word) => (word === '' ? "''" : word)).join(' ')}" in ${file}${both ? '' : ` (under ${hook.events[0]} alone)`}`;
+      const written = { file, events: hook.events, line: hook.words, onFailure: hook.blocks ? 'block' : null } satisfies Partial<HookReport>;
+      if (hook.shell) {
+        const detail = `${where} is a shell's to read before the hook is handed it, so what the hook does with it cannot be told here: written with "args", each word reaches the hook as it stands`;
+        return [{ ...written, state: 'unknown', detail, note: describeOnFailure(where, hook.blocks, false) }];
+      }
+      if (handed.state === 'off') {
+        const detail = `${where}: ${handed.fault.wrong}, so the guard is off and no write is checked; ${handed.fault.mend}`;
+        return [{ ...written, state: 'off', detail, note: describeOnFailure(where, hook.blocks, true) }];
+      }
+      // What a release wrote: its hook, and nothing after it.
+      if (sameStrings(hook.words, ['hook', 'claude'])) return [{ ...written, state: 'guards', detail: null, note: describeOnFailure(where, hook.blocks, false) }];
+      const root = handed.root === undefined ? '' : `, and its root, ${handed.root}, is a directory`;
+      return [{ ...written, state: 'guards', detail: `${where} is more than init writes, and guards: the hook reads the line${root}`, note: describeOnFailure(where, hook.blocks, false) }];
+    }),
+  );
+}
+
 /** Whether a project's `.mcp.json` registers a server under the harness's name, however it runs it. */
 export function registersServer(mcp: unknown): boolean {
   const servers = field(mcp, 'mcpServers');
@@ -210,6 +350,8 @@ export interface ClaudeCodeWiring {
   readonly plugin: EnabledPlugin | null;
   /** The settings files that hold the guard hooks. */
   readonly hooks: readonly string[];
+  /** Each line of the hook in those files, with what the hook does with it. */
+  readonly lines: readonly HookReport[];
   /** Whether `.mcp.json` registers the server. */
   readonly server: boolean;
 }
@@ -217,14 +359,14 @@ export interface ClaudeCodeWiring {
 export type WiringState = 'plugin' | 'init' | 'both' | 'none';
 
 /** Which of the four the wiring is. `both` is a double install, and doctor fails it; either of init's entries counts. */
-export function wiringState(wiring: ClaudeCodeWiring): WiringState {
+export function wiringState(wiring: Pick<ClaudeCodeWiring, 'plugin' | 'hooks' | 'server'>): WiringState {
   const init = wiring.hooks.length > 0 || wiring.server;
   if (wiring.plugin === null) return init ? 'init' : 'none';
   return init ? 'both' : 'plugin';
 }
 
 /** What `doctor` says of the wiring, and what to do when it is doubled or missing. */
-export function describeClaudeCode(wiring: ClaudeCodeWiring): string {
+export function describeClaudeCode(wiring: Pick<ClaudeCodeWiring, 'plugin' | 'hooks' | 'server'>): string {
   const { plugin } = wiring;
   const entries = [...wiring.hooks.map((file) => `the guard hooks in ${file}`), ...(wiring.server ? ['the server in .mcp.json'] : [])].join(', ');
   if (plugin === null) {

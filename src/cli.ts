@@ -36,7 +36,7 @@ import { mcpCommand } from './server.js';
 import { gitHook, initCommand } from './setup.js';
 import { notFido2, readAllowedSigners } from './signers.js';
 import { SiblingError } from './siblings.js';
-import { emptyValue, isBlank, isClaudeHook, noDirectory, refusal, type Command } from './usage.js';
+import { emptyValue, isBlank, isClaudeHook, readHookLine, refusal, unreadHookLine, type Command, type LineFault } from './usage.js';
 import { checkClaudeCode, CLAUDE_CODE_MINIMUM, MINIMUM_VERSIONS } from './versions.js';
 import {
   activeBrief,
@@ -90,7 +90,8 @@ Commands:
   doctor              Which siblings are installed, at which versions, which brief is
                       named, how Claude Code runs the guard, and git's hook. Exit 1
                       when a sibling is older than this release needs, the guard is
-                      installed twice, or Claude Code is too old to run its hooks.
+                      installed twice or its hook's line turns it off, or Claude Code
+                      is too old to run its hooks.
 
 Options:
   --brief <id>        The brief the round works on. Otherwise SPEC_BRIEF, then the branch.
@@ -201,7 +202,7 @@ async function writeAsked(io: CliIO): Promise<HookRequest | number> {
  * that exits 1 and goes on with the write, where exit 2 would hold every
  * write of the session, the one that mends the line among them (ADR-0005).
  */
-function guardOff(io: CliIO, wrong: string, mend: string): number {
+function guardOff(io: CliIO, { wrong, mend }: LineFault): number {
   io.stderr.write(`spec-harness: ${wrong}, so the guard is off and this write is not checked; ${mend}\n`);
   return EXIT_FAILED;
 }
@@ -210,13 +211,13 @@ function guardOff(io: CliIO, wrong: string, mend: string): number {
  * Claude Code's hook on a line the parser refused: an option no command has,
  * an option left without its value, a --format or an --at that is none. It
  * was exit 2 before the question was read, for the line a settings file
- * holds as for one typed at a terminal. The parser's words are kept, on one
- * line: what node says of an option that may have lost its value is three.
+ * holds as for one typed at a terminal. What is said of it is `doctor`'s
+ * to say as well, of a line it finds in a settings file (usage.ts).
  */
-async function unreadHookLine(said: string, io: CliIO): Promise<number> {
+async function unreadLine(said: string, io: CliIO): Promise<number> {
   const request = await writeAsked(io);
   if (typeof request === 'number') return request;
-  return guardOff(io, `the hook's line cannot be read (${said.split('\n').join(' ')})`, 'mend it in Claude Code\'s settings, where init writes "hook claude" and nothing after it');
+  return guardOff(io, unreadHookLine(said).fault);
 }
 
 async function hookCommand(options: Options, io: CliIO): Promise<number> {
@@ -224,20 +225,14 @@ async function hookCommand(options: Options, io: CliIO): Promise<number> {
   if (kind === 'claude') {
     const request = await writeAsked(io);
     if (typeof request === 'number') return request;
-    // An empty root is the directory the hook was started in: git starts
-    // there when it is handed no directory, so the hook has guarded there
-    // for an empty root in every release.
-    const root = options.root === '' ? io.cwd : options.root;
-    // A root written on the hook's line that is a file, or is not there: git
-    // starts in neither, which read as a session outside a work tree, exit 0
-    // and no word, and the guard someone had configured was off.
-    if (root !== undefined && !isDirectory(root)) {
-      return guardOff(io, noDirectory(root), "give the hook's line a directory that exists, or leave --root out for the project Claude Code names");
-    }
+    // The root the line gives, or what is wrong with it: read as `doctor`
+    // reads the line where it finds it in a settings file (usage.ts).
+    const line = readHookLine(options.root, io.cwd, isDirectory);
+    if (line.state === 'off') return guardOff(io, line.fault);
     const cwd = request.cwd ?? io.cwd;
     let workspace: Workspace;
     try {
-      workspace = await openWorkspace({ ...options, root: root ?? io.env['CLAUDE_PROJECT_DIR'] ?? cwd }, io);
+      workspace = await openWorkspace({ ...options, root: line.root ?? io.env['CLAUDE_PROJECT_DIR'] ?? cwd }, io);
     } catch (error) {
       if (error instanceof UsageError) return EXIT_OK;
       throw error;
@@ -339,6 +334,10 @@ async function doctorCommand(options: Options, io: CliIO): Promise<number> {
   // and registers the server twice (ADR-0012).
   const wiring = await claudeCodeWiring(workspace.root, io.env);
   const claude = wiringState(wiring);
+  // What the hook does with each line the settings hold for it, where there
+  // is something to say: more on it than init writes, a line that turns the
+  // guard off, one only a shell can read, and what onFailure changes.
+  const lineNotes = wiring.lines.flatMap((line) => [line.detail, line.note]).filter((note): note is string => note !== null);
   // Only a Claude Code that runs the guard is asked its release: one older
   // than the hooks need lets every write through unguarded.
   const release = claude === 'none' ? null : checkClaudeCode(await claudeVersion(io.env));
@@ -388,6 +387,7 @@ async function doctorCommand(options: Options, io: CliIO): Promise<number> {
         ...more(signerNotes),
         `plugin  ${describePlugin(plugin)}`,
         `claude  ${describeClaudeCode(wiring)}`,
+        ...more(lineNotes),
         ...more(release === null ? [] : [describeClaudeRelease(release)]),
         `git     ${describeGitHook(hook)}`,
         ...more(hookNote === null ? [] : [hookNote]),
@@ -400,13 +400,15 @@ async function doctorCommand(options: Options, io: CliIO): Promise<number> {
   // An outdated sibling is a problem to fix, where a missing optional one is
   // a choice; with none installed, the harness can check nothing. A double
   // install is a problem too, where no Claude Code wiring at all is a choice,
-  // and so is a Claude Code too old to run the hooks. One whose release
-  // cannot be told is not fine either: --strict fails it.
+  // and so are a hook whose own line turns the guard off and a Claude Code
+  // too old to run the hooks. A release that cannot be told is not fine
+  // either, nor a line only a shell can read: --strict fails both.
   const outdated = rows.some((row) => row.state === 'outdated');
   const usable = rows.some((row) => row.state === 'found');
+  const off = wiring.lines.some((line) => line.state === 'off');
   const tooOld = release?.state === 'outdated';
-  const untold = options.strict && release?.state === 'unknown';
-  return outdated || !usable || claude === 'both' || tooOld || untold ? EXIT_FAILED : EXIT_OK;
+  const untold = options.strict && (release?.state === 'unknown' || wiring.lines.some((line) => line.state === 'unknown'));
+  return outdated || !usable || claude === 'both' || off || tooOld || untold ? EXIT_FAILED : EXIT_OK;
 }
 
 /* ---------------------------------------------------------------- dispatch */
@@ -444,7 +446,7 @@ async function dispatch(argv: readonly string[], io: CliIO): Promise<number> {
     // whose line it was. Claude Code's hook says its own, and holds no
     // write for it.
     const refused = error as UnreadableLine;
-    if (isClaudeHook(refused.words[0], refused.words[1])) return unreadHookLine(refused.message, io);
+    if (isClaudeHook(refused.words[0], refused.words[1])) return unreadLine(refused.message, io);
     io.stderr.write(`spec-harness: ${refused.message}\n`);
     return EXIT_ERROR;
   }

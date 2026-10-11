@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { HELP } from '../../src/cli.js';
-import { emptyValue, isBlank, isClaudeHook, refusal } from '../../src/usage.js';
+import { claudeHookLine, emptyValue, isBlank, isClaudeHook, readHookLine, refusal, unreadHookLine } from '../../src/usage.js';
 import { parseOptions, UsageError } from '../../src/workspace.js';
 
 /** Why a command line is refused, with every `--root` a directory unless the test names those that are. */
@@ -397,5 +397,70 @@ describe("Claude Code's hook", () => {
     // And claude anywhere but first is an argument like any other.
     expect(refused(['hook', 'git', 'claude'])).toBe('hook takes one argument, "claude" or "git", not "git", "claude"');
     expect(refused(['guard', 'claude', '--note', 'x'])).toMatch(/^guard does not take --note; /);
+  });
+});
+
+describe("what Claude Code's hook does with its own line", () => {
+  // The hook reads its line through these, and doctor reads a line it finds
+  // in a settings file through the same: what doctor says is what the hook
+  // does (ADR-0005).
+  const only = (...directories: string[]) => (path: string) => directories.includes(path);
+  const MEND_ROOT = "give the hook's line a directory that exists, or leave --root out for the project Claude Code names";
+  const MEND_LINE = 'mend it in Claude Code\'s settings, where init writes "hook claude" and nothing after it';
+
+  it('guards with no root on the line, asking the disk nothing, and in the root it is given where that is a directory', () => {
+    const never = (): boolean => {
+      throw new Error('asked');
+    };
+    expect(readHookLine(undefined, '/here', never)).toEqual({ state: 'guards', root: undefined });
+    expect(readHookLine('/the/project', '/here', only('/the/project'))).toEqual({ state: 'guards', root: '/the/project' });
+  });
+
+  it('guards in the directory it was started in for an empty root, as in every release', () => {
+    expect(readHookLine('', '/here', only('/here'))).toEqual({ state: 'guards', root: '/here' });
+    // Space alone is not empty: it names a directory that is not there.
+    expect(readHookLine(' ', '/here', only('/here'))).toEqual({ state: 'off', fault: { wrong: '--root is " ", which is not a directory', mend: MEND_ROOT } });
+  });
+
+  it('is off for a root that is a file or is not there, with what is wrong and what mends it', () => {
+    expect(readHookLine('nowhere', '/here', only('/here'))).toEqual({ state: 'off', fault: { wrong: '--root is "nowhere", which is not a directory', mend: MEND_ROOT } });
+    // And for an empty root where the directory the hook was started in is gone.
+    expect(readHookLine('', '/gone', only('/here'))).toEqual({ state: 'off', fault: { wrong: '--root is "/gone", which is not a directory', mend: MEND_ROOT } });
+  });
+
+  it('is off for a line the parser refused, in the parser\'s words, put on one line', () => {
+    expect(unreadHookLine("Unknown option '--nope'")).toEqual({ state: 'off', fault: { wrong: "the hook's line cannot be read (Unknown option '--nope')", mend: MEND_LINE } });
+    expect(unreadHookLine('one\ntwo\nthree').fault.wrong).toBe("the hook's line cannot be read (one two three)");
+  });
+
+  it('reads the words it is handed with the command line\'s parser, and knows its line by its command and the argument after it', () => {
+    const read = (words: readonly string[]) => claudeHookLine(words, parseOptions, '/here', only('/here', '/the/project'));
+    expect(read(['hook', 'claude'])).toEqual({ state: 'guards', root: undefined });
+    expect(read(['hook', 'claude', '--root', '/the/project', '--brief', '001'])).toEqual({ state: 'guards', root: '/the/project' });
+    expect(read(['hook', 'claude', '--root', ''])).toEqual({ state: 'guards', root: '/here' });
+    // What it does not read is passed over, as the hook passes over it.
+    expect(read(['hook', 'claude', 'extra', '--strict', '--format', 'json', '--list'])).toEqual({ state: 'guards', root: undefined });
+    // An option before the command, and between the two words.
+    expect(read(['--brief', '001', 'hook', '--base', 'main', 'claude'])).toEqual({ state: 'guards', root: undefined });
+    expect(read(['hook', 'claude', '--root', '/nowhere'])).toEqual({ state: 'off', fault: { wrong: '--root is "/nowhere", which is not a directory', mend: MEND_ROOT } });
+  });
+
+  it('is off for a line the parser refuses, wherever on the line the fault stands', () => {
+    const read = (words: readonly string[]) => claudeHookLine(words, parseOptions, '/here', only('/here'));
+    const wrong = "the hook's line cannot be read (--format must be pretty, json, gitlab, sarif or github, not \"xml\")";
+    expect(read(['hook', 'claude', '--format', 'xml'])).toEqual({ state: 'off', fault: { wrong, mend: MEND_LINE } });
+    expect(read(['--format', 'xml', 'hook', 'claude'])).toEqual({ state: 'off', fault: { wrong, mend: MEND_LINE } });
+    expect(read(['hook', 'claude', '--at', 'sideways'])).toMatchObject({ state: 'off', fault: { wrong: "the hook's line cannot be read (--at must be base, head or both, not \"sideways\")" } });
+    expect(read(['hook', 'claude', '--nope'])).toMatchObject({ state: 'off', fault: { mend: MEND_LINE } });
+    expect(read(['hook', 'claude', '--root'])).toMatchObject({ state: 'off' });
+    // A line that cannot be read is said before its root is asked about.
+    expect(read(['hook', 'claude', '--root', '/nowhere', '--format', 'xml'])).toMatchObject({ state: 'off', fault: { wrong } });
+  });
+
+  it('is nobody\'s where the words do not say hook claude, read or not', () => {
+    const read = (words: readonly string[]) => claudeHookLine(words, parseOptions, '/here', only('/here'));
+    for (const words of [['hook', 'git'], ['hook'], ['guard', 'claude'], ['claude', 'hook'], ['mcp', '--root', '/nowhere'], ['doctor'], [], ['hook', 'Claude']]) expect(read(words), words.join(' ')).toBeNull();
+    // Refused by the parser, and not the hook's either: the word claude taken for a value, or left out.
+    for (const words of [['hook', 'git', '--nope'], ['hook', '--brief', 'claude', '--nope'], ['hook', '--nope'], ['--nope']]) expect(read(words), words.join(' ')).toBeNull();
   });
 });

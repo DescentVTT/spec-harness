@@ -208,6 +208,18 @@ and a root only where one is written. None of the five is a line the parser refu
 anything `hook claude` passes over, so what the hook says of its own line
 is said of a line a person wrote.
 
+*Amended 2026-10-12.* doctor knows init's hooks by the hook's own reading
+of their line, where it knew them by the exact command and arguments init
+writes (ADR-0005, amended the same day). A hook a person changed by hand,
+such as one given `--root ${CLAUDE_PROJECT_DIR}`, is therefore one of
+init's entries in the report, where it was no guard at all. Two things
+follow for a tree that passed: beside the plugin such a hook is the double
+install it always was, and doctor exits 1 for it; and the release of Claude
+Code is asked for it, which exits 1 for a release too old to run the hooks
+and, under `--strict`, for one that cannot be told. The lines the releases
+wrote are read as they were. init still tells its own entries by what it
+and 0.1 wrote, so that it never rewrites a line a person changed.
+
 ## Consequences
 
 - A plugin turned on by managed settings or `--settings` is invisible to

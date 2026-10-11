@@ -18,9 +18,9 @@ import { sameId } from './branch.js';
 import {
   enabledPlugin,
   exportedFile,
-  holdsGuard,
   loadsPlugin,
   registersServer,
+  reportHooks,
   SPEC_BRIEF_CONFIGS,
   type BaseSource,
   type ClaudeCodeWiring,
@@ -29,7 +29,7 @@ import {
 } from './configure.js';
 import { readRules, renderContext, type CitedDocument, type ContextPacket, type Rules } from './context.js';
 import type { DocumentReader } from './document.js';
-import { readJsonObject, readText, repositoryPath, stateDirectory, writeAtomic } from './fs.js';
+import { isDirectory, readJsonObject, readText, repositoryPath, stateDirectory, writeAtomic } from './fs.js';
 import { blameLine, changes, isUncommitted, mergeBase, remoteDefault, revision, show, verifyCommit } from './git.js';
 import { decide, type Decision, type VerifiedRuling } from './guard.js';
 import { diffManifest, ecosystemOf, readManifestNames, type DependencyChange, type InstallScriptChange } from './manifests.js';
@@ -47,7 +47,8 @@ import type { BriefRow, Finding } from './types.js';
 import { compileGlob, type LiteralReading } from './vendor/spec-core/pattern/index.js';
 import { dirname, isRelativeReference, resolveInside, splitReference } from './vendor/spec-core/path/index.js';
 import { SiblingError } from './siblings.js';
-import { UsageError, type CliIO, type Workspace } from './workspace.js';
+import { claudeHookLine } from './usage.js';
+import { parseOptions, UsageError, type CliIO, type Workspace } from './workspace.js';
 
 /* -------------------------------------------------------------------- base */
 
@@ -386,12 +387,25 @@ export async function claudeSettings(root: string, env: CliIO['env']): Promise<C
   return Promise.all(claudeSettingsFiles(root, env).map(async ({ file, path }) => ({ file, settings: await readJsonObject(path) })));
 }
 
-/** Whether the plugin, init's entries, both or neither wire Claude Code to the harness here. */
+/**
+ * Whether the plugin, init's entries, both or neither wire Claude Code to the
+ * harness here, and what the hook does with each line the settings hold for
+ * it.
+ *
+ * A line is the hook's by the hook's own reading of it, whatever else stands
+ * on it, and read as a session started at `root` hands it over: the project
+ * is `root`, an empty `--root` is the directory the hook is started in, and
+ * a relative one is read from there. The plugin's own hooks are not read:
+ * they are files of a release, in a directory Claude Code keeps, and no
+ * release wrote more than the hook on their line (ADR-0012).
+ */
 export async function claudeCodeWiring(root: string, env: CliIO['env']): Promise<ClaudeCodeWiring> {
   const sources = await claudeSettings(root, env);
+  const lines = reportHooks(sources, root, (words) => claudeHookLine(words, parseOptions, root, (path) => isDirectory(resolve(root, path))));
   return {
     plugin: enabledPlugin(sources),
-    hooks: sources.filter(({ settings }) => holdsGuard(settings)).map(({ file }) => file),
+    hooks: sources.map(({ file }) => file).filter((file) => lines.some((line) => line.file === file)),
+    lines,
     server: registersServer(await readJsonObject(join(root, '.mcp.json'))),
   };
 }
