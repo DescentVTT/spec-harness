@@ -9,6 +9,50 @@ only fixes, reports less or documents, so `^0.7.0` takes only releases that
 cannot turn a run red. The family's policy is
 [spec-core's ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
+## Unreleased
+
+### Changed
+
+- **`hook claude` says a `--root` on its line that is not a directory, and
+  exits 1.** It exited 0 with no word, as outside a git work tree, and the
+  write went on unguarded; it is now one line on stderr that names the root,
+  and exit 1, which Claude Code shows as a hook error without blocking the
+  write
+  ([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
+  Upgrading: no release wrote a `--root` on the hook's line; if you added
+  one, point it at a directory that exists, or take it off.
+- **`premises` refuses a brief `--brief` or `SPEC_BRIEF` names that
+  spec-brief does not know**, as every other command does: `premises
+  --brief 999` was read as no round, and held the round's own premise
+  against it. It is exit 2 and `the flag names brief 999, and spec-brief
+  knows no such brief`
+  ([ADR-0004](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0004-the-active-brief-is-named-not-guessed.md)).
+  Upgrading: name a brief spec-brief lists, or none. A branch whose name
+  reads as a brief's and names none is read as no round, as before.
+- **`escalate --list` and `--show` refuse an option they do not read.**
+  Beside either, `--path`, `--reason`, `--option`, `--recommend` and
+  `--brief` did nothing, and `--show` did nothing beside `--list`: the list
+  was printed, exit 0, and a request spelled out beside it was never raised
+  ([ADR-0006](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0006-a-ruling-is-a-signed-commit.md)).
+  Upgrading: give `--list` or `--show` with `--root` and `--format` alone,
+  and raise a request in a call of its own.
+- **A brief given as the argument and as `--brief` at once is refused**,
+  whatever the two hold, by `context`, `rulings`, `audit` and `probe`:
+  `audit 012 --brief 013` audited 012 with no word about 013. Upgrading:
+  give one of them. `SPEC_BRIEF` and the branch beside either are read as
+  before.
+
+### Added
+
+- `findActive`, from the package, takes the brief an `argument` names, which
+  comes before the flag, and gives `argument` as its `source`.
+
+### Fixed
+
+- A brief that is not one is said by what named it: `the argument names
+  brief 999` for `context 999`, and `"brief" names brief 999` from the
+  server's tools, where both said `the flag`.
+
 ## 0.12.0
 
 A probe's command is answered when its shell ends, by the shell's exit code,

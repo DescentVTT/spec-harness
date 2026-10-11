@@ -285,6 +285,88 @@ ADR-0009). What was found and left as it was:
   no round.
 - A brief given as an argument and by `--brief` at once is the argument's.
 
+*Amended 2026-10-11.* A `--root` on the line of Claude Code's hook that is
+not a directory is said, with exit 1, and refuses nothing. The amendment
+above left `hook claude` out of every refusal, and the hook went on to open
+its root as before. git starts in neither a file nor a directory that is not
+there, and the hook read that as a session outside a git work tree, where it
+has nothing to guard and says nothing. Measured on 0.12.0 through the
+launcher (Windows 11, Node 24.18.1, git 2.55), before a write to a file the
+brief protects: `hook claude --root <not there>`, `--root <a file>` and
+`--root " "` each exited 0 with nothing on either stream, and so did each
+after a write. A root that was written on the hook's line and is not there
+is a guard that was set up and is off, and nothing told anyone.
+
+It is now exit 1 and one line on stderr:
+
+    spec-harness: --root is "nowhere", which is not a directory, so the guard is off and this write is not checked; give the hook's line a directory that exists, or leave --root out for the project Claude Code names
+
+- **Exit 1, as for a question the hook cannot read.** Claude Code's hooks
+  reference (<https://code.claude.com/docs/en/hooks>, *Other exit codes*,
+  read 2026-10-11) says of an exit code that is neither 0 nor 2, with
+  nothing on stdout: "it's a non-blocking error for most hook events: the
+  action proceeds". The transcript then shows a hook error with the first
+  line of the hook's stderr, which is why the line is one line. Its table
+  of what blocks gives a PreToolUse hook no blocking code but 2 and a
+  PostToolUse hook none, so the write goes on and the person is told.
+  Exit 0 would not tell them: the same page sends the stderr of a hook
+  that exits 0 to the debug log alone. Exit 2 would hold every write of the
+  session, the one that mends the line among them, which is why the hook is
+  exempt in the first place.
+- **Said where there is a write to check, before a write and after one.** A
+  question that cannot be read or parsed is said first, as it was, and a
+  tool that writes no file is answered with nothing, exit 0, as it was.
+  Whatever else stands on the line, a brief that is not one included, the
+  root is said and the exit is 1: no brief is read without a root, and
+  `--root <not there> --brief 404` is no decision to hold a write.
+- **Not an empty root, and not a directory that is no work tree.**
+  `--root ""` is the directory the hook was started in: git starts there
+  when it is handed no directory, and the hook has guarded there for one in
+  every release (measured: the write is refused). It still does, and the
+  hook now names that directory itself. A root that is a directory outside
+  any work tree is a session outside one, exit 0 and no word, as before.
+- **No line a release wrote meets it.** Read from the tags v0.1.0 to
+  v0.12.0, the hook's line is `hook claude` and nothing after it in every
+  release, in `.claude/settings.json` and in the plugin. `--root` stands
+  only on the server's lines (ADR-0012), and
+  `tests/integration/released-lines.test.ts` holds that no hook's line
+  carries one. A root on that line is one a person wrote.
+
+Three things the amendment of 2026-10-09 found and left are refused now,
+each exit 2 and one line, by every command but `hook claude`, which passes
+over them as it passes over the rest: an option beside `escalate --list` or
+`--show` that neither reads (ADR-0006), a brief that `premises` is given and
+spec-brief does not know, and a brief given as the argument and as `--brief`
+at once (both ADR-0004). Each is input refused that was accepted, or an exit
+code that changed: a minor release (spec-core's ADR-0009).
+
+What was measured for this and left as it was:
+
+- **The `cwd` of the hook's question.** The hook reads it: as the root, when
+  neither `--root` nor `CLAUDE_PROJECT_DIR` names one, and as the directory
+  a relative path is read from. Claude Code sets `CLAUDE_PROJECT_DIR` for
+  every hook it runs, and with it a `cwd` that is not there changes
+  nothing: the write is checked against the project, for an absolute path
+  and for a relative one. Without the variable, a `cwd` that is not there is
+  exit 0 and no word, and so is a `CLAUDE_PROJECT_DIR` that is not there.
+  Neither is written on a line. The first arrives with every question, and
+  a project that is gone takes the hook's script with it, so node has
+  nothing to start and Claude Code reports that.
+- **`doctor` and an installed hook's line.** `doctor` knows a hook as the
+  harness's only where its command and arguments are exactly those `init`
+  writes, or the line 0.1 wrote. A line with anything added by hand, a
+  `--root` that is there as much as one that is not, is to `doctor` no guard
+  at all: `neither the spec-harness plugin nor the hooks init writes, so
+  Claude Code guards no write`. It reads no argument of a hook's line, so it
+  has nowhere to say a root's problem, and is left alone.
+- **`hook git` with nothing staged** asks which brief of nobody, and exits 0
+  for a brief that is not one: a commit that stages nothing changes nothing
+  to check.
+- **The hook's other exits of 2** are what they were: a brief that is named
+  and is not one, a check that could not be made, an error nothing
+  expected, and a line the parser cannot read, such as an option no command
+  has or `--root` with no value after it.
+
 ## Consequences
 
 An agent that writes through a shell passes the guard and is caught at the

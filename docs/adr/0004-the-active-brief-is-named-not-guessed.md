@@ -71,6 +71,64 @@ contract that this decision exists to prevent.
   `briefProblem`, `null` where there is none; the field is added, so no
   `schemaVersion` moves.
 
+*Amended 2026-10-11.* Three more things about a name that names no brief,
+each measured on 0.12.0 through the launcher.
+
+- **`premises` stops on a brief `--brief` or `SPEC_BRIEF` names that
+  spec-brief does not know.** Every command that acts on a brief stopped
+  there but this one. `premises --brief 999`, `premises` under
+  `SPEC_BRIEF=999` and `premises` on a branch `brief/999-nowhere` each ran
+  as if no brief were named, and the premise the caller's round retires was
+  reported stale, exit 1. Given the same name, `context`, `guard`,
+  `escalate`, `rulings`, `audit`, `probe`, both hooks and the server's four
+  tools were exit 2 or a tool error already, and `doctor` says it in its
+  report. Now `premises` is exit 2 with their line, `the flag names brief
+  999, and spec-brief knows no such brief`, or `the environment`, before it
+  prints anything and where no brief is live as well.
+
+  **A branch that names no brief is still read by `premises` as no round.**
+  The flag and the variable are given to a run. A branch is where the run
+  finds itself, and `premises` is the command that CI runs on every branch:
+  the family's adopting guide has it in the job of every pull request,
+  where the forge names the branch. A branch whose name only reads as a
+  brief's is common where briefs are a subject, and `fix/brief-list-order`
+  names `list` under the default templates (measured: `doctor` says so, and
+  `guard` and both hooks stop on it, as decided above). Refused by
+  `premises` too, the pull request of someone who never ran the guard turns
+  red over its branch's name, where its premises were judged. Reading no
+  round costs nothing here that the guard's refusal protects: no premise is
+  excused, which is the stricter answer. So it stands as it was, and is
+  measured to: `premises` on that branch, and on a detached head the forge
+  names so, answers as on a branch that names nothing.
+
+  A brief spec-brief has archived is not refused by `premises` either,
+  whatever names it. Its round is closed and retires no premise, which is
+  how it was read and how the branch of a round reads once the round has
+  archived its brief: the last commit of every round, whose own CI run must
+  not fail for it. Where spec-brief is not installed nothing is known of
+  any name, and the run ends as it did, exit 2 on the line that says
+  spec-brief is not there.
+- **A brief named twice is refused.** `context`, `rulings`, `audit` and
+  `probe` take the id as their argument, which came before the flag with no
+  word: `audit 1 --brief 999` audited brief 001, exit 0, and
+  `context 999 --brief 1` was refused for 999. The two together are exit 2,
+  `audit was given the brief twice, as its argument "1" and as --brief
+  "999"; give one of them`, whatever they hold, the same id twice included:
+  a line with two names for one thing was put together from parts, and
+  which part was meant is not the harness's to pick. `SPEC_BRIEF` or the
+  branch beside either is the order above, as it was. A variable is set for
+  every run, and what is typed for this one comes before it.
+- **The line says what named the brief.** `context 999` and `start_round`
+  with `{"brief": "999"}` were told `the flag names brief 999`, and neither
+  had a flag. A command's argument is `the argument`, and a tool's is said
+  as the server says every argument, by its name: `"brief" names brief 999,
+  and spec-brief knows no such brief`. So the order is four: the argument,
+  `--brief`, `SPEC_BRIEF`, the branch.
+
+`hook claude` reads its line as before (ADR-0005). The first is an exit code
+that changed and the second input refused that was accepted: a minor release
+(spec-core's ADR-0009).
+
 ## Consequences
 
 No file records the active brief, so no file can record it wrongly, and two

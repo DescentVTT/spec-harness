@@ -98,6 +98,29 @@ without it rules on something else.
   alike: a choice with a name is a choice. The memo then gives the choice
   alone, where it wrote the name and a dash that led nowhere.
 
+*Amended 2026-10-11.* `escalate --list` and `--show` read nothing of a
+request, and refuse what they do not read. `escalate` is three commands
+under one name: it raises a request, lists what waits, or prints one memo.
+The command line gave all three one set of options, so the parts of a
+request were taken beside `--list` and `--show` and did nothing. Measured
+on 0.12.0 through the launcher: `escalate --list` beside `--path`,
+`--reason`, `--option`, `--recommend`, `--brief` or `--show`, and
+`escalate --show <id>` beside the first five, each printed the list or the
+memo, exit 0. `escalate --path src/x.ts --reason why --list` printed the
+list, and the request it spells out was never raised: an agent that reads a
+list and exit 0 has every reason to believe it asked.
+
+Each is now exit 2 and one line, nothing printed: `escalate --list does not
+take --path; beside --list its options are --root and --format`. `--brief`
+is refused with the rest. What waits is kept for the repository, under the
+git common directory, whichever round raised it, and neither option reads a
+brief; a list that took `--brief 012` would pass for the list of brief 012.
+`--list` decides over `--show`, as the command does. A request reads every
+option but those two, as before, and `SPEC_BRIEF` set beside `--list` is
+not a thing on the line: it is passed over. The server has no tool that
+lists, so nothing changes there. Input refused that was accepted is a minor
+release (spec-core's ADR-0009).
+
 ## Consequences
 
 No new format, service or network: git, OpenSSH 8.1 or later (2019), and an
