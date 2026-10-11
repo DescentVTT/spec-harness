@@ -303,9 +303,11 @@ It is now exit 1 and one line on stderr:
 
 - **Exit 1, as for a question the hook cannot read.** Claude Code's hooks
   reference (<https://code.claude.com/docs/en/hooks>, *Other exit codes*,
-  read 2026-10-11) says of an exit code that is neither 0 nor 2, with
-  nothing on stdout: "it's a non-blocking error for most hook events: the
-  action proceeds". The transcript then shows a hook error with the first
+  read 2026-10-11) has a hook that exits with a code other than 0 or 2, and
+  prints plain text or nothing on stdout, as a non-blocking error, of which
+  it says under *Exit code output*: "The action goes ahead". (This sentence
+  first carried a paraphrase between quotation marks; the words are now the
+  page's.) The transcript then shows a hook error with the first
   line of the hook's stderr, which is why the line is one line. Its table
   of what blocks gives a PreToolUse hook no blocking code but 2 and a
   PostToolUse hook none, so the write goes on and the person is told.
