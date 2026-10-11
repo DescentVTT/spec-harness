@@ -151,6 +151,11 @@ function isClaudeHook(line: CommandLine): boolean {
   return line.command === 'hook' && line.positionals[0] === 'claude';
 }
 
+/** The words for a `--root` that is a file, or is not there, wherever it is said. */
+export function noDirectory(root: string): string {
+  return `--root is "${root}", which is not a directory`;
+}
+
 /**
  * Why the command line is refused, or `null` when the command can run:
  * an option it does not read, an argument it does not take, a value or an
@@ -184,7 +189,7 @@ export function refusal(line: CommandLine, isDirectory: (path: string) => boolea
   // ended saying the path was outside a work tree, which named neither the
   // option nor what was wrong with what it was given.
   if (line.root !== undefined && !isDirectory(line.root)) {
-    return `--root is "${line.root}", which is not a directory; give it one that exists, or leave it out to run in the current directory`;
+    return `${noDirectory(line.root)}; give it one that exists, or leave it out to run in the current directory`;
   }
   return null;
 }

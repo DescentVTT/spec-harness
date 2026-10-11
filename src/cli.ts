@@ -36,7 +36,7 @@ import { mcpCommand } from './server.js';
 import { gitHook, initCommand } from './setup.js';
 import { notFido2, readAllowedSigners } from './signers.js';
 import { SiblingError } from './siblings.js';
-import { emptyValue, isBlank, refusal, type Command } from './usage.js';
+import { emptyValue, isBlank, noDirectory, refusal, type Command } from './usage.js';
 import { checkClaudeCode, CLAUDE_CODE_MINIMUM, MINIMUM_VERSIONS } from './versions.js';
 import {
   activeBrief,
@@ -185,10 +185,27 @@ async function hookCommand(options: Options, io: CliIO): Promise<number> {
       return EXIT_FAILED;
     }
     if (request.paths.length === 0) return EXIT_OK;
+    // An empty root is the directory the hook was started in: git starts
+    // there when it is handed no directory, so the hook has guarded there
+    // for an empty root in every release.
+    const root = options.root === '' ? io.cwd : options.root;
+    // A root written on the hook's line that is a file, or is not there: git
+    // starts in neither, which read as a session outside a work tree, exit 0
+    // and no word, and the guard someone had configured was off. It is said,
+    // and refuses nothing: exit 1 is to Claude Code an error that does not
+    // block, whose first line of stderr it shows the person, where exit 2
+    // would hold every write of the session, the one that mends the line
+    // among them (ADR-0005).
+    if (root !== undefined && !isDirectory(root)) {
+      io.stderr.write(
+        `spec-harness: ${noDirectory(root)}, so the guard is off and this write is not checked; give the hook's line a directory that exists, or leave --root out for the project Claude Code names\n`,
+      );
+      return EXIT_FAILED;
+    }
     const cwd = request.cwd ?? io.cwd;
     let workspace: Workspace;
     try {
-      workspace = await openWorkspace({ ...options, root: options.root ?? io.env['CLAUDE_PROJECT_DIR'] ?? cwd }, io);
+      workspace = await openWorkspace({ ...options, root: root ?? io.env['CLAUDE_PROJECT_DIR'] ?? cwd }, io);
     } catch (error) {
       if (error instanceof UsageError) return EXIT_OK;
       throw error;
