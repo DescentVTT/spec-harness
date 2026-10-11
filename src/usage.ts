@@ -160,15 +160,16 @@ function listed(options: readonly string[]): string {
 }
 
 /**
- * Whether the line is Claude Code's hook. It is exempt from every refusal
- * here, and read as each release since 0.1.0 read it: the line lives in
- * settings files and in the plugin of every release, which this one cannot
- * rewrite, and exit 2 from it holds every write of a session, the write that
- * would fix the line among them. An option the parser itself does not know
- * is exit 2 there, as it always was.
+ * Whether a line is Claude Code's hook, by its command and the argument
+ * after it. It is exempt from every refusal here, and read as each release
+ * since 0.1.0 read it: the line lives in settings files and in the plugin of
+ * every release, which this one cannot rewrite, and exit 2 from it holds
+ * every write of a session, the write that would fix the line among them.
+ * A line the parser cannot read is asked the same, and the hook says it
+ * with exit 1 (cli.ts).
  */
-function isClaudeHook(line: CommandLine): boolean {
-  return line.command === 'hook' && line.positionals[0] === 'claude';
+export function isClaudeHook(command: string | undefined, argument: string | undefined): boolean {
+  return command === 'hook' && argument === 'claude';
 }
 
 /** The words for a `--root` that is a file, or is not there, wherever it is said. */
@@ -190,7 +191,7 @@ export function refusal(line: CommandLine, isDirectory: (path: string) => boolea
   // and its mutant is equivalent.
   if (command === undefined) return null;
   const shape = SHAPES.get(command);
-  if (shape === undefined || isClaudeHook(line)) return null;
+  if (shape === undefined || isClaudeHook(command, positionals[0])) return null;
   const stray = line.given.find((option) => !shape.options.includes(option));
   if (stray !== undefined) return `${command} does not take --${stray}; ${listed(shape.options)}`;
   // An option the command reads, beside one that leaves it unread:

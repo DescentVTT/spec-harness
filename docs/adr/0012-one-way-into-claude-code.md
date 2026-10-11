@@ -197,6 +197,17 @@ and nothing refused (ADR-0005), no line a release wrote was read another
 way: the test holds that none of the hooks' lines carries one, and runs the
 hook with a root that is not there, with an empty one and with none.
 
+*Amended again 2026-10-11.* 0.13.0 wrote the lines 0.12.0 wrote, read from
+its tag as the rest were, so each row above that ends at 0.11.1 ends at
+0.13.0, and the test's table says so. When `hook claude` began to say a line
+its parser cannot read, with exit 1 and no write held (ADR-0005), the
+parser came to read a line it refuses a second time, for whose line it is.
+So the test now holds each of the five command lines to what it is read as,
+argument for argument: the command, the word after it, the options given,
+and a root only where one is written. None of the five is a line the parser refuses, and none carries
+anything `hook claude` passes over, so what the hook says of its own line
+is said of a line a person wrote.
+
 ## Consequences
 
 - A plugin turned on by managed settings or `--settings` is invisible to

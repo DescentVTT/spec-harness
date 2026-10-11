@@ -11,6 +11,25 @@ cannot turn a run red. The family's policy is
 
 ## Unreleased
 
+### Changed
+
+- **`hook claude` says a line it cannot read, and exits 1.** An option no
+  command has, an option left without its value, and a `--format` or an
+  `--at` that is none were exit 2 from Claude Code's hook as from every
+  command, and Claude Code holds a write on a PreToolUse hook's exit 2:
+  every write of the session, the one that mends the line among them. It is
+  now one line on stderr, `the hook's line cannot be read (...), so the
+  guard is off and this write is not checked`, with the parser's words
+  between the brackets, and exit 1, which Claude Code shows as a hook error
+  while the write goes on, as for a `--root` that is not a directory. Exit 2
+  from the hook is for a write it could not check, and `hook git` and every
+  other command stop on such a line as before
+  ([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
+  Upgrading: no release wrote more than `hook claude` on the hook's line. If
+  yours holds more and cannot be read, it held every write and now holds
+  none: mend the line the hook error names. A hook entry that sets
+  `"onFailure": "block"` has Claude Code hold the write for exit 1 too.
+
 ### Added
 
 - **The context packet lists the rules of the rest where spec-guard refuses
