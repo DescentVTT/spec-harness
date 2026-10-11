@@ -9,7 +9,14 @@ only fixes, reports less or documents, so `^0.7.0` takes only releases that
 cannot turn a run red. The family's policy is
 [spec-core's ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
-## Unreleased
+## 0.13.0
+
+`hook claude` says a `--root` on its line that is not a directory, with
+exit 1 and no write refused, where the guard was off and nothing said so.
+And four more inputs that named nothing, or were not read, are refused by
+name: a brief `premises` is given that spec-brief does not know, an option
+`escalate --list` or `--show` leaves unread, and a brief given as the
+argument and as `--brief` at once.
 
 ### Changed
 

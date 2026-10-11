@@ -74,7 +74,15 @@ minutes, where the table in `scripts/mutation-shards.mjs` was balanced for
 14, so the table is to be measured again. For 0.12.0 the sweep of d8a7e8b
 (run 37834817671), in the order and on the table of the 2026-10-09
 amendment below, read 97.48% over 8,212 mutants, 96.43% with every timeout
-lost, in shards of 13m34s to 16m57s, and the `break` stays 95.
+lost, in shards of 13m34s to 16m57s, and the `break` stays 95. For 0.13.0
+the sweep of 618dff0 (run 38127053349) read 97.49% over 8,290 mutants,
+96.45% with every timeout lost, in shards of 12m27s to 17m51s, and the
+`break` stays 95. One mutant it left had been counted killed for 0.12.0:
+`'hex'` made empty where the copy of the signers is named
+(`src/round.ts`), which the comment beside it has as equivalent. The file
+is then named by the digest's bytes, and a path refuses a NUL among them,
+so a sweep counts it killed now and then, as 0.12.0's did and those of
+0.11.0 and 0.11.1 did not.
 
 One runner took 69 to 130 minutes for the full sweep. Before any sharded
 sweep ran, the report of eb39599 was cut into shards the way Stryker writes
