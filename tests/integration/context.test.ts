@@ -379,9 +379,9 @@ describe('context', () => {
     expect(result.stderr).toBe('spec-harness: no brief is named: pass --brief <id>, set SPEC_BRIEF, or work on a branch named like brief/<id>-<topic>\n');
   });
 
-  it('refuses a named brief spec-brief does not know', async () => {
+  it('refuses a named brief spec-brief does not know, and says the argument named it, where it said the flag', async () => {
     const result = await cli(['context', '404'], repo.root);
-    expect(result).toMatchObject({ code: 2, stderr: 'spec-harness: the flag names brief 404, and spec-brief knows no such brief\n' });
+    expect(result).toMatchObject({ code: 2, stderr: 'spec-harness: the argument names brief 404, and spec-brief knows no such brief\n' });
   });
 
   it('says a cited document\'s front matter is never closed, so its status was not read, and still exits 0', async () => {

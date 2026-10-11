@@ -44,11 +44,15 @@ import {
 
 const reader = createReader();
 
-/** The brief a command acts on: a positional id, else the active one. A command that needs one and has none is a usage error. */
+/**
+ * The brief a command acts on: a positional id, else the active one. A
+ * command that needs one and has none is a usage error. The command line
+ * refuses the id beside `--brief` before it gets here (usage.ts).
+ */
 export async function targetBrief(workspace: Workspace, options: Options, io: CliIO, positional: string | undefined): Promise<{ brief: BriefRow; briefs: BriefRow[] }> {
   const briefs = await workspace.siblings.briefs();
   const fromBranch = briefIdFromBranch(workspace.config.branches, workspace.branch);
-  const active = findActive(briefs, { flag: positional ?? options.brief, environment: io.env['SPEC_BRIEF'], branch: fromBranch });
+  const active = findActive(briefs, { argument: positional, flag: options.brief, environment: io.env['SPEC_BRIEF'], branch: fromBranch });
   const { brief, note, problem } = describeActive(active);
   if (problem !== null) throw new UsageError(problem);
   if (brief === null) throw new UsageError(note);

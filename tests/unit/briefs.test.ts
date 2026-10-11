@@ -123,6 +123,18 @@ describe('the active brief', () => {
     expect(findActive(briefs, { branch: '013' })).toEqual({ kind: 'found', brief: other, source: 'branch' });
   });
 
+  it('is named by an argument before all of them, and says so, where it was said to be the flag', () => {
+    // A command's own argument, `audit 012`, or a tool call's `brief`.
+    expect(findActive(briefs, { argument: '012', flag: '013', environment: '013', branch: '007' })).toEqual({ kind: 'found', brief: live, source: 'argument' });
+    expect(findActive(briefs, { argument: ' 13 ', branch: '012' })).toEqual({ kind: 'found', brief: other, source: 'argument' });
+    expect(findActive(briefs, { argument: '99', flag: '012' })).toEqual({ kind: 'unknown', id: '99', source: 'argument' });
+    expect(findActive(briefs, { argument: '7' })).toEqual({ kind: 'archived', brief: archived, source: 'argument' });
+    // One that names nothing is passed over here; the command line and the server refuse it before.
+    expect(findActive(briefs, { argument: ' ', flag: '013' })).toEqual({ kind: 'found', brief: other, source: 'flag' });
+    expect(findActive(briefs, { argument: '', branch: '012' })).toEqual({ kind: 'found', brief: live, source: 'branch' });
+    expect(findActive(briefs, { argument: undefined, environment: '013' })).toEqual({ kind: 'found', brief: other, source: 'environment' });
+  });
+
   it('skips a flag or an environment that names nothing, and trims what they name', () => {
     expect(findActive(briefs, { flag: '  ', environment: ' 013 ' })).toEqual({ kind: 'found', brief: other, source: 'environment' });
     expect(findActive(briefs, { flag: '', environment: '', branch: '012' })).toEqual({ kind: 'found', brief: live, source: 'branch' });

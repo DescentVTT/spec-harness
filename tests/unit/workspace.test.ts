@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { DEFAULT_CONFIG } from '../../src/config.js';
-import { describeActive, EXIT_ERROR, EXIT_FAILED, EXIT_OK, namedId, parseOptions, UsageError, type Workspace } from '../../src/workspace.js';
+import { describeActive, EXIT_ERROR, EXIT_FAILED, EXIT_OK, namedId, namesNoBrief, parseOptions, UsageError, type Workspace } from '../../src/workspace.js';
 import { row } from './helpers.js';
 
 function usage(argv: string[]): string {
@@ -197,5 +197,27 @@ describe('describing the active brief', () => {
       note: undefined,
       problem: 'the environment names brief 007, which is archived; a closed round writes nothing',
     });
+    expect(describeActive({ kind: 'unknown', id: '98', source: 'branch' }).problem).toBe('the branch names brief 98, and spec-brief knows no such brief');
+  });
+
+  it('says what named the brief: an argument is the argument, and a tool call\'s is its "brief", never the flag', () => {
+    // `context 99` and start_round {"brief": "99"} were both told the flag
+    // named it, and neither had one.
+    expect(describeActive({ kind: 'unknown', id: '99', source: 'argument' }).problem).toBe('the argument names brief 99, and spec-brief knows no such brief');
+    expect(describeActive({ kind: 'archived', brief: row({ id: '007' }), source: 'argument' }).problem).toBe(
+      'the argument names brief 007, which is archived; a closed round writes nothing',
+    );
+    expect(describeActive({ kind: 'unknown', id: '99', source: 'argument' }, '"brief"').problem).toBe('"brief" names brief 99, and spec-brief knows no such brief');
+    expect(describeActive({ kind: 'archived', brief: row({ id: '007' }), source: 'argument' }, '"brief"').problem).toBe(
+      '"brief" names brief 007, which is archived; a closed round writes nothing',
+    );
+    // Only an argument is the caller's to name: the flag, the environment and the branch are what they are.
+    expect(describeActive({ kind: 'unknown', id: '99', source: 'flag' }, '"brief"').problem).toBe('the flag names brief 99, and spec-brief knows no such brief');
+    expect(describeActive({ kind: 'archived', brief: row({ id: '007' }), source: 'branch' }, '"brief"').problem).toBe(
+      'the branch names brief 007, which is archived; a closed round writes nothing',
+    );
+    // The same line where a command says it without a brief to describe, as premises does.
+    expect(namesNoBrief({ kind: 'unknown', id: '99', source: 'environment' })).toBe('the environment names brief 99, and spec-brief knows no such brief');
+    expect(namesNoBrief({ kind: 'unknown', id: '99', source: 'argument' })).toBe('the argument names brief 99, and spec-brief knows no such brief');
   });
 });

@@ -166,8 +166,9 @@ describe('the tools', () => {
     expect(await tool('check_path').call({ paths: ['a'], base: 1 })).toEqual({ text: '"base" must be a string.', isError: true });
     expect(await tool('start_round').call({ base: ['main'] })).toEqual({ text: '"base" must be a string.', isError: true });
     expect(await tool('start_round').call({ at: 'main' })).toEqual({ text: 'Unknown argument "at"; this tool takes brief and base.', isError: true });
-    expect(await tool('check_path').call({ paths: ['a'], brief: '404' })).toEqual({ text: 'the flag names brief 404, and spec-brief knows no such brief', isError: true });
-    expect(await tool('start_round').call({ brief: '3' })).toEqual({ text: 'the flag names brief 003, which is archived; a closed round writes nothing', isError: true });
+    // Said of the argument that named it: a tool call has no flag.
+    expect(await tool('check_path').call({ paths: ['a'], brief: '404' })).toEqual({ text: '"brief" names brief 404, and spec-brief knows no such brief', isError: true });
+    expect(await tool('start_round').call({ brief: '3' })).toEqual({ text: '"brief" names brief 003, which is archived; a closed round writes nothing', isError: true });
   });
 
   it('refuse a brief, a base or a path that is given and names nothing, by the argument, where each was read as left out', async () => {
@@ -341,7 +342,7 @@ describe('the tools', () => {
     const other = await tool('request_escalation').call({ paths: ['lib/x.ts'], reason: 'r', brief: '2' });
     expect(other.structured).toEqual({ id: 'E-002-1' });
     expect(other.text).toContain('Brief 002 (`briefs/002_next.md`)');
-    const nowhere = { text: 'the flag names brief 404, and spec-brief knows no such brief', isError: true };
+    const nowhere = { text: '"brief" names brief 404, and spec-brief knows no such brief', isError: true };
     expect(await tool('request_escalation').call({ paths: ['a'], reason: 'r', brief: '404' })).toEqual(nowhere);
     expect(await tool('audit_round').call({ brief: '404' })).toEqual(nowhere);
     const audited = await tool('audit_round').call({ brief: '2' });
