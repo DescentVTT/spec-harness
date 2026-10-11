@@ -146,6 +146,7 @@ export function tools(workspace: Workspace, env: CliIO['env']): ToolDefinition[]
             unreadableScope: [...packet.unreadableScope],
             unreadableProtections: [...packet.unreadableProtections],
             unreadableRulingPaths: [...packet.unreadableRulingPaths],
+            unmatchedSpecs: [...packet.unmatchedSpecs],
           },
         };
       },

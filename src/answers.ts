@@ -92,6 +92,17 @@ export function readQueryRules(document: unknown): QueryRule[][] {
   });
 }
 
+/**
+ * The spec patterns `spec-guard query --json` says matched no file, as
+ * written. A document that says nothing of them names none: spec-guard has
+ * written the field since 0.22.0, and only where there is such a pattern.
+ */
+export function readQueryUnmatched(document: unknown): string[] {
+  const read = reader('spec-guard query');
+  const top = read.object(document, 'a document');
+  return read.list(top['unmatchedSpecs'], 'unmatchedSpecs').map((value, index) => read.text(value, `unmatchedSpecs[${index}]`));
+}
+
 export interface GuardResult {
   readonly ok: boolean;
   readonly description: string;

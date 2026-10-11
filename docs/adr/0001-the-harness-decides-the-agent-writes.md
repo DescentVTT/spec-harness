@@ -138,6 +138,62 @@ maintain, and a heuristic in a second language is where false positives
 come from. A document may be written in any language; its status is
 written in English, `status: superseded`, which every spec-* tool reads.
 
+*Amended 2026-10-11.* The packet lists the rules of the rest where
+spec-guard refuses for a spec pattern that matched no file. The packet asks
+`spec-guard query <paths> --json` and told its refusals apart by the
+document: exit 2 with a document that names no spec file is a repository
+that keeps none, and any other exit 2 was rules that could not be read,
+with what spec-guard said and `Treat every ADR as binding until they can`.
+spec-guard 0.22.0 added a refusal that is neither: a pattern among its
+`specs` that matches no file beside others that do is exit 2, and the
+document is still written, with the rules of every file that did match and
+the patterns as `unmatchedSpecs` (spec-core's ADR-0005, amended
+2026-10-11). Measured on 0.13.0 through the launcher (Windows 11, Node
+24.18.1), with `docs/**/*.md` and `rfcs/*.md` as spec-guard's `specs`, one
+ADR under `docs` that states a rule over the brief's scope, and nothing
+under `rfcs`:
+
+| spec-guard | Its answer to the query | The packet |
+| --- | --- | --- |
+| 0.12.0, the minimum, and 0.21.0 | exit 0, the rule, no `unmatchedSpecs` | the rule |
+| 0.22.0 | exit 2, the rule, `unmatchedSpecs` naming `rfcs/*.md`, and on stderr `the pattern "rfcs/*.md" matched no spec file. Remove it from "specs" in package.json.` | `The rules spec-guard holds this code to could not be read: spec-guard exited 2: the pattern "rfcs/*.md" matched no spec file.` and so on, and no rule |
+
+So a repository that upgraded spec-guard lost every rule from the packet
+over one pattern, and its agent was told to treat every ADR as binding
+where spec-guard had named the rules that are. The packet now lists those
+rules as it lists any, under one sentence:
+
+    spec-guard's pattern `rfcs/*.md` matched no spec file, so a rule kept under it is not listed here; remove the pattern from spec-guard's `specs`.
+
+- **The document decides, and the exit code beside it does not.** A
+  document that names such patterns is read for them and for its rules,
+  whatever code came with it; one that names none is read as it was. So
+  where no pattern matched a file, which 0.22.0 also says with
+  `unmatchedSpecs`, spec-guard still holds no rule over the scope, and any
+  other refusal is still rules that could not be read.
+- **Nothing is said beyond what is known.** The sentence names what the
+  list lacks and what to do, and does not say to treat every ADR as
+  binding: the rules listed are in force. Where the files that matched
+  hold no rule over the scope, the packet says that of them, `The spec
+  files that did match hold no rule over this scope`, and not that
+  spec-guard holds none.
+- **The patterns have a field of their own.** `context --format json` and
+  `start_round` carry them as `unmatchedSpecs`, as spec-guard writes them
+  and in its order, and an empty list where it names none. The field is
+  added, so no `schemaVersion` moves. It is read as every field of a
+  sibling's document is (ADR-0002): patterns that are not a list of text
+  are a document the harness cannot read, and the rules are then said to
+  be unread, never listed as a whole answer.
+- **An older spec-guard is read as before.** It writes no such field, so
+  `MINIMUM_VERSIONS` stays where it is. The development dependency is
+  brought to 0.22.0, and the suite's test of the real sibling holds both
+  answers to the same repository, the one 0.22.0 gives and the one CI's
+  `test (minimum siblings)` job gets from 0.12.0 (ADR-0011).
+
+The audit and `premises` run spec-guard over a brief they name, which
+replaces its `specs`: measured with the same configuration, spec-guard
+0.22.0 answers both as 0.21.0 did, exit 0, and neither is changed.
+
 ## Consequences
 
 Every command gives the same answer for the same repository. What the plan

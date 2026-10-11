@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { readArchivePlan, readGuardRun, readQueryRules } from '../../src/answers.js';
+import { readArchivePlan, readGuardRun, readQueryRules, readQueryUnmatched } from '../../src/answers.js';
 import { SiblingOutputError } from '../../src/briefs.js';
 
 /** The message a reader refuses a document with, which the command prints before exiting 2. */
@@ -46,6 +46,20 @@ describe('spec-guard query', () => {
     expect(field({ description: null })).toBe('spec-guard query printed results[0].rules[0].description that is not text');
     expect(field({ reason: 5 })).toBe('spec-guard query printed results[0].rules[0].reason that is not text or null');
     expect(field({ inForce: 'yes' })).toBe('spec-guard query printed results[0].rules[0].inForce that is not true or false');
+  });
+
+  it('reads the spec patterns that matched no file, and none from a document that says nothing of them', () => {
+    expect(readQueryUnmatched({ specFiles: ['docs/a.md'], unmatchedSpecs: ['rfcs/*.md', 'notes/**/*.md'], results: [] })).toEqual(['rfcs/*.md', 'notes/**/*.md']);
+    // As every release before 0.22.0 writes it, and 0.22.0 where each pattern matched.
+    expect(readQueryUnmatched({ specFiles: ['docs/a.md'], results: [] })).toEqual([]);
+    expect(readQueryUnmatched({ unmatchedSpecs: [] })).toEqual([]);
+  });
+
+  it('refuses patterns of another shape, naming the field', () => {
+    const unmatched = (document: unknown) => refusal(() => readQueryUnmatched(document));
+    for (const document of [null, 5, [], 'x']) expect(unmatched(document)).toBe('spec-guard query printed a document that is not an object');
+    expect(unmatched({ unmatchedSpecs: 'rfcs/*.md' })).toBe('spec-guard query printed unmatchedSpecs that is not a list');
+    expect(unmatched({ unmatchedSpecs: ['rfcs/*.md', 5] })).toBe('spec-guard query printed unmatchedSpecs[1] that is not text');
   });
 });
 
