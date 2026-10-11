@@ -108,7 +108,9 @@ export async function checkRulings(workspace: Workspace, brief: Pick<BriefRow, '
     return { rows, verified: [], unverified: allows.map((row) => ({ id: row.id, reason })), problems: findings };
   }
   // Only verify-commit below reads this copy, so where it is kept, and under
-  // what name, is equivalent to its mutants.
+  // what name, is equivalent to its mutants. The one that reads the digest
+  // with no encoding names the file by its bytes, which a path refuses when
+  // one of them is NUL: a sweep counts that mutant killed now and then.
   const directory = await stateDirectory(workspace.commonDir, 'signers');
   const file = join(directory, `${createHash('sha256').update(signers).digest('hex').slice(0, 16)}`);
   await writeAtomic(file, signers);
