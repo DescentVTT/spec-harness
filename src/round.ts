@@ -336,8 +336,8 @@ export function pluginFile(root: string): (path: string) => boolean {
     // A manifest with no exports, or none for the plugin, throws in `join`
     // or on the missing key inside this block, which the catch reads as no
     // installed copy: `exports?.` and `target !== null` are equivalent to
-    // their mutants here.
-    const manifest = JSON.parse(readFileSync(join(installed, 'package.json'), 'utf8')) as { exports?: Record<string, unknown> };
+    // their mutants here. So is the encoding: a Buffer parses as its text.
+    const manifest: { exports?: Record<string, unknown> } = JSON.parse(readFileSync(join(installed, 'package.json'), 'utf8'));
     const target = exportedFile(manifest.exports?.['./spec-brief-plugin']);
     if (target !== null) candidates.push(join(installed, target));
   } catch {
@@ -499,7 +499,9 @@ export async function listEscalations(workspace: Workspace): Promise<EscalationR
   const out: EscalationRequest[] = [];
   for (const name of (await readdir(directory)).filter((n) => n.endsWith('.json')).sort()) {
     try {
-      out.push(JSON.parse(await readFile(join(directory, name), 'utf8')) as EscalationRequest);
+      // A Buffer parses as its text, so the encoding is equivalent to its mutant.
+      const request: EscalationRequest = JSON.parse(await readFile(join(directory, name), 'utf8'));
+      out.push(request);
     } catch {
       // A request that cannot be read is skipped; listing it would list nothing true.
     }

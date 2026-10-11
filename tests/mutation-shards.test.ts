@@ -505,7 +505,7 @@ describe('this repository', () => {
     expect(sources().filter((file) => holders(file)[0] === SHARD_COUNT).length).toBeGreaterThan(1);
   });
 
-  it('runs every test in every shard: the suite npm test runs, less the source checks and the tests of this script', async () => {
+  it('runs every test in every shard: the suite npm test runs, less the source checks and the tests of the sweep\'s own scripts', async () => {
     // With vitest's `related` on, the tests a shard runs would depend on the
     // files it holds, and the merge would refuse the sweep - or, with a test
     // that reaches a file other than through an import, score one that is not
@@ -516,7 +516,7 @@ describe('this repository', () => {
     const suite = await mutationSuite();
     const { exclude, sequence, ...mutation } = (suite.default as { test: Test }).test;
     expect(mutation).toEqual({ include: unit.include, environment: unit.environment, testTimeout: unit.testTimeout, hookTimeout: unit.hookTimeout });
-    expect(exclude).toEqual(['tests/source.test.ts', 'tests/mutation-shards.test.ts', '**/node_modules/**']);
+    expect(exclude).toEqual(['tests/source.test.ts', 'tests/mutation-shards.test.ts', 'tests/mutation-unmeasured.test.ts', '**/node_modules/**']);
     // The order is the sweep's alone: `npm test` reports every failure, and
     // runs its files side by side.
     expect(sequence).toEqual({ sequencer: suite.QuickestFirst });

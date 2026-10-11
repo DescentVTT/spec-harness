@@ -365,3 +365,113 @@ file's minutes, so the next measurement reads them off a report. A shard
 that keeps passing 22 minutes, half as long again as the table has it, is
 the sign to measure again; so is a suite that has grown, since every static
 mutant that survives runs all of it.
+
+*Amended 2026-10-12.* **Nothing a mutator reads stands under a TypeScript
+`as`.** Stryker 10.0.0 makes no mutant of anything under an `as`
+expression. Its transformer skips every node it takes for a type
+(`shouldSkip` in the instrumenter's `transformers/babel-transformer.js`),
+and the list it asks (`isTypeNode`, `util/syntax-helpers.js`) holds
+`TSAsExpression`: the whole expression is passed over, the value with the
+type. `satisfies` and `!` are not on the list. So a table written
+`{ ... } as const` was not mutated, nor the `i - 1` of
+`lines[i - 1] as string`, and a sweep's score said nothing of either.
+
+Counted on the report of 0.14.0's sweep (run 38144471044), each source read
+with the parser Stryker reads it with: 87 outermost `as` expressions, 29
+with a place a mutator applies under them, 198 such places, and not one of
+the 8,355 mutants inside an `as`. 143 of the places were in
+`src/usage.ts`, beside the 119 mutants the sweep made of that file: the
+tables that decide which options each command reads, which arguments it
+takes and what it says of a value that names nothing were written
+`as const`, and no sweep had mutated a word of them.
+
+Each of the 29 was rewritten so that what a mutator reads stands outside
+the assertion, with the types the compiler sees as they were:
+
+| Way | Sites |
+| --- | ---: |
+| `literal()`, a function with a `const` type parameter that returns its argument (`src/literal.ts`): the four tables of `usage.ts`, and `PARTS` in `configure.ts` | 5 |
+| `!`, where the assertion only said an index or a match is there | 9 |
+| a type on the declaration, where the value is `any` or a list of text | 7 |
+| the value hoisted, and the assertion on its name | 6 |
+| the value hoisted, where narrowing then needs no assertion | 1 |
+| `satisfies`, for the signals the sandbox listens to | 1 |
+
+`satisfies` alone, as `parseOptions` has its table, does not do for the
+tables of `usage.ts`: `Command` and `ValuedOption` are `keyof typeof`
+them, so `dist/usage.d.ts` declares them, and without the const assertion
+every literal type there widens and every `readonly` goes. A `const`
+type parameter reads its argument as the assertion did. The compiler was
+asked of each of the five tables whether it has the type it had, and it
+has; every declaration file is byte for byte what it was but
+`dist/usage.d.ts`, which differs in the quote the emitter prints a string
+literal type with and in nothing else; and the emitted JavaScript differs
+by the hoisted constants, the calls of `literal()` and comments.
+
+| Sweep | Run | Source | Score | Mutants | Killed | Timed out | Survived | No coverage |
+| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: |
+| core, before | 38146456905 | f8b1fb6 | 98.22% | 5,238 | 5,117 | 28 | 89 | 4 |
+| core, after | 38160629865 | 7b22db2 | 98.19% | 5,429 | 5,303 | 28 | 94 | 4 |
+| full, before | 38144471044 | 36a6c8e | 97.51% | 8,355 | 8,061 | 86 | 177 | 31 |
+| full, after | 38160632452 | 7b22db2 | 97.47% | 8,564 | 8,256 | 91 | 186 | 31 |
+
+f8b1fb6 is 36a6c8e with the version of 0.14.0 and no other change to the
+sources. Mutant for mutant, a mutant being its file, its mutator, the text
+it replaces and what replaces it: of the core sweep's mutants 5,194 are in
+both, each with the verdict it had; 235 are new, 228 killed, 2 timed out
+and 5 survivors; and 44, of the lines rewritten, are gone. Of the full
+sweep's, 8,281 are in both, 283 are new, 268 killed, 5 timed out and 10
+survivors, the core sweep's five among them, and 74 are gone. `usage.ts`
+went from 119 mutants to 262, and its two survivors are the two it had.
+
+The ten survivors are equivalent, and each is said beside its code:
+
+| Where | Mutated | Replacement | Why it reads the same |
+| --- | --- | --- | --- |
+| `signers.ts`, a key type or a key | `/^([^ \t]*)[ \t]*(.*)$/s` | the pattern without `^`, and without `$` | every part can match nothing, so it matches from the start of any text, and its last part runs to the end |
+| `signers.ts`, an option's name | `/^[^,="]*/` | `/[^,="]*/` | nothing is a match too, at the start of any text |
+| `reader.ts`, a line's indent | `/^ */` | `/ */` | the same |
+| `versions.ts`, the first word of `claude --version` | `/\s+/` | `/\s/` | what is split is trimmed and not empty, so its first part ends at the first space either way |
+| `fs.ts`, `round.ts` twice, `siblings.ts`: a JSON file read | `'utf8'` | `""` | without an encoding the file is a Buffer, which `JSON.parse` reads as its text |
+| `git.ts`, the first line of what `verify-commit` printed | `text.trim()` | `text` | git writes the check to stderr, which stands first in the text, so the trim changes the first line only for output on stdout alone, which `verify-commit` does not print |
+
+The same encoding in `version()` (`workspace.ts`) is equivalent for the
+same reason and was counted killed, by a test that fails for another
+cause: `tests/integration/rulings.test.ts` numbers a second request after
+the one the test before it raised, and Stryker runs for a mutant only the
+tests that cover it, so the second runs alone and finds no first. Thirty
+mutants of this sweep, and twenty-seven of the sweep before, have that test
+as their recorded killer where the test before it does not cover them: 25
+in `commands.ts`, where `escalate --list` and `--show` are, and the
+rest in `rulings.ts` and `workspace.ts`. A run stops at the first test
+that fails, so the sweep does not say whether a test kills them. The test
+is left as it is here: making it stand alone is a change to the suite, and
+to which of those thirty survive.
+
+`'hex'` in `round.ts`, the survivor the amendment of 2026-10-01 has as
+counted killed now and then, was counted killed, which is why the
+survivors are 186 and not 187; and eleven mutants moved between killed and
+timed out, eight one way and three the other, as between any two sweeps.
+
+With every timeout lost the full sweep would read 96.40%, and the core
+sweep 97.68%: both `break`s stay, at 95 and 97. The shards took 11m16s to
+18m18s. The static mutants, each of which runs every test file until one
+fails, went from 1,294 to 1,458, 142 of the new ones in `usage.ts`, and
+the last shard, which holds that file, took 18m04s for its sweep where it
+took 14m13s: nearer the 22 minutes that say to measure the table again,
+and not there.
+
+**The count is kept.** `scripts/mutation-unmeasured.mjs` counts the
+places a mutator applies under each outermost `as`, in the sources a
+sweep's report holds or in those on disk, and fails for more than the
+number it records as left, which is none. The full sweep's score step runs
+it on the merged report, after the merge that writes it.
+`tests/mutation-unmeasured.test.ts` holds the script to a small source it
+must count to the number, and the repository's sources to the count on
+every change, since the sweep that would say it runs once a week. The
+script reads a source with `@babel/parser`, which Stryker brings and this
+package does not ask for, as the merge reads its score with Stryker's own
+library; where it cannot be loaded the script says so and exits 2, and
+counts nothing as none. A place is where a mutator applies, not a mutant:
+each makes one to three, so the count says where to look, and the sweeps
+above say what was there.

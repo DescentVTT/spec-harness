@@ -10,6 +10,7 @@
 
 import { isAbsolute } from 'node:path';
 
+import { literal } from './literal.js';
 import type { AllowedSigner } from './signers.js';
 import type { HookLine } from './usage.js';
 import { parseGlobList } from './vendor/spec-core/pattern/index.js';
@@ -327,10 +328,10 @@ function turnOff(plugin: EnabledPlugin): string {
   return `turn the plugin off for this project with claude plugin disable ${plugin.id} --scope local`;
 }
 
-const PARTS = {
+const PARTS = literal({
   hooks: { brings: 'the guard hooks', twice: 'every write is guarded twice', skipped: 'init writes none', entry: "spec-harness's hooks", them: 'them' },
   server: { brings: 'the server', twice: 'the server is registered twice', skipped: 'init registers none', entry: 'the spec-harness server', them: 'it' },
-} as const;
+});
 
 /**
  * What init says of a Claude Code file it leaves alone because the plugin is
@@ -697,7 +698,8 @@ export function describeGraph(archiveGlob: string, briefs: string, reads: boolea
 
 /** spec-graph's configuration with the archive read as history, or `null` when it already is. */
 export function mergeSpecGraph(current: Json, archiveGlob: string): Json | null {
-  const history = Array.isArray(current['historyPatterns']) ? (current['historyPatterns'] as unknown[]).filter((p): p is string => typeof p === 'string') : [];
+  const patterns = current['historyPatterns'];
+  const history = Array.isArray(patterns) ? patterns.filter((p): p is string => typeof p === 'string') : [];
   if (history.includes(archiveGlob)) return null;
   return { ...current, historyPatterns: [...history, archiveGlob] };
 }

@@ -72,7 +72,8 @@ interface QueryDocument {
  * for the third. A document of another shape is refused (answers.ts).
  */
 export function readRules(answer: { readonly code: number; readonly document: unknown; readonly stderr: string }): Rules {
-  const document = (answer.document ?? {}) as QueryDocument;
+  const printed = answer.document ?? {};
+  const document = printed as QueryDocument;
   if (answer.code !== 0) {
     if (Array.isArray(document.specFiles) && document.specFiles.length === 0) {
       return { none: 'no spec file matched its patterns ("specs" in its configuration, docs/**/*.md by default)' };

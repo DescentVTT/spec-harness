@@ -98,7 +98,8 @@ export function parseNameStatus(output: string): FileChange[] {
       i += 1;
       continue;
     }
-    const status = code.charAt(0) as FileChange['status'];
+    const letter = code.charAt(0);
+    const status = letter as FileChange['status'];
     if (status === 'R' || status === 'C') {
       out.push({ status, from: fields[i + 1] ?? '', path: fields[i + 2] ?? '' });
       i += 3;
@@ -168,7 +169,7 @@ export async function verifyCommit(sha: string, allowedSignersFile: string, cwd:
   // git writes the check to stderr, so the trim changes the first line only
   // for output on stdout alone, which verify-commit does not print; and split
   // always answers a first part.
-  const detail = text.trim().split('\n')[0] as string;
+  const detail = text.trim().split('\n')[0]!;
   // git exits 0 only for a signature by a listed principal, which it names:
   // either condition alone is equivalent to both, and both trust neither.
   return run.code === 0 && principal !== undefined ? { good: true, principal, detail } : { good: false, principal: null, detail };
