@@ -52,6 +52,10 @@ cannot turn a run red. The family's policy is
 - A brief that is not one is said by what named it: `the argument names
   brief 999` for `context 999`, and `"brief" names brief 999` from the
   server's tools, where both said `the flag`.
+- The context packet ends once the sentence in which it quotes why
+  spec-guard could not be asked: a refusal spec-guard ends with a full stop
+  of its own, as each has since its 0.21.0, read `... in package.json..
+  Treat every ADR as binding`.
 
 ## 0.12.0
 

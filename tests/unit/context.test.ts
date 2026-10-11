@@ -363,6 +363,11 @@ describe('the rules in force', () => {
       'The rules spec-guard holds this code to could not be read: spec-guard is not installed here. Treat every ADR as binding until they can.',
     );
     expect(unavailable).not.toContain('holds no rule');
+    // A reason quoted from spec-guard ends with its own full stop, and the sentence with one.
+    const quoted = 'spec-guard exited 2: the pattern "gone/**/*.md" matched no spec file. Remove it from "specs" in package.json.';
+    const said = section(renderContext(input({ rules: { unavailable: quoted } })).markdown, 'Rules in force for this scope');
+    expect(said).toContain('Remove it from "specs" in package.json. Treat every ADR as binding until they can.');
+    expect(said).toContain('matched no spec file. Remove it');
     const none = section(renderContext(input({ rules: { none: 'no spec file matched its patterns' } })).markdown, 'Rules in force for this scope');
     expect(none).toBe('## Rules in force for this scope\n\nspec-guard holds no rule over this scope: no spec file matched its patterns.\n\n');
   });

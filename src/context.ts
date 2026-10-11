@@ -179,7 +179,10 @@ function patternLines(
 function rulesSection(rules: Rules, scopeUnread: boolean, scopeRooted: boolean): string {
   if ('none' in rules) return `spec-guard holds no rule over this scope: ${rules.none}.`;
   if ('unavailable' in rules) {
-    return `The rules spec-guard holds this code to could not be read: ${rules.unavailable}. Treat every ADR as binding until they can.`;
+    // The reason is often a line a sibling said, and spec-guard ends its
+    // refusals with a full stop of their own: the sentence is ended once.
+    const reason = rules.unavailable.endsWith('.') ? rules.unavailable.slice(0, -1) : rules.unavailable;
+    return `The rules spec-guard holds this code to could not be read: ${reason}. Treat every ADR as binding until they can.`;
   }
   if (rules.length === 0) {
     // With no pattern of the scope readable, spec-guard was asked about no
