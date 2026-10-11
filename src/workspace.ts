@@ -4,7 +4,7 @@
  */
 
 import { readFileSync } from 'node:fs';
-import { parseArgs } from 'node:util';
+import { parseArgs, type ParseArgsOptionsConfig } from 'node:util';
 
 import { findActive, type ActiveBrief, type ActiveSource } from './briefs.js';
 import { briefIdFromBranch, ciBranch } from './branch.js';
@@ -90,6 +90,8 @@ export interface Options {
 }
 
 export function parseOptions(argv: readonly string[]): Options {
+  // `satisfies`, where a const assertion would read the same to the compiler:
+  // the sweep mutates nothing that stands under an `as`, the table with it.
   const options = {
     brief: { type: 'string' },
     base: { type: 'string' },
@@ -111,7 +113,7 @@ export function parseOptions(argv: readonly string[]): Options {
     at: { type: 'string' },
     help: { type: 'boolean', short: 'h' },
     version: { type: 'boolean', short: 'v' },
-  } as const;
+  } satisfies ParseArgsOptionsConfig;
   let parsed;
   try {
     parsed = parseArgs({ args: [...argv], allowPositionals: true, strict: true, options });
