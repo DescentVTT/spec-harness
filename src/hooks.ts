@@ -20,7 +20,7 @@ import type { Decision } from './guard.js';
 /** The tools whose input names a file they write. */
 export const WRITING_TOOLS: readonly string[] = ['Edit', 'Write', 'MultiEdit', 'NotebookEdit'];
 
-const PATH_FIELDS = ['file_path', 'path', 'notebook_path'] as const;
+const PATH_FIELDS: readonly string[] = ['file_path', 'path', 'notebook_path'];
 
 export interface HookRequest {
   readonly event: string;

@@ -103,9 +103,12 @@ export function checkClaudeCode(answer: ClaudeCodeAnswer): ClaudeCodeCheck {
     return { state: meets(declared, parseVersion(CLAUDE_CODE_MINIMUM) as Version) ? 'ok' : 'outdated', version: answer.declared, file: answer.file };
   }
   // split() gives at least one string, so the first line is always there.
-  const said = (answer.output.trim().split('\n')[0] as string).trim();
+  const said = answer.output.trim().split('\n')[0]!.trim();
   if (said === '') return { state: 'unknown', reason: 'claude --version printed nothing' };
-  const first = said.split(/\s+/)[0] as string;
+  // What was said is trimmed and not empty, so its first part ends at the
+  // first space, whether the pattern takes that one or the run of them: one
+  // is equivalent to its mutant.
+  const first = said.split(/\s+/)[0]!;
   const parsed = parseVersion(first);
   if (parsed === null) return { state: 'unknown', reason: `claude --version printed "${said}", which is not a version` };
   return { state: meets(parsed, parseVersion(CLAUDE_CODE_MINIMUM) as Version) ? 'ok' : 'outdated', version: first };

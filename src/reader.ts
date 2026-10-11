@@ -58,7 +58,9 @@ export function createReader(): DocumentReader {
   return {
     codeBlocks(text: string): CodeBlock[] {
       const scanned = scan(text);
-      const spaces = (line: string): number => (/^ */.exec(line) as RegExpExecArray)[0].length;
+      // No space is a match too, so there is one at the start of every line:
+      // the match is never null, and the anchor is equivalent to its mutant.
+      const spaces = (line: string): number => /^ */.exec(line)![0].length;
       return scanned.blocks
         .filter((block) => block.kind === 'fenced')
         .map((block) => {
@@ -91,7 +93,7 @@ export function createReader(): DocumentReader {
       for (const heading of scan(text).headings) {
         if (heading.line > line) break;
         if (heading.level < 2) continue;
-        while (open.length > 0 && (open[open.length - 1] as { level: number }).level >= heading.level) open.pop();
+        while (open.length > 0 && open[open.length - 1]!.level >= heading.level) open.pop();
         open.push({ level: heading.level, text: heading.text });
       }
       return open.map((section) => section.text);

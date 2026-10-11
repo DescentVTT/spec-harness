@@ -87,7 +87,8 @@ export async function writeAtomic(file: string, content: string): Promise<void> 
 export async function readJsonObject(file: string): Promise<Record<string, unknown> | null | 'unreadable'> {
   if (!existsSync(file)) return null;
   try {
-    const value = JSON.parse(await readFile(file, 'utf8')) as unknown;
+    // A Buffer parses as its text, so the encoding is equivalent to its mutant.
+    const value: unknown = JSON.parse(await readFile(file, 'utf8'));
     return typeof value === 'object' && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : 'unreadable';
   } catch {
     return 'unreadable';

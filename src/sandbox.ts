@@ -247,7 +247,7 @@ function install(): void {
   // process before any 'exit' handler runs, and the commands run on.
   // Elsewhere there is no such signal and nothing calls its listener, so
   // its mutants are equivalent there.
-  for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGBREAK'] as const) process.on(signal, interrupted);
+  for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGBREAK'] satisfies NodeJS.Signals[]) process.on(signal, interrupted);
 }
 
 /**

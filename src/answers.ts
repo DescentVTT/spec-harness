@@ -170,7 +170,7 @@ export function readArchivePlan(document: unknown): { blocking: ArchiveReason[];
       const file = read.optionalText(reason['file'], `${where}.file`);
       const line = read.optionalNumber(reason['line'], `${where}.line`);
       const path = read.optionalText(reason['path'], `${where}.path`);
-      return {
+      const carried = {
         rule: read.text(reason['rule'], `${where}.rule`),
         severity: severity as ArchiveReason['severity'],
         message: read.text(reason['message'], `${where}.message`),
@@ -178,7 +178,8 @@ export function readArchivePlan(document: unknown): { blocking: ArchiveReason[];
         file,
         line,
         path,
-      } as ArchiveReason;
+      };
+      return carried as ArchiveReason;
     });
   return { blocking: reasons('blocking'), warnings: reasons('warnings') };
 }

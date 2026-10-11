@@ -89,7 +89,7 @@ function optionsOf(args: JsonObject): { options: EscalationOption[] } | ToolOutc
   const options: EscalationOption[] = [];
   for (const [index, item] of raw.entries()) {
     // An item that is no object has no label, and is refused for that.
-    const entry = (item ?? {}) as JsonObject;
+    const entry: JsonObject = item ?? {};
     const label = entry['label'];
     const consequence = entry['consequence'] ?? '';
     if (typeof label !== 'string') return toolError(`"options[${index}].label" must be a string.`);

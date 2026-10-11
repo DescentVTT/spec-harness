@@ -167,7 +167,8 @@ export async function plan(workspace: Workspace, options: Options, env: CliIO['e
       const merged = mergeSpecBrief(config, base, isPluginFile);
       const measured = measuresArchive(config);
       if (merged === null) {
-        const from = measured ? `, and the archive is measured from ${String((config['archiving'] as Json)['base'])}` : '';
+        const archiving = config['archiving'];
+        const from = measured ? `, and the archive is measured from ${String((archiving as Json)['base'])}` : '';
         steps.push({ file: briefConfig, action: 'keep', detail: `spec-harness's plugin is loaded${from}` });
       } else {
         const detail = specBriefDetail(!loadsPlugin(config, isPluginFile), measured ? null : base);

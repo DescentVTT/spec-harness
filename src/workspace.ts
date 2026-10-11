@@ -52,7 +52,8 @@ export interface CliIO {
 }
 
 export function version(): string {
-  const manifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string };
+  // A Buffer parses as its text, so the encoding is equivalent to its mutant.
+  const manifest: { version: string } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
   return manifest.version;
 }
 
@@ -125,7 +126,8 @@ export function parseOptions(argv: readonly string[]): Options {
     throw new UnreadableLine((error as Error).message, parseArgs({ args: [...argv], strict: false, options }).positionals);
   }
   const { values, positionals } = parsed;
-  const format = (values.format ?? 'pretty') as Options['format'];
+  const asked = values.format ?? 'pretty';
+  const format = asked as Options['format'];
   const formats: readonly Options['format'][] = ['pretty', 'json', 'gitlab', 'sarif', 'github'];
   if (!formats.includes(format)) throw new UnreadableLine(`--format must be pretty, json, gitlab, sarif or github, not "${format}"`, positionals);
   const command = positionals[0];
