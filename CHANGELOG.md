@@ -9,6 +9,22 @@ only fixes, reports less or documents, so `^0.7.0` takes only releases that
 cannot turn a run red. The family's policy is
 [spec-core's ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
+## Unreleased
+
+### Added
+
+- **The context packet lists the rules of the rest where spec-guard refuses
+  for a spec pattern that matched no file.** spec-guard 0.22.0 exits 2 for
+  a pattern among its `specs` that matches no file beside others that do,
+  and still answers with the rules of the files that matched. `context` and
+  `start_round` read that as rules that could not be read and listed none.
+  They now list those rules under one sentence that names the pattern and
+  says a rule kept under it is not listed, and name the patterns in
+  `--format json` and in `start_round` as `unmatchedSpecs`, an empty list
+  where there is none. Any other refusal reads as it did, and so does a
+  spec-guard older than 0.22.0, which writes no such field
+  ([ADR-0001](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0001-the-harness-decides-the-agent-writes.md)).
+
 ## 0.13.0
 
 `hook claude` says a `--root` on its line that is not a directory, with
