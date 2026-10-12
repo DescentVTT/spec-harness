@@ -464,7 +464,9 @@ export async function claudeCodeWiring(root: string, io: CliIO): Promise<ClaudeC
   const lines = reportHooks(sources, root, (words) => read.get(JSON.stringify(words))!);
   const plugin = enabledPlugin(sources);
   // An id that names no marketplace has no directory to look in, and is said
-  // as one that cannot be told whatever is on disk.
+  // as one that cannot be told whatever is on disk: pluginPresence answers
+  // for it before it reads a directory, so what stands here for none is
+  // equivalent to its mutant.
   const marketplace = plugin === null ? null : pluginMarketplace(plugin.id);
   const roots = marketplace === null ? [] : await Promise.all(pluginDirectories(io.env).map((directory) => pluginsRoot(directory, marketplace)));
   return {
