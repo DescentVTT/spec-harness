@@ -536,9 +536,10 @@ that read the signed row are a suite of their own whose hook signs the
 commit, where the first of them signed it for the two after it. Each of the
 four passes alone, and the file passes whole.
 
-Replayed by hand against the test as mended, before any sweep, the 28 were
-23 killed, each by an assertion about what the mutant changes, and five
-survivors:
+Read against the test as mended, before any sweep, five of the 28 were
+expected to survive it. Written into the source by hand, each did, and two
+more written in as a check were killed, each by an assertion about what it
+changes:
 
 | Where | Mutated | Replacement | What it is |
 | --- | --- | --- | --- |
@@ -549,7 +550,8 @@ survivors:
 | `workspace.ts`, `version()` | `'utf8'` | `""` | equivalent, and said beside the code since the amendment above |
 
 The test now reads the command each of the three documents names, and the
-comparison is said beside its code.
+comparison is said beside its code. The sweep below has the other 21 killed
+by the test as well, each for what it changes.
 
 **A survivor that is a file that did not load.** Stryker counts a test that
 failed, not a test file that failed to load. A mutant under which a module
