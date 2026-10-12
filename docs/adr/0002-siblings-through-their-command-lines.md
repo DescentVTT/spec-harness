@@ -84,10 +84,10 @@ the 51 of 0.16.0's own measurement among them, were each run through main's
 build and this one at one path: the hook before a write and after one,
 `doctor` in three ways, `init` in two, git's hook, `init --write`, and
 `doctor` and `init` after it, 1,054 steps. Stdout, stderr and the exit code
-of each were the same, as they were on Windows over the 76 trees there were
-before main's last two changes, but for one thing in one tree: the frames of
-the stack that an error nothing expected ends on, which name lines of the
-build, where git's pre-commit hook is a directory.
+of each were the same, as they were on Windows over 91 trees and 1,066
+steps, but for one thing in one tree: the frames of the stack that an error
+nothing expected ends on, which name lines of the build, where git's
+pre-commit hook is a directory.
 
 With the two builds taking turns inside each of ten runs, at the median, and
 in how many of the ten this build was the quicker:

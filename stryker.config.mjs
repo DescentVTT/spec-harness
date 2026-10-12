@@ -35,8 +35,8 @@ export default {
   clearTextReporter: { allowColor: false, maxTestsToLog: 0, reportScoreTable: true },
   timeoutMS: 20000,
   dryRunTimeoutMinutes: 30,
-  // The full sweep of d8edba0 read 97.58% over 9,105 mutants (ADR-0010);
-  // losing its 83 timeout kills would leave 96.67%. The break sits under that
-  // worst case and moves only up. The core sweep's gate is in its own file.
+  // ADR-0010 has what each release's full sweep read, and what it would
+  // read with every timeout kill lost. The break sits under that worst case
+  // and moves only up. The core sweep's gate is in its own file.
   thresholds: { high: 95, low: 90, break: 95 },
 };
