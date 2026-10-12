@@ -317,12 +317,12 @@ async function doctorCommand(options: Options, io: CliIO): Promise<number> {
   });
   const signersFile = workspace.config.rulings.allowedSigners;
   // Five things that wait on the work tree and on nothing of one another,
-  // each a process or a chain of them: asked one after another they were
-  // eight processes in a row and Claude Code's own start after the seventh,
-  // which alone is most of what a doctor takes on Windows. So they are
-  // asked at once, and read below in the order they were asked in before:
-  // where more than one fails, the first of that order is the one thrown,
-  // whichever failed first by the clock.
+  // each a process or a chain of them. Asked one after another, Claude
+  // Code's release, the longest wait of a doctor on Windows, was asked for
+  // only when every answer of git's before it was in. So they are asked at
+  // once, and read below in the order they were asked in before: where more
+  // than one fails, the first of that order is the one thrown, whichever
+  // failed first by the clock (ADR-0002).
   const [briefAsked, baseAsked, pluginAsked, claudeAsked, hookAsked] = await Promise.allSettled([
     diagnoseBrief(workspace, options, io.env),
     baseAndSigners(workspace, options.base, signersFile),
