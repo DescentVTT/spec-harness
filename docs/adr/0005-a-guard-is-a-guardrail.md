@@ -687,16 +687,18 @@ Code never starts before a write was reported as the guard.
   machine under load may answer *cannot tell* for a matcher an idle one
   reads. No matcher of a sane size comes near it: `Edit.*`,
   `^(Edit|Write)$`, `mcp__.*__write.*` and an alternation of 6,805
-  characters each took half a millisecond at the median of 500 readings,
-  and under four at the slowest, so the budget is some two hundred times
-  what a reading takes. An answer that comes back and says it cannot tell
-  is better than one that does not come: a diagnosis that hangs says
-  nothing of the guard at all, and a `--strict` run that fails on a loaded
-  runner can be run again. A check of the pattern's shape would not do
-  instead: groups in a row backtrack as nested ones do, ten of `(.*)*`
-  taking 674 ms where four took 6. A test holds the budget with the pattern
-  of five stars, under a bound of its own, so that it fails where it would
-  otherwise not come back.
+  characters each took half a millisecond at the median of 500 readings
+  and under four at the slowest, on Node 22.16.0 as on 24.18.1, and 4.81
+  at the slowest with the machine busy at a test run, so the budget is
+  some two hundred times what a reading takes. An answer that comes back
+  and says it cannot tell is better than one that does not come: a
+  diagnosis that hangs says nothing of the guard at all, and a `--strict`
+  run that fails on a loaded runner can be run again. A check of the
+  pattern's shape would not do instead: groups in a row backtrack as
+  nested ones do, ten of `(.*)*` taking 674 ms where four took 6. Two
+  tests hold the budget with the pattern of five stars, each under a bound
+  of its own around the reading, so that without the budget it fails after
+  two seconds where it would otherwise not come back.
 - **`init` knows the hook as `doctor` knows it.** It knew its own line and
   0.1's, by their exact command and arguments. It now asks the hook's own
   reading whose line an entry is, and reads the entry's event and matcher
@@ -735,17 +737,20 @@ as it was:
   in it would change an answer. What `enabledPlugins` does not say is
   whether the plugin is on this machine at all. Claude Code's plugin
   loading reference (<https://code.claude.com/docs/en/plugins/loading>,
-  *Enabled in project settings but not installed*, read 2026-10-12) has a
-  plugin whose only `true` is in a project's `.claude/settings.json` not
-  fetched onto a machine where it is not installed, unless its marketplace
-  entry has a relative-path source or a seed directory already holds it,
-  and has the `/plugin` Errors tab say so. A plugin that is not on the
-  machine brings no hook to it, so `doctor` there reports as the guard a
-  plugin that guards nothing, and `init` skips. Telling it apart takes Claude Code's own records
-  of what it installed, under its plugins directory, whose shape the
-  reference gives only in part, and which could not be measured against a
-  Claude Code here; a wrong answer would have `init` write a second guard,
-  or `doctor` fail a tree that is guarded. It is left unread.
+  *Enabled in project settings but not installed*, read 2026-10-12) has
+  Claude Code not go and get a plugin a machine lacks where a project's
+  `.claude/settings.json` alone turns it on, with two exceptions: a
+  marketplace that gives the plugin's source as a relative path, and a
+  seed directory that has the plugin already. The `/plugin` Errors tab
+  then shows a message. A plugin that is not on the machine brings no
+  hook to it: that follows, and is not the reference's sentence. So
+  `doctor` there reports as the guard a plugin that guards nothing, and
+  `init` skips. Telling it apart takes Claude Code's own
+  records of what it installed, under its plugins directory, whose shape
+  the reference gives only in part, and which could not be measured
+  against a Claude Code here; a wrong answer would have `init` write a
+  second guard, or `doctor` fail a tree that is guarded. It is left
+  unread.
 - **A root on the line that is a directory outside any work tree.** The
   hook checks no write there and says nothing, exit 0 (the amendment of
   2026-10-11), and `doctor` says of the line that it guards, by its root.
