@@ -110,6 +110,28 @@ Claude Code has as one whose writes go unchecked.
   the plugin `doctor` exits 0 where it exited 1 for a double install, and
   `init --write` writes its hooks beside such a line.
 
+### Fixed
+
+- **`doctor`, `init` and the hooks ask git at once for what waits on nothing
+  else, and `doctor` asks Claude Code its release meanwhile.** Each started
+  its processes one after another, nine for a plain `doctor`, and on a
+  Windows workstation a process is what a command takes: 227 ms for one of
+  git's there, and 2.6 seconds for Claude Code's. Measured there with the
+  two builds taking turns, at the median of ten runs, `doctor` took 4.8
+  seconds where it took 5.3, and 4.3 where it took 5.4 on a brief's branch;
+  with other work holding every processor of the workstation, 20.0 where it
+  took 25.5. `init` and the hooks take a tenth of a second less than they
+  did, of one to two and a half. On Linux, where git answers in 2 ms, a
+  `doctor` takes 0.10 seconds either way. Nothing any of them prints changes
+  ([ADR-0002](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0002-siblings-through-their-command-lines.md)).
+- **A matcher that is a pattern is read once in a run.** `doctor` read it
+  again for every entry under it, and `init` once more for what to write.
+  Under a pattern that runs out its budget of 100 ms, fifty entries took a
+  `doctor` 5.2 seconds, and take 0.2. A file with a pattern of its own over
+  each entry is read as before, a budget each. In the programmatic API,
+  `mergeClaudeSettings` takes what reads a pattern as an optional third
+  argument; without it, it reads each pattern once for itself.
+
 ## 0.16.0
 
 `doctor` and `init` see the rest of Claude Code's hook. A line that names
