@@ -765,6 +765,115 @@ as it was:
   under another event than the two, which the hook answers with nothing.
   None is read.
 
+*Amended a third time 2026-10-12.* `doctor` and `init` read a line for the
+tools a supported Claude Code can call, which are three. The amendment
+above read a line for the four names the hook reads a file from, and said
+of a line waited on before some of them that the rest go unchecked.
+*Claimed:* Claude Code has no `MultiEdit` any more, so that sentence names
+a tool nobody can call. *Measured*, each page read on 2026-10-12:
+
+- **The tools reference** (<https://code.claude.com/docs/en/tools-reference>,
+  the table of tools and *Configure tools with permission rules and hooks*).
+  Of the tools in the table, three change a file their input names: `Edit`
+  makes edits to a file, `Write` creates or overwrites one, and
+  `NotebookEdit` changes the cells of a notebook. The word `MultiEdit` is
+  nowhere on the page, and the path format of a permission rule,
+  `Edit(...)`, is given as applying to those three.
+- **The permissions page** (<https://code.claude.com/docs/en/permissions>,
+  *Read and Edit*) is one of two pages that have the name at all, the errors
+  reference being the other, and calls it "the legacy `MultiEdit` tool": a
+  path rule written for it is accepted and never consulted.
+- **The changelog** (<https://code.claude.com/docs/en/changelog>, 2.1.296
+  back to 0.2.21, and the `CHANGELOG.md` of Claude Code's repository) names
+  `MultiEdit` in no release, so the release the tool went in cannot be read
+  there.
+- **What each release declares.** Every release of
+  `@anthropic-ai/claude-code` on npm ships `sdk-tools.d.ts`, the inputs of
+  its tools as types. Read as text, release by release, never installed and
+  never run: the file declares an input for `MultiEdit` in 1.0.128,
+  published 2025-09-27, and in the releases sampled before it, and none in
+  2.0.0, published two days later, or in any release sampled after it; and
+  each of the 138 releases from 2.1.139 to 2.1.296 was read, of which none
+  declares one. The file is no list of every tool (the reference has tools
+  it does not hold), so that 2.0.0 took the tool away follows from it and
+  is not its sentence. The oldest Claude Code that runs the hooks is
+  2.1.139 (`CLAUDE_CODE_MINIMUM`, ADR-0012), published 2026-05-11.
+- **The field that holds the path.** The hooks reference
+  (<https://code.claude.com/docs/en/hooks>, *PreToolUse input*) gives
+  `file_path` for `Write` and for `Edit`, always absolute, and has no
+  section for `NotebookEdit`. The permissions page (*Match by input
+  parameter*) has `notebook_path` as that tool's, and so do the declarations
+  of every release read. The hook reads `file_path`, `path` and
+  `notebook_path`, as it did.
+- **No other tool in the table names a file it writes.** `Bash`,
+  `PowerShell` and `Monitor` take a command, whose writes are git's hook's
+  and the audit's to find (above). `Artifact`, `SendUserFile` and
+  `ShareOnboardingGuide` send a file somewhere else; `EnterWorktree` makes
+  a worktree or enters one; `SendFeedback` keeps a draft in a directory of
+  Claude Code's own; `ExitPlanMode` presents a plan written before the
+  call. A tool of an MCP server may write anything, under any field, and is
+  read by no hook of the harness's.
+
+So no Claude Code the hooks run under has a `MultiEdit` to call, and:
+
+- **The hook reads a path from every name it ever read**, `MultiEdit`
+  among them (`WRITING_TOOLS`, `src/hooks.ts`): a name more costs nothing,
+  the hook never answers `allow`, and whatever still sends the name is
+  answered. No answer of the hook's changes, for any line:
+  `tests/integration/released-lines.test.ts` holds them, and the trees
+  below were run through both builds.
+- **What `doctor` and `init` say names the three** (`CALLABLE_TOOLS`). A
+  line Claude Code waits on before `Edit`, `Write` and `NotebookEdit`
+  covers every tool that writes, and is said with nothing more; one waited
+  on before some of the three names the rest as unchecked; and `MultiEdit`
+  is named as unchecked for no line.
+- **A matcher that lets `MultiEdit` through and none of the three** is a
+  line Claude Code waits on before no write: not the guard, as a line under
+  `Bash` is not, and no entry of `init`'s.
+- **`init` writes the matcher every release wrote**,
+  `Edit|Write|MultiEdit|NotebookEdit`, and the plugin's `hooks/hooks.json`
+  holds it. Taking the name out was weighed, and could be shown safe: a
+  line is `init`'s own by its command and arguments, never by its matcher,
+  so every line a release wrote would still be known, and a second `init
+  --write` over a file an older release wrote would change nothing. It
+  stays because the hook is asked about a name only under a matcher that
+  lets the name through: with `MultiEdit` out of the matcher, the hook
+  would read a name its own line never asks it about. The reference has a
+  matcher made of names compare each with a tool's name exactly (*Matcher
+  patterns*), so a name no tool has starts the hook for nothing.
+- **`--format json`**: `before` and `after` hold the three names at most,
+  so three for `init`'s own line where they held four. No field is added
+  or taken away, and no `schemaVersion` moves.
+
+Measured through the launcher of 0.16.0 and of this change (Windows 11,
+Node 24.18.1, git 2.55), in a repository with a brief that protects a file,
+the hook's line under both events with the matcher given:
+
+| The matcher | `doctor` on 0.16.0 | `doctor` now |
+| --- | --- | --- |
+| `Edit\|Write\|MultiEdit\|NotebookEdit`, as `init` writes it | the guard, nothing more; `before` holds four names | the same; `before` holds three |
+| `Edit\|Write\|NotebookEdit`, and `^(Edit\|Write\|NotebookEdit)$` | guards, and before none by MultiEdit, which goes unchecked | the guard, nothing more |
+| `Edit\|Write` | before none by MultiEdit and NotebookEdit, which goes unchecked | before none by NotebookEdit, which goes unchecked |
+| `MultiEdit` | guards, and before none by Edit, Write and NotebookEdit; one of `init`'s entries; exit 0, and 1 beside the plugin | waited on before no write, so not the guard; no entry of `init`'s; exit 0, beside the plugin too |
+
+A `state` and an exit code that can change for a tree are a minor release
+(spec-core's ADR-0009), though the tree is one nobody is known to have.
+What was measured for this and left as it was:
+
+- **A matcher with a comma, before Claude Code 2.1.191.** The page on
+  debugging a configuration (<https://code.claude.com/docs/en/debug-your-config>,
+  *Check hooks*, read 2026-10-12) has a `,` separate names as a `|` does,
+  and says that before 2.1.191 a comma was read as part of a pattern, which
+  then matched no tool. `doctor` reads a comma as the hooks reference has
+  it today, for every release, so on 2.1.139 to 2.1.190 a line under
+  `Edit, Write` is waited on before no write where `doctor` says it guards
+  both. Every release wrote `|`.
+- **A matcher that is an array.** The same section has such an entry listed
+  as an invalid setting, and under `PreToolUse` none of that file's other
+  hooks loaded either. `doctor` says of the entry that it cannot tell, as
+  of any matcher that is not text, and reads the file's other entries as
+  if they ran.
+
 ## Consequences
 
 An agent that writes through a shell passes the guard and is caught at the
