@@ -12,7 +12,9 @@
  * it out (vitest.mutation.config.ts).
  *
  * The order the sweep runs a mutant's test files in is held here too: it is
- * the sweep's, and no mutant is under it.
+ * the sweep's, and no mutant is under it. So is which changes the sweep runs
+ * for: the paths the workflow names, against what each sweep mutates, so that
+ * no module of src/ is left between the two.
  */
 
 import { execFileSync } from 'node:child_process';
@@ -516,7 +518,7 @@ describe('this repository', () => {
     const suite = await mutationSuite();
     const { exclude, sequence, ...mutation } = (suite.default as { test: Test }).test;
     expect(mutation).toEqual({ include: unit.include, environment: unit.environment, testTimeout: unit.testTimeout, hookTimeout: unit.hookTimeout });
-    expect(exclude).toEqual(['tests/source.test.ts', 'tests/mutation-shards.test.ts', 'tests/mutation-unmeasured.test.ts', '**/node_modules/**']);
+    expect(exclude).toEqual(['tests/source.test.ts', 'tests/mutation-shards.test.ts', 'tests/mutation-unmeasured.test.ts', 'tests/mutation-compare.test.ts', '**/node_modules/**']);
     // The order is the sweep's alone: `npm test` reports every failure, and
     // runs its files side by side.
     expect(sequence).toEqual({ sequencer: suite.QuickestFirst });
@@ -556,5 +558,100 @@ describe('this repository', () => {
   it('runs one job per shard', () => {
     const workflow = readFileSync(join(ROOT, '.github/workflows/mutation.yml'), 'utf8');
     expect(/^\s+shard: \[([\d, ]+)\]$/m.exec(workflow)?.[1]).toBe(Array.from({ length: SHARD_COUNT }, (_, index) => index + 1).join(', '));
+  });
+
+  describe('the changes the full sweep runs for', () => {
+    const workflow = readFileSync(join(ROOT, '.github/workflows/mutation.yml'), 'utf8');
+    const coreConfig = () => load<{ mutate: string[] }>('stryker.core.config.mjs');
+
+    /** The paths the workflow filters an event by, as it writes them, up to the first line that is no entry. */
+    const pathsOf = (event: string): string[] => {
+      const filtered = (workflow.split(`\n  ${event}:\n`)[1] ?? '').split(/\n  [a-z_]+:\n/)[0] as string;
+      const entries: string[] = [];
+      // The key may be the event's first line.
+      for (const line of (`\n${filtered}`.split('\n    paths:\n')[1] ?? '').split('\n')) {
+        const entry = /^      - (['"]?)(\S+)\1$/.exec(line);
+        if (entry === null) break;
+        entries.push(entry[2] as string);
+      }
+      return entries;
+    };
+
+    /**
+     * The sources a pull request could change with no sweep reading the
+     * change: the full sweep mutates them, the core sweep does not mutate
+     * them whole, and the full sweep does not run for them.
+     */
+    const between = (files: readonly string[], full: readonly string[], core: readonly string[], paths: readonly string[]): string[] =>
+      files.filter((file) => reads(full, file) && !reads(core, file) && !paths.includes(file));
+
+    it('are the same for a pull request and for a push to main, beside the schedule and a dispatch', () => {
+      const paths = pathsOf('pull_request');
+      expect(paths.length).toBeGreaterThan(10);
+      expect(pathsOf('push')).toEqual(paths);
+      // Main's own pushes, and no tag's: a filter of paths is not read for a tag.
+      expect(workflow).toContain('\n  push:\n    branches: [main]\n    paths:\n');
+      expect(workflow).toContain("\n    - cron: '0 5 * * 1'\n  workflow_dispatch:\n    inputs:\n      full:\n");
+      // One filter an event: GitHub refuses `paths` beside `paths-ignore`.
+      expect(workflow).not.toMatch(/^\s*paths-ignore:/m);
+    });
+
+    it('have both jobs run for every event but a dispatch that asks for no sweep, since a run that swept nothing would be green', () => {
+      const conditions = [...workflow.matchAll(/^    if: (.+)$/gm)].map((match) => match[1]);
+      expect(conditions).toEqual(["github.event_name != 'workflow_dispatch' || inputs.full", "${{ !cancelled() && (github.event_name != 'workflow_dispatch' || inputs.full) }}"]);
+    });
+
+    it("end a pull request's older sweep when it is pushed to again, and no sweep of another pull request, of main, of the schedule or of a dispatch", () => {
+      // The ref of a pull request's run is refs/pull/<number>/merge, a group
+      // of its own, and the event keeps a dispatch on a branch and the
+      // schedule on main apart from a push to either.
+      expect(workflow).toContain('\nconcurrency:\n  group: mutation-${{ github.ref }}-${{ github.event_name }}\n  cancel-in-progress: true\n');
+    });
+
+    it('name each source the full sweep mutates and the core sweep does not mutate whole, and no other source', async () => {
+      const full = (await strykerConfig()).mutate;
+      const core = (await coreConfig()).mutate;
+      const paths = pathsOf('pull_request');
+      const left = sources().filter((file) => reads(full, file) && !reads(core, file)).sort();
+      // The edges, and the one whose pure function alone the core sweep mutates.
+      expect(left).toEqual(expect.arrayContaining(['src/cli.ts', 'src/round.ts', 'src/server.ts', 'src/setup.ts', 'src/workspace.ts']));
+      expect(core).toContain('src/usage.ts');
+      expect(left).not.toContain('src/usage.ts');
+      expect(
+        paths.filter((path) => path.startsWith('src/')),
+        "A module of src/ is in the core sweep's list in stryker.core.config.mjs, whole, or among the paths of .github/workflows/mutation.yml, under pull_request and under push.",
+      ).toEqual(left);
+      expect(between(sources(), full, core, paths)).toEqual([]);
+    });
+
+    it("are found short by a module that neither sweep's list names, and by none that a sweep reads already or that no sweep mutates", async () => {
+      const full = (await strykerConfig()).mutate;
+      const core = (await coreConfig()).mutate;
+      const paths = pathsOf('pull_request');
+      expect(between([...sources(), 'src/later.ts'], full, core, paths)).toEqual(['src/later.ts']);
+      // Without the paths, what is left is the full sweep's alone, the module the core sweep has in part with it.
+      expect(between(['src/cli.ts', 'src/usage.ts', 'src/workspace.ts'], full, core, [])).toEqual(['src/cli.ts', 'src/workspace.ts']);
+      expect(between(['src/usage.ts', 'src/index.ts', 'src/types.ts', 'src/vendor/spec-core/later.ts'], full, core, [])).toEqual([]);
+    });
+
+    it('name each source by its own name, which GitHub reads as that file and no other', () => {
+      // A filter reads `*`, `?`, `+`, brackets and a leading `!` as a pattern.
+      for (const path of pathsOf('pull_request').filter((entry) => entry.startsWith('src/'))) expect(path).toMatch(/^src\/[a-z-]+\.ts$/);
+    });
+
+    it("are also what the sweep is made of: the Stryker configurations, its suite's, its scripts and the workflow", async () => {
+      const paths = pathsOf('pull_request').filter((path) => !path.startsWith('src/'));
+      expect(paths).toEqual(['stryker.config.mjs', 'stryker.core.config.mjs', 'stryker.shard.config.mjs', 'vitest.mutation.config.ts', 'scripts/mutation-*.mjs', '.github/workflows/mutation.yml']);
+      // What the workflow runs, read from it, so that a script it comes to run is one it runs for.
+      const scripts = [...new Set([...workflow.matchAll(/\bnode (scripts\/[\w.-]+)/g)].map((match) => match[1] as string))].sort();
+      expect(scripts).toEqual(['scripts/mutation-compare.mjs', 'scripts/mutation-shards.mjs', 'scripts/mutation-unmeasured.mjs']);
+      const shard = /\bstryker run (\S+)/.exec(workflow)?.[1];
+      expect(shard).toBe('stryker.shard.config.mjs');
+      const suite = ((await strykerConfig()).vitest as { configFile: string }).configFile;
+      // `*` is any run of characters but a slash, to GitHub's filter as to minimatch.
+      for (const file of ['.github/workflows/mutation.yml', 'stryker.config.mjs', shard as string, suite, ...scripts]) {
+        expect(paths.some((path) => minimatch(file, path)), file).toBe(true);
+      }
+    });
   });
 });
