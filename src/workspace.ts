@@ -181,16 +181,33 @@ export async function openWorkspace(options: Pick<Options, 'root'>, io: CliIO): 
   const cwd = options.root ?? io.cwd;
   const root = await workTreeRoot(cwd);
   if (root === null) throw new UsageError(`${cwd} is not inside a git work tree; spec-harness measures rounds by their commits`);
+  // The three wait on the root and on nothing of one another, so they are
+  // asked at once: each git command is a process, a few milliseconds on
+  // Linux and a few hundred on a Windows workstation, and every command
+  // opens a work tree, the hook before every write among them. Only the
+  // configuration can fail, so what is thrown is what it threw.
+  const [common, { config }, checkedOut] = await Promise.all([commonDirectory(root), loadConfig(root), currentBranch(root)]);
   // Inside a work tree git always names the common directory; the fallback
   // is there for the type.
-  const commonDir = (await commonDirectory(root)) ?? `${root}/.git`;
-  const { config } = await loadConfig(root);
+  const commonDir = common ?? `${root}/.git`;
   // A branch checked out is the branch; only a head on none, as CI checks
   // out, asks the forge which branch the run builds.
-  const checkedOut = await currentBranch(root);
   const ci = checkedOut === null ? ciBranch(io.env) : null;
   const named = ci === null ? { branch: checkedOut } : { branch: ci.branch, branchSource: ci.source };
   return { root, commonDir, config, siblings: createSiblings(root, config), ...named, cwd: io.cwd };
+}
+
+/**
+ * What one of several things asked at once answered, or what it threw,
+ * thrown from here: the things are asked through `Promise.allSettled`, and
+ * each is read with this where it was awaited while they were asked one
+ * after another. So a run in which one of them fails still fails on the
+ * first that failed in that order, whichever failed first by the clock,
+ * and says what it said.
+ */
+export function answerOf<T>(asked: PromiseSettledResult<T>): T {
+  if (asked.status === 'rejected') throw asked.reason;
+  return asked.value;
 }
 
 /** The id the flag, the environment or the branch names, without asking spec-brief anything. */

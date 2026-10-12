@@ -98,14 +98,14 @@ function upgraded(group: unknown): unknown {
  * reference does not say, or it cannot be told: a matcher that is not text,
  * is no pattern, or is a pattern whose reading runs out its budget.
  */
-function matchedTools(matcher: unknown): readonly string[] | null {
+function matchedTools(matcher: unknown, pattern: PatternReader): readonly string[] | null {
   if (matcher === undefined || matcher === '' || matcher === '*') return WRITING_TOOLS;
   if (typeof matcher !== 'string') return null;
   if (/^[A-Za-z0-9_\- ,|]*$/.test(matcher)) {
     const names = matcher.split(/[|,]/).map((name) => name.trim());
     return WRITING_TOOLS.filter((tool) => names.includes(tool));
   }
-  return patternTools(matcher);
+  return pattern(matcher);
 }
 
 /**
@@ -140,6 +140,35 @@ function patternTools(source: string): readonly string[] | null {
   }
 }
 
+/** What reads a matcher that is a pattern: the writing tools it matches, or `null` where that cannot be told. */
+export type PatternReader = (source: string) => readonly string[] | null;
+
+/**
+ * A reader for one run: a pattern is read the first time it is asked of,
+ * and answered from that reading after.
+ *
+ * A reading that runs out its budget costs the whole of it, a settings file
+ * can hold one matcher over any number of entries, and init asks of an
+ * entry twice, for what doctor says of the file and for what to write into
+ * it. Fifty entries under one such pattern were fifty readings, five and a
+ * half seconds, and fifty-one for init; they are one. Nothing is spared a
+ * file that holds a pattern of its own for each entry.
+ *
+ * Made where a run begins and handed down, never kept by this module: a
+ * reading is of the clock, so one kept past its run would answer for a
+ * machine that is busy no longer.
+ */
+export function patternReader(read: PatternReader = patternTools): PatternReader {
+  const known = new Map<string, readonly string[] | null>();
+  return (source) => {
+    const before = known.get(source);
+    if (before !== undefined) return before;
+    const tools = read(source);
+    known.set(source, tools);
+    return tools;
+  };
+}
+
 /** Whether Claude Code runs a hook's entry in the background, where it waits on no answer of it. */
 function inBackground(hook: Json): boolean {
   return hook['async'] === true || hook['asyncRewake'] === true;
@@ -153,10 +182,10 @@ function inBackground(hook: Json): boolean {
  * entry started only for the calls its rule matches, in the syntax of a
  * permission rule, which is not read here.
  */
-function answered(event: string, matcher: unknown, hook: Json): readonly string[] | null {
+function answered(event: string, matcher: unknown, hook: Json, pattern: PatternReader): readonly string[] | null {
   if (event === BEFORE && inBackground(hook)) return [];
   if (hook['if'] !== undefined) return null;
-  return matchedTools(matcher);
+  return matchedTools(matcher, pattern);
 }
 
 /**
@@ -171,10 +200,13 @@ function answered(event: string, matcher: unknown, hook: Json): readonly string[
  * init rewrites none but the one 0.1 wrote. Without `isHook`, only init's
  * own line is known: the default's `false` and an `undefined` read the same
  * in `some`, so that mutant is equivalent.
+ *
+ * `pattern` reads a matcher that is a pattern: the run's own reader, where
+ * the run has read the file's matchers already ({@link patternReader}).
  */
-export function mergeClaudeSettings(current: Json, isHook: (words: readonly string[]) => boolean = () => false): Json | null {
+export function mergeClaudeSettings(current: Json, isHook: (words: readonly string[]) => boolean = () => false, pattern: PatternReader = patternReader()): Json | null {
   const hooks = isObject(current['hooks']) ? current['hooks'] : {};
-  const theirs = harnessEntries(current).some((entry) => !isGuard(entry.hook) && !isLegacyGuard(entry.hook) && isHook(entry.words) && isStarted(toolsOf(entry)));
+  const theirs = harnessEntries(current).some((entry) => !isGuard(entry.hook) && !isLegacyGuard(entry.hook) && isHook(entry.words) && isStarted(toolsOf(entry, pattern)));
   if (theirs) return null;
   let changed = false;
   const next: Json = { ...hooks };
@@ -183,7 +215,7 @@ export function mergeClaudeSettings(current: Json, isHook: (words: readonly stri
     const before: unknown[] = Array.isArray(listed) ? listed : [];
     const groups = before.map(upgraded);
     const replaced = groups.some((group, index) => group !== before[index]);
-    const present = harnessEntries({ hooks: { [event]: groups } }).some((entry) => isGuard(entry.hook) && isStarted(toolsOf(entry)));
+    const present = harnessEntries({ hooks: { [event]: groups } }).some((entry) => isGuard(entry.hook) && isStarted(toolsOf(entry, pattern)));
     if (!present) groups.push({ matcher: HOOK_MATCHER, hooks: [{ ...GUARD_HOOK, args: [...GUARD_ARGS] }] });
     if (replaced || !present) {
       next[event] = groups;
@@ -301,8 +333,8 @@ interface HarnessEntry extends Line {
  * `null` where that cannot be told. Read where it is asked for and no
  * sooner: a matcher that is a pattern can cost its whole budget.
  */
-function toolsOf(entry: HarnessEntry): readonly string[] | null {
-  return answered(entry.event, entry.matcher, entry.hook);
+function toolsOf(entry: HarnessEntry, pattern: PatternReader): readonly string[] | null {
+  return answered(entry.event, entry.matcher, entry.hook, pattern);
 }
 
 /** Every entry that runs the harness under the two events the guard answers, in the order the settings hold them. */
@@ -378,8 +410,8 @@ function named(names: readonly string[]): string {
 }
 
 /** The writing tools a line's entries under `event` are waited on for between them, or `null` where an entry that cannot be told might add one. */
-function toolsUnder(event: string, entries: readonly HarnessEntry[]): readonly string[] | null {
-  const read = entries.filter((entry) => entry.event === event).map(toolsOf);
+function toolsUnder(event: string, entries: readonly HarnessEntry[], pattern: PatternReader): readonly string[] | null {
+  const read = entries.filter((entry) => entry.event === event).map((entry) => toolsOf(entry, pattern));
   const sure = WRITING_TOOLS.filter((tool) => read.some((tools) => tools !== null && tools.includes(tool)));
   return sure.length < WRITING_TOOLS.length && read.some((tools) => tools === null) ? null : sure;
 }
@@ -440,8 +472,17 @@ export function handedLines(sources: readonly ClaudeSettings[], project: string)
  * one holds every write: each a problem, and doctor exits 1 for it. A line
  * Claude Code waits on before no write is not the guard, whatever the hook
  * would do with it.
+ *
+ * `pattern` reads a matcher that is a pattern, once for every entry under
+ * it in every file: the run's own reader, where something else in the run
+ * reads the same files ({@link patternReader}).
  */
-export function reportHooks(sources: readonly ClaudeSettings[], project: string, read: (words: readonly string[]) => HookLine | null): HookReport[] {
+export function reportHooks(
+  sources: readonly ClaudeSettings[],
+  project: string,
+  read: (words: readonly string[]) => HookLine | null,
+  pattern: PatternReader = patternReader(),
+): HookReport[] {
   return sources.flatMap(({ file, settings }) => {
     const entries = harnessEntries(settings);
     return writtenHooks(settings).flatMap((hook): HookReport[] => {
@@ -452,8 +493,8 @@ export function reportHooks(sources: readonly ClaudeSettings[], project: string,
       // A line that is not under both events is under one.
       const where = `"${hook.words.map((word) => (word === '' ? "''" : word)).join(' ')}" in ${file}${both ? '' : ` (under ${hook.events[0]} alone)`}`;
       const mine = entries.filter((entry) => sameLine(entry, hook));
-      const before = toolsUnder(BEFORE, mine);
-      const after = toolsUnder(AFTER, mine);
+      const before = toolsUnder(BEFORE, mine, pattern);
+      const after = toolsUnder(AFTER, mine, pattern);
       const written = { file, events: hook.events, line: hook.words, onFailure: hook.blocks ? 'block' : null, before, after, cover: describeCover(where, before, after, mine) } satisfies Partial<HookReport>;
       if (hook.shell) {
         const detail = `${where} is a shell's to read before the hook is handed it, so what the hook does with it cannot be told here: written with "args", each word reaches the hook as it stands`;

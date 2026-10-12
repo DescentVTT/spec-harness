@@ -21,12 +21,14 @@ import {
   handedLines,
   isStarted,
   loadsPlugin,
+  patternReader,
   registersServer,
   reportHooks,
   SPEC_BRIEF_CONFIGS,
   type BaseSource,
   type ClaudeCodeWiring,
   type ClaudeSettings,
+  type PatternReader,
   type PluginState,
 } from './configure.js';
 import { readRules, renderContext, type CitedDocument, type ContextPacket, type Rules } from './context.js';
@@ -65,9 +67,11 @@ export async function resolveBase(workspace: Workspace, flag: string | undefined
   if (ref === null) {
     return { kind: 'unresolved', reason: 'no base is named and the remote has no default branch; pass --base <ref> or set "base"' };
   }
-  const sha = await revision(ref, workspace.root);
+  // Neither commit waits on the other, so git is asked for both at once, and
+  // they are read in the order they were asked in before: a base that names
+  // no commit is said before a HEAD that names none.
+  const [sha, head] = await Promise.all([revision(ref, workspace.root), revision('HEAD', workspace.root)]);
   if (sha === null) return { kind: 'unresolved', reason: `"${ref}" names no commit` };
-  const head = await revision('HEAD', workspace.root);
   if (head === null) return { kind: 'unresolved', reason: 'HEAD names no commit: nothing is committed on this branch yet' };
   const common = await mergeBase(sha, head, workspace.root);
   if (common === null) return { kind: 'unresolved', reason: `"${ref}" and HEAD share no history` };
@@ -403,15 +407,16 @@ export async function claudeSettings(root: string, env: CliIO['env']): Promise<C
  * hook alone on their line, under the matcher init writes (ADR-0012).
  *
  * `init` reads the wiring through this too, so that it and `doctor` say
- * the same of every tree.
+ * the same of every tree, and hands it the reader it reads the matchers of
+ * the same files with, so that the two read each pattern once between them.
  */
-export async function claudeCodeWiring(root: string, io: CliIO): Promise<ClaudeCodeWiring> {
+export async function claudeCodeWiring(root: string, io: CliIO, pattern: PatternReader = patternReader()): Promise<ClaudeCodeWiring> {
   const sources = await claudeSettings(root, io.env);
   // Each line is read once, before any is reported: what the brief on one
   // names is spec-brief's to say, and the report itself asks nothing.
   const read = new Map<string, HookLine | null>();
   for (const words of handedLines(sources, root)) read.set(JSON.stringify(words), await hookLineHere(words, root, io));
-  const lines = reportHooks(sources, root, (words) => read.get(JSON.stringify(words))!);
+  const lines = reportHooks(sources, root, (words) => read.get(JSON.stringify(words))!, pattern);
   return {
     plugin: enabledPlugin(sources),
     // A line Claude Code starts for no write, before one or after, is in no

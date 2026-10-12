@@ -35,6 +35,7 @@ import {
   mergeSpecBrief,
   mergeSpecGraph,
   missingGitHook,
+  patternReader,
   PLUGIN,
   PRE_COMMIT,
   PROTECT_RULE_FILES,
@@ -46,7 +47,7 @@ import { readJsonObject as readJson, writeAtomic } from './fs.js';
 import { hookPath, localBranches, remoteDefault } from './git.js';
 import { claudeCodeWiring, pluginFile } from './round.js';
 import { runSibling } from './siblings.js';
-import { EXIT_ERROR, EXIT_OK, json, openWorkspace, type CliIO, type Options, type Workspace } from './workspace.js';
+import { answerOf, EXIT_ERROR, EXIT_OK, json, openWorkspace, type CliIO, type Options, type Workspace } from './workspace.js';
 
 /** `skip`: a file init would write, left alone because Claude Code's plugin brings what init would add. */
 export type Action = 'create' | 'update' | 'keep' | 'skip' | 'run' | 'advise';
@@ -114,7 +115,20 @@ export async function plan(workspace: Workspace, options: Options, io: CliIO): P
   const harnessFile = join(root, CONFIG_FILE);
   const harness = (await readJson(harnessFile)) as Json | null;
   const namedBase = harness !== null && typeof harness['base'] === 'string' ? harness['base'] : null;
-  const choice = namedBase === null ? chooseBase({ remoteDefault: await remoteDefault(root), branch: workspace.branch, branches: await localBranches(root) }) : null;
+  // What the plan asks of git and of Claude Code's settings waits on the
+  // root and on nothing of the rest, so it is asked at once: three of git's
+  // processes side by side where each waited on the one before. Each is
+  // read below where it was asked before, so a plan that fails still fails
+  // on the first of them in that order. The matchers in the settings are
+  // read with one reader, for the wiring and for what to write.
+  const pattern = patternReader();
+  const [factsAsked, wiringAsked, hookAsked] = await Promise.allSettled([
+    namedBase === null ? Promise.all([remoteDefault(root), localBranches(root)]) : null,
+    claudeCodeWiring(root, io, pattern),
+    gitHook(root),
+  ]);
+  const facts = answerOf(factsAsked);
+  const choice = facts === null ? null : chooseBase({ remoteDefault: facts[0], branch: workspace.branch, branches: facts[1] });
   const base = choice === null ? namedBase : choice.base;
 
   // spec-brief first: every other setting is derived from its directories.
@@ -221,7 +235,7 @@ export async function plan(workspace: Workspace, options: Options, io: CliIO): P
   // guard every write twice (ADR-0012). The hook's lines are known as doctor
   // knows them, by the hook's own reading and by the writes Claude Code
   // starts each for, so that the two say the same of every file (ADR-0005).
-  const wiring = await claudeCodeWiring(root, io);
+  const wiring = answerOf(wiringAsked);
   const { plugin } = wiring;
   const settingsFile = join(root, '.claude', 'settings.json');
   const settings = await readJson(settingsFile);
@@ -243,7 +257,7 @@ export async function plan(workspace: Workspace, options: Options, io: CliIO): P
   } else {
     // An entry is a line of the hook where doctor reports its words as one in this file.
     const reported = new Set(lines.map((line) => JSON.stringify(line.line)));
-    const merged = mergeClaudeSettings(settings ?? {}, (words) => reported.has(JSON.stringify(words)));
+    const merged = mergeClaudeSettings(settings ?? {}, (words) => reported.has(JSON.stringify(words)), pattern);
     // A line that turns the guard off or holds every write is one doctor
     // fails, and lines of which none is waited on before a write are no
     // guard between them: left as they are, they are for the person to mend.
@@ -280,7 +294,7 @@ export async function plan(workspace: Workspace, options: Options, io: CliIO): P
   // a linked worktree's shared hooks. It is the guard for a write the agent's
   // hooks never see, one through a shell, so it is advised when not asked
   // for; it is configuration outside the tree, so it is written only then.
-  const { hook, path: hookFile, note: hookNote } = await gitHook(root);
+  const { hook, path: hookFile, note: hookNote } = answerOf(hookAsked);
   // Only a git older than 2.31, which the README states as the harness's
   // floor, cannot name its hooks, and init runs only in a work tree, where
   // any later git names them: no test reaches this advice, by that decision.
