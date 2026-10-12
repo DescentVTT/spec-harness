@@ -68,7 +68,7 @@ vi.mock('node:child_process', async (importOriginal) => {
         if (at === -1) return;
         seen.waiting.splice(at, 1);
         deliver();
-      }, 5000);
+      }, 5000).unref();
     });
   };
   return { ...actual, execFile };
