@@ -31,12 +31,12 @@ import { claudeResponse, gitResponse, parseClaudeHook, type HookRequest } from '
 import { claudeVersion } from './host.js';
 import { premisesCommand } from './premises.js';
 import { createReader } from './reader.js';
-import { checkPaths, claudeCodeWiring, resolveBase, specBriefPlugin, type Base } from './round.js';
+import { checkPaths, claudeCodeWiring, diagnoseBrief, resolveBase, specBriefPlugin, type Base } from './round.js';
 import { mcpCommand } from './server.js';
 import { gitHook, initCommand } from './setup.js';
 import { notFido2, readAllowedSigners } from './signers.js';
 import { SiblingError } from './siblings.js';
-import { emptyValue, isBlank, isClaudeHook, readHookLine, refusal, unreadHookLine, type Command, type LineFault } from './usage.js';
+import { emptyValue, heldHookLine, isBlank, isClaudeHook, readHookLine, refusal, unreadHookLine, type Command, type LineFault } from './usage.js';
 import { checkClaudeCode, CLAUDE_CODE_MINIMUM, MINIMUM_VERSIONS } from './versions.js';
 import {
   activeBrief,
@@ -45,7 +45,6 @@ import {
   EXIT_FAILED,
   EXIT_OK,
   json,
-  namedId,
   openWorkspace,
   parseOptions,
   UsageError,
@@ -90,8 +89,8 @@ Commands:
   doctor              Which siblings are installed, at which versions, which brief is
                       named, how Claude Code runs the guard, and git's hook. Exit 1
                       when a sibling is older than this release needs, the guard is
-                      installed twice or its hook's line turns it off, or Claude Code
-                      is too old to run its hooks.
+                      installed twice, its hook's line turns it off or holds every
+                      write, or Claude Code is too old to run its hooks.
 
 Options:
   --brief <id>        The brief the round works on. Otherwise SPEC_BRIEF, then the branch.
@@ -240,8 +239,10 @@ async function hookCommand(options: Options, io: CliIO): Promise<number> {
     try {
       const decided = await decisionsFor(workspace, options, io, request.paths, cwd);
       if ('problem' in decided) {
-        // Exit 2 blocks the tool call, and its stderr reaches the model.
-        io.stderr.write(`spec-harness: ${decided.problem}. Fix the brief or the branch before writing.\n`);
+        // Exit 2 blocks the tool call, and its stderr reaches the model. Where
+        // the name stands on the hook's own line, what is wrong with it is
+        // `doctor`'s to say as well, in the same words (usage.ts).
+        io.stderr.write(`spec-harness: ${heldHookLine(decided.problem).wrong}. Fix the brief or the branch before writing.\n`);
         return EXIT_ERROR;
       }
       const response = claudeResponse(request.event, decided.decisions);
@@ -273,29 +274,6 @@ async function hookCommand(options: Options, io: CliIO): Promise<number> {
 }
 
 /* ------------------------------------------------------------------ doctor */
-
-/**
- * The brief a round here works on, as doctor reports it: its id, and what is
- * wrong with the name when no round can work under it. Every other command
- * stops there. A diagnosis says it, being what a person runs when the guard
- * holds a write they expected it to pass.
- */
-async function diagnoseBrief(workspace: Workspace, options: Options, env: CliIO['env']): Promise<{ readonly id: string | null; readonly problem: string | null }> {
-  if (options.brief !== undefined && isBlank(options.brief)) return { id: null, problem: emptyValue('--brief', 'brief', options.brief) };
-  const id = namedId(workspace, options, env);
-  // A spec-brief that cannot be run is a row of the report, with the reason.
-  if (workspace.siblings.locate('spec-brief').kind !== 'found') return { id, problem: null };
-  try {
-    // Where nothing names a brief, spec-brief is not asked (ADR-0004), and
-    // there is no problem to state.
-    return { id, problem: describeActive(await activeBrief(workspace, options, env)).problem };
-  } catch (error) {
-    // Asking spec-brief throws nothing but this, so the check is equivalent
-    // to its mutant; it keeps any other error the stack it needs.
-    if (!(error instanceof SiblingError)) throw error;
-    return { id, problem: `spec-brief could not say whether it knows brief ${id}: ${error.message}` };
-  }
-}
 
 async function doctorCommand(options: Options, io: CliIO): Promise<number> {
   const workspace = await openWorkspace(options, io);
@@ -332,12 +310,14 @@ async function doctorCommand(options: Options, io: CliIO): Promise<number> {
   const plugin = await specBriefPlugin(workspace.root);
   // The plugin and init's entries both on: Claude Code runs every guard twice
   // and registers the server twice (ADR-0012).
-  const wiring = await claudeCodeWiring(workspace.root, io.env);
+  const wiring = await claudeCodeWiring(workspace.root, io);
   const claude = wiringState(wiring);
   // What the hook does with each line the settings hold for it, where there
   // is something to say: more on it than init writes, a line that turns the
-  // guard off, one only a shell can read, and what onFailure changes.
-  const lineNotes = wiring.lines.flatMap((line) => [line.detail, line.note]).filter((note): note is string => note !== null);
+  // guard off or holds every write, one only a shell can read, the writes
+  // Claude Code starts it for where they are not all of them, and what
+  // onFailure changes.
+  const lineNotes = wiring.lines.flatMap((line) => [line.detail, line.cover, line.note]).filter((note): note is string => note !== null);
   // Only a Claude Code that runs the guard is asked its release: one older
   // than the hooks need lets every write through unguarded.
   const release = claude === 'none' ? null : checkClaudeCode(await claudeVersion(io.env));
@@ -400,12 +380,13 @@ async function doctorCommand(options: Options, io: CliIO): Promise<number> {
   // An outdated sibling is a problem to fix, where a missing optional one is
   // a choice; with none installed, the harness can check nothing. A double
   // install is a problem too, where no Claude Code wiring at all is a choice,
-  // and so are a hook whose own line turns the guard off and a Claude Code
-  // too old to run the hooks. A release that cannot be told is not fine
-  // either, nor a line only a shell can read: --strict fails both.
+  // and so are a hook whose own line turns the guard off or holds every
+  // write, and a Claude Code too old to run the hooks. A release that cannot
+  // be told is not fine either, nor a line whose reading cannot be: --strict
+  // fails both.
   const outdated = rows.some((row) => row.state === 'outdated');
   const usable = rows.some((row) => row.state === 'found');
-  const off = wiring.lines.some((line) => line.state === 'off');
+  const off = wiring.lines.some((line) => line.state === 'off' || line.state === 'held');
   const tooOld = release?.state === 'outdated';
   const untold = options.strict && (release?.state === 'unknown' || wiring.lines.some((line) => line.state === 'unknown'));
   return outdated || !usable || claude === 'both' || off || tooOld || untold ? EXIT_FAILED : EXIT_OK;

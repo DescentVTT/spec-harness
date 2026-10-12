@@ -177,7 +177,7 @@ export interface Workspace {
   readonly cwd: string;
 }
 
-export async function openWorkspace(options: Options, io: CliIO): Promise<Workspace> {
+export async function openWorkspace(options: Pick<Options, 'root'>, io: CliIO): Promise<Workspace> {
   const cwd = options.root ?? io.cwd;
   const root = await workTreeRoot(cwd);
   if (root === null) throw new UsageError(`${cwd} is not inside a git work tree; spec-harness measures rounds by their commits`);
@@ -194,14 +194,14 @@ export async function openWorkspace(options: Options, io: CliIO): Promise<Worksp
 }
 
 /** The id the flag, the environment or the branch names, without asking spec-brief anything. */
-export function namedId(workspace: Workspace, options: Options, env: CliIO['env']): string | null {
+export function namedId(workspace: Workspace, options: Pick<Options, 'brief'>, env: CliIO['env']): string | null {
   if (options.brief !== undefined && options.brief.trim() !== '') return options.brief.trim();
   const environment = env['SPEC_BRIEF'];
   if (environment !== undefined && environment.trim() !== '') return environment.trim();
   return briefIdFromBranch(workspace.config.branches, workspace.branch);
 }
 
-export async function activeBrief(workspace: Workspace, options: Options, env: CliIO['env']): Promise<ActiveBrief> {
+export async function activeBrief(workspace: Workspace, options: Pick<Options, 'brief'>, env: CliIO['env']): Promise<ActiveBrief> {
   // Nothing names a brief, so spec-brief is not asked (ADR-0004): the answer
   // is none whatever the briefs are, and so the empty list is equivalent to
   // its mutant.

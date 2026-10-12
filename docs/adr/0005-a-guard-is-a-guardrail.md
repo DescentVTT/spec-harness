@@ -589,6 +589,182 @@ An exit code that can change for a tree that passed is a minor release
   is read. A line under PreToolUse alone, or PostToolUse alone, is named
   with its event.
 
+*Amended again 2026-10-12.* `doctor` says a brief on the hook's line that is
+not one, reads the event and the matcher of each entry, and `init` knows the
+hook as `doctor` does. The amendment above measured four things and left
+them. Measured again on 0.15.0 through the launcher (Windows 11, Node
+24.18.1, git 2.55), in a repository with a brief that protects a file, with
+spec-brief 0.8.0 and spec-guard 0.23.0 installed in it: each entry written
+into `.claude/settings.json`, under both events with the matcher `init`
+writes unless the row says otherwise, `doctor` and `init --write` run
+there, and the hook handed the words Claude Code hands it for the line
+before a write to the protected file.
+
+| What the settings hold | The hook, before the write | `doctor` on 0.15.0 | `init --write` on 0.15.0 | `doctor` now | `init --write` now |
+| --- | --- | --- | --- | --- | --- |
+| `hook claude --brief 404`, or a brief spec-brief has archived | exit 2: the write is held, and every write after it | the line, and that it guards; exit 0 | adds its own line beside it | the line holds every write, in the hook's words for the name; exit 1 | `advise`, in the same words; writes nothing |
+| `--root ${CLAUDE_PROJECT_DIR}`, `--brief 001`, the script named without the placeholder, today's line written for a shell | refuses the write | init's entries; exit 0 | adds its own line beside it, and both run for every write | the same | `keep`, with the line it left and why where doctor has something to say of it; writes nothing |
+| `--root ${CLAUDE_PROJECT_DIR}`, with the plugin on | refuses the write | the double install; exit 1 | `skip`: the plugin brings the hooks, so init writes none | the same | `advise`: the double install |
+| `--nope`, `--root nowhere` | exit 1, and the write goes on | the guard is off; exit 1 | adds its own line beside it | the same | `advise`, in doctor's words; writes nothing |
+| init's line under `PostToolUse` alone | not asked before a write | init's entries, and no word of the event; exit 0 | adds its line under `PreToolUse` | the line is waited on before no write, so it is not the guard; exit 0 | the same as on 0.15.0 |
+| init's line under the matcher `Bash` | not asked for a write | init's entries; exit 0 | `keep`: the guard hooks are installed | no guard, and the line said with its matcher; exit 0 | writes its hooks beside the line, and says which it left |
+| the same, with the plugin on | not asked for a write | the double install; exit 1 | `advise`: the double install | the plugin alone is the guard, and the line said; exit 0 | `skip` |
+| init's line under the matcher `Write\|Edit` | asked before a write by Edit or Write | init's entries; exit 0 | `keep` | guards a write by Edit and Write, and names MultiEdit and NotebookEdit as unchecked; exit 0 | `keep`, saying the same |
+| init's line with `"async": true` on its entry | started, and not waited on | init's entries; exit 0 | `keep` | waited on before no write, so not the guard; exit 0 | writes its line under `PreToolUse` |
+| init's line with an `if` on its entry | asked for the calls the rule matches | init's entries; exit 0 | `keep` | cannot tell which writes; exit 0, and 1 under `--strict` | `keep`, saying the same |
+
+So `doctor` said that a line guards under which every write was held; one
+settings file came to hold two lines that both run; `init` said it wrote no
+hook, for the plugin's sake, into a file that held one; and a line Claude
+Code never starts before a write was reported as the guard.
+
+- **A brief on the line that is not one holds every write, and is said so.**
+  The hook reads `--brief` from its line, asks spec-brief which brief the
+  name is, and holds the write under a name spec-brief does not know or has
+  archived, exit 2 (ADR-0004). `doctor` read the line and asked nothing.
+  The hook's reading of its line now says which brief a line that guards
+  names (`claudeHookLine`, `src/usage.ts`), and `doctor` asks spec-brief
+  about that name as the hook does: in the work tree the line's root is in,
+  through the functions the hook asks through. A name that is no brief is
+  said in the words the hook holds the write with, `the flag names brief
+  404, and spec-brief knows no such brief`, as a line that holds every
+  write until it is mended, and `doctor` exits 1: the guard someone set up
+  stops all work, which is what a diagnosis is run to find. The hook says
+  its own sentence through the same function (`heldHookLine`), and a test
+  runs the hook on the line and holds `doctor` to its words and to exit 2.
+  An empty `--brief` is passed over by the hook, and so names nothing here.
+- **An entry is read with its event and its matcher, by Claude Code's hooks
+  reference as read on 2026-10-12** (<https://code.claude.com/docs/en/hooks>,
+  *Hook lifecycle* and *Matcher patterns*). Of the two events the hook
+  answers, the page has `PreToolUse` run before a tool call, where a hook
+  can block it, and `PostToolUse` after a call that succeeded. A group's
+  matcher is tested against the tool's name: left out, empty or `*` it
+  matches every tool; made of letters, digits, `_`, `-`, spaces, `,` and
+  `|` alone it is the names it lists, each matched exactly; and with any
+  other character in it, it is a "JavaScript regular expression,
+  unanchored", so `Edit.*` matches `NotebookEdit` as well. The tools a line
+  is read for are the four the hook reads a file from, `Edit`, `Write`,
+  `MultiEdit` and `NotebookEdit` (`src/hooks.ts`), which is the matcher
+  every release wrote.
+- **A line Claude Code waits on before no write is not the guard**,
+  whatever the hook would do with it: under `PostToolUse` alone, or under a
+  matcher that names none of the four tools. `doctor` says so, with what
+  the line stands under, and a settings file whose only line is started
+  for no write, before one or after, is not counted among `init`'s entries:
+  alone it is no guard, as `doctor` then reports, and beside the plugin it
+  doubles nothing. It fails nothing: no guard is a choice (ADR-0012). A
+  line the hook cannot read is still said as off, wherever it stands: it
+  fails after every write it is started for.
+- **A line waited on before some of the four tools guards those**, and
+  `doctor` names the rest, whose writes go unchecked, and the tools it is
+  started after. It fails nothing: `Edit|Write` is the matcher the
+  reference itself gives as its example, and a person may have chosen it.
+- **A hook in the background refuses nothing.** The reference has an entry
+  with `async` or `asyncRewake` set run in the background, where Claude
+  Code does not wait for it and takes no decision from it (*Run hooks in
+  the background*). Before a write such an entry is waited on for nothing,
+  and is read so. After a write it still tells the model, on the next turn.
+- **`if` is not read, and is said as cannot tell.** The reference has an
+  entry with an `if` start only for the tool calls its rule matches, a rule
+  written in the syntax of a permission rule, which is another page's and
+  is not read here. So which writes such a line is asked on is *cannot
+  tell*: never reported as fine, and a failure under `--strict`, as a line
+  only a shell can read is. So is a matcher that is not text, or is no
+  pattern, of which the reference says nothing.
+- **A matcher that is a pattern is read within a budget.** A matcher is a
+  line of a settings file, which arrives with a clone, and a pattern can be
+  written that a test of four short names never finishes. Measured on Node
+  24.18.1 against the four tools' names: `^((([A-Za-z]*)*)*)*$X`, three
+  stars each around the last, took 208 ms, four took 4,047, and five ran
+  for more than ten seconds and was stopped. Read as written, one such
+  entry beside the hook's line and neither `doctor` nor `init` would come
+  back, with no word. So a pattern is made and tested in a context of its
+  own (`node:vm`), whose run takes a timeout where a test in the
+  process's own context takes none, and is stopped after 100 ms. A
+  reading that runs out its budget is *cannot tell*, as a matcher that is
+  no pattern is: said with the matcher, never fine, a failure under
+  `--strict`, and taken by `init` as a line that is started, beside which
+  it writes none. The budget is of the clock, so a
+  machine under load may answer *cannot tell* for a matcher an idle one
+  reads. No matcher of a sane size comes near it: `Edit.*`,
+  `^(Edit|Write)$`, `mcp__.*__write.*` and an alternation of 6,805
+  characters each took half a millisecond at the median of 500 readings
+  and under four at the slowest, on Node 22.16.0 as on 24.18.1, and 4.81
+  at the slowest with the machine busy at a test run, so the budget is
+  some two hundred times what a reading takes. An answer that comes back
+  and says it cannot tell is better than one that does not come: a
+  diagnosis that hangs says nothing of the guard at all, and a `--strict`
+  run that fails on a loaded runner can be run again. A check of the
+  pattern's shape would not do instead: groups in a row backtrack as
+  nested ones do, ten of `(.*)*` taking 674 ms where four took 6. Two
+  tests hold the budget with the pattern of five stars, each under a bound
+  of its own around the reading, so that without the budget it fails after
+  two seconds where it would otherwise not come back.
+- **`init` knows the hook as `doctor` knows it.** It knew its own line and
+  0.1's, by their exact command and arguments. It now asks the hook's own
+  reading whose line an entry is, and reads the entry's event and matcher
+  as above. Where the file holds a line of the hook it did not write, which
+  Claude Code starts for a write, `init` writes no hook into the file: a
+  second line would run beside the first, and a line under one event alone
+  is the person's to complete. It says which line it left and why, in
+  `doctor`'s words for the line: `keep` where the line guards, `advise`
+  where it turns the guard off, holds every write, or is waited on before
+  none. It rewrites no line but the one 0.1 wrote, so a line a person
+  changed is as they left it, and its own line under one event alone it
+  completes, as it did. A line that is started for no write is left too,
+  and `init` writes its own, as `doctor` then advises. Beside the plugin, a line that is started
+  is the double install, in the project's file or in one of the person's
+  own, and `init` says so where it said it had written none (ADR-0012).
+- **`--format json`** has `held` and `unstarted` among a line's states, and
+  for each line `before` and `after`, the writing tools Claude Code waits
+  on it before a write by and starts it after one by, `null` where that
+  cannot be told, with what is said of the two as `cover`. The fields are
+  added, so no `schemaVersion` moves.
+- **No line a release wrote is read another way, and the hook answers no
+  line differently.** Read from the tags v0.1.0 to v0.15.0, every release
+  wrote the hook's line under both events with the matcher
+  `Edit|Write|MultiEdit|NotebookEdit`, in `.claude/settings.json` and in
+  the plugin, and nothing after `hook claude`.
+  `tests/integration/released-lines.test.ts` holds `doctor` to reporting
+  each as the guard, started before every write and after each, with
+  nothing more to say, and holds the hook's answer for each line it had.
+
+An exit code that can change for a tree, and what `init` writes, are a
+minor release (spec-core's ADR-0009). What was measured for this and left
+as it was:
+
+- **The plugin's own `hooks/hooks.json`.** Read from the tags, the file
+  holds the same line under the same matcher in every release, so nothing
+  in it would change an answer. What `enabledPlugins` does not say is
+  whether the plugin is on this machine at all. Claude Code's plugin
+  loading reference (<https://code.claude.com/docs/en/plugins/loading>,
+  *Enabled in project settings but not installed*, read 2026-10-12) has
+  Claude Code not go and get a plugin a machine lacks where a project's
+  `.claude/settings.json` alone turns it on, with two exceptions: a
+  marketplace that gives the plugin's source as a relative path, and a
+  seed directory that has the plugin already. The `/plugin` Errors tab
+  then shows a message. A plugin that is not on the machine brings no
+  hook to it: that follows, and is not the reference's sentence. So
+  `doctor` there reports as the guard a plugin that guards nothing, and
+  `init` skips. Telling it apart takes Claude Code's own
+  records of what it installed, under its plugins directory, whose shape
+  the reference gives only in part, and which could not be measured
+  against a Claude Code here; a wrong answer would have `init` write a
+  second guard, or `doctor` fail a tree that is guarded. It is left
+  unread.
+- **A root on the line that is a directory outside any work tree.** The
+  hook checks no write there and says nothing, exit 0 (the amendment of
+  2026-10-11), and `doctor` says of the line that it guards, by its root.
+  A brief on such a line is asked of no one.
+- **Two lines in two files.** A line in a person's own
+  `.claude/settings.local.json`, or in their user settings, and `init`'s in
+  `.claude/settings.json` both run for that person. `init` writes the
+  project's file whatever the person's own holds, since every clone reads
+  it, and `doctor` lists both lines and counts nothing.
+- **`disableAllHooks`**, an entry's `type`, and an entry of the harness's
+  under another event than the two, which the hook answers with nothing.
+  None is read.
+
 ## Consequences
 
 An agent that writes through a shell passes the guard and is caught at the
