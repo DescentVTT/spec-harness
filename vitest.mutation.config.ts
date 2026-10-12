@@ -42,7 +42,7 @@ export class QuickestFirst extends BaseSequencer {
 }
 
 /**
- * The full mutation sweep's suite: every test but three files, run in
+ * The full mutation sweep's suite: every test but four files, run in
  * Stryker's sandbox, a copy of the repository under `.stryker-tmp/`.
  *
  * `tests/source.test.ts` reads the repository as it is on disk, which the
@@ -61,6 +61,10 @@ export class QuickestFirst extends BaseSequencer {
  * left out for both reasons: the sandbox's sources are not the ones it
  * counts, and no mutant is under it.
  *
+ * `tests/mutation-compare.test.ts` tests the script that names the
+ * undetected mutants a sweep has and main's did not. No mutant is under it
+ * either.
+ *
  * The rest is `vitest.config.ts`'s, for the same processes, less its v8
  * coverage, which Stryker replaces with its own per test, and with the order
  * above; a test holds the two files together.
@@ -68,7 +72,7 @@ export class QuickestFirst extends BaseSequencer {
 export default defineConfig({
   test: {
     include: ['tests/**/*.test.ts'],
-    exclude: ['tests/source.test.ts', 'tests/mutation-shards.test.ts', 'tests/mutation-unmeasured.test.ts', '**/node_modules/**'],
+    exclude: ['tests/source.test.ts', 'tests/mutation-shards.test.ts', 'tests/mutation-unmeasured.test.ts', 'tests/mutation-compare.test.ts', '**/node_modules/**'],
     environment: 'node',
     testTimeout: 300_000,
     hookTimeout: 300_000,

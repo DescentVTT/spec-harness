@@ -9,14 +9,84 @@ name: Mutation
 # The full sweep mutates the edges as well - the command line, init, the
 # server, git and the siblings - against the whole suite. Its tests spawn git
 # and the sibling tools for every mutant they reach, so it is slower by an
-# order of magnitude: it runs weekly and on request. One runner took 69 to 130
+# order of magnitude, and does not run on every change: it runs for a change
+# to what only it reaches, weekly, and on request. One runner took 69 to 130
 # minutes for it, so it runs in shards, each mutating its own files against
 # every test (scripts/mutation-shards.mjs), a mutant's quickest test files
 # first (vitest.mutation.config.ts), and the job after them merges the
 # reports and applies the `break` in stryker.config.mjs once, to the merged
 # score. The same step counts what the merged report could not hold, the
-# code under a TypeScript `as` (scripts/mutation-unmeasured.mjs).
+# code under a TypeScript `as` (scripts/mutation-unmeasured.mjs), and the
+# step after it names the undetected mutants that main's newest sweep did not
+# have (scripts/mutation-compare.mjs).
 on:
+  # A pull request that changes a module the core sweep does not mutate
+  # whole, or what this sweep is made of, is swept before it merges: twice a
+  # change to such a module merged with every mutant of a replay by hand
+  # killed, and the release's sweep then found survivors of it (ADR-0010,
+  # amended a third time 2026-10-12). The sources are named one by one, and
+  # tests/mutation-shards.test.ts holds the names to the two sweeps'
+  # `mutate`: a module added to src/ is in the core sweep's list or in this
+  # one, or the suite fails. What the sweep is made of is the Stryker
+  # configurations, the core sweep's with them since it says which modules
+  # are left to this one, the suite's, the scripts and this file. The sweep
+  # is of the pull request merged into main, the commit GitHub checks out
+  # for one.
+  #
+  # GitHub reads a filter against everything a pull request changes, not
+  # against its last push, so every push to one that changes such a file
+  # runs the sweep again. A change to the tests alone, to the vendored
+  # spec-core or to a dependency runs none, though each can move a verdict:
+  # the schedule below is what reads those.
+  pull_request:
+    paths:
+      - src/cli.ts
+      - src/commands.ts
+      - src/document.ts
+      - src/fs.ts
+      - src/git.ts
+      - src/host.ts
+      - src/plugin.ts
+      - src/premises.ts
+      - src/round.ts
+      - src/sandbox.ts
+      - src/server.ts
+      - src/setup.ts
+      - src/siblings.ts
+      - src/workspace.ts
+      - stryker.config.mjs
+      - stryker.core.config.mjs
+      - stryker.shard.config.mjs
+      - vitest.mutation.config.ts
+      - scripts/mutation-*.mjs
+      - .github/workflows/mutation.yml
+  # The same change once it is on main, so that main has a report of its own
+  # head for the next pull request to be compared with. The two lists are
+  # one list, written twice because a filter belongs to its event; the same
+  # test holds them equal.
+  push:
+    branches: [main]
+    paths:
+      - src/cli.ts
+      - src/commands.ts
+      - src/document.ts
+      - src/fs.ts
+      - src/git.ts
+      - src/host.ts
+      - src/plugin.ts
+      - src/premises.ts
+      - src/round.ts
+      - src/sandbox.ts
+      - src/server.ts
+      - src/setup.ts
+      - src/siblings.ts
+      - src/workspace.ts
+      - stryker.config.mjs
+      - stryker.core.config.mjs
+      - stryker.shard.config.mjs
+      - vitest.mutation.config.ts
+      - scripts/mutation-*.mjs
+      - .github/workflows/mutation.yml
   schedule:
     # An hour after spec-guard's and two after spec-brief's and spec-graph's,
     # which start at 03:00 on the same account's runners.
@@ -29,7 +99,10 @@ on:
         default: true
 
 # A dispatch supersedes an earlier dispatch on the same ref; nothing supersedes
-# the schedule's run, so the event is part of the key.
+# the schedule's run, so the event is part of the key. For a pull request the
+# ref is its merge branch, refs/pull/<number>/merge, so a newer push to one
+# ends the sweep of the push before it and no other's. A push to main that
+# runs the sweep ends that of the push before it, whose commit it holds.
 concurrency:
   group: mutation-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
@@ -41,7 +114,8 @@ permissions:
 jobs:
   shard:
     name: mutation (full, shard ${{ matrix.shard }} of ${{ strategy.job-total }})
-    if: github.event_name == 'schedule' || inputs.full
+    # Only a dispatch has the input, and only a dispatch can leave the sweep out.
+    if: github.event_name != 'workflow_dispatch' || inputs.full
     # The image the hosted sweeps in ADR-0010 were measured on. Another image
     # is another measurement: spec-core's ADR-0008 says what moving takes.
     runs-on: ubuntu-24.04
@@ -109,9 +183,16 @@ jobs:
     needs: shard
     # Runs when a shard failed too, so the failure is reported as an incomplete
     # sweep rather than as a skipped check.
-    if: ${{ !cancelled() && (github.event_name == 'schedule' || inputs.full) }}
+    if: ${{ !cancelled() && (github.event_name != 'workflow_dispatch' || inputs.full) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    # The comparison below fetches the report of another run, main's, and
+    # GitHub hands a run's artifact only to a token that may read Actions.
+    # A job that names its permissions has no other, so the one every job
+    # has is said again; the shards keep the workflow's.
+    permissions:
+      contents: read
+      actions: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -138,6 +219,18 @@ jobs:
         run: |
           node scripts/mutation-shards.mjs merge reports/shards
           node scripts/mutation-unmeasured.mjs reports/mutation/mutation.json
+
+      # Which undetected mutants main's newest full sweep that passed did not
+      # have, in the summary and the log, by file, mutator, mutated text and
+      # replacement and never by line. It runs where the score is under the
+      # `break` too, which is when the list is wanted most, and not where the
+      # merge wrote no report. It fails the sweep for none of them, and where
+      # main has no report to fetch it says that nothing was compared.
+      - name: Name the undetected mutants that are new against main
+        if: ${{ !cancelled() && hashFiles('reports/mutation/mutation.json') != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/mutation-compare.mjs --main reports/mutation/mutation.json
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()

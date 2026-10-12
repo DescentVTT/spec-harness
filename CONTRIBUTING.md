@@ -13,8 +13,9 @@ Node 22 or later. There are no runtime dependencies. The working agreements
 and the module layout are in [`CLAUDE.md`](CLAUDE.md); the decisions and what
 they cost are in [`docs/adr/`](docs/adr/README.md). Mutation testing runs in
 GitHub Actions, not on a workstation: the core sweep is a CI job on every
-change, and the full sweep runs weekly and on request (Actions, Mutation,
-Run workflow), in eight parallel shards merged into one score.
+change, and the full sweep runs for a change to what only it reaches
+(below), weekly and on request (Actions, Mutation, Run workflow), in eight
+parallel shards merged into one score.
 
 npm 10, 11 and 12 install the same tree from the lockfile and run the same
 suite. `npm ci` leaves the lockfile as it is under each of them; npm 10's
@@ -29,6 +30,41 @@ once a day has passed, with any other of that name
 
 `src/vendor/spec-core/` is spec-core's, copied by its `scripts/vendor.mjs` and
 verified by hash. It is never edited here.
+
+## A change only the full sweep reaches
+
+The core sweep mutates the pure modules, the list in
+`stryker.core.config.mjs`. The command line, `init`, the server, `round.ts`,
+git and the siblings are mutated by the full sweep alone, and a pull request
+that changes one of them, or what the sweep is made of, runs it: nine more
+checks, and about twenty minutes where CI takes nine. The files are the
+paths in `.github/workflows/mutation.yml`. A module added to `src/` goes into
+the core sweep's list or into those paths, and `npm test` fails until it is
+in one. Every push to such a pull request runs the sweep again and ends the
+one before it.
+
+The check `mutation (full)` ends with a summary, *Undetected mutants new
+against main*: the mutants of the pull request, merged into main, that no
+test detects and that main's newest full sweep did not have. The sweep does
+not fail for them, so the pull request answers for them. Its description
+lists each one the summary names and says what it is:
+
+- killed, by a test the pull request adds, which the next push shows;
+- equivalent, with the reason in a comment beside the code;
+- or not of this change: a mutant main took after the commit the summary
+  names, or one whose verdict differs between two sweeps of the same code.
+
+A mutant is its file, its mutator, the text it replaces and what replaces
+it, never its line, so one whose own text changed is listed as new. Where
+the summary says *not compared*, main had no report to fetch, and nothing
+is known of new survivors: download the two sweeps' `mutation-full`
+artifacts and compare them with the same script,
+`node scripts/mutation-compare.mjs <main's mutation.json> <this sweep's mutation.json>`.
+
+A change to the tests alone, to the vendored spec-core or to a dependency
+runs no full sweep; the weekly one reads those. Run it on a branch before
+then where a change of that kind is meant to move a verdict
+(`gh workflow run mutation.yml --ref <branch>`).
 
 ## Sibling minimums
 

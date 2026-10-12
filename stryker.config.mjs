@@ -2,9 +2,10 @@
 /**
  * Mutation testing: the full sweep, edges included, against the whole suite.
  * It spawns git and the sibling tools for every mutant it reaches, so it runs
- * weekly and on request (.github/workflows/mutation.yml) rather than per
- * change; the core sweep gates changes. CI runs it in shards
- * (stryker.shard.config.mjs) and applies the break here to the merged report.
+ * for a change to what only it reaches, weekly and on request
+ * (.github/workflows/mutation.yml) rather than for every change; the core
+ * sweep gates those. CI runs it in shards (stryker.shard.config.mjs) and
+ * applies the break here to the merged report.
  *
  * @type {import('@stryker-mutator/api/core').PartialStrykerOptions}
  */
