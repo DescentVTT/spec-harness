@@ -37,7 +37,9 @@ cannot turn a run red. The family's policy is
   the guard, with what it stands under; one waited on before some of `Edit`,
   `Write`, `MultiEdit` and `NotebookEdit` guards those, and the rest are
   named as unchecked; an entry with an `if`, whose rule is not read, or with
-  a matcher that is not text or is no pattern, is *cannot tell*. `--format
+  a matcher that is not text, is no pattern, or is a pattern that takes more
+  than a tenth of a second to test against the four names, is *cannot
+  tell*. `--format
   json` has `before`, `after` and `cover` on each of `claudeCode.lines`, and
   the states `unstarted` and `held` beside `guards`, `off` and `unknown`.
   Upgrading: a settings file whose only line of the hook is started for no

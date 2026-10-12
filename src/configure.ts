@@ -9,6 +9,7 @@
  */
 
 import { isAbsolute } from 'node:path';
+import { runInNewContext } from 'node:vm';
 
 import { WRITING_TOOLS } from './hooks.js';
 import { literal } from './literal.js';
@@ -94,7 +95,8 @@ function upgraded(group: unknown): unknown {
  * `_`, `-`, spaces, `,` and `|` alone, the tools it names, one between each
  * `|` or `,`; with any other character in it, a JavaScript regular
  * expression that may match anywhere in a tool's name. `null` where the
- * reference does not say: a matcher that is not text, or is no pattern.
+ * reference does not say, or it cannot be told: a matcher that is not text,
+ * is no pattern, or is a pattern whose reading runs out its budget.
  */
 function matchedTools(matcher: unknown): readonly string[] | null {
   if (matcher === undefined || matcher === '' || matcher === '*') return WRITING_TOOLS;
@@ -103,13 +105,39 @@ function matchedTools(matcher: unknown): readonly string[] | null {
     const names = matcher.split(/[|,]/).map((name) => name.trim());
     return WRITING_TOOLS.filter((tool) => names.includes(tool));
   }
-  let pattern: RegExp;
+  return patternTools(matcher);
+}
+
+/**
+ * How long the reading of one pattern may take, in milliseconds of the
+ * clock. A sane matcher is read in about half of one (ADR-0005), so only a
+ * pattern that backtracks without end meets it; on a machine under load an
+ * ordinary one may, and is then said as one that cannot be told, where an
+ * idle machine reads it.
+ */
+const PATTERN_BUDGET = 100;
+
+/**
+ * The writing tools a matcher that is a pattern matches, or `null` where it
+ * is no pattern, or its reading runs out its budget.
+ *
+ * The pattern is a line of a settings file, which arrives with a clone, and
+ * one can be written that a test of four short names never finishes:
+ * `^((((([A-Za-z]*)*)*)*)*)*$X` ran for more than ten seconds. Tested as
+ * written, one such entry and neither doctor nor init would come back, with
+ * no word. So it is made and tested in a context of its own, the one place
+ * a run can be stopped from outside, and what throws there, a pattern that
+ * is none or the stop itself, is a matcher that cannot be told. The shape
+ * of a pattern does not say which will: groups in a row backtrack as nested
+ * ones do.
+ */
+function patternTools(source: string): readonly string[] | null {
   try {
-    pattern = new RegExp(matcher);
+    const matched: string[] = runInNewContext('tools.filter((tool) => new RegExp(source).test(tool))', { tools: WRITING_TOOLS, source }, { timeout: PATTERN_BUDGET });
+    return matched;
   } catch {
     return null;
   }
-  return WRITING_TOOLS.filter((tool) => pattern.test(tool));
 }
 
 /** Whether Claude Code runs a hook's entry in the background, where it waits on no answer of it. */
@@ -145,7 +173,7 @@ function answered(event: string, matcher: unknown, hook: Json): readonly string[
  */
 export function mergeClaudeSettings(current: Json, isHook: (words: readonly string[]) => boolean = () => false): Json | null {
   const hooks = isObject(current['hooks']) ? current['hooks'] : {};
-  const theirs = harnessEntries(current).some((entry) => !isGuard(entry.hook) && !isLegacyGuard(entry.hook) && isHook(entry.words) && isStarted(entry.tools));
+  const theirs = harnessEntries(current).some((entry) => !isGuard(entry.hook) && !isLegacyGuard(entry.hook) && isHook(entry.words) && isStarted(toolsOf(entry)));
   if (theirs) return null;
   let changed = false;
   const next: Json = { ...hooks };
@@ -154,7 +182,7 @@ export function mergeClaudeSettings(current: Json, isHook: (words: readonly stri
     const before: unknown[] = Array.isArray(listed) ? listed : [];
     const groups = before.map(upgraded);
     const replaced = groups.some((group, index) => group !== before[index]);
-    const present = harnessEntries({ hooks: { [event]: groups } }).some((entry) => isGuard(entry.hook) && isStarted(entry.tools));
+    const present = harnessEntries({ hooks: { [event]: groups } }).some((entry) => isGuard(entry.hook) && isStarted(toolsOf(entry)));
     if (!present) groups.push({ matcher: HOOK_MATCHER, hooks: [{ ...GUARD_HOOK, args: [...GUARD_ARGS] }] });
     if (replaced || !present) {
       next[event] = groups;
@@ -265,8 +293,15 @@ interface HarnessEntry extends Line {
   /** The matcher of the entry's group, as written; `undefined` where the group has none. */
   readonly matcher: unknown;
   readonly hook: Json;
-  /** The writing tools whose call it is handed and waited on for, or `null` where that cannot be told. */
-  readonly tools: readonly string[] | null;
+}
+
+/**
+ * The writing tools whose call an entry is handed and waited on for, or
+ * `null` where that cannot be told. Read where it is asked for and no
+ * sooner: a matcher that is a pattern can cost its whole budget.
+ */
+function toolsOf(entry: HarnessEntry): readonly string[] | null {
+  return answered(entry.event, entry.matcher, entry.hook);
 }
 
 /** Every entry that runs the harness under the two events the guard answers, in the order the settings hold them. */
@@ -281,8 +316,7 @@ function harnessEntries(settings: unknown): HarnessEntry[] {
         if (!isObject(hook)) return [];
         const written = writtenHook(hook);
         if (written === null) return [];
-        const matcher = field(group, 'matcher');
-        return [{ ...written, event, matcher, hook, tools: answered(event, matcher, hook) }];
+        return [{ ...written, event, matcher: field(group, 'matcher'), hook }];
       }),
     );
   });
@@ -344,9 +378,9 @@ function named(names: readonly string[]): string {
 
 /** The writing tools a line's entries under `event` are waited on for between them, or `null` where an entry that cannot be told might add one. */
 function toolsUnder(event: string, entries: readonly HarnessEntry[]): readonly string[] | null {
-  const under = entries.filter((entry) => entry.event === event);
-  const sure = WRITING_TOOLS.filter((tool) => under.some((entry) => entry.tools !== null && entry.tools.includes(tool)));
-  return sure.length < WRITING_TOOLS.length && under.some((entry) => entry.tools === null) ? null : sure;
+  const read = entries.filter((entry) => entry.event === event).map(toolsOf);
+  const sure = WRITING_TOOLS.filter((tool) => read.some((tools) => tools !== null && tools.includes(tool)));
+  return sure.length < WRITING_TOOLS.length && read.some((tools) => tools === null) ? null : sure;
 }
 
 /** What a line's entries under `event` hold that decides when Claude Code starts them, as written. */

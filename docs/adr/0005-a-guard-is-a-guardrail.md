@@ -671,6 +671,32 @@ Code never starts before a write was reported as the guard.
   tell*: never reported as fine, and a failure under `--strict`, as a line
   only a shell can read is. So is a matcher that is not text, or is no
   pattern, of which the reference says nothing.
+- **A matcher that is a pattern is read within a budget.** A matcher is a
+  line of a settings file, which arrives with a clone, and a pattern can be
+  written that a test of four short names never finishes. Measured on Node
+  24.18.1 against the four tools' names: `^((([A-Za-z]*)*)*)*$X`, three
+  stars each around the last, took 208 ms, four took 4,047, and five ran
+  for more than ten seconds and was stopped. Read as written, one such
+  entry beside the hook's line and neither `doctor` nor `init` would come
+  back, with no word. So a pattern is made and tested in a context of its
+  own (`node:vm`), the one place a run can be stopped from outside, and is
+  stopped after 100 ms. A reading that runs out its budget is *cannot
+  tell*, as a matcher that is no pattern is: said with the matcher, never
+  fine, a failure under `--strict`, and taken by `init` as a line that is
+  started, beside which it writes none. The budget is of the clock, so a
+  machine under load may answer *cannot tell* for a matcher an idle one
+  reads. No matcher of a sane size comes near it: `Edit.*`,
+  `^(Edit|Write)$`, `mcp__.*__write.*` and an alternation of 6,805
+  characters each took half a millisecond at the median of 500 readings,
+  and under four at the slowest, so the budget is some two hundred times
+  what a reading takes. An answer that comes back and says it cannot tell
+  is better than one that does not come: a diagnosis that hangs says
+  nothing of the guard at all, and a `--strict` run that fails on a loaded
+  runner can be run again. A check of the pattern's shape would not do
+  instead: groups in a row backtrack as nested ones do, ten of `(.*)*`
+  taking 674 ms where four took 6. A test holds the budget with the pattern
+  of five stars, under a bound of its own, so that it fails where it would
+  otherwise not come back.
 - **`init` knows the hook as `doctor` knows it.** It knew its own line and
   0.1's, by their exact command and arguments. It now asks the hook's own
   reading whose line an entry is, and reads the entry's event and matcher
@@ -707,11 +733,15 @@ as it was:
 - **The plugin's own `hooks/hooks.json`.** Read from the tags, the file
   holds the same line under the same matcher in every release, so nothing
   in it would change an answer. What `enabledPlugins` does not say is
-  whether the plugin is on this machine at all: Claude Code's plugin
-  reference has a plugin that only a project's `.claude/settings.json`
-  turns on fetched to no machine where it is not installed, and such a
-  session runs no hook of it. `doctor` there reports the plugin as the
-  guard, and `init` skips. Telling it apart takes Claude Code's own records
+  whether the plugin is on this machine at all. Claude Code's plugin
+  loading reference (<https://code.claude.com/docs/en/plugins/loading>,
+  *Enabled in project settings but not installed*, read 2026-10-12) has a
+  plugin whose only `true` is in a project's `.claude/settings.json` not
+  fetched onto a machine where it is not installed, unless its marketplace
+  entry has a relative-path source or a seed directory already holds it,
+  and has the `/plugin` Errors tab say so. A plugin that is not on the
+  machine brings no hook to it, so `doctor` there reports as the guard a
+  plugin that guards nothing, and `init` skips. Telling it apart takes Claude Code's own records
   of what it installed, under its plugins directory, whose shape the
   reference gives only in part, and which could not be measured against a
   Claude Code here; a wrong answer would have `init` write a second guard,

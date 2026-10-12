@@ -1,11 +1,12 @@
 import { spawn, spawnSync } from 'node:child_process';
+import { runInNewContext } from 'node:vm';
 import { chmodSync, copyFileSync, existsSync, linkSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { HELP, run } from '../../src/cli.js';
-import { mergeClaudeSettings, mergeMcp } from '../../src/configure.js';
+import { mergeClaudeSettings, mergeMcp, reportHooks } from '../../src/configure.js';
 import { BIN, brief, BRIEF_FILE, cleanup, cli, installFake, installHarness, parsed, repository, ROOT, SPEC_BRIEF, spawnBin, temp, write, type Repository } from './helpers.js';
 
 afterAll(cleanup);
@@ -752,6 +753,31 @@ describe("doctor on the line of Claude Code's hook in its settings (ADR-0005)", 
     const after = await cli(['doctor', '--format', 'json'], repo.root, { env });
     expect(after.code).toBe(1);
     expect(parsed<{ claudeCode: unknown }>(after).claudeCode).toMatchObject({ state: 'both', hooks: ['.claude/settings.json'], lines: [{ state: 'unstarted', before: [], after: ['Edit', 'Write', 'MultiEdit', 'NotebookEdit'] }] });
+  });
+
+  it('comes back from a matcher whose pattern backtracks without end, and cannot tell from it', async () => {
+    const env = newEnough();
+    // Five stars, each around the last: testing four short names against it does not end.
+    const slow = '^((((([A-Za-z]*)*)*)*)*)*$X';
+    const held = { hooks: { PreToolUse: [{ matcher: slow, hooks: [hook([])] }], PostToolUse: [{ matcher: 'Edit|Write|MultiEdit|NotebookEdit', hooks: [hook([])] }] } };
+    // The budget is held first where a reading without one can be stopped, by
+    // a bound of the test's own: doctor's reading below is not in a test's
+    // hands, and without the budget it would not come back.
+    const read = (): unknown => reportHooks([{ file: '.claude/settings.json', settings: held }], '/the/project', () => ({ state: 'guards', root: undefined }));
+    expect(runInNewContext('read()', { read }, { timeout: 2000 })).toMatchObject([{ state: 'unknown', before: null }]);
+    const repo = repository({ '.claude/settings.json': JSON.stringify(held) });
+    const result = await cli(['doctor', '--strict', '--format', 'json'], repo.root, { env });
+    expect(result.code).toBe(1);
+    expect(parsed<{ claudeCode: unknown }>(result).claudeCode).toMatchObject({
+      state: 'init',
+      lines: [
+        {
+          state: 'unknown',
+          before: null,
+          cover: `"hook claude" in .claude/settings.json: which writes Claude Code waits on it before cannot be told here (under PreToolUse it has the matcher ${JSON.stringify(slow)})`,
+        },
+      ],
+    });
   });
 
   it('says which writes a line leaves unchecked and fails for none of them, and cannot tell under an "if", which fails --strict alone', async () => {

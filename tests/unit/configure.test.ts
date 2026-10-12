@@ -1,3 +1,5 @@
+import { runInNewContext } from 'node:vm';
+
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -962,6 +964,24 @@ describe("the lines of Claude Code's hook in its settings, and what doctor says 
       [['Edit'], null],
     ];
     for (const [matcher, tools] of cases) expect(started(both(matcher)), JSON.stringify(matcher)).toEqual([tools, tools]);
+  });
+
+  it('cannot tell from a pattern whose reading runs out its budget, and comes back at it', () => {
+    // Five stars, each around the last: testing four short names against it does not end.
+    const slow = '^((((([A-Za-z]*)*)*)*)*)*$X';
+    const held = { hooks: { PreToolUse: [group(slow, HOOK)], PostToolUse: [GUARD] } };
+    // A bound of the test's own around the whole reading. Were the reading's
+    // taken away, this stops it after two seconds and the test fails, where
+    // it would otherwise not come back at all.
+    const found: unknown[] = runInNewContext('read()', { read: () => reported(held) }, { timeout: 2000 });
+    expect(found).toHaveLength(1);
+    expect(found[0]).toMatchObject({
+      state: 'unknown',
+      detail: null,
+      before: null,
+      after: TOOLS,
+      cover: `${W}: which writes Claude Code waits on it before cannot be told here (under PreToolUse it has the matcher ${JSON.stringify(slow)})`,
+    });
   });
 
   it('is waited on before no write where its entry runs in the background, and cannot be told where the entry has an "if"', () => {
