@@ -679,11 +679,12 @@ Code never starts before a write was reported as the guard.
   for more than ten seconds and was stopped. Read as written, one such
   entry beside the hook's line and neither `doctor` nor `init` would come
   back, with no word. So a pattern is made and tested in a context of its
-  own (`node:vm`), the one place a run can be stopped from outside, and is
-  stopped after 100 ms. A reading that runs out its budget is *cannot
-  tell*, as a matcher that is no pattern is: said with the matcher, never
-  fine, a failure under `--strict`, and taken by `init` as a line that is
-  started, beside which it writes none. The budget is of the clock, so a
+  own (`node:vm`), whose run takes a timeout where a test in the
+  process's own context takes none, and is stopped after 100 ms. A
+  reading that runs out its budget is *cannot tell*, as a matcher that is
+  no pattern is: said with the matcher, never fine, a failure under
+  `--strict`, and taken by `init` as a line that is started, beside which
+  it writes none. The budget is of the clock, so a
   machine under load may answer *cannot tell* for a matcher an idle one
   reads. No matcher of a sane size comes near it: `Edit.*`,
   `^(Edit|Write)$`, `mcp__.*__write.*` and an alternation of 6,805

@@ -125,11 +125,11 @@ const PATTERN_BUDGET = 100;
  * one can be written that a test of four short names never finishes:
  * `^((((([A-Za-z]*)*)*)*)*)*$X` ran for more than ten seconds. Tested as
  * written, one such entry and neither doctor nor init would come back, with
- * no word. So it is made and tested in a context of its own, the one place
- * a run can be stopped from outside, and what throws there, a pattern that
- * is none or the stop itself, is a matcher that cannot be told. The shape
- * of a pattern does not say which will: groups in a row backtrack as nested
- * ones do.
+ * no word. So it is made and tested in a context of its own, whose run
+ * takes a timeout where a test in this one takes none, and what throws
+ * there, a pattern that is none or the stop itself, is a matcher that
+ * cannot be told. The shape of a pattern does not say which will: groups in
+ * a row backtrack as nested ones do.
  */
 function patternTools(source: string): readonly string[] | null {
   try {
@@ -169,7 +169,8 @@ function answered(event: string, matcher: unknown, hook: Json): readonly string[
  * the harness's command, nothing is merged in at all: the line is a
  * person's, a second one beside it would run for every write as well, and
  * init rewrites none but the one 0.1 wrote. Without `isHook`, only init's
- * own line is known.
+ * own line is known: the default's `false` and an `undefined` read the same
+ * in `some`, so that mutant is equivalent.
  */
 export function mergeClaudeSettings(current: Json, isHook: (words: readonly string[]) => boolean = () => false): Json | null {
   const hooks = isObject(current['hooks']) ? current['hooks'] : {};
