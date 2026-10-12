@@ -9,6 +9,107 @@ only fixes, reports less or documents, so `^0.7.0` takes only releases that
 cannot turn a run red. The family's policy is
 [spec-core's ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
+## Unreleased
+
+`doctor` and `init` see four more ways a guard is set up and checks
+nothing: a root on the hook's line that is in no work tree, hooks switched
+off by `disableAllHooks`, an entry that is no command, and a plugin that
+settings turn on and the machine does not have. And they name only a tool
+Claude Code has as one whose writes go unchecked.
+
+### Changed
+
+- **`doctor` fails for a hook's line whose root is a directory outside any
+  git work tree.** `hook claude --root <such a directory>` reads a session
+  outside a work tree: the hook checks no write and says nothing, exit 0,
+  as in every release, and `doctor` said of the line that it guards, by
+  its root. It now asks git about the root as the hook does and says the
+  line as a guard that is off: `"hook claude --root /elsewhere" in
+  .claude/settings.json: --root is "/elsewhere", a directory outside any git
+  work tree, which the hook reads as a session outside one, exit 0 and no
+  word, so the guard is off and no write is checked`. `init` says the same
+  of the file (`advise`) and writes nothing into it. The hook answers as it
+  did ([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
+  Upgrading: `doctor` exits 1 for such a line, where it exited 0 while no
+  write was checked: give the line a directory in the work tree, or take
+  `--root` off it for the project Claude Code names.
+- **`doctor` fails where `disableAllHooks` switches the guard off.** With
+  `"disableAllHooks": true` in a settings file, Claude Code's settings
+  reference has it run no hook of the user's, the project's or the local
+  settings and none of a plugin, and `doctor` reported `init`'s entries, or
+  the plugin, as the guard. It now reads the key from the three files as
+  Claude Code merges them, the last that sets it deciding, names the file,
+  and exits 1 where there are guard hooks for the key to switch off; where
+  nothing is wired it is a note. `init` says it of the file that holds the
+  key (`advise`) and writes what it would have written. Hooks of managed
+  settings, and of a plugin managed settings force on, keep running, and
+  neither `doctor` nor `init` reads managed settings or `--settings`.
+  `--format json` has the file as `claudeCode.hooksOff`, `null` where no
+  file switches the hooks off.
+  Upgrading: `doctor` exits 1 in such a tree, where it exited 0 while no
+  hook ran: take the key out, or set it to `false` in a file of higher
+  precedence.
+- **Only an entry Claude Code runs as a command is read as the hook.** An
+  entry of another handler type, `"type": "prompt"`, `"agent"`, `"http"`
+  or `"mcp_tool"`, that held the hook's command was reported as the guard.
+  Such an entry runs no command, so it is no line of the hook: `doctor`
+  reports no guard for it, and `init --write` writes its hooks beside it.
+  An entry with no `"type"`, or with a word the hooks reference does not
+  list, is *cannot tell*: the reference requires the field and says nothing
+  of an entry without it.
+  Upgrading: `doctor --strict` exits 1 for a hook's entry with no
+  `"type"`: give it `"type": "command"`, as `init` and the plugin write it.
+- **`doctor` says whether the plugin that settings turn on is on this
+  machine.** It reported the plugin as the guard, and `init` skipped, on the
+  word of `enabledPlugins` alone. Both now read what Claude Code's plugin
+  loading reference documents of the directories it keeps plugins in
+  (`plugins` in its configuration directory, or
+  `CLAUDE_CODE_PLUGIN_CACHE_DIR`, and each `CLAUDE_CODE_PLUGIN_SEED_DIR`).
+  A version of the plugin in a cache is the plugin on the machine, and
+  nothing more is said. Where the project's `.claude/settings.json` alone
+  turns it on, no version is cached and no marketplace of its name is
+  recorded as fetched or declared in settings, Claude Code fetches none, so
+  the plugin is not the guard: `doctor` says so with what would bring it,
+  and exits 1 where no hook of `init`'s guards instead. Everything else is
+  *cannot tell*, said, and a failure under `--strict` alone: a record that
+  is not there or cannot be read, a marketplace that is there or declared
+  with nothing cached, a `true` in a settings file of your own, an id that
+  names no marketplace. `init` writes no hook on that reading alone: it
+  says what `doctor` says (`advise`), and how to have the hooks in the file
+  instead. `--format json` has `claudeCode.presence`, `null` where no
+  plugin is on, with its `state` (`present`, `absent` or `unknown`) and the
+  reason as `detail`, and `claudeCode.notes`, what is said of the plugin
+  and of `disableAllHooks`
+  ([ADR-0012](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0012-one-way-into-claude-code.md)).
+  Upgrading: `doctor` exits 1 where the project's settings alone turn the
+  plugin on and the machine has neither a version of it nor its
+  marketplace: install the plugin there, or turn it off for the project and
+  run `init --write`. `claudeCode.state` is then `none` or `init`, where
+  it was `plugin` or `both`. `doctor --strict` exits 1 where it cannot
+  tell, as on a machine where Claude Code has recorded no marketplace.
+- **`doctor` and `init` no longer name `MultiEdit` as a tool whose writes
+  go unchecked.** `doctor` says which of the tools that write a file a
+  hook's line is waited on before, and it counted four: `Edit`, `Write`,
+  `MultiEdit` and `NotebookEdit`. So a line under the matcher
+  `Edit|Write|NotebookEdit` was said to leave a write by `MultiEdit`
+  unchecked. No Claude Code the hooks run under has that tool: its tools
+  reference lists `Edit`, `Write` and `NotebookEdit`, and the tool inputs
+  its releases declare hold a `MultiEdit` up to 1.0.128 and none from 2.0.0
+  on, where the hooks need 2.1.139. A line is now read for those three, and
+  one waited on before all of them is said with nothing more, as a line
+  under the matcher `init` writes is. The hook reads the file a `MultiEdit`
+  names as it did, for whatever still sends one, and `init` writes the
+  matcher it wrote
+  ([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
+  Upgrading: in `doctor --format json`, `before` and `after` of each of
+  `claudeCode.lines` hold `Edit`, `Write` and `NotebookEdit` at most, three
+  names for `init`'s own line where they held four, so a script that
+  compared them with the four names compares with three. A line whose
+  matcher lets `MultiEdit` through and none of the three is `unstarted`
+  where it was `guards`: it is no longer one of `init`'s entries, so beside
+  the plugin `doctor` exits 0 where it exited 1 for a double install, and
+  `init --write` writes its hooks beside such a line.
+
 ## 0.16.0
 
 `doctor` and `init` see the rest of Claude Code's hook. A line that names

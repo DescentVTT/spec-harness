@@ -17,8 +17,25 @@
 
 import type { Decision } from './guard.js';
 
-/** The tools whose input names a file they write. */
+/**
+ * The tools whose input names a file they write, by every name a release of
+ * Claude Code has had for one. The hook reads a path from each: a name more
+ * costs nothing, and a Claude Code that still has the tool may send it.
+ */
 export const WRITING_TOOLS: readonly string[] = ['Edit', 'Write', 'MultiEdit', 'NotebookEdit'];
+
+/**
+ * Those of them a Claude Code the harness runs under can call
+ * (`CLAUDE_CODE_MINIMUM`, versions.ts). Its tools reference
+ * (https://code.claude.com/docs/en/tools-reference, read 2026-10-12) has
+ * `Edit`, `Write` and `NotebookEdit` in its table of tools, and no
+ * `MultiEdit`, which its permissions page calls a legacy tool; and the tool
+ * inputs each release declares hold a `MultiEdit` up to 1.0.128 and none
+ * from 2.0.0 on (ADR-0005). So what doctor and init say of the writes a
+ * line is started for names these alone: a tool nobody can call leaves no
+ * write unchecked.
+ */
+export const CALLABLE_TOOLS: readonly string[] = ['Edit', 'Write', 'NotebookEdit'];
 
 const PATH_FIELDS: readonly string[] = ['file_path', 'path', 'notebook_path'];
 

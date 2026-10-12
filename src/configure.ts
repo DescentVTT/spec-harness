@@ -8,10 +8,10 @@
  * nothing to add.
  */
 
-import { isAbsolute } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import { runInNewContext } from 'node:vm';
 
-import { WRITING_TOOLS } from './hooks.js';
+import { CALLABLE_TOOLS } from './hooks.js';
 import { literal } from './literal.js';
 import type { AllowedSigner } from './signers.js';
 import type { HookLine } from './usage.js';
@@ -49,6 +49,14 @@ export const PROJECT_DIR = '${CLAUDE_PROJECT_DIR}';
  */
 export const PROJECT_DIR_OR_HERE = '${CLAUDE_PROJECT_DIR:-.}';
 
+/**
+ * The matcher every release wrote: each name the hook reads a file from
+ * (hooks.ts). `MultiEdit` is one no supported Claude Code has a tool for,
+ * and Claude Code compares a listed name with a tool's exactly, so it starts
+ * the hook for nothing there. It stays, since the hook is asked about a name
+ * only under a matcher that lets the name through, and it reads this one for
+ * whatever still sends it.
+ */
 const HOOK_MATCHER = 'Edit|Write|MultiEdit|NotebookEdit';
 /** The event Claude Code runs before a tool call, the only one of the two where a hook can refuse the call. */
 const BEFORE = 'PreToolUse';
@@ -88,8 +96,9 @@ function upgraded(group: unknown): unknown {
 }
 
 /**
- * The tools, of those that write a file, that a group's matcher has Claude
- * Code start the group's hooks for, by its hooks reference
+ * The tools, of those that write a file and a supported Claude Code can call
+ * (hooks.ts), that a group's matcher has Claude Code start the group's hooks
+ * for, by its hooks reference
  * (https://code.claude.com/docs/en/hooks, Matcher patterns, read
  * 2026-10-12): left out, empty or `*`, every tool; made of letters, digits,
  * `_`, `-`, spaces, `,` and `|` alone, the tools it names, one between each
@@ -99,11 +108,11 @@ function upgraded(group: unknown): unknown {
  * is no pattern, or is a pattern whose reading runs out its budget.
  */
 function matchedTools(matcher: unknown, pattern: PatternReader): readonly string[] | null {
-  if (matcher === undefined || matcher === '' || matcher === '*') return WRITING_TOOLS;
+  if (matcher === undefined || matcher === '' || matcher === '*') return CALLABLE_TOOLS;
   if (typeof matcher !== 'string') return null;
   if (/^[A-Za-z0-9_\- ,|]*$/.test(matcher)) {
     const names = matcher.split(/[|,]/).map((name) => name.trim());
-    return WRITING_TOOLS.filter((tool) => names.includes(tool));
+    return CALLABLE_TOOLS.filter((tool) => names.includes(tool));
   }
   return pattern(matcher);
 }
@@ -122,7 +131,7 @@ const PATTERN_BUDGET = 100;
  * is no pattern, or its reading runs out its budget.
  *
  * The pattern is a line of a settings file, which arrives with a clone, and
- * one can be written that a test of four short names never finishes:
+ * one can be written that a test of a few short names never finishes:
  * `^((((([A-Za-z]*)*)*)*)*)*$X` ran for more than ten seconds. Tested as
  * written, one such entry and neither doctor nor init would come back, with
  * no word. So it is made and tested in a context of its own, whose run
@@ -133,7 +142,7 @@ const PATTERN_BUDGET = 100;
  */
 function patternTools(source: string): readonly string[] | null {
   try {
-    const matched: string[] = runInNewContext('tools.filter((tool) => new RegExp(source).test(tool))', { tools: WRITING_TOOLS, source }, { timeout: PATTERN_BUDGET });
+    const matched: string[] = runInNewContext('tools.filter((tool) => new RegExp(source).test(tool))', { tools: CALLABLE_TOOLS, source }, { timeout: PATTERN_BUDGET });
     return matched;
   } catch {
     return null;
@@ -277,11 +286,34 @@ export interface WrittenHook {
   readonly shell: boolean;
   /** Whether the entry sets `onFailure` to `"block"`. */
   readonly blocks: boolean;
+  /**
+   * What the entry has for `type` where that is not `"command"`, as it is
+   * said of the line: none at all, or a word the reference does not list.
+   * Whether Claude Code runs such an entry cannot be told. `null` for an
+   * entry it runs as a command.
+   */
+  readonly untyped: string | null;
 }
 
+/**
+ * The handler types that are no command, by Claude Code's hooks reference
+ * (https://code.claude.com/docs/en/hooks, Hook handler fields, read
+ * 2026-10-12): an entry of one sends a request, calls a tool of an MCP
+ * server, or asks a model or an agent. It runs no command, the harness's or
+ * any other, whatever else the entry holds.
+ */
+const OTHER_HANDLERS: readonly unknown[] = ['http', 'mcp_tool', 'prompt', 'agent'];
+
+/**
+ * The line of an entry that runs the harness, or `null` for one that does
+ * not. Only an entry Claude Code runs as a command is one: the reference
+ * has `type` as a field every entry must have, with `"command"` for a
+ * command and four other words, and says nothing of an entry with none or
+ * with another word, which is kept, and said as one that cannot be told.
+ */
 function writtenHook(hook: Json): Line | null {
-  const { command, args } = hook;
-  if (typeof command !== 'string') return null;
+  const { command, args, type } = hook;
+  if (typeof command !== 'string' || OTHER_HANDLERS.includes(type)) return null;
   let line: string[];
   // Without arguments the line is a shell's, which splits it at its spaces:
   // at each one here, and what stands between two of them is no word.
@@ -294,7 +326,8 @@ function writtenHook(hook: Json): Line | null {
   const at = line.findIndex((word) => isLauncher(shell ? word.replace(/["']/g, '') : word));
   if (at === -1) return null;
   const words = line.slice(at + 1);
-  return { words, shell: shell && words.some((word) => SHELL_READS.test(word)), blocks: hook['onFailure'] === 'block' };
+  const untyped = type === 'command' ? null : type === undefined ? 'no "type"' : `the "type" ${JSON.stringify(type)}`;
+  return { words, shell: shell && words.some((word) => SHELL_READS.test(word)), blocks: hook['onFailure'] === 'block', untyped };
 }
 
 /**
@@ -305,10 +338,10 @@ function writtenHook(hook: Json): Line | null {
  * alone.
  */
 export function writtenHooks(settings: unknown): WrittenHook[] {
-  const found: { events: string[]; words: readonly string[]; shell: boolean; blocks: boolean }[] = [];
-  for (const { event, words, shell, blocks } of harnessEntries(settings)) {
-    const same = found.find((other) => sameLine(other, { words, shell, blocks }));
-    if (same === undefined) found.push({ events: [event], words, shell, blocks });
+  const found: { events: string[]; words: readonly string[]; shell: boolean; blocks: boolean; untyped: string | null }[] = [];
+  for (const { event, words, shell, blocks, untyped } of harnessEntries(settings)) {
+    const same = found.find((other) => sameLine(other, { words, shell, blocks, untyped }));
+    if (same === undefined) found.push({ events: [event], words, shell, blocks, untyped });
     else if (!same.events.includes(event)) same.events.push(event);
   }
   return found;
@@ -317,7 +350,7 @@ export function writtenHooks(settings: unknown): WrittenHook[] {
 type Line = Omit<WrittenHook, 'events'>;
 
 function sameLine(one: Line, other: Line): boolean {
-  return one.shell === other.shell && one.blocks === other.blocks && sameStrings(one.words, other.words);
+  return one.shell === other.shell && one.blocks === other.blocks && one.untyped === other.untyped && sameStrings(one.words, other.words);
 }
 
 /** An entry that runs the harness: its line, where it stands, and what decides whether Claude Code starts it there. */
@@ -369,17 +402,19 @@ export interface HookReport {
   readonly line: readonly string[];
   /**
    * `guards`: Claude Code waits on the hook before a write, and the hook
-   * checks it. `off`: the hook checks no write, for a line it cannot read or
-   * a root that is no directory. `held`: the hook holds every write, for a
+   * checks it. `off`: the hook checks no write, for a line it cannot read, a
+   * root that is no directory, or a root that is a directory outside any
+   * work tree. `held`: the hook holds every write, for a
    * brief the line names that is not one. `unstarted`: Claude Code waits on
    * the line before no write, so it is not the guard. `unknown`: what the
-   * hook is handed, or which writes it is started for, cannot be told here.
+   * hook is handed, which writes it is started for, or whether Claude Code
+   * runs the entry at all, cannot be told here.
    */
   readonly state: 'guards' | 'off' | 'held' | 'unstarted' | 'unknown';
   readonly onFailure: 'block' | null;
   /** What there is to say of what the hook does with the line, or `null`. */
   readonly detail: string | null;
-  /** The writing tools Claude Code waits on the line before a write by, where the hook can refuse it; `null` where that cannot be told. */
+  /** The writing tools Claude Code waits on the line before a write by, where the hook can refuse it, of those a supported Claude Code can call (hooks.ts); `null` where that cannot be told. */
   readonly before: readonly string[] | null;
   /** The writing tools Claude Code starts the line after a write by, where the hook can warn of it; `null` where that cannot be told. */
   readonly after: readonly string[] | null;
@@ -412,8 +447,8 @@ function named(names: readonly string[]): string {
 /** The writing tools a line's entries under `event` are waited on for between them, or `null` where an entry that cannot be told might add one. */
 function toolsUnder(event: string, entries: readonly HarnessEntry[], pattern: PatternReader): readonly string[] | null {
   const read = entries.filter((entry) => entry.event === event).map((entry) => toolsOf(entry, pattern));
-  const sure = WRITING_TOOLS.filter((tool) => read.some((tools) => tools !== null && tools.includes(tool)));
-  return sure.length < WRITING_TOOLS.length && read.some((tools) => tools === null) ? null : sure;
+  const sure = CALLABLE_TOOLS.filter((tool) => read.some((tools) => tools !== null && tools.includes(tool)));
+  return sure.length < CALLABLE_TOOLS.length && read.some((tools) => tools === null) ? null : sure;
 }
 
 /** What a line's entries under `event` hold that decides when Claude Code starts them, as written. */
@@ -433,10 +468,13 @@ function entriesUnder(event: string, entries: readonly HarnessEntry[]): string {
  * What is said of the writes Claude Code starts a line for, by the event and
  * the matcher of each entry that holds it; `null` where it is waited on
  * before every tool that writes and started after each, as init writes it.
+ * A tool is one a supported Claude Code can call: `MultiEdit`, which the
+ * hook still reads a path from, is named as unchecked for no line, since no
+ * such Claude Code has it to call (hooks.ts).
  */
 function describeCover(where: string, before: readonly string[] | null, after: readonly string[] | null, entries: readonly HarnessEntry[]): string | null {
   const parts: string[] = [];
-  const left = (tools: readonly string[]): string[] => WRITING_TOOLS.filter((tool) => !tools.includes(tool));
+  const left = (tools: readonly string[]): string[] => CALLABLE_TOOLS.filter((tool) => !tools.includes(tool));
   if (before === null) parts.push(`which writes Claude Code waits on it before cannot be told here (${entriesUnder(BEFORE, entries)})`);
   else if (before.length === 0) parts.push(`Claude Code waits on it before no write, so it is not the guard and refuses none (${entriesUnder(BEFORE, entries)})`);
   else if (left(before).length > 0) {
@@ -496,17 +534,30 @@ export function reportHooks(
       const before = toolsUnder(BEFORE, mine, pattern);
       const after = toolsUnder(AFTER, mine, pattern);
       const written = { file, events: hook.events, line: hook.words, onFailure: hook.blocks ? 'block' : null, before, after, cover: describeCover(where, before, after, mine) } satisfies Partial<HookReport>;
+      const note = describeOnFailure(where, hook.blocks, false);
+      if (hook.untyped !== null) {
+        const detail = `${where} stands on an entry with ${hook.untyped}, where Claude Code's hooks reference has "type": "command" on an entry it runs as a command, so whether Claude Code runs it cannot be told here: give the entry "type": "command"`;
+        return [{ ...written, state: 'unknown', detail, note }];
+      }
       if (hook.shell) {
         const detail = `${where} is a shell's to read before the hook is handed it, so what the hook does with it cannot be told here: written with "args", each word reaches the hook as it stands`;
-        return [{ ...written, state: 'unknown', detail, note: describeOnFailure(where, hook.blocks, false) }];
+        return [{ ...written, state: 'unknown', detail, note }];
       }
+      // What the hook would do with a line it is never asked on before a write is not what guards.
+      const unstarted: HookReport = { ...written, state: 'unstarted', detail: null, note };
+      const waited = before === null || before.length > 0;
       if (handed.state === 'off') {
         const detail = `${where}: ${handed.fault.wrong}, so the guard is off and no write is checked; ${handed.fault.mend}`;
-        return [{ ...written, state: 'off', detail, note: describeOnFailure(where, hook.blocks, true) }];
+        // A fault the hook says, it says with exit 1 after every write it is
+        // started for as well, so it is said wherever the line stands.
+        if (handed.silent !== true) return [{ ...written, state: 'off', detail, note: describeOnFailure(where, hook.blocks, true) }];
+        // A root outside any work tree, of which the hook says nothing: no
+        // run of it fails there, so onFailure holds no write for it, and
+        // where the line is waited on before no write there is none it
+        // leaves unchecked.
+        return [waited ? { ...written, state: 'off', detail, note } : unstarted];
       }
-      const note = describeOnFailure(where, hook.blocks, false);
-      // What the hook would do with a line it is never asked on before a write is not what guards.
-      if (before !== null && before.length === 0) return [{ ...written, state: 'unstarted', detail: null, note }];
+      if (!waited) return [unstarted];
       if (handed.state === 'held') {
         const detail = `${where}: ${handed.wrong}, so the hook holds every write until the line is mended: name a brief spec-brief lists, or take --brief off the line`;
         return [{ ...written, state: 'held', detail, note }];
@@ -561,6 +612,141 @@ export function enabledPlugin(sources: readonly ClaudeSettings[]): EnabledPlugin
   return [...decided.values()].find((entry) => entry !== null) ?? null;
 }
 
+/**
+ * The settings file whose `disableAllHooks` turns Claude Code's hooks off,
+ * or `null` where none does.
+ *
+ * By its settings reference
+ * (https://code.claude.com/docs/en/settings-reference, disableAllHooks, read
+ * 2026-10-12) the key is a Boolean any settings file may hold, and `true`
+ * turns hooks off. Set outside managed settings, it turns off the hooks of
+ * the user's, the project's and the local settings and of plugins, and the
+ * hooks of managed settings, of the Agent SDK and of a plugin that managed
+ * settings force on keep running. By its hooks reference (Disable or remove
+ * hooks) the value that counts is the one left after settings precedence:
+ * of the files given, lowest precedence first, the last that sets a Boolean
+ * decides. A value that is no Boolean is passed over, as the key left out.
+ */
+export function hooksDisabled(sources: readonly ClaudeSettings[]): string | null {
+  let file: string | null = null;
+  for (const source of sources) {
+    const value = field(source.settings, 'disableAllHooks');
+    if (typeof value === 'boolean') file = value ? source.file : null;
+  }
+  return file;
+}
+
+/** The project's settings file for Claude Code, as it is named among the sources. */
+export const PROJECT_SETTINGS = '.claude/settings.json';
+
+/** Where Claude Code records the marketplaces it has fetched, in a directory it keeps plugins in. */
+export const MARKETPLACE_REGISTRY = 'known_marketplaces.json';
+
+/** Where it records the marketplaces hosted on claude.ai, in a shape its reference does not give. */
+export const HOSTED_REGISTRY = 'known_marketplaces_claudeai.json';
+
+/**
+ * The origins in a plugin's id that are no marketplace, by Claude Code's
+ * plugin loading reference (https://code.claude.com/docs/en/plugins/loading,
+ * Find where a plugin came from, read 2026-10-12): a plugin started from a
+ * directory or an archive, one saved under a skills directory, and one
+ * synced from a claude.ai account. None has a marketplace, and the first
+ * and the last no record on disk that the reference describes.
+ */
+const OTHER_ORIGINS: readonly string[] = ['inline', 'skills-dir', 'synced'];
+
+/** A name a directory can be looked up by: no separator, and no way out of the directory it is looked up in. */
+const DIRECTORY_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+/**
+ * The marketplace a plugin's id names, where it names one whose directory
+ * can be looked up: `null` for an origin that is no marketplace, and for
+ * text that names no directory.
+ */
+export function pluginMarketplace(id: string): string | null {
+  const origin = id.slice(id.indexOf('@') + 1);
+  return OTHER_ORIGINS.includes(origin) || !DIRECTORY_NAME.test(origin) ? null : origin;
+}
+
+/** What one of the directories Claude Code keeps plugins in holds of a plugin and its marketplace. */
+export interface PluginsRoot {
+  readonly directory: string;
+  /** Whether its cache holds a version of the plugin that no `.orphaned_at` marks as left behind. */
+  readonly cached: boolean;
+  /** Its `known_marketplaces.json` as read: `null` where there is none. */
+  readonly registry: Json | null | 'unreadable';
+  /** Whether a record of marketplaces hosted on claude.ai stands beside it. */
+  readonly hosted: boolean;
+}
+
+/**
+ * Whether this machine has what Claude Code loads a plugin from. `detail`
+ * is why, where the plugin is not simply there.
+ */
+export type PluginPresence = { readonly state: 'present'; readonly detail: null } | { readonly state: 'absent' | 'unknown'; readonly detail: string };
+
+function turnsOn(settings: unknown, id: string): boolean {
+  const plugins = field(settings, 'enabledPlugins');
+  return isObject(plugins) && plugins[id] === true;
+}
+
+function holds(record: unknown, name: string): boolean {
+  return isObject(record) && Object.hasOwn(record, name);
+}
+
+/**
+ * Whether the plugin that settings turn on is on this machine, by Claude
+ * Code's plugin loading reference
+ * (https://code.claude.com/docs/en/plugins/loading, read 2026-10-12), from
+ * the settings files and from what the directories it keeps plugins in
+ * hold: its plugins root, and each seed directory.
+ *
+ * `present`: a version of it is in a cache, where the reference has one
+ * directory for each installed version of a marketplace plugin (Find
+ * plugins on disk).
+ *
+ * `absent` is said only where the reference leaves the plugin no way to
+ * load (Enabled in project settings but not installed): its only `true` is
+ * in the project's `.claude/settings.json`, for which Claude Code fetches
+ * no plugin a machine lacks, and neither of the page's two exceptions is
+ * met, a marketplace that lists it by a relative path, since no marketplace
+ * of that name is recorded as fetched or declared in settings, and a seed
+ * directory that holds it.
+ *
+ * Everything else is `unknown`: an origin that is no marketplace, a record
+ * that is not there or cannot be read, a marketplace that is there or is
+ * declared, whose own list is not read here, and a `true` in a settings
+ * file of the person's own, for which Claude Code fetches.
+ */
+export function pluginPresence(plugin: EnabledPlugin, sources: readonly ClaudeSettings[], roots: readonly PluginsRoot[]): PluginPresence {
+  const untold = (detail: string): PluginPresence => ({ state: 'unknown', detail });
+  const marketplace = pluginMarketplace(plugin.id);
+  if (marketplace === null) return untold(`${plugin.id} names no marketplace whose plugins are kept in a cache: a plugin from --plugin-dir, a skills directory or a claude.ai account comes another way`);
+  if (roots.length === 0) return untold('where Claude Code keeps its plugins is not known here: none of CLAUDE_CODE_PLUGIN_CACHE_DIR, CLAUDE_CONFIG_DIR and a home directory is set');
+  if (roots.some((root) => root.cached)) return { state: 'present', detail: null };
+  const unread = roots.find((root) => !isObject(root.registry));
+  if (unread !== undefined) {
+    const wrong = unread.registry === null ? 'is not there' : 'cannot be read as JSON';
+    return untold(`${join(unread.directory, MARKETPLACE_REGISTRY)}, where Claude Code records the marketplaces it has fetched, ${wrong}`);
+  }
+  const fetched = roots.find((root) => holds(root.registry, marketplace));
+  if (fetched !== undefined) {
+    return untold(
+      `its marketplace, ${marketplace}, is on this machine (${join(fetched.directory, MARKETPLACE_REGISTRY)}) and no version of the plugin is in the cache: Claude Code loads a plugin that its marketplace lists by a relative path from the marketplace itself, and the marketplace's list is not read here`,
+    );
+  }
+  const declaring = sources.find(({ settings }) => holds(field(settings, 'extraKnownMarketplaces'), marketplace));
+  if (declaring !== undefined) return untold(`${declaring.file} declares its marketplace, ${marketplace}, under extraKnownMarketplaces, which Claude Code fetches after a session has started: nothing of it is on this machine now`);
+  const hosted = roots.find((root) => root.hosted);
+  if (hosted !== undefined) return untold(`${join(hosted.directory, HOSTED_REGISTRY)} records the marketplaces hosted on claude.ai, in a shape Claude Code's reference does not give, so whether ${marketplace} is one cannot be read`);
+  const own = sources.filter(({ file, settings }) => file !== PROJECT_SETTINGS && turnsOn(settings, plugin.id)).map(({ file }) => file);
+  if (own.length > 0) return untold(`${named(own)} ${own.length === 1 ? 'turns' : 'turn'} it on, and Claude Code fetches a plugin that settings of the person's own turn on: neither a version of it nor its marketplace, ${marketplace}, is on this machine now`);
+  return {
+    state: 'absent',
+    detail: `${PROJECT_SETTINGS} alone turns it on, and Claude Code fetches no plugin that a project's settings alone turn on, unless its marketplace lists it by a relative path or a seed directory holds it: no marketplace ${marketplace} is recorded as fetched or declared in settings, and no version of the plugin is in a cache (${roots.map((root) => join(root.directory, 'cache')).join(', ')})`,
+  };
+}
+
 /** Where the plugin is on, as a person would look it up. */
 function isOn(plugin: EnabledPlugin): string {
   return `the spec-harness plugin is on (${plugin.id} in ${plugin.file})`;
@@ -572,9 +758,32 @@ function turnOff(plugin: EnabledPlugin): string {
 }
 
 const PARTS = literal({
-  hooks: { brings: 'the guard hooks', twice: 'every write is guarded twice', skipped: 'init writes none', entry: "spec-harness's hooks", them: 'them' },
-  server: { brings: 'the server', twice: 'the server is registered twice', skipped: 'init registers none', entry: 'the spec-harness server', them: 'it' },
+  hooks: { brings: 'the guard hooks', twice: 'every write is guarded twice', skipped: 'init writes none', entry: "spec-harness's hooks", them: 'them', none: 'no hook' },
+  server: { brings: 'the server', twice: 'the server is registered twice', skipped: 'init registers none', entry: 'the spec-harness server', them: 'it', none: 'no server' },
 });
+
+/** How to have a plugin that is not on this machine brought to it, in the commands Claude Code's plugin pages give. */
+function bring(plugin: EnabledPlugin): string {
+  return `install it here, with claude plugin install ${plugin.id} once its marketplace is added`;
+}
+
+/** That the plugin settings turn on is not on this machine, and why. */
+function isAbsent(plugin: EnabledPlugin, detail: string, brought: string): string {
+  return `${isOn(plugin)} and is not on this machine, so it brings ${brought} here: ${detail}`;
+}
+
+/**
+ * What init says of a Claude Code file where the plugin that settings turn
+ * on is not on this machine. It writes nothing on that reading alone: a
+ * plugin that is there after all would bring the same `part` a second time.
+ * A file that holds init's entry already is `present`.
+ */
+export function describeAbsent(plugin: EnabledPlugin, detail: string, part: 'hooks' | 'server', present: boolean): string {
+  const words = PARTS[part];
+  const absent = isAbsent(plugin, detail, words.none);
+  if (present) return `${absent}. This file holds ${words.entry}; with the plugin installed as well, ${words.twice}: ${turnOff(plugin)}`;
+  return `${absent}. On that reading alone ${words.skipped}, since with a plugin that is there after all ${words.twice}: ${bring(plugin)}, or to have ${words.them} here instead, ${turnOff(plugin)} and run init again`;
+}
 
 /**
  * What init says of a Claude Code file it leaves alone because the plugin is
@@ -596,6 +805,10 @@ export function describeSkipped(plugin: EnabledPlugin, part: 'hooks' | 'server',
 /** How Claude Code is wired to the harness: the plugin, init's entries, both or neither. */
 export interface ClaudeCodeWiring {
   readonly plugin: EnabledPlugin | null;
+  /** Whether this machine has what Claude Code loads that plugin from; `null` where no settings file turns one on. */
+  readonly presence: PluginPresence | null;
+  /** The settings file whose `disableAllHooks` turns the hooks off, or `null`. */
+  readonly hooksOff: string | null;
   /** The settings files that hold the guard hooks: a line of the hook that Claude Code starts for a write, before it or after. */
   readonly hooks: readonly string[];
   /** Each line of the hook in the settings files, with what the hook does with it and the writes it is started for. */
@@ -606,21 +819,77 @@ export interface ClaudeCodeWiring {
 
 export type WiringState = 'plugin' | 'init' | 'both' | 'none';
 
-/** Which of the four the wiring is. `both` is a double install, and doctor fails it; either of init's entries counts. */
-export function wiringState(wiring: Pick<ClaudeCodeWiring, 'plugin' | 'hooks' | 'server'>): WiringState {
+/** The wiring as its descriptions read it: what a caller knows of the plugin's presence, which one that does not ask leaves out. */
+type Wired = Pick<ClaudeCodeWiring, 'plugin' | 'hooks' | 'server'> & { readonly presence?: PluginPresence | null };
+
+/** Why the plugin settings turn on is not on this machine, or `null` where it is, may be, or none is on. */
+function absence(wiring: Wired): string | null {
+  return wiring.presence?.state === 'absent' ? wiring.presence.detail : null;
+}
+
+/**
+ * Which of the four the wiring is. `both` is a double install, and doctor
+ * fails it; either of init's entries counts. A plugin that is not on this
+ * machine brings nothing to it, and is not counted.
+ */
+export function wiringState(wiring: Wired): WiringState {
   const init = wiring.hooks.length > 0 || wiring.server;
-  if (wiring.plugin === null) return init ? 'init' : 'none';
+  if (wiring.plugin === null || absence(wiring) !== null) return init ? 'init' : 'none';
   return init ? 'both' : 'plugin';
 }
 
+/**
+ * Whether hooks that would guard are switched off: `disableAllHooks` in a
+ * settings file, where a settings file holds the guard hooks or a plugin
+ * that may be on this machine brings them. A guard someone set up, which
+ * checks no write.
+ */
+export function guardSwitchedOff(wiring: Wired & Pick<ClaudeCodeWiring, 'hooksOff'>): boolean {
+  return wiring.hooksOff !== null && (wiring.hooks.length > 0 || (wiring.plugin !== null && absence(wiring) === null));
+}
+
+/**
+ * What doctor and init say of `disableAllHooks` in `file`. `guarded` is
+ * whether there are guard hooks for it to switch off; without any it is a
+ * note on what the key would do to them.
+ */
+export function describeHooksOff(file: string, guarded: boolean): string {
+  const off = `"disableAllHooks" is true in ${file}, so Claude Code runs no hook of the user's, the project's or the local settings, and none of a plugin`;
+  if (!guarded) return `note: ${off}: the hooks init writes, and those the plugin brings, would not run while it stands`;
+  return `${off}: no write is guarded. Take the key out of ${file}, or set it to false, to have the guard back. Hooks of managed settings, and of a plugin managed settings force on, keep running, and no managed settings are read here`;
+}
+
+/**
+ * What doctor adds of the plugin settings turn on, where it is not simply on
+ * this machine: that it cannot be told, which is never fine, or that it is
+ * not, beside entries of init's. `null` where there is no more to say: no
+ * plugin, one that is there, and one that is not where nothing else is
+ * wired, which the wiring's own sentence says.
+ */
+export function describePresence(wiring: Wired): string | null {
+  const { plugin, presence } = wiring;
+  if (plugin === null || presence === undefined || presence === null || presence.state === 'present') return null;
+  if (presence.state === 'unknown') return `whether ${plugin.id} is on this machine cannot be told: ${presence.detail}. A plugin that is not there brings no hook: Claude Code's /plugin lists it, and its errors`;
+  if (wiring.hooks.length > 0) return `${isAbsent(plugin, presence.detail, 'no hook')}. With the plugin installed as well, ${PARTS.hooks.twice}: ${turnOff(plugin)}`;
+  return wiring.server ? unguarded(plugin, presence.detail) : null;
+}
+
+/** That the plugin settings turn on is not on this machine and no hook of init's stands in for it, with the two ways to a guard. */
+function unguarded(plugin: EnabledPlugin, detail: string): string {
+  return `${isAbsent(plugin, detail, 'no hook')}, and Claude Code guards no write. To have the guard, ${bring(plugin)}, or ${turnOff(plugin)} and run spec-harness init --write`;
+}
+
 /** What `doctor` says of the wiring, and what to do when it is doubled or missing. */
-export function describeClaudeCode(wiring: Pick<ClaudeCodeWiring, 'plugin' | 'hooks' | 'server'>): string {
+export function describeClaudeCode(wiring: Wired): string {
   const { plugin } = wiring;
   const entries = [...wiring.hooks.map((file) => `the guard hooks in ${file}`), ...(wiring.server ? ['the server in .mcp.json'] : [])].join(', ');
+  const own = `init's entries: ${entries}`;
   if (plugin === null) {
     if (entries === '') return 'neither the spec-harness plugin nor the hooks init writes, so Claude Code guards no write: run spec-harness init --write, or install the plugin';
-    return `init's entries: ${entries}`;
+    return own;
   }
+  const absent = absence(wiring);
+  if (absent !== null) return entries === '' ? unguarded(plugin, absent) : own;
   if (entries === '') return `${isOn(plugin)} and brings the guard hooks and the server`;
   const twice = [...(wiring.hooks.length > 0 ? [PARTS.hooks.twice] : []), ...(wiring.server ? [PARTS.server.twice] : [])].join(' and ');
   return `${isOn(plugin)}, beside ${entries}: ${twice}. Keep one: take spec-harness's entries out of those files, or ${turnOff(plugin)}`;

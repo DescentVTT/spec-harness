@@ -249,7 +249,7 @@ describe('a matcher that is a pattern', () => {
     const doctor = await cli(['doctor', '--format', 'json'], repo.root, { env });
     expect(parsed<{ claudeCode: { lines: { state: string; before: string[] }[] } }>(doctor).claudeCode.lines.map((said) => [said.state, said.before])).toEqual([
       ['unstarted', []],
-      ['guards', ['Edit', 'MultiEdit', 'NotebookEdit']],
+      ['guards', ['Edit', 'NotebookEdit']],
     ]);
     expect(seen.readings).toEqual([idle, some]);
     seen.readings.length = 0;

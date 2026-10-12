@@ -19,9 +19,15 @@ import {
   enabledPlugin,
   exportedFile,
   handedLines,
+  hooksDisabled,
+  HOSTED_REGISTRY,
   isStarted,
   loadsPlugin,
+  MARKETPLACE_REGISTRY,
   patternReader,
+  pluginMarketplace,
+  pluginPresence,
+  PROJECT_SETTINGS,
   registersServer,
   reportHooks,
   SPEC_BRIEF_CONFIGS,
@@ -29,12 +35,13 @@ import {
   type ClaudeCodeWiring,
   type ClaudeSettings,
   type PatternReader,
+  type PluginsRoot,
   type PluginState,
 } from './configure.js';
 import { readRules, renderContext, type CitedDocument, type ContextPacket, type Rules } from './context.js';
 import type { DocumentReader } from './document.js';
 import { isDirectory, readJsonObject, readText, repositoryPath, stateDirectory, writeAtomic } from './fs.js';
-import { blameLine, changes, isUncommitted, mergeBase, remoteDefault, revision, show, verifyCommit } from './git.js';
+import { blameLine, changes, isUncommitted, mergeBase, remoteDefault, revision, show, verifyCommit, workTreeRoot } from './git.js';
 import { decide, type Decision, type VerifiedRuling } from './guard.js';
 import { diffManifest, ecosystemOf, readManifestNames, type DependencyChange, type InstallScriptChange } from './manifests.js';
 import {
@@ -51,7 +58,7 @@ import type { BriefRow, Finding } from './types.js';
 import { compileGlob, type LiteralReading } from './vendor/spec-core/pattern/index.js';
 import { dirname, isRelativeReference, resolveInside, splitReference } from './vendor/spec-core/path/index.js';
 import { SiblingError } from './siblings.js';
-import { claudeHookLine, emptyValue, heldHookLine, isBlank, type HookLine } from './usage.js';
+import { claudeHookLine, emptyValue, heldHookLine, isBlank, outsideHookLine, type HookLine } from './usage.js';
 import { activeBrief, describeActive, namedId, openWorkspace, parseOptions, UsageError, type CliIO, type Options, type Workspace } from './workspace.js';
 
 /* -------------------------------------------------------------------- base */
@@ -369,6 +376,52 @@ export async function specBriefPlugin(root: string): Promise<PluginState> {
   return { kind: loadsPlugin(config, pluginFile(root)) ? 'loaded' : 'not-loaded', file };
 }
 
+/** Claude Code's configuration directory, where it is known: `CLAUDE_CONFIG_DIR`, otherwise `.claude` under the home directory it uses. */
+function claudeConfigDirectory(env: CliIO['env'], platform: NodeJS.Platform): string | undefined {
+  const home = (platform === 'win32' ? env['USERPROFILE'] : env['HOME']) || undefined;
+  return env['CLAUDE_CONFIG_DIR'] || (home === undefined ? undefined : join(home, '.claude'));
+}
+
+/**
+ * The directories Claude Code keeps plugins in, by its documentation
+ * (https://code.claude.com/docs/en/env-vars, read 2026-10-12): the plugins
+ * root, which is `CLAUDE_CODE_PLUGIN_CACHE_DIR` when that is set and
+ * `plugins` in the configuration directory otherwise, and after it each
+ * seed directory `CLAUDE_CODE_PLUGIN_SEED_DIR` names, separated by `;` on
+ * Windows and `:` elsewhere. A seed has the layout of the root, by its page
+ * on plugins for an organization
+ * (https://code.claude.com/docs/en/plugins/org, Seed containers and CI,
+ * read the same day). Read from the environment this runs in, as the
+ * settings files are.
+ */
+export function pluginDirectories(env: CliIO['env'], platform: NodeJS.Platform = process.platform): string[] {
+  const configDir = claudeConfigDirectory(env, platform);
+  const plugins = env['CLAUDE_CODE_PLUGIN_CACHE_DIR'] || (configDir === undefined ? undefined : join(configDir, 'plugins'));
+  const seeds = (env['CLAUDE_CODE_PLUGIN_SEED_DIR'] ?? '').split(platform === 'win32' ? ';' : ':').filter((seed) => seed !== '');
+  return [...(plugins === undefined ? [] : [plugins]), ...seeds];
+}
+
+/**
+ * What one of those directories holds of this package's plugin as
+ * `marketplace` lists it: whether its cache has a version of it, one
+ * directory each under the marketplace's and the plugin's names, that no
+ * `.orphaned_at` marks as left behind by an update or an uninstall; the
+ * record of marketplaces fetched; and whether a record of marketplaces
+ * hosted on claude.ai stands beside it (the plugin loading reference, Find
+ * plugins on disk, ADR-0012). Nothing else there is read.
+ */
+async function pluginsRoot(directory: string, marketplace: string): Promise<PluginsRoot> {
+  const versions = join(directory, 'cache', marketplace, 'spec-harness');
+  let cached = false;
+  try {
+    const entries = await readdir(versions, { withFileTypes: true });
+    cached = entries.some((entry) => entry.isDirectory() && !existsSync(join(versions, entry.name, '.orphaned_at')));
+  } catch {
+    // No directory for the plugin in this cache: it holds no version of it.
+  }
+  return { directory, cached, registry: await readJsonObject(join(directory, MARKETPLACE_REGISTRY)), hosted: existsSync(join(directory, HOSTED_REGISTRY)) };
+}
+
 /**
  * Claude Code's settings files that can turn a plugin on or hold a hook,
  * lowest precedence first: the user's, the project's, and the person's own
@@ -378,12 +431,11 @@ export async function specBriefPlugin(root: string): Promise<PluginState> {
  * Managed settings and `--settings` are not files a project can see.
  */
 export function claudeSettingsFiles(root: string, env: CliIO['env'], platform: NodeJS.Platform = process.platform): { file: string; path: string }[] {
-  const home = (platform === 'win32' ? env['USERPROFILE'] : env['HOME']) || undefined;
-  const configDir = env['CLAUDE_CONFIG_DIR'] || (home === undefined ? undefined : join(home, '.claude'));
+  const configDir = claudeConfigDirectory(env, platform);
   const user = configDir === undefined ? null : join(configDir, 'settings.json');
   return [
     ...(user === null ? [] : [{ file: user, path: user }]),
-    { file: '.claude/settings.json', path: join(root, '.claude', 'settings.json') },
+    { file: PROJECT_SETTINGS, path: join(root, '.claude', 'settings.json') },
     { file: '.claude/settings.local.json', path: join(root, '.claude', 'settings.local.json') },
   ];
 }
@@ -404,7 +456,8 @@ export async function claudeSettings(root: string, env: CliIO['env']): Promise<C
  * a relative one is read from there. A brief on it is asked of spec-brief, as
  * the hook asks. The plugin's own hooks are not read: they are files of a
  * release, in a directory Claude Code keeps, and every release wrote the
- * hook alone on their line, under the matcher init writes (ADR-0012).
+ * hook alone on their line, under the matcher init writes (ADR-0012). What
+ * is read of that directory is whether the plugin is in it at all.
  *
  * `init` reads the wiring through this too, so that it and `doctor` say
  * the same of every tree, and hands it the reader it reads the matchers of
@@ -417,8 +470,17 @@ export async function claudeCodeWiring(root: string, io: CliIO, pattern: Pattern
   const read = new Map<string, HookLine | null>();
   for (const words of handedLines(sources, root)) read.set(JSON.stringify(words), await hookLineHere(words, root, io));
   const lines = reportHooks(sources, root, (words) => read.get(JSON.stringify(words))!, pattern);
+  const plugin = enabledPlugin(sources);
+  // An id that names no marketplace has no directory to look in, and is said
+  // as one that cannot be told whatever is on disk: pluginPresence answers
+  // for it before it reads a directory, so what stands here for none is
+  // equivalent to its mutant.
+  const marketplace = plugin === null ? null : pluginMarketplace(plugin.id);
+  const roots = marketplace === null ? [] : await Promise.all(pluginDirectories(io.env).map((directory) => pluginsRoot(directory, marketplace)));
   return {
-    plugin: enabledPlugin(sources),
+    plugin,
+    presence: plugin === null ? null : pluginPresence(plugin, sources, roots),
+    hooksOff: hooksDisabled(sources),
     // A line Claude Code starts for no write, before one or after, is in no
     // one's way: it is said, and the file is not counted for it.
     hooks: sources.map(({ file }) => file).filter((file) => lines.some((line) => line.file === file && (isStarted(line.before) || isStarted(line.after)))),
@@ -429,26 +491,25 @@ export async function claudeCodeWiring(root: string, io: CliIO, pattern: Pattern
 
 /**
  * What the hook does with the words a session started at `root` hands it:
- * its own reading of the line (usage.ts), and one step past it, where the
- * line guards and names a brief. The hook opens the work tree its root is
- * in, asks spec-brief there which brief the name is, and holds every write
- * under a name that is none (ADR-0004). So this asks the same, of the same
- * work tree.
+ * its own reading of the line (usage.ts), and two steps past it, where the
+ * line guards. The hook opens the work tree its root is in. Where the root
+ * is a directory in none, it reads a session outside a work tree, checks no
+ * write and says nothing (ADR-0005): git is asked here as the hook asks it,
+ * and the line is one under which the guard is off. Where the line names a
+ * brief, the hook asks spec-brief in that work tree which brief the name
+ * is, and holds every write under a name that is none (ADR-0004). So this
+ * asks the same, of the same work tree.
  */
 async function hookLineHere(words: readonly string[], root: string, io: CliIO): Promise<HookLine | null> {
   const line = claudeHookLine(words, parseOptions, root, (path) => isDirectory(resolve(root, path)));
-  // Only a line that guards names a brief, so the check of its state is the
-  // compiler's, and its mutant is equivalent.
-  if (line === null || line.state !== 'guards' || line.brief === undefined) return line;
-  let workspace: Workspace;
-  try {
-    workspace = await openWorkspace({ root: line.root === undefined ? root : resolve(root, line.root) }, io);
-  } catch (error) {
-    // A root outside a work tree, where the hook reads no brief and checks
-    // no write: said of the line as it was, by its root (ADR-0005).
-    if (!(error instanceof UsageError)) throw error;
-    return line;
-  }
+  // Only a line that guards gives a root to open or names a brief, so the
+  // check of its state is the compiler's, and its mutant is equivalent.
+  if (line === null || line.state !== 'guards') return line;
+  // With no root on its line the hook opens the project, which is the work
+  // tree this runs in: git is asked only about a root the line gives.
+  if (line.root !== undefined && (await workTreeRoot(resolve(root, line.root))) === null) return outsideHookLine(line.root);
+  if (line.brief === undefined) return line;
+  const workspace = await openWorkspace({ root: line.root === undefined ? root : resolve(root, line.root) }, io);
   const { problem } = await diagnoseBrief(workspace, { brief: line.brief }, io.env);
   return problem === null ? line : heldHookLine(problem);
 }

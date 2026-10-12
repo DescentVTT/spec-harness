@@ -21,7 +21,7 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { GIT_HOOK_LINE, GUARD_HOOK, mcpServer, mergeClaudeSettings, PRE_COMMIT, PROJECT_DIR, PROJECT_DIR_OR_HERE, reportHooks } from '../../src/configure.js';
-import { WRITING_TOOLS } from '../../src/hooks.js';
+import { CALLABLE_TOOLS, WRITING_TOOLS } from '../../src/hooks.js';
 import { claudeHookLine, refusal } from '../../src/usage.js';
 import { parseOptions } from '../../src/workspace.js';
 import { brief, BRIEF_FILE, cleanup, cli, parsed, repository, ROOT, temp, type Repository } from './helpers.js';
@@ -412,8 +412,8 @@ describe("doctor, of the hook's line in Claude Code's settings", () => {
     state: 'guards',
     onFailure: null,
     detail: null,
-    before: WRITING_TOOLS,
-    after: WRITING_TOOLS,
+    before: CALLABLE_TOOLS,
+    after: CALLABLE_TOOLS,
     cover: null,
     note: null,
   };
@@ -438,12 +438,17 @@ describe("doctor, of the hook's line in Claude Code's settings", () => {
       for (const event of ['PreToolUse', 'PostToolUse']) expect(groups[event]?.map((group) => group.matcher), event).toEqual([MATCHER]);
       expect(reportHooks([{ file: '.claude/settings.json', settings }], '/the/project', read)).toEqual([RELEASED]);
     }
-    // The tools it names are the ones the hook reads a file from, and no other.
+    // The tools it names are the ones the hook reads a file from, and no other:
+    // every one a supported Claude Code can call, and the one name more that
+    // the hook reads for whatever still sends it.
     expect(MATCHER.split('|')).toEqual(WRITING_TOOLS);
+    for (const tool of CALLABLE_TOOLS) expect(MATCHER.split('|'), tool).toContain(tool);
   });
 
   it('says what the hook does: a write refused where it says the line guards, and the hook\'s own words where it says the guard is off', async () => {
-    const LINES: readonly (readonly string[])[] = [['--root', PROJECT_DIR, '--brief', '001'], ['--root', 'nowhere'], ['--format', 'xml'], ['--brief', '404']];
+    // A directory that is there and is in no work tree: the hook reads a session outside one.
+    const outside = temp();
+    const LINES: readonly (readonly string[])[] = [['--root', PROJECT_DIR, '--brief', '001'], ['--root', 'nowhere'], ['--format', 'xml'], ['--brief', '404'], ['--root', outside]];
     repo.write('.claude/settings.json', JSON.stringify(held(...LINES.map((rest) => entry(['node', `${PROJECT_DIR}/${SCRIPT}`, 'hook', 'claude', ...rest])))));
     try {
       const doctor = parsed<{ root: string; claudeCode: { lines: { line: string[]; state: string; detail: string }[] } }>(await cli(['doctor', '--format', 'json'], repo.root));
@@ -452,6 +457,7 @@ describe("doctor, of the hook's line in Claude Code's settings", () => {
         [LINES[1], 'off'],
         [LINES[2], 'off'],
         [LINES[3], 'held'],
+        [LINES[4], 'off'],
       ]);
       for (const [index, rest] of LINES.entries()) {
         const said = doctor.claudeCode.lines[index] as { state: string; detail: string };
@@ -466,6 +472,10 @@ describe("doctor, of the hook's line in Claude Code's settings", () => {
           const mend = ', so the hook holds every write until the line is mended: name a brief spec-brief lists, or take --brief off the line';
           expect(said.detail.startsWith(where) && said.detail.endsWith(mend), said.detail).toBe(true);
           expect(result, rest.join(' ')).toEqual({ code: 2, stdout: '', stderr: `spec-harness: ${said.detail.slice(where.length, -mend.length)}. Fix the brief or the branch before writing.\n` });
+        } else if (rest === LINES[4]) {
+          // The one fault the hook says nothing of: exit 0 and no word, as doctor says of it.
+          expect(said.detail, said.detail).toContain(`--root is "${outside}", a directory outside any git work tree, which the hook reads as a session outside one, exit 0 and no word, so the guard is off`);
+          expect(result, rest.join(' ')).toEqual({ code: 0, stdout: '', stderr: '' });
         } else {
           expect(said.detail.startsWith(where), said.detail).toBe(true);
           expect(result, rest.join(' ')).toEqual({ code: 1, stdout: '', stderr: `spec-harness: ${said.detail.slice(where.length).replace('no write is checked', 'this write is not checked')}\n` });
