@@ -26,6 +26,7 @@ import {
   describeSigners,
   guardSwitchedOff,
   wiringState,
+  type ClaudeCodeWiring,
 } from './configure.js';
 import { isDirectory } from './fs.js';
 import { GitError, show, stagedChanges } from './git.js';
@@ -40,9 +41,10 @@ import { gitHook, initCommand } from './setup.js';
 import { notFido2, readAllowedSigners } from './signers.js';
 import { SiblingError } from './siblings.js';
 import { emptyValue, heldHookLine, isBlank, isClaudeHook, readHookLine, refusal, unreadHookLine, type Command, type LineFault } from './usage.js';
-import { checkClaudeCode, CLAUDE_CODE_MINIMUM, MINIMUM_VERSIONS } from './versions.js';
+import { checkClaudeCode, CLAUDE_CODE_MINIMUM, MINIMUM_VERSIONS, type ClaudeCodeCheck } from './versions.js';
 import {
   activeBrief,
+  answerOf,
   describeActive,
   EXIT_ERROR,
   EXIT_FAILED,
@@ -280,6 +282,33 @@ async function hookCommand(options: Options, io: CliIO): Promise<number> {
 
 /* ------------------------------------------------------------------ doctor */
 
+/**
+ * The base, and the allowed-signers file as it is on it: the file waits on
+ * the base, and the two on nothing else doctor asks. A --base given nothing
+ * is no base, said as the brief's is, in the report.
+ */
+async function baseAndSigners(workspace: Workspace, flag: string | undefined, signersFile: string): Promise<{ readonly base: Base; readonly signersText: string | null }> {
+  // Nothing in doctor asks what kind a base is but whether it is resolved, so
+  // the mutant that names this one otherwise is equivalent.
+  const base: Base = flag !== undefined && isBlank(flag) ? { kind: 'unresolved', reason: emptyValue('--base', 'base', flag) } : await resolveBase(workspace, flag);
+  // An unresolved base has no commit: git shows nothing for one, so asking
+  // anyway reads as no file, and that mutant is equivalent.
+  const signersText = base.kind === 'resolved' ? await show(base.sha, signersFile, workspace.root) : null;
+  return { base, signersText };
+}
+
+/**
+ * How Claude Code is wired to the guard, and the release of the one on
+ * `PATH`, which waits on the wiring: only a Claude Code that runs the guard
+ * is asked its release, since one older than the hooks need lets every
+ * write through unguarded. `null` where it was not asked.
+ */
+async function wiringAndRelease(root: string, io: CliIO): Promise<{ readonly wiring: ClaudeCodeWiring; readonly release: ClaudeCodeCheck | null }> {
+  const wiring = await claudeCodeWiring(root, io);
+  const release = wiringState(wiring) === 'none' ? null : checkClaudeCode(await claudeVersion(io.env));
+  return { wiring, release };
+}
+
 async function doctorCommand(options: Options, io: CliIO): Promise<number> {
   const workspace = await openWorkspace(options, io);
   const rows = SIBLINGS.map((name) => {
@@ -291,20 +320,25 @@ async function doctorCommand(options: Options, io: CliIO): Promise<number> {
     const detail = sibling.version === null ? `${command} (named in .spec-harness.json; its version is not checked)` : `${command} (${sibling.version})`;
     return { ...row, version: sibling.version, detail };
   });
-  const named = await diagnoseBrief(workspace, options, io.env);
+  const signersFile = workspace.config.rulings.allowedSigners;
+  // Five things that wait on the work tree and on nothing of one another,
+  // each a process or a chain of them. Asked one after another, Claude
+  // Code's release, the longest wait of a doctor on Windows, was asked for
+  // only when every answer of git's before it was in. So they are asked at
+  // once, and read below in the order they were asked in before: where more
+  // than one fails, the first of that order is the one thrown, whichever
+  // failed first by the clock (ADR-0002).
+  const [briefAsked, baseAsked, pluginAsked, claudeAsked, hookAsked] = await Promise.allSettled([
+    diagnoseBrief(workspace, options, io.env),
+    baseAndSigners(workspace, options.base, signersFile),
+    specBriefPlugin(workspace.root),
+    wiringAndRelease(workspace.root, io),
+    gitHook(workspace.root),
+  ]);
+  const named = answerOf(briefAsked);
   // A ruling counts only by a signature checked against the allowed signers
   // on the base, and only once spec-brief's archive asks the plugin about it.
-  // A --base given nothing is no base, said as the brief's is, in the report.
-  // Nothing below asks what kind a base is but whether it is resolved, so the
-  // mutant that names this one otherwise is equivalent.
-  const base: Base =
-    options.base !== undefined && isBlank(options.base)
-      ? { kind: 'unresolved', reason: emptyValue('--base', 'base', options.base) }
-      : await resolveBase(workspace, options.base);
-  const signersFile = workspace.config.rulings.allowedSigners;
-  // An unresolved base has no commit: git shows nothing for one, so asking
-  // anyway reads as no file, and that mutant is equivalent.
-  const signersText = base.kind === 'resolved' ? await show(base.sha, signersFile, workspace.root) : null;
+  const { base, signersText } = answerOf(baseAsked);
   const onBase = base.kind === 'resolved' ? signersText !== null : null;
   const signers = describeSigners(signersFile, base.kind === 'resolved' ? base.ref : null, onBase === true);
   // Which keys sign, as notes: a key that is not FIDO2 can still be one the
@@ -312,10 +346,10 @@ async function doctorCommand(options: Options, io: CliIO): Promise<number> {
   const read = readAllowedSigners(signersText ?? '');
   const plain = notFido2(read.signers);
   const signerNotes = [describeSignerKeys(plain), ...read.problems.map(describeSignerProblem)].filter((note): note is string => note !== null);
-  const plugin = await specBriefPlugin(workspace.root);
+  const plugin = answerOf(pluginAsked);
   // The plugin and init's entries both on: Claude Code runs every guard twice
   // and registers the server twice (ADR-0012).
-  const wiring = await claudeCodeWiring(workspace.root, io);
+  const { wiring, release } = answerOf(claudeAsked);
   const claude = wiringState(wiring);
   // What the hook does with each line the settings hold for it, where there
   // is something to say: more on it than init writes, a line that turns the
@@ -328,12 +362,9 @@ async function doctorCommand(options: Options, io: CliIO): Promise<number> {
   // switches off whatever hooks there are.
   const switchedOff = guardSwitchedOff(wiring);
   const wiringNotes = [describePresence(wiring), wiring.hooksOff === null ? null : describeHooksOff(wiring.hooksOff, switchedOff)].filter((note): note is string => note !== null);
-  // Only a Claude Code that runs the guard is asked its release: one older
-  // than the hooks need lets every write through unguarded.
-  const release = claude === 'none' ? null : checkClaudeCode(await claudeVersion(io.env));
   // How the hook runs the harness is a note: one that goes through npx guards
   // as well as one that does not, and fails nothing, --strict or not.
-  const { hook, note: hookNote } = await gitHook(workspace.root);
+  const { hook, note: hookNote } = answerOf(hookAsked);
   const branch = workspace.branch === null ? '(detached)' : `${workspace.branch}${workspace.branchSource === undefined ? '' : ` (detached; ${workspace.branchSource} names it)`}`;
   if (options.format === 'json') {
     io.stdout.write(

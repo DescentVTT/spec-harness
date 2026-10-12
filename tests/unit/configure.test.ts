@@ -36,6 +36,7 @@ import {
   mergeSpecBrief,
   mergeSpecGraph,
   missingGitHook,
+  patternReader,
   PLUGIN,
   pluginMarketplace,
   pluginPresence,
@@ -49,6 +50,7 @@ import {
   SPEC_GRAPH_CONFIGS,
   wiringState,
   writtenHooks,
+  type PatternReader,
 } from '../../src/configure.js';
 import { claudeHookLine, heldHookLine, outsideHookLine } from '../../src/usage.js';
 import { parseOptions } from '../../src/workspace.js';
@@ -1468,6 +1470,71 @@ describe("the lines of Claude Code's hook in its settings, and what doctor says 
 
   it('takes a line as started for a write unless it is waited on for none', () => {
     expect([isStarted(null), isStarted(['Edit']), isStarted([])]).toEqual([true, true, false]);
+  });
+
+  it('reads a pattern once in a run, for every entry under it, in what doctor says of the files and in what init writes', () => {
+    const asked: string[] = [];
+    // What a pattern matches is the reader's to say here: one matches Edit alone, the other cannot be told.
+    const pattern = patternReader((source) => {
+      asked.push(source);
+      return source === 'E.*t$' ? ['Edit'] : null;
+    });
+    const longer = exec('--base', 'main');
+    const held = {
+      hooks: {
+        PreToolUse: [group('E.*t$', HOOK), group('E.*t$', HOOK), group('^(a+)+$', longer), group('E.*t$', longer)],
+        PostToolUse: [group('E.*t$', HOOK), group('^(a+)+$', longer)],
+      },
+    };
+    const said = reportHooks([{ file: FILE, settings: held }, { file: 'other', settings: held }], PROJECT, read, pattern);
+    expect(said.map((report) => [report.file, report.line.join(' '), report.before, report.after])).toEqual([
+      [FILE, 'hook claude', ['Edit'], ['Edit']],
+      [FILE, 'hook claude --base main', null, null],
+      ['other', 'hook claude', ['Edit'], ['Edit']],
+      ['other', 'hook claude --base main', null, null],
+    ]);
+    // A person's line that is started: init writes none beside it, by the same readings.
+    expect(mergeClaudeSettings(held, (words) => read(words) !== null, pattern)).toBeNull();
+    // Twelve entries in two files, and the first of them again for init: each pattern was read once, the one that cannot be told as well.
+    expect(asked).toEqual(['E.*t$', '^(a+)+$']);
+  });
+
+  it('keeps a reading for its run alone, and reads no pattern where the matcher is none or the entry is waited on whatever it matches', () => {
+    const asked: string[] = [];
+    const write = (source: string): string[] => {
+      asked.push(source);
+      return ['Write'];
+    };
+    const held = both('W.*');
+    // A run has a reader of its own: what one run read, the next reads again.
+    for (const pattern of [patternReader(write), patternReader(write)]) {
+      expect(reportHooks([{ file: FILE, settings: held }], PROJECT, read, pattern)[0]).toMatchObject({ state: 'guards', before: ['Write'], after: ['Write'] });
+    }
+    expect(asked).toEqual(['W.*', 'W.*']);
+    // Names, a matcher left out, an entry in the background before a write and one under an "if" are answered without a reading, as they were.
+    const none = patternReader(() => {
+      throw new Error('there is no pattern to read');
+    });
+    const plain = {
+      hooks: {
+        PreToolUse: [group('Edit|Write', HOOK), group(undefined, HOOK), group('W.*', { ...HOOK, async: true })],
+        PostToolUse: [group('*', HOOK), group('W.*', { ...HOOK, if: 'Write(*.ts)' })],
+      },
+    };
+    expect(reportHooks([{ file: FILE, settings: plain }], PROJECT, read, none)[0]).toMatchObject({ state: 'guards', before: TOOLS, after: TOOLS });
+    expect(mergeClaudeSettings(plain, undefined, none)).toBeNull();
+  });
+
+  it('takes what a pattern matches from the reader it is handed, for its own line and for a line a person wrote', () => {
+    // Read here as matching no tool that writes, where a reading of its own would find Write: init then writes its hooks beside the line.
+    const idle = (): PatternReader => patternReader(() => []);
+    const own = both('W.*');
+    expect(mergeClaudeSettings(own)).toBeNull();
+    expect(mergeClaudeSettings(own, undefined, idle())).toEqual({ hooks: { PreToolUse: [group('W.*', HOOK), GUARD], PostToolUse: [group('W.*', HOOK), GUARD] } });
+    const theirs = both('W.*', exec('--base', 'main'));
+    const isHook = (words: readonly string[]): boolean => read(words) !== null;
+    expect(mergeClaudeSettings(theirs, isHook)).toBeNull();
+    expect(mergeClaudeSettings(theirs, isHook, idle())).toEqual({ hooks: { PreToolUse: [group('W.*', exec('--base', 'main')), GUARD], PostToolUse: [group('W.*', exec('--base', 'main')), GUARD] } });
   });
 
   // Last in the file: it takes the budget, a tenth of a second, each time it
