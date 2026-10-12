@@ -979,12 +979,16 @@ describe('the plugin that settings turn on, and whether it is on this machine (A
       expect(describeClaudeCode({ plugin, presence, hooks: [PROJECT], server: false })).toContain(', beside the guard hooks in .claude/settings.json: every write is guarded twice. ');
     }
     for (const presence of [here, null]) expect(describePresence({ plugin, presence, hooks: [], server: false })).toBeNull();
+    // Nor is there more to say of a plugin that is there beside entries of init's: the double install is the wiring's own sentence.
+    expect(describePresence({ plugin, presence: here, hooks: [PROJECT], server: true })).toBeNull();
     // A caller that does not ask whether the plugin is there says nothing of it.
     expect(describePresence({ plugin, hooks: [], server: false })).toBeNull();
     expect(describePresence({ plugin, presence: untold, hooks: [PROJECT], server: false })).toBe(
       "whether spec-harness@spec-tools is on this machine cannot be told: why. A plugin that is not there brings no hook: Claude Code's /plugin lists it, and its errors",
     );
     expect(describePresence({ plugin: null, presence: null, hooks: [PROJECT], server: false })).toBeNull();
+    // With no plugin on there is none to speak of, whatever a caller hands over beside it.
+    expect(describePresence({ plugin: null, presence: untold, hooks: [], server: false })).toBeNull();
   });
 
   it('has init say why it writes nothing on that reading alone, and what a file that holds its entry would double', () => {
