@@ -524,6 +524,105 @@ describe('init', () => {
     expect(repo.read('.mcp.json')).toBe(mcp);
   });
 
+  describe("beside a line of Claude Code's hook that init did not write (ADR-0005)", () => {
+    const SCRIPT = '${CLAUDE_PROJECT_DIR}/node_modules/@descent-vtt/spec-harness/bin/spec-harness.js';
+    const MATCHER = 'Edit|Write|MultiEdit|NotebookEdit';
+    const line = (...rest: string[]) => ({ type: 'command', command: 'node', args: [SCRIPT, 'hook', 'claude', ...rest] });
+    const under = (matcher: string, hook: unknown) => ({ matcher, hooks: [hook] });
+    const both = (hook: unknown): string => JSON.stringify({ hooks: { PreToolUse: [under(MATCHER, hook)], PostToolUse: [under(MATCHER, hook)] } });
+    const LEFT = 'init rewrites no line of the hook it did not write, and writes none beside one Claude Code starts for a write';
+    const step = async (repo: Repository, ...more: string[]): Promise<Step | undefined> =>
+      parsed<{ steps: Step[] }>(await cli(['init', ...more, '--format', 'json'], repo.root)).steps.find((found) => found.file === '.claude/settings.json');
+
+    it('writes none beside it and says which line it left, in the words doctor has for the line', async () => {
+      const settings = both(line('--root', '${CLAUDE_PROJECT_DIR}'));
+      const repo = repository({ '.claude/settings.json': settings });
+      const top = repo.git('rev-parse', '--show-toplevel');
+      expect(await step(repo, '--write')).toEqual({
+        file: '.claude/settings.json',
+        action: 'keep',
+        detail: `"hook claude --root \${CLAUDE_PROJECT_DIR}" in .claude/settings.json is more than init writes, and guards: the hook reads the line, and its root, ${top}, is a directory; ${LEFT}`,
+      });
+      expect(repo.read('.claude/settings.json')).toBe(settings);
+      // A line in the person's own file is theirs: the project's file, which every clone reads, is written all the same, and nothing is said of the other.
+      const local = repository({ '.claude/settings.local.json': settings });
+      expect(await step(local)).toEqual({
+        file: '.claude/settings.json',
+        action: 'create',
+        detail: "the guard hooks, run with node from the project's install: a PreToolUse hook refuses writes to protected files; a PostToolUse hook warns about writes outside the scope",
+      });
+      // Beside the plugin the line is the double install doctor fails, where init said it wrote none.
+      repo.write('.claude/settings.local.json', JSON.stringify({ enabledPlugins: { 'spec-harness@team': true } }));
+      expect(await step(repo)).toEqual({
+        file: '.claude/settings.json',
+        action: 'advise',
+        detail:
+          "the spec-harness plugin is on (spec-harness@team in .claude/settings.local.json) and brings the guard hooks this file holds as well, so every write is guarded twice: take spec-harness's hooks out of this file, or turn the plugin off for this project with claude plugin disable spec-harness@team --scope local",
+      });
+      // And where the line is in the person's own file, which init does not write, it is said of that file.
+      repo.write('.claude/settings.local.json', JSON.stringify({ enabledPlugins: { 'spec-harness@team': true }, ...JSON.parse(settings) }));
+      repo.write('.claude/settings.json', '{}');
+      expect(await step(repo)).toEqual({
+        file: '.claude/settings.json',
+        action: 'advise',
+        detail:
+          "the spec-harness plugin is on (spec-harness@team in .claude/settings.local.json) and brings the guard hooks .claude/settings.local.json holds as well, so every write is guarded twice: take spec-harness's hooks out there, or turn the plugin off for this project with claude plugin disable spec-harness@team --scope local. init writes none here",
+      });
+    });
+
+    it('advises on a line that turns the guard off or holds every write, which is the person\'s to mend, and changes nothing', async () => {
+      const unread = both(line('--nope'));
+      const repo = repository({ '.claude/settings.json': unread });
+      const off = await step(repo, '--write');
+      expect(off?.action).toBe('advise');
+      expect(off?.detail.startsWith('"hook claude --nope" in .claude/settings.json: the hook\'s line cannot be read (Unknown option \'--nope\'')).toBe(true);
+      expect(off?.detail.endsWith(`, where init writes "hook claude" and nothing after it; ${LEFT}`)).toBe(true);
+      expect(repo.read('.claude/settings.json')).toBe(unread);
+      // No brief is 404 here, so the hook holds every write under this line.
+      repo.write('.claude/settings.json', both(line('--brief', '404')));
+      expect(await step(repo)).toEqual({
+        file: '.claude/settings.json',
+        action: 'advise',
+        detail: `"hook claude --brief 404" in .claude/settings.json: the flag names brief 404, and spec-brief knows no such brief, so the hook holds every write until the line is mended: name a brief spec-brief lists, or take --brief off the line; ${LEFT}`,
+      });
+    });
+
+    it("leaves a person's line that stands under one event alone as it is, and advises where that leaves no guard before a write", async () => {
+      const changed = under(MATCHER, line('--root', '${CLAUDE_PROJECT_DIR}'));
+      const before = JSON.stringify({ hooks: { PreToolUse: [changed] } });
+      const repo = repository({ '.claude/settings.json': before });
+      const guarded = await step(repo, '--write');
+      expect(guarded?.action).toBe('keep');
+      expect(guarded?.detail.endsWith(`(under PreToolUse alone): it is started after no write, so it warns of none (it stands under no PostToolUse); ${LEFT}`)).toBe(true);
+      expect(repo.read('.claude/settings.json')).toBe(before);
+      const after = JSON.stringify({ hooks: { PostToolUse: [changed] } });
+      repo.write('.claude/settings.json', after);
+      expect(await step(repo, '--write')).toEqual({
+        file: '.claude/settings.json',
+        action: 'advise',
+        detail: `"hook claude --root \${CLAUDE_PROJECT_DIR}" in .claude/settings.json (under PostToolUse alone): Claude Code waits on it before no write, so it is not the guard and refuses none (it stands under no PreToolUse); ${LEFT}`,
+      });
+      expect(repo.read('.claude/settings.json')).toBe(after);
+    });
+
+    it('writes its own hooks beside a line Claude Code starts for no write, leaves that line as it is, and says so', async () => {
+      const idle = under('Bash', line('--root', '${CLAUDE_PROJECT_DIR}'));
+      const repo = repository({ '.claude/settings.json': JSON.stringify({ hooks: { PreToolUse: [idle] } }) });
+      expect(await step(repo, '--write')).toEqual({
+        file: '.claude/settings.json',
+        action: 'update',
+        detail:
+          "the guard hooks, run with node from the project's install: a PreToolUse hook refuses writes to protected files; a PostToolUse hook warns about writes outside the scope; " +
+          '"hook claude --root ${CLAUDE_PROJECT_DIR}" in .claude/settings.json (under PreToolUse alone): Claude Code waits on it before no write, so it is not the guard and refuses none (under PreToolUse it has the matcher "Bash"); ' +
+          `it is started after no write, so it warns of none (it stands under no PostToolUse); ${LEFT}`,
+      });
+      const own = under(MATCHER, GUARD_HOOK);
+      expect(JSON.parse(repo.read('.claude/settings.json'))).toEqual({ hooks: { PreToolUse: [idle, own], PostToolUse: [own] } });
+      // A second run finds its own line started for every write, and adds none.
+      expect((await step(repo))?.action).toBe('keep');
+    });
+  });
+
   it('writes the hooks and the server once the plugin is off for the project, whatever the user\'s settings say', async () => {
     const user = temp();
     write(user, 'settings.json', JSON.stringify({ enabledPlugins: { 'spec-harness@spec-tools': true } }));

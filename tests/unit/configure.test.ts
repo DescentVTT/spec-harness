@@ -18,7 +18,8 @@ import {
   exportedFile,
   graphReadsBriefs,
   GUARD_HOOK,
-  holdsGuard,
+  handedLines,
+  isStarted,
   loadsPlugin,
   mcpServer,
   mergeClaudeSettings,
@@ -39,7 +40,7 @@ import {
   wiringState,
   writtenHooks,
 } from '../../src/configure.js';
-import { claudeHookLine } from '../../src/usage.js';
+import { claudeHookLine, heldHookLine } from '../../src/usage.js';
 import { parseOptions } from '../../src/workspace.js';
 
 const SCRIPT = '${CLAUDE_PROJECT_DIR}/node_modules/@descent-vtt/spec-harness/bin/spec-harness.js';
@@ -170,6 +171,51 @@ describe('Claude Code settings', () => {
     merged.hooks.PreToolUse[0]?.hooks[0]?.args.push('--x');
     expect(mergeClaudeSettings({})).toEqual({ hooks: { PreToolUse: [GUARD], PostToolUse: [GUARD] } });
   });
+
+  /** Whether words are the line of Claude Code's hook, by the hook's own reading, as init asks it. */
+  const isHook = (words: readonly string[]): boolean => claudeHookLine(words, parseOptions, '/p', () => true) !== null;
+
+  it("writes no line beside one of the hook's that Claude Code starts for a write, however a person wrote it", () => {
+    for (const hook of [
+      { type: 'command', command: 'node', args: [...HOOK.args, '--root', PROJECT_DIR] },
+      { type: 'command', command: 'node', args: ['node_modules/@descent-vtt/spec-harness/bin/spec-harness.js', 'hook', 'claude'] },
+      { type: 'command', command: `node ${SCRIPT} hook claude --brief 404` },
+      // A line the hook cannot read is its line all the same, and the person's to mend.
+      { type: 'command', command: 'node', args: [...HOOK.args, '--nope'] },
+    ]) {
+      const changed = { matcher: 'Edit|Write', hooks: [hook] };
+      expect(mergeClaudeSettings({ hooks: { PreToolUse: [changed], PostToolUse: [changed] } }, isHook), JSON.stringify(hook)).toBeNull();
+      // Without the hook's reading only init's own line is known, as it was.
+      expect(mergeClaudeSettings({ hooks: { PreToolUse: [changed], PostToolUse: [changed] } }), JSON.stringify(hook)).toEqual({ hooks: { PreToolUse: [changed, GUARD], PostToolUse: [changed, GUARD] } });
+    }
+    // Under one event alone it is still a person's line in the file: init adds none under the other, and leaves 0.1's beside it as it is.
+    const before = { hooks: [{ type: 'command', command: 'node', args: [...HOOK.args, '--root', PROJECT_DIR] }] };
+    expect(mergeClaudeSettings({ hooks: { PreToolUse: [before] } }, isHook)).toBeNull();
+    expect(mergeClaudeSettings({ hooks: { PostToolUse: [before] } }, isHook)).toBeNull();
+    expect(mergeClaudeSettings({ hooks: { PreToolUse: [before], PostToolUse: [{ hooks: [{ type: 'command', command: LEGACY }] }] } }, isHook)).toBeNull();
+    // init's own line under one event is completed as it was, whatever the hook's reading knows.
+    expect(mergeClaudeSettings({ hooks: { PostToolUse: [GUARD] } }, isHook)).toEqual({ hooks: { PostToolUse: [GUARD], PreToolUse: [GUARD] } });
+    expect(mergeClaudeSettings({ hooks: { PreToolUse: [{ hooks: [{ type: 'command', command: LEGACY }] }] } }, isHook)).toEqual({
+      hooks: { PreToolUse: [{ hooks: [{ type: 'command', command: 'node', args: HOOK.args }] }], PostToolUse: [GUARD] },
+    });
+    // Another command's line is not the hook's.
+    const git = { hooks: [{ type: 'command', command: 'node', args: [SCRIPT, 'hook', 'git'] }] };
+    expect(mergeClaudeSettings({ hooks: { PreToolUse: [git], PostToolUse: [git] } }, isHook)).toEqual({ hooks: { PreToolUse: [git, GUARD], PostToolUse: [git, GUARD] } });
+  });
+
+  it('writes its own beside a line Claude Code starts for no write, and leaves that line as it is', () => {
+    const idle = { matcher: 'Bash', hooks: [HOOK] };
+    expect(mergeClaudeSettings({ hooks: { PreToolUse: [idle], PostToolUse: [idle] } })).toEqual({ hooks: { PreToolUse: [idle, GUARD], PostToolUse: [idle, GUARD] } });
+    // So beside a person's line that is started for none.
+    const changed = { matcher: 'Bash', hooks: [{ type: 'command', command: 'node', args: [...HOOK.args, '--root', PROJECT_DIR] }] };
+    expect(mergeClaudeSettings({ hooks: { PreToolUse: [changed], PostToolUse: [changed] } }, isHook)).toEqual({ hooks: { PreToolUse: [changed, GUARD], PostToolUse: [changed, GUARD] } });
+    // In the background it refuses nothing before a write, and still tells the model after one.
+    const background = { matcher: GUARD.matcher, hooks: [{ ...HOOK, async: true }] };
+    expect(mergeClaudeSettings({ hooks: { PreToolUse: [background], PostToolUse: [background] } }, isHook)).toEqual({ hooks: { PreToolUse: [background, GUARD], PostToolUse: [background] } });
+    // One whose writes cannot be told is taken as started: a second line would run beside it.
+    const conditional = { matcher: GUARD.matcher, hooks: [{ ...HOOK, if: 'Edit(*.ts)' }] };
+    expect(mergeClaudeSettings({ hooks: { PreToolUse: [conditional], PostToolUse: [conditional] } })).toBeNull();
+  });
 });
 
 describe('the MCP server registration', () => {
@@ -208,29 +254,6 @@ describe('the MCP server registration', () => {
 describe('the Claude Code plugin beside init\'s entries (ADR-0012)', () => {
   const USER = '/home/p/.claude/settings.json';
   const on = (file: string, plugins: Record<string, unknown>) => ({ file, settings: { enabledPlugins: plugins } });
-
-  it('finds the guard hooks in settings, as this release or 0.1 wrote them, in either event', () => {
-    expect(holdsGuard({ hooks: { PreToolUse: [GUARD] } })).toBe(true);
-    expect(holdsGuard({ hooks: { PostToolUse: [{ matcher: 'Write', hooks: [{ type: 'command', command: 'x' }, HOOK] }] } })).toBe(true);
-    expect(holdsGuard({ hooks: { PostToolUse: [{ hooks: [{ type: 'command', command: LEGACY }] }] } })).toBe(true);
-    expect(holdsGuard({ hooks: { PreToolUse: [{ matcher: 'Write', hooks: [{ type: 'command', command: 'npm run lint' }] }, GUARD] } })).toBe(true);
-  });
-
-  it('finds no guard in a hook that only resembles it, under another event, or in hooks of the wrong shape', () => {
-    const similar = [
-      { type: 'command', command: 'npx spec-harness hook claude' },
-      { type: 'command', command: 'node', args: HOOK.args.slice(0, 2) },
-      { type: 'command', command: `${LEGACY} --x` },
-    ];
-    expect(holdsGuard({ hooks: { PreToolUse: [{ hooks: similar }], PostToolUse: [{ hooks: similar }] } })).toBe(false);
-    expect(holdsGuard({ hooks: { Stop: [GUARD], SessionStart: [GUARD] } })).toBe(false);
-    expect(holdsGuard({ hooks: { PreToolUse: 'x', PostToolUse: [null, { hooks: 'y' }] } })).toBe(false);
-    expect(holdsGuard({ hooks: null })).toBe(false);
-    expect(holdsGuard({})).toBe(false);
-    // A file that is missing, or that JSON cannot read, holds nothing.
-    expect(holdsGuard(null)).toBe(false);
-    expect(holdsGuard('unreadable')).toBe(false);
-  });
 
   it('finds the server in .mcp.json under its name, however it is run', () => {
     expect(registersServer(mergeMcp({}) ?? {})).toBe(true);
@@ -302,6 +325,15 @@ describe('the Claude Code plugin beside init\'s entries (ADR-0012)', () => {
     expect(describeSkipped(plugin, 'server', true)).toBe(
       `the spec-harness plugin is on (spec-harness@team in .claude/settings.json) and brings the server this file holds as well, so the server is registered twice: take the spec-harness server out of this file, or ${off}`,
     );
+    // Held by a file init does not write, it is the same double install, said of that file.
+    expect(describeSkipped(plugin, 'hooks', false, ['.claude/settings.local.json'])).toBe(
+      `the spec-harness plugin is on (spec-harness@team in .claude/settings.json) and brings the guard hooks .claude/settings.local.json holds as well, so every write is guarded twice: take spec-harness's hooks out there, or ${off}. init writes none here`,
+    );
+    expect(describeSkipped(plugin, 'hooks', false, [USER, '.claude/settings.local.json'])).toBe(
+      `the spec-harness plugin is on (spec-harness@team in .claude/settings.json) and brings the guard hooks ${USER} and .claude/settings.local.json hold as well, so every write is guarded twice: take spec-harness's hooks out there, or ${off}. init writes none here`,
+    );
+    // This file's own entry is said first, whatever another holds.
+    expect(describeSkipped(plugin, 'hooks', true, [USER])).toBe(describeSkipped(plugin, 'hooks', true));
   });
 
   it('tells the plugin, init\'s entries, both and neither apart, either of init\'s entries counting', () => {
@@ -660,7 +692,10 @@ describe("the lines of Claude Code's hook in its settings, and what doctor says 
   const exec = (...rest: string[]) => ({ type: 'command', command: 'node', args: [SCRIPT, 'hook', 'claude', ...rest], timeout: 60 });
   const shell = (line: string) => ({ type: 'command', command: line });
   /** Settings that hold the hooks under both events, as init writes its own. */
-  const settings = (...hooks: unknown[]) => ({ hooks: { PreToolUse: [{ matcher: 'Edit', hooks }], PostToolUse: [{ matcher: 'Edit', hooks }] } });
+  const settings = (...hooks: unknown[]) => ({ hooks: { PreToolUse: [{ matcher: GUARD.matcher, hooks }], PostToolUse: [{ matcher: GUARD.matcher, hooks }] } });
+  const TOOLS = ['Edit', 'Write', 'MultiEdit', 'NotebookEdit'];
+  /** Started before every tool that writes and after each, as init's own entries are: nothing to say of it. */
+  const EVERY = { before: TOOLS, after: TOOLS, cover: null };
   const line = (words: string[], more: { shell?: boolean; blocks?: boolean; events?: string[] } = {}) => ({ events: more.events ?? BOTH, words, shell: more.shell ?? false, blocks: more.blocks ?? false });
 
   it('knows the harness by its command, the script or the name at the end of a path, and gives what follows it', () => {
@@ -737,7 +772,7 @@ describe("the lines of Claude Code's hook in its settings, and what doctor says 
   const NO_ROOT = "so the guard is off and no write is checked; give the hook's line a directory that exists, or leave --root out for the project Claude Code names";
 
   it('has nothing to say of the line a release wrote, which guards', () => {
-    const released = { file: FILE, events: BOTH, line: ['hook', 'claude'], state: 'guards', onFailure: null, detail: null, note: null };
+    const released = { file: FILE, events: BOTH, line: ['hook', 'claude'], state: 'guards', onFailure: null, detail: null, ...EVERY, note: null };
     expect(reported(settings(HOOK))).toEqual([released]);
     expect(reported(settings(shell(LEGACY)))).toEqual([released]);
     expect(reported(mergeClaudeSettings({}))).toEqual([released]);
@@ -754,6 +789,7 @@ describe("the lines of Claude Code's hook in its settings, and what doctor says 
         state: 'guards',
         onFailure: null,
         detail: '"hook claude --root ${CLAUDE_PROJECT_DIR}" in .claude/settings.json is more than init writes, and guards: the hook reads the line, and its root, /the/project, is a directory',
+        ...EVERY,
         note: null,
       },
     ]);
@@ -774,6 +810,7 @@ describe("the lines of Claude Code's hook in its settings, and what doctor says 
         state: 'off',
         onFailure: null,
         detail: `"hook claude --format xml" in .claude/settings.json: the hook's line cannot be read (--format must be pretty, json, gitlab, sarif or github, not "xml"), ${OFF}`,
+        ...EVERY,
         note: null,
       },
     ]);
@@ -812,6 +849,7 @@ describe("the lines of Claude Code's hook in its settings, and what doctor says 
         onFailure: null,
         detail:
           '"hook claude --root "${CLAUDE_PROJECT_DIR}"" in .claude/settings.json is a shell\'s to read before the hook is handed it, so what the hook does with it cannot be told here: written with "args", each word reaches the hook as it stands',
+        ...EVERY,
         note: null,
       },
     ]);
@@ -861,6 +899,7 @@ describe("the lines of Claude Code's hook in its settings, and what doctor says 
         state: 'guards',
         onFailure: 'block',
         detail: null,
+        ...EVERY,
         note: `"hook claude" in .claude/settings.json ${HOLDS}, where it lets the write go ahead without it: by its exit 1 for a question it cannot read, by not starting, or by running past its timeout`,
       },
     ]);
@@ -880,5 +919,198 @@ describe("the lines of Claude Code's hook in its settings, and what doctor says 
     expect(reported(settings({ ...shell(`${LEGACY} --root "$PWD"`), onFailure: 'block' }))[0]).toMatchObject({ state: 'unknown', onFailure: 'block', note: expect.stringContaining('where it lets the write go ahead without it') });
     // Any other value is Claude Code's default, or not one it reads.
     for (const value of ['continue', 'Block', true, undefined]) expect(reported(settings({ ...HOOK, onFailure: value }))[0], String(value)).toMatchObject({ onFailure: null, note: null });
+  });
+
+  const W = '"hook claude" in .claude/settings.json';
+  const group = (matcher: unknown, ...hooks: unknown[]) => (matcher === undefined ? { hooks } : { matcher, hooks });
+  /** One entry under each event, in a group with the matcher given, or with none. */
+  const both = (matcher: unknown, hook: unknown = HOOK) => ({ hooks: { PreToolUse: [group(matcher, hook)], PostToolUse: [group(matcher, hook)] } });
+  /** The writing tools the one line of `hooks` is waited on before a write by, and started after one by. */
+  const started = (hooks: unknown): unknown => {
+    const [report] = reported(hooks);
+    return [report?.before, report?.after];
+  };
+
+  it("reads a matcher as Claude Code's hooks reference has it: every tool, the tools it names, or a pattern anywhere in a name", () => {
+    const cases: readonly (readonly [unknown, readonly string[] | null])[] = [
+      // Left out, empty, or a star alone: every tool.
+      [undefined, TOOLS],
+      ['', TOOLS],
+      ['*', TOOLS],
+      // Letters, digits, _, -, spaces, commas and bars alone: the tools it names, exactly.
+      ['Edit', ['Edit']],
+      ['Write|Edit', ['Edit', 'Write']],
+      ['Edit, Write ,NotebookEdit', ['Edit', 'Write', 'NotebookEdit']],
+      ['Edit | Write', ['Edit', 'Write']],
+      ['Edit|', ['Edit']],
+      ['Edit|Write-2|x_y', ['Edit']],
+      ['Bash', []],
+      ['edit|write', []],
+      ['Edit Write', []],
+      // Any other character in it: a pattern, which may match anywhere in a name.
+      ['Edit.*', ['Edit', 'MultiEdit', 'NotebookEdit']],
+      ['^Edit', ['Edit']],
+      ['Edit$', ['Edit', 'MultiEdit', 'NotebookEdit']],
+      ['^(Edit|Write)$', ['Edit', 'Write']],
+      ['.*', TOOLS],
+      ['Notebook.', ['NotebookEdit']],
+      ['^Bash$', []],
+      // What the reference does not describe: a matcher that is not text, or is no pattern.
+      ['(', null],
+      [7, null],
+      [null, null],
+      [['Edit'], null],
+    ];
+    for (const [matcher, tools] of cases) expect(started(both(matcher)), JSON.stringify(matcher)).toEqual([tools, tools]);
+  });
+
+  it('is waited on before no write where its entry runs in the background, and cannot be told where the entry has an "if"', () => {
+    expect(started(both(GUARD.matcher, { ...HOOK, async: true }))).toEqual([[], TOOLS]);
+    expect(started(both(GUARD.matcher, { ...HOOK, asyncRewake: true }))).toEqual([[], TOOLS]);
+    // Only true turns either on.
+    expect(started(both(GUARD.matcher, { ...HOOK, async: 'true', asyncRewake: 1 }))).toEqual([TOOLS, TOOLS]);
+    expect(started(both(GUARD.matcher, { ...HOOK, if: 'Edit(*.ts)' }))).toEqual([null, null]);
+    // In the background it refuses nothing, whatever its rule matches.
+    expect(started(both(GUARD.matcher, { ...HOOK, async: true, if: 'Edit(*.ts)' }))).toEqual([[], null]);
+  });
+
+  it('adds up the entries that hold one line, and cannot tell only where an entry that cannot be told might add a tool', () => {
+    const split = { hooks: { PreToolUse: [group('Edit', HOOK), group('Write|MultiEdit|NotebookEdit', HOOK)], PostToolUse: [group('Write', HOOK), group('Bash', HOOK)] } };
+    expect(started(split)).toEqual([TOOLS, ['Write']]);
+    const conditional = { ...HOOK, if: 'Edit(*.ts)' };
+    expect(started({ hooks: { PreToolUse: [GUARD, group(GUARD.matcher, conditional)], PostToolUse: [group('Edit', HOOK), group('Write', conditional)] } })).toEqual([TOOLS, null]);
+  });
+
+  it("reads each line by the entries that hold it, and by no other line's", () => {
+    const longer = exec('--base', 'main');
+    const two = { hooks: { PreToolUse: [group('Bash', HOOK), group(GUARD.matcher, longer)], PostToolUse: [group(GUARD.matcher, longer)] } };
+    expect(reported(two).map((report) => [report.line.join(' '), report.state, report.before, report.after])).toEqual([
+      ['hook claude', 'unstarted', [], []],
+      ['hook claude --base main', 'guards', TOOLS, TOOLS],
+    ]);
+  });
+
+  it('is not the guard where Claude Code waits on it before no write, and says what it stands under', () => {
+    expect(reported({ hooks: { PostToolUse: [GUARD] } })).toEqual([
+      {
+        file: FILE,
+        events: ['PostToolUse'],
+        line: ['hook', 'claude'],
+        state: 'unstarted',
+        onFailure: null,
+        detail: null,
+        before: [],
+        after: TOOLS,
+        cover: `${W} (under PostToolUse alone): Claude Code waits on it before no write, so it is not the guard and refuses none (it stands under no PreToolUse)`,
+        note: null,
+      },
+    ]);
+    expect(reported(both('Bash'))[0]).toMatchObject({
+      state: 'unstarted',
+      detail: null,
+      before: [],
+      after: [],
+      cover: `${W}: Claude Code waits on it before no write, so it is not the guard and refuses none (under PreToolUse it has the matcher "Bash"); it is started after no write, so it warns of none (under PostToolUse it has the matcher "Bash")`,
+    });
+    expect(reported(both(GUARD.matcher, { ...HOOK, async: true }))[0]).toMatchObject({
+      state: 'unstarted',
+      cover: `${W}: Claude Code waits on it before no write, so it is not the guard and refuses none (under PreToolUse it has the matcher "Edit|Write|MultiEdit|NotebookEdit" in the background)`,
+    });
+    // What the hook would do with such a line is not said: it is never asked before a write.
+    expect(reported(both('Bash', exec('--root', PROJECT_DIR)))[0]).toMatchObject({ state: 'unstarted', detail: null });
+    expect(reportHooks([{ file: FILE, settings: both('Bash', exec('--brief', '404')) }], PROJECT, () => heldHookLine('x'))[0]).toMatchObject({ state: 'unstarted', detail: null });
+    // A line the hook cannot read is said as off all the same: it fails after every write it is started for.
+    expect(reported({ hooks: { PostToolUse: [group(undefined, exec('--nope'))] } })[0]).toMatchObject({ state: 'off', before: [], after: TOOLS });
+  });
+
+  it('guards the writes Claude Code waits on it before, and says which it leaves unchecked', () => {
+    expect(reported(both('Write|Edit'))[0]).toMatchObject({
+      state: 'guards',
+      detail: null,
+      before: ['Edit', 'Write'],
+      after: ['Edit', 'Write'],
+      cover: `${W}: Claude Code waits on it before a write by Edit and Write, and before none by MultiEdit and NotebookEdit, which goes unchecked (under PreToolUse it has the matcher "Write|Edit"); it is started after a write by Edit and Write alone (under PostToolUse it has the matcher "Write|Edit")`,
+    });
+    expect(reported(both('Edit'))[0]?.cover).toBe(
+      `${W}: Claude Code waits on it before a write by Edit, and before none by Write, MultiEdit and NotebookEdit, which goes unchecked (under PreToolUse it has the matcher "Edit"); it is started after a write by Edit alone (under PostToolUse it has the matcher "Edit")`,
+    );
+    expect(reported(both('Edit.*'))[0]?.cover).toBe(
+      `${W}: Claude Code waits on it before a write by Edit, MultiEdit and NotebookEdit, and before none by Write, which goes unchecked (under PreToolUse it has the matcher "Edit.*"); it is started after a write by Edit, MultiEdit and NotebookEdit alone (under PostToolUse it has the matcher "Edit.*")`,
+    );
+    // Before every write and after none: only that is said.
+    expect(reported({ hooks: { PreToolUse: [GUARD] } })[0]).toMatchObject({
+      state: 'guards',
+      detail: null,
+      before: TOOLS,
+      after: [],
+      cover: `${W} (under PreToolUse alone): it is started after no write, so it warns of none (it stands under no PostToolUse)`,
+    });
+    // A line with more on it is said both ways: what the hook does with it, and which writes it is asked on.
+    expect(reported(both('Edit', exec('--root', PROJECT_DIR)))[0]).toMatchObject({
+      state: 'guards',
+      detail: '"hook claude --root ${CLAUDE_PROJECT_DIR}" in .claude/settings.json is more than init writes, and guards: the hook reads the line, and its root, /the/project, is a directory',
+      cover: expect.stringMatching(/^"hook claude --root \$\{CLAUDE_PROJECT_DIR\}" in \.claude\/settings\.json: Claude Code waits on it before a write by Edit, and before none by Write, MultiEdit and NotebookEdit, /),
+    });
+  });
+
+  it('cannot tell which writes a line is asked on where an entry has an "if" or a matcher the reference does not describe, and names each entry once', () => {
+    const conditional = { ...HOOK, if: 'Edit(*.ts)' };
+    expect(reported({ hooks: { PreToolUse: [group(undefined, conditional)] } })[0]).toMatchObject({
+      state: 'unknown',
+      detail: null,
+      before: null,
+      after: [],
+      cover: `${W} (under PreToolUse alone): which writes Claude Code waits on it before cannot be told here (under PreToolUse it has no matcher with "if" "Edit(*.ts)"); it is started after no write, so it warns of none (it stands under no PostToolUse)`,
+    });
+    expect(reported(both(7))[0]).toMatchObject({
+      state: 'unknown',
+      cover: `${W}: which writes Claude Code waits on it before cannot be told here (under PreToolUse it has the matcher 7); which writes it is started after cannot be told here (under PostToolUse it has the matcher 7)`,
+    });
+    // With more on its line, nothing is said of what the hook does with it either: guards is not claimed.
+    expect(reported(both(GUARD.matcher, { ...exec('--base', 'main'), if: 'Write' }))[0]).toMatchObject({ state: 'unknown', detail: null });
+    const several = { hooks: { PreToolUse: [group('Bash', HOOK), group('Bash', HOOK), group('Read', { ...HOOK, asyncRewake: true }), group('Glob', HOOK)], PostToolUse: [GUARD] } };
+    expect(reported(several)[0]?.cover).toBe(
+      `${W}: Claude Code waits on it before no write, so it is not the guard and refuses none (under PreToolUse it has the matcher "Bash", the matcher "Read" in the background and the matcher "Glob")`,
+    );
+  });
+
+  it('says a line under a brief that is not one as holding every write, in the words for the name', () => {
+    const wrong = 'the flag names brief 404, and spec-brief knows no such brief';
+    const held = (hooks: unknown) => reportHooks([{ file: FILE, settings: hooks }], PROJECT, () => heldHookLine(wrong));
+    expect(held(settings(exec('--brief', '404')))).toEqual([
+      {
+        file: FILE,
+        events: BOTH,
+        line: ['hook', 'claude', '--brief', '404'],
+        state: 'held',
+        onFailure: null,
+        detail: `"hook claude --brief 404" in .claude/settings.json: ${wrong}, so the hook holds every write until the line is mended: name a brief spec-brief lists, or take --brief off the line`,
+        ...EVERY,
+        note: null,
+      },
+    ]);
+    // The hook holds the write itself there, so onFailure adds what it adds to a line that guards.
+    expect(held(settings({ ...exec('--brief', '404'), onFailure: 'block' }))[0]).toMatchObject({ state: 'held', note: expect.stringContaining('where it lets the write go ahead without it') });
+    // Where the writes it is asked on cannot be told, those it is asked on are held: that is said.
+    expect(held(both(GUARD.matcher, { ...exec('--brief', '404'), if: 'Edit(*.ts)' }))[0]).toMatchObject({ state: 'held', before: null });
+    // A shell's line is the shell's to read first, as it was.
+    expect(held(settings(shell(`${LEGACY} --brief "404"`)))[0]).toMatchObject({ state: 'unknown', detail: expect.stringContaining("is a shell's to read") });
+  });
+
+  it("hands a caller the words of every line of the harness's, as the hook's reading is handed them", () => {
+    const sources = [
+      { file: 'a', settings: settings(exec('--root', PROJECT_DIR), { type: 'command', command: 'node', args: [SCRIPT, 'hook', 'git'] }) },
+      { file: 'b', settings: 'unreadable' },
+      { file: 'c', settings: { hooks: { PostToolUse: [GUARD] } } },
+    ];
+    expect(handedLines(sources, '/p')).toEqual([
+      ['hook', 'claude', '--root', '/p'],
+      ['hook', 'git'],
+      ['hook', 'claude'],
+    ]);
+  });
+
+  it('takes a line as started for a write unless it is waited on for none', () => {
+    expect([isStarted(null), isStarted(['Edit']), isStarted([])]).toEqual([true, true, false]);
   });
 });

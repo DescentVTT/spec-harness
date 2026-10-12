@@ -20,7 +20,8 @@ import { join } from 'node:path';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { GIT_HOOK_LINE, GUARD_HOOK, mcpServer, PRE_COMMIT, PROJECT_DIR, PROJECT_DIR_OR_HERE, reportHooks } from '../../src/configure.js';
+import { GIT_HOOK_LINE, GUARD_HOOK, mcpServer, mergeClaudeSettings, PRE_COMMIT, PROJECT_DIR, PROJECT_DIR_OR_HERE, reportHooks } from '../../src/configure.js';
+import { WRITING_TOOLS } from '../../src/hooks.js';
 import { claudeHookLine, refusal } from '../../src/usage.js';
 import { parseOptions } from '../../src/workspace.js';
 import { brief, BRIEF_FILE, cleanup, cli, parsed, repository, ROOT, temp, type Repository } from './helpers.js';
@@ -38,6 +39,15 @@ interface Written {
 }
 
 const HOOKS = "the guard hooks init wrote into .claude/settings.json, and the plugin's hooks/hooks.json";
+
+/**
+ * The matcher every release wrote over the hook's line, under PreToolUse and
+ * under PostToolUse: read from the tags as the lines were, `src/setup.ts`,
+ * `src/configure.ts` and `hooks/hooks.json` at v0.1.0 to v0.15.0. Claude Code
+ * starts an entry by the event it stands under and this, so what doctor says
+ * of when a line is started is held to it as well.
+ */
+const MATCHER = 'Edit|Write|MultiEdit|NotebookEdit';
 
 const WRITTEN: readonly Written[] = [
   { releases: '0.1.0 to 0.1.1', where: HOOKS, line: 'npx --no-install spec-harness hook claude' },
@@ -393,19 +403,47 @@ describe("doctor, of the hook's line in Claude Code's settings", () => {
   // doctor reads a line by the hook's own reading of it (usage.ts), so what
   // it says of a line is what the hook does with that line (ADR-0005).
   const entry = (line: Written['line']): unknown => (typeof line === 'string' ? { type: 'command', command: line } : { type: 'command', command: line[0], args: line.slice(1) });
-  const held = (...hooks: unknown[]): unknown => ({ hooks: { PreToolUse: [{ matcher: 'Edit|Write', hooks }], PostToolUse: [{ matcher: 'Edit|Write', hooks }] } });
+  const held = (...hooks: unknown[]): unknown => ({ hooks: { PreToolUse: [{ matcher: MATCHER, hooks }], PostToolUse: [{ matcher: MATCHER, hooks }] } });
+  /** What doctor says of a line a release wrote: it guards, before every tool that writes and after each, and there is no more to say. */
+  const RELEASED = {
+    file: '.claude/settings.json',
+    events: ['PreToolUse', 'PostToolUse'],
+    line: ['hook', 'claude'],
+    state: 'guards',
+    onFailure: null,
+    detail: null,
+    before: WRITING_TOOLS,
+    after: WRITING_TOOLS,
+    cover: null,
+    note: null,
+  };
+  const read = (words: readonly string[]) => claudeHookLine(words, parseOptions, '/the/project', () => false);
 
   it('reads each line a release wrote for the hook as the guard, with nothing more to say of it', () => {
     const hooks = WRITTEN.filter((written) => wordsOf(written.line).at(-1) === 'claude');
     expect(hooks).toHaveLength(2);
     for (const written of hooks) {
-      const said = reportHooks([{ file: '.claude/settings.json', settings: held(entry(written.line)) }], '/the/project', (words) => claudeHookLine(words, parseOptions, '/the/project', () => false));
-      expect(said, written.releases).toEqual([{ file: '.claude/settings.json', events: ['PreToolUse', 'PostToolUse'], line: ['hook', 'claude'], state: 'guards', onFailure: null, detail: null, note: null }]);
+      const said = reportHooks([{ file: '.claude/settings.json', settings: held(entry(written.line)) }], '/the/project', read);
+      expect(said, written.releases).toEqual([RELEASED]);
     }
   });
 
+  it('reads the entries a release wrote, by their event and their matcher, as started before every write and after each', () => {
+    // What init writes today, and the plugin's own file: each holds the
+    // released matcher under both events, and is read as it stands.
+    const plugin: unknown = JSON.parse(readFileSync(join(ROOT, 'hooks', 'hooks.json'), 'utf8'));
+    for (const settings of [mergeClaudeSettings({}), plugin]) {
+      const groups = (settings as { hooks: Record<string, { matcher: string }[]> }).hooks;
+      expect(Object.keys(groups)).toEqual(['PreToolUse', 'PostToolUse']);
+      for (const event of ['PreToolUse', 'PostToolUse']) expect(groups[event]?.map((group) => group.matcher), event).toEqual([MATCHER]);
+      expect(reportHooks([{ file: '.claude/settings.json', settings }], '/the/project', read)).toEqual([RELEASED]);
+    }
+    // The tools it names are the ones the hook reads a file from, and no other.
+    expect(MATCHER.split('|')).toEqual(WRITING_TOOLS);
+  });
+
   it('says what the hook does: a write refused where it says the line guards, and the hook\'s own words where it says the guard is off', async () => {
-    const LINES: readonly (readonly string[])[] = [['--root', PROJECT_DIR, '--brief', '001'], ['--root', 'nowhere'], ['--format', 'xml']];
+    const LINES: readonly (readonly string[])[] = [['--root', PROJECT_DIR, '--brief', '001'], ['--root', 'nowhere'], ['--format', 'xml'], ['--brief', '404']];
     repo.write('.claude/settings.json', JSON.stringify(held(...LINES.map((rest) => entry(['node', `${PROJECT_DIR}/${SCRIPT}`, 'hook', 'claude', ...rest])))));
     try {
       const doctor = parsed<{ root: string; claudeCode: { lines: { line: string[]; state: string; detail: string }[] } }>(await cli(['doctor', '--format', 'json'], repo.root));
@@ -413,16 +451,22 @@ describe("doctor, of the hook's line in Claude Code's settings", () => {
         [LINES[0], 'guards'],
         [LINES[1], 'off'],
         [LINES[2], 'off'],
+        [LINES[3], 'held'],
       ]);
       for (const [index, rest] of LINES.entries()) {
         const said = doctor.claudeCode.lines[index] as { state: string; detail: string };
         // The words Claude Code hands the hook: the project filled in.
         const result = await cli(['hook', 'claude', ...rest.map((word) => word.split(PROJECT_DIR).join(doctor.root))], repo.root, { stdin: QUESTION() });
+        const where = `"hook claude ${rest.join(' ')}" in .claude/settings.json: `;
         if (said.state === 'guards') {
           expect(result, rest.join(' ')).toMatchObject({ code: 0, stderr: '' });
           expect(JSON.parse(result.stdout), rest.join(' ')).toMatchObject({ hookSpecificOutput: { permissionDecision: 'deny' } });
+        } else if (said.state === 'held') {
+          // Exit 2, which holds the write, and the same words for what is wrong with the name.
+          const mend = ', so the hook holds every write until the line is mended: name a brief spec-brief lists, or take --brief off the line';
+          expect(said.detail.startsWith(where) && said.detail.endsWith(mend), said.detail).toBe(true);
+          expect(result, rest.join(' ')).toEqual({ code: 2, stdout: '', stderr: `spec-harness: ${said.detail.slice(where.length, -mend.length)}. Fix the brief or the branch before writing.\n` });
         } else {
-          const where = `"hook claude ${rest.join(' ')}" in .claude/settings.json: `;
           expect(said.detail.startsWith(where), said.detail).toBe(true);
           expect(result, rest.join(' ')).toEqual({ code: 1, stdout: '', stderr: `spec-harness: ${said.detail.slice(where.length).replace('no write is checked', 'this write is not checked')}\n` });
         }

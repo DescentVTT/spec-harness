@@ -18,6 +18,8 @@ import { sameId } from './branch.js';
 import {
   enabledPlugin,
   exportedFile,
+  handedLines,
+  isStarted,
   loadsPlugin,
   registersServer,
   reportHooks,
@@ -47,8 +49,8 @@ import type { BriefRow, Finding } from './types.js';
 import { compileGlob, type LiteralReading } from './vendor/spec-core/pattern/index.js';
 import { dirname, isRelativeReference, resolveInside, splitReference } from './vendor/spec-core/path/index.js';
 import { SiblingError } from './siblings.js';
-import { claudeHookLine } from './usage.js';
-import { parseOptions, UsageError, type CliIO, type Workspace } from './workspace.js';
+import { claudeHookLine, emptyValue, heldHookLine, isBlank, type HookLine } from './usage.js';
+import { activeBrief, describeActive, namedId, openWorkspace, parseOptions, UsageError, type CliIO, type Options, type Workspace } from './workspace.js';
 
 /* -------------------------------------------------------------------- base */
 
@@ -395,19 +397,78 @@ export async function claudeSettings(root: string, env: CliIO['env']): Promise<C
  * A line is the hook's by the hook's own reading of it, whatever else stands
  * on it, and read as a session started at `root` hands it over: the project
  * is `root`, an empty `--root` is the directory the hook is started in, and
- * a relative one is read from there. The plugin's own hooks are not read:
- * they are files of a release, in a directory Claude Code keeps, and no
- * release wrote more than the hook on their line (ADR-0012).
+ * a relative one is read from there. A brief on it is asked of spec-brief, as
+ * the hook asks. The plugin's own hooks are not read: they are files of a
+ * release, in a directory Claude Code keeps, and every release wrote the
+ * hook alone on their line, under the matcher init writes (ADR-0012).
+ *
+ * `init` reads the wiring through this too, so that it and `doctor` say
+ * the same of every tree.
  */
-export async function claudeCodeWiring(root: string, env: CliIO['env']): Promise<ClaudeCodeWiring> {
-  const sources = await claudeSettings(root, env);
-  const lines = reportHooks(sources, root, (words) => claudeHookLine(words, parseOptions, root, (path) => isDirectory(resolve(root, path))));
+export async function claudeCodeWiring(root: string, io: CliIO): Promise<ClaudeCodeWiring> {
+  const sources = await claudeSettings(root, io.env);
+  // Each line is read once, before any is reported: what the brief on one
+  // names is spec-brief's to say, and the report itself asks nothing.
+  const read = new Map<string, HookLine | null>();
+  for (const words of handedLines(sources, root)) read.set(JSON.stringify(words), await hookLineHere(words, root, io));
+  const lines = reportHooks(sources, root, (words) => read.get(JSON.stringify(words))!);
   return {
     plugin: enabledPlugin(sources),
-    hooks: sources.map(({ file }) => file).filter((file) => lines.some((line) => line.file === file)),
+    // A line Claude Code starts for no write, before one or after, is in no
+    // one's way: it is said, and the file is not counted for it.
+    hooks: sources.map(({ file }) => file).filter((file) => lines.some((line) => line.file === file && (isStarted(line.before) || isStarted(line.after)))),
     lines,
     server: registersServer(await readJsonObject(join(root, '.mcp.json'))),
   };
+}
+
+/**
+ * What the hook does with the words a session started at `root` hands it:
+ * its own reading of the line (usage.ts), and one step past it, where the
+ * line guards and names a brief. The hook opens the work tree its root is
+ * in, asks spec-brief there which brief the name is, and holds every write
+ * under a name that is none (ADR-0004). So this asks the same, of the same
+ * work tree.
+ */
+async function hookLineHere(words: readonly string[], root: string, io: CliIO): Promise<HookLine | null> {
+  const line = claudeHookLine(words, parseOptions, root, (path) => isDirectory(resolve(root, path)));
+  // Only a line that guards names a brief, so the check of its state is the
+  // compiler's, and its mutant is equivalent.
+  if (line === null || line.state !== 'guards' || line.brief === undefined) return line;
+  let workspace: Workspace;
+  try {
+    workspace = await openWorkspace({ root: line.root === undefined ? root : resolve(root, line.root) }, io);
+  } catch (error) {
+    // A root outside a work tree, where the hook reads no brief and checks
+    // no write: said of the line as it was, by its root (ADR-0005).
+    if (!(error instanceof UsageError)) throw error;
+    return line;
+  }
+  const { problem } = await diagnoseBrief(workspace, { brief: line.brief }, io.env);
+  return problem === null ? line : heldHookLine(problem);
+}
+
+/**
+ * The brief a round works on, as doctor reports it: its id, and what is
+ * wrong with the name when no round can work under it. Every other command
+ * stops there. A diagnosis says it, being what a person runs when the guard
+ * holds a write they expected it to pass.
+ */
+export async function diagnoseBrief(workspace: Workspace, options: Pick<Options, 'brief'>, env: CliIO['env']): Promise<{ readonly id: string | null; readonly problem: string | null }> {
+  if (options.brief !== undefined && isBlank(options.brief)) return { id: null, problem: emptyValue('--brief', 'brief', options.brief) };
+  const id = namedId(workspace, options, env);
+  // A spec-brief that cannot be run is a row of the report, with the reason.
+  if (workspace.siblings.locate('spec-brief').kind !== 'found') return { id, problem: null };
+  try {
+    // Where nothing names a brief, spec-brief is not asked (ADR-0004), and
+    // there is no problem to state.
+    return { id, problem: describeActive(await activeBrief(workspace, options, env)).problem };
+  } catch (error) {
+    // Asking spec-brief throws nothing but this, so the check is equivalent
+    // to its mutant; it keeps any other error the stack it needs.
+    if (!(error instanceof SiblingError)) throw error;
+    return { id, problem: `spec-brief could not say whether it knows brief ${id}: ${error.message}` };
+  }
 }
 
 async function archiveReasons(workspace: Workspace, brief: BriefRow, base: Base): Promise<{ blocking: ArchiveReason[]; warnings: ArchiveReason[] } | { unavailable: string }> {

@@ -10,6 +10,7 @@
 
 import { isAbsolute } from 'node:path';
 
+import { WRITING_TOOLS } from './hooks.js';
 import { literal } from './literal.js';
 import type { AllowedSigner } from './signers.js';
 import type { HookLine } from './usage.js';
@@ -48,7 +49,11 @@ export const PROJECT_DIR = '${CLAUDE_PROJECT_DIR}';
 export const PROJECT_DIR_OR_HERE = '${CLAUDE_PROJECT_DIR:-.}';
 
 const HOOK_MATCHER = 'Edit|Write|MultiEdit|NotebookEdit';
-const GUARDED_EVENTS = ['PreToolUse', 'PostToolUse'];
+/** The event Claude Code runs before a tool call, the only one of the two where a hook can refuse the call. */
+const BEFORE = 'PreToolUse';
+/** The event after a call that succeeded, where a hook can only tell the model what it wrote. */
+const AFTER = 'PostToolUse';
+const GUARDED_EVENTS = [BEFORE, AFTER];
 const GUARD_ARGS: readonly string[] = Object.freeze([`${PROJECT_DIR}/${BIN}`, 'hook', 'claude']);
 
 /**
@@ -81,9 +86,67 @@ function upgraded(group: unknown): unknown {
   return { ...(group as Json), hooks: hooks.map((hook) => (isLegacyGuard(hook) ? { ...(hook as Json), command: 'node', args: [...GUARD_ARGS] } : hook)) };
 }
 
-/** `.claude/settings.json`, or the plugin's hooks, with the guard hooks merged in; `null` when they are already there. */
-export function mergeClaudeSettings(current: Json): Json | null {
+/**
+ * The tools, of those that write a file, that a group's matcher has Claude
+ * Code start the group's hooks for, by its hooks reference
+ * (https://code.claude.com/docs/en/hooks, Matcher patterns, read
+ * 2026-10-12): left out, empty or `*`, every tool; made of letters, digits,
+ * `_`, `-`, spaces, `,` and `|` alone, the tools it names, one between each
+ * `|` or `,`; with any other character in it, a JavaScript regular
+ * expression that may match anywhere in a tool's name. `null` where the
+ * reference does not say: a matcher that is not text, or is no pattern.
+ */
+function matchedTools(matcher: unknown): readonly string[] | null {
+  if (matcher === undefined || matcher === '' || matcher === '*') return WRITING_TOOLS;
+  if (typeof matcher !== 'string') return null;
+  if (/^[A-Za-z0-9_\- ,|]*$/.test(matcher)) {
+    const names = matcher.split(/[|,]/).map((name) => name.trim());
+    return WRITING_TOOLS.filter((tool) => names.includes(tool));
+  }
+  let pattern: RegExp;
+  try {
+    pattern = new RegExp(matcher);
+  } catch {
+    return null;
+  }
+  return WRITING_TOOLS.filter((tool) => pattern.test(tool));
+}
+
+/** Whether Claude Code runs a hook's entry in the background, where it waits on no answer of it. */
+function inBackground(hook: Json): boolean {
+  return hook['async'] === true || hook['asyncRewake'] === true;
+}
+
+/**
+ * The writing tools whose call Claude Code hands an entry under `event` and
+ * waits for it on, or `null` where that cannot be told here. Before a write
+ * an entry in the background answers too late to refuse it, so it is waited
+ * on for none (the reference, Run hooks in the background). An `if` has the
+ * entry started only for the calls its rule matches, in the syntax of a
+ * permission rule, which is not read here.
+ */
+function answered(event: string, matcher: unknown, hook: Json): readonly string[] | null {
+  if (event === BEFORE && inBackground(hook)) return [];
+  if (hook['if'] !== undefined) return null;
+  return matchedTools(matcher);
+}
+
+/**
+ * `.claude/settings.json`, or the plugin's hooks, with the guard hooks merged
+ * in; `null` when they are already there.
+ *
+ * An event has the guard where Claude Code starts init's own line under it
+ * for a write. Where the settings hold another line of the hook that it
+ * starts for a write, one `isHook` knows as the hook's by the words after
+ * the harness's command, nothing is merged in at all: the line is a
+ * person's, a second one beside it would run for every write as well, and
+ * init rewrites none but the one 0.1 wrote. Without `isHook`, only init's
+ * own line is known.
+ */
+export function mergeClaudeSettings(current: Json, isHook: (words: readonly string[]) => boolean = () => false): Json | null {
   const hooks = isObject(current['hooks']) ? current['hooks'] : {};
+  const theirs = harnessEntries(current).some((entry) => !isGuard(entry.hook) && !isLegacyGuard(entry.hook) && isHook(entry.words) && isStarted(entry.tools));
+  if (theirs) return null;
   let changed = false;
   const next: Json = { ...hooks };
   for (const event of GUARDED_EVENTS) {
@@ -91,7 +154,7 @@ export function mergeClaudeSettings(current: Json): Json | null {
     const before: unknown[] = Array.isArray(listed) ? listed : [];
     const groups = before.map(upgraded);
     const replaced = groups.some((group, index) => group !== before[index]);
-    const present = groups.some((group) => hooksOf(group).some(isGuard));
+    const present = harnessEntries({ hooks: { [event]: groups } }).some((entry) => isGuard(entry.hook) && isStarted(entry.tools));
     if (!present) groups.push({ matcher: HOOK_MATCHER, hooks: [{ ...GUARD_HOOK, args: [...GUARD_ARGS] }] });
     if (replaced || !present) {
       next[event] = groups;
@@ -128,16 +191,6 @@ function field(file: unknown, key: string): unknown {
   return isObject(file) ? file[key] : undefined;
 }
 
-/** Whether Claude Code settings hold the guard hooks, as this release or 0.1 wrote them. */
-export function holdsGuard(settings: unknown): boolean {
-  const hooks = field(settings, 'hooks');
-  if (!isObject(hooks)) return false;
-  return GUARDED_EVENTS.some((event) => {
-    const groups = hooks[event];
-    return Array.isArray(groups) && groups.some((group) => hooksOf(group).some((hook) => isGuard(hook) || isLegacyGuard(hook)));
-  });
-}
-
 /** The harness's command on a line: its script, or its name, alone or at the end of a path. */
 function isLauncher(word: string): boolean {
   const name = word.split(/[\\/]/).at(-1);
@@ -165,8 +218,7 @@ export interface WrittenHook {
   readonly blocks: boolean;
 }
 
-function writtenHook(hook: unknown): Omit<WrittenHook, 'events'> | null {
-  if (!isObject(hook)) return null;
+function writtenHook(hook: Json): Line | null {
   const { command, args } = hook;
   if (typeof command !== 'string') return null;
   let line: string[];
@@ -192,21 +244,53 @@ function writtenHook(hook: unknown): Omit<WrittenHook, 'events'> | null {
  * alone.
  */
 export function writtenHooks(settings: unknown): WrittenHook[] {
-  const hooks = field(settings, 'hooks');
-  if (!isObject(hooks)) return [];
   const found: { events: string[]; words: readonly string[]; shell: boolean; blocks: boolean }[] = [];
-  for (const event of GUARDED_EVENTS) {
-    const groups = hooks[event];
-    if (!Array.isArray(groups)) continue;
-    for (const hook of groups.flatMap(hooksOf)) {
-      const written = writtenHook(hook);
-      if (written === null) continue;
-      const same = found.find((other) => other.shell === written.shell && other.blocks === written.blocks && sameStrings(other.words, written.words));
-      if (same === undefined) found.push({ events: [event], ...written });
-      else if (!same.events.includes(event)) same.events.push(event);
-    }
+  for (const { event, words, shell, blocks } of harnessEntries(settings)) {
+    const same = found.find((other) => sameLine(other, { words, shell, blocks }));
+    if (same === undefined) found.push({ events: [event], words, shell, blocks });
+    else if (!same.events.includes(event)) same.events.push(event);
   }
   return found;
+}
+
+type Line = Omit<WrittenHook, 'events'>;
+
+function sameLine(one: Line, other: Line): boolean {
+  return one.shell === other.shell && one.blocks === other.blocks && sameStrings(one.words, other.words);
+}
+
+/** An entry that runs the harness: its line, where it stands, and what decides whether Claude Code starts it there. */
+interface HarnessEntry extends Line {
+  readonly event: string;
+  /** The matcher of the entry's group, as written; `undefined` where the group has none. */
+  readonly matcher: unknown;
+  readonly hook: Json;
+  /** The writing tools whose call it is handed and waited on for, or `null` where that cannot be told. */
+  readonly tools: readonly string[] | null;
+}
+
+/** Every entry that runs the harness under the two events the guard answers, in the order the settings hold them. */
+function harnessEntries(settings: unknown): HarnessEntry[] {
+  const hooks = field(settings, 'hooks');
+  if (!isObject(hooks)) return [];
+  return GUARDED_EVENTS.flatMap((event) => {
+    const groups = hooks[event];
+    if (!Array.isArray(groups)) return [];
+    return groups.flatMap((group) =>
+      hooksOf(group).flatMap((hook): HarnessEntry[] => {
+        if (!isObject(hook)) return [];
+        const written = writtenHook(hook);
+        if (written === null) return [];
+        const matcher = field(group, 'matcher');
+        return [{ ...written, event, matcher, hook, tools: answered(event, matcher, hook) }];
+      }),
+    );
+  });
+}
+
+/** Whether Claude Code starts a line for a write, by the tools it is waited on for: one whose tools cannot be told is taken as started. */
+export function isStarted(tools: readonly string[] | null): boolean {
+  return tools === null || tools.length > 0;
 }
 
 /** What doctor reports of one line of Claude Code's hook. */
@@ -216,11 +300,24 @@ export interface HookReport {
   readonly events: readonly string[];
   /** What follows the harness's command, as written. */
   readonly line: readonly string[];
-  /** `unknown`: a shell reads the line before the hook does, so what the hook is handed cannot be told. */
-  readonly state: 'guards' | 'off' | 'unknown';
+  /**
+   * `guards`: Claude Code waits on the hook before a write, and the hook
+   * checks it. `off`: the hook checks no write, for a line it cannot read or
+   * a root that is no directory. `held`: the hook holds every write, for a
+   * brief the line names that is not one. `unstarted`: Claude Code waits on
+   * the line before no write, so it is not the guard. `unknown`: what the
+   * hook is handed, or which writes it is started for, cannot be told here.
+   */
+  readonly state: 'guards' | 'off' | 'held' | 'unstarted' | 'unknown';
   readonly onFailure: 'block' | null;
-  /** What there is to say of the line, or `null` for the line a release wrote, which guards. */
+  /** What there is to say of what the hook does with the line, or `null`. */
   readonly detail: string | null;
+  /** The writing tools Claude Code waits on the line before a write by, where the hook can refuse it; `null` where that cannot be told. */
+  readonly before: readonly string[] | null;
+  /** The writing tools Claude Code starts the line after a write by, where the hook can warn of it; `null` where that cannot be told. */
+  readonly after: readonly string[] | null;
+  /** What there is to say of the two, or `null` where they are every tool that writes, as init has it. */
+  readonly cover: string | null;
   /** What `onFailure` changes, where the entry sets it to `"block"`. */
   readonly note: string | null;
 }
@@ -239,28 +336,90 @@ function describeOnFailure(where: string, blocks: boolean, off: boolean): string
   return `${holds}, where it lets the write go ahead without it: by its exit 1 for a question it cannot read, by not starting, or by running past its timeout`;
 }
 
+/** Names as a sentence lists them: one, two with "and", more with commas before it. Never asked of none. */
+function named(names: readonly string[]): string {
+  const last = names.at(-1)!;
+  return names.length === 1 ? last : `${names.slice(0, -1).join(', ')} and ${last}`;
+}
+
+/** The writing tools a line's entries under `event` are waited on for between them, or `null` where an entry that cannot be told might add one. */
+function toolsUnder(event: string, entries: readonly HarnessEntry[]): readonly string[] | null {
+  const under = entries.filter((entry) => entry.event === event);
+  const sure = WRITING_TOOLS.filter((tool) => under.some((entry) => entry.tools !== null && entry.tools.includes(tool)));
+  return sure.length < WRITING_TOOLS.length && under.some((entry) => entry.tools === null) ? null : sure;
+}
+
+/** What a line's entries under `event` hold that decides when Claude Code starts them, as written. */
+function entriesUnder(event: string, entries: readonly HarnessEntry[]): string {
+  const under = entries.filter((entry) => entry.event === event);
+  if (under.length === 0) return `it stands under no ${event}`;
+  const said = under.map(({ matcher, hook }) => {
+    const pattern = matcher === undefined ? 'no matcher' : `the matcher ${JSON.stringify(matcher)}`;
+    const background = inBackground(hook) ? ' in the background' : '';
+    const rule = hook['if'] === undefined ? '' : ` with "if" ${JSON.stringify(hook['if'])}`;
+    return `${pattern}${background}${rule}`;
+  });
+  return `under ${event} it has ${named([...new Set(said)])}`;
+}
+
+/**
+ * What is said of the writes Claude Code starts a line for, by the event and
+ * the matcher of each entry that holds it; `null` where it is waited on
+ * before every tool that writes and started after each, as init writes it.
+ */
+function describeCover(where: string, before: readonly string[] | null, after: readonly string[] | null, entries: readonly HarnessEntry[]): string | null {
+  const parts: string[] = [];
+  const left = (tools: readonly string[]): string[] => WRITING_TOOLS.filter((tool) => !tools.includes(tool));
+  if (before === null) parts.push(`which writes Claude Code waits on it before cannot be told here (${entriesUnder(BEFORE, entries)})`);
+  else if (before.length === 0) parts.push(`Claude Code waits on it before no write, so it is not the guard and refuses none (${entriesUnder(BEFORE, entries)})`);
+  else if (left(before).length > 0) {
+    parts.push(`Claude Code waits on it before a write by ${named(before)}, and before none by ${named(left(before))}, which goes unchecked (${entriesUnder(BEFORE, entries)})`);
+  }
+  if (after === null) parts.push(`which writes it is started after cannot be told here (${entriesUnder(AFTER, entries)})`);
+  else if (after.length === 0) parts.push(`it is started after no write, so it warns of none (${entriesUnder(AFTER, entries)})`);
+  else if (left(after).length > 0) parts.push(`it is started after a write by ${named(after)} alone (${entriesUnder(AFTER, entries)})`);
+  return parts.length === 0 ? null : `${where}: ${parts.join('; ')}`;
+}
+
+/** The words Claude Code hands the hook for a line: what follows the harness's command, each `${CLAUDE_PROJECT_DIR}` filled with `project`. */
+function handedWords(words: readonly string[], project: string): string[] {
+  return words.map((word) => word.split(PROJECT_DIR).join(project));
+}
+
+/** The words handed over for every line of the harness's in the settings files, for a caller that has to ask something of each before it reports them. */
+export function handedLines(sources: readonly ClaudeSettings[], project: string): string[][] {
+  return sources.flatMap(({ settings }) => writtenHooks(settings).map((hook) => handedWords(hook.words, project)));
+}
+
 /**
  * The lines of Claude Code's hook in the settings files, each with what the
- * hook does with it. `read` is the hook's own reading of the words it is
- * handed (usage.ts), `null` for a line that is not its; the words are handed
- * to it as Claude Code hands them to the hook, each `${CLAUDE_PROJECT_DIR}`
- * filled with `project`.
+ * hook does with it and which writes Claude Code starts it for. `read` is
+ * the hook's own reading of the words it is handed (usage.ts), `null` for a
+ * line that is not its; the words are handed to it as Claude Code hands them
+ * to the hook, each `${CLAUDE_PROJECT_DIR}` filled with `project`.
  *
  * A line that guards and holds no more than a release wrote is reported
  * with nothing to say, as it always was. One with more on it is said as it
  * is, and fails nothing. One the hook cannot read, or whose root is no
- * directory, is a guard that is off: a problem, and doctor exits 1 for it.
+ * directory, is a guard that is off, and one that names a brief which is not
+ * one holds every write: each a problem, and doctor exits 1 for it. A line
+ * Claude Code waits on before no write is not the guard, whatever the hook
+ * would do with it.
  */
 export function reportHooks(sources: readonly ClaudeSettings[], project: string, read: (words: readonly string[]) => HookLine | null): HookReport[] {
-  return sources.flatMap(({ file, settings }) =>
-    writtenHooks(settings).flatMap((hook): HookReport[] => {
-      const handed = read(hook.words.map((word) => word.split(PROJECT_DIR).join(project)));
+  return sources.flatMap(({ file, settings }) => {
+    const entries = harnessEntries(settings);
+    return writtenHooks(settings).flatMap((hook): HookReport[] => {
+      const handed = read(handedWords(hook.words, project));
       if (handed === null) return [];
       const both = GUARDED_EVENTS.every((event) => hook.events.includes(event));
       // An empty word is shown as a shell spells one, where joined it would not show at all.
       // A line that is not under both events is under one.
       const where = `"${hook.words.map((word) => (word === '' ? "''" : word)).join(' ')}" in ${file}${both ? '' : ` (under ${hook.events[0]} alone)`}`;
-      const written = { file, events: hook.events, line: hook.words, onFailure: hook.blocks ? 'block' : null } satisfies Partial<HookReport>;
+      const mine = entries.filter((entry) => sameLine(entry, hook));
+      const before = toolsUnder(BEFORE, mine);
+      const after = toolsUnder(AFTER, mine);
+      const written = { file, events: hook.events, line: hook.words, onFailure: hook.blocks ? 'block' : null, before, after, cover: describeCover(where, before, after, mine) } satisfies Partial<HookReport>;
       if (hook.shell) {
         const detail = `${where} is a shell's to read before the hook is handed it, so what the hook does with it cannot be told here: written with "args", each word reaches the hook as it stands`;
         return [{ ...written, state: 'unknown', detail, note: describeOnFailure(where, hook.blocks, false) }];
@@ -269,12 +428,20 @@ export function reportHooks(sources: readonly ClaudeSettings[], project: string,
         const detail = `${where}: ${handed.fault.wrong}, so the guard is off and no write is checked; ${handed.fault.mend}`;
         return [{ ...written, state: 'off', detail, note: describeOnFailure(where, hook.blocks, true) }];
       }
+      const note = describeOnFailure(where, hook.blocks, false);
+      // What the hook would do with a line it is never asked on before a write is not what guards.
+      if (before !== null && before.length === 0) return [{ ...written, state: 'unstarted', detail: null, note }];
+      if (handed.state === 'held') {
+        const detail = `${where}: ${handed.wrong}, so the hook holds every write until the line is mended: name a brief spec-brief lists, or take --brief off the line`;
+        return [{ ...written, state: 'held', detail, note }];
+      }
+      if (before === null) return [{ ...written, state: 'unknown', detail: null, note }];
       // What a release wrote: its hook, and nothing after it.
-      if (sameStrings(hook.words, ['hook', 'claude'])) return [{ ...written, state: 'guards', detail: null, note: describeOnFailure(where, hook.blocks, false) }];
+      if (sameStrings(hook.words, ['hook', 'claude'])) return [{ ...written, state: 'guards', detail: null, note }];
       const root = handed.root === undefined ? '' : `, and its root, ${handed.root}, is a directory`;
-      return [{ ...written, state: 'guards', detail: `${where} is more than init writes, and guards: the hook reads the line${root}`, note: describeOnFailure(where, hook.blocks, false) }];
-    }),
-  );
+      return [{ ...written, state: 'guards', detail: `${where} is more than init writes, and guards: the hook reads the line${root}`, note }];
+    });
+  });
 }
 
 /** Whether a project's `.mcp.json` registers a server under the harness's name, however it runs it. */
@@ -337,20 +504,25 @@ const PARTS = literal({
  * What init says of a Claude Code file it leaves alone because the plugin is
  * on and brings the same `part`. A file that holds init's entry already is a
  * double install for the person to settle: init removes nothing, since the
- * file is the repository's and a clone without the plugin relies on it.
+ * file is the repository's and a clone without the plugin relies on it. So
+ * is an entry `elsewhere`, in a settings file of the person's own, which
+ * init does not write and doctor fails all the same.
  */
-export function describeSkipped(plugin: EnabledPlugin, part: 'hooks' | 'server', present: boolean): string {
+export function describeSkipped(plugin: EnabledPlugin, part: 'hooks' | 'server', present: boolean, elsewhere: readonly string[] = []): string {
   const words = PARTS[part];
   if (present) return `${isOn(plugin)} and brings ${words.brings} this file holds as well, so ${words.twice}: take ${words.entry} out of this file, or ${turnOff(plugin)}`;
+  if (elsewhere.length > 0) {
+    return `${isOn(plugin)} and brings ${words.brings} ${named(elsewhere)} ${elsewhere.length === 1 ? 'holds' : 'hold'} as well, so ${words.twice}: take ${words.entry} out there, or ${turnOff(plugin)}. init writes none here`;
+  }
   return `${isOn(plugin)} and brings ${words.brings}, so ${words.skipped}: with both, ${words.twice}. To have ${words.them} here instead, for every clone of the repository, ${turnOff(plugin)} and run init again`;
 }
 
 /** How Claude Code is wired to the harness: the plugin, init's entries, both or neither. */
 export interface ClaudeCodeWiring {
   readonly plugin: EnabledPlugin | null;
-  /** The settings files that hold the guard hooks. */
+  /** The settings files that hold the guard hooks: a line of the hook that Claude Code starts for a write, before it or after. */
   readonly hooks: readonly string[];
-  /** Each line of the hook in those files, with what the hook does with it. */
+  /** Each line of the hook in the settings files, with what the hook does with it and the writes it is started for. */
   readonly lines: readonly HookReport[];
   /** Whether `.mcp.json` registers the server. */
   readonly server: boolean;

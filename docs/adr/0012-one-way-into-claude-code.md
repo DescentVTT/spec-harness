@@ -220,6 +220,35 @@ and, under `--strict`, for one that cannot be told. The lines the releases
 wrote are read as they were. init still tells its own entries by what it
 and 0.1 wrote, so that it never rewrites a line a person changed.
 
+*Amended again 2026-10-12.* init knows the hook as doctor knows it, where it
+told its own entries by what it and 0.1 wrote (ADR-0005, amended again the
+same day). The amendment above kept that, so that init would never rewrite a
+line a person changed, and it had another effect, measured on 0.15.0: beside
+such a line `init --write` added its own, and the file held two lines that
+both run for every write, the double guard this decision is about, made by
+init itself; and with the plugin on beside such a line init reported `skip`,
+that it writes no hook because the plugin brings them, of a file that held
+one, where doctor exits 1 for the double install.
+
+init now knows whose line an entry is by doctor's own report of the file,
+with the event and the matcher the entry stands under. Where the file holds
+a line of the hook that init did not write and Claude Code starts for a
+write, it writes no hook into the file and says which line it left, in
+doctor's words for the line: `keep` where the line guards, `advise` where
+it is no guard. It still rewrites no line but the one 0.1 wrote, completes
+its own line where that stands under one event alone, and removes nothing. Beside the plugin, a file
+that holds a line Claude Code starts for a write is `advise`, the double
+install, whoever wrote the line and whichever of the three settings files
+holds it; a line started for no write doubles nothing, and is `skip`.
+
+So init and doctor say the same of every tree: where doctor reports no
+guard, init writes one; where doctor reports the double install, init
+advises it; and where doctor reports a line of the hook, init writes none
+beside it. The pairs were measured over one set of trees, 51 of them,
+before and after (ADR-0005 has the table). One pair is left apart: a line
+in a settings file of the person's own, with no plugin, beside which init
+still writes the project's file, since every clone reads that one.
+
 ## Consequences
 
 - A plugin turned on by managed settings or `--settings` is invisible to

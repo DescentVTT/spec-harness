@@ -9,6 +9,68 @@ only fixes, reports less or documents, so `^0.7.0` takes only releases that
 cannot turn a run red. The family's policy is
 [spec-core's ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
+## Unreleased
+
+### Changed
+
+- **`doctor` says a hook's line that names a brief which is not one, and
+  exits 1.** `hook claude --brief 404` on the line in Claude Code's settings
+  has the hook hold every write, exit 2, where spec-brief knows no brief 404
+  or has archived it, and `doctor` said of that line that it guards. It now
+  asks spec-brief about the name as the hook does, in the work tree the
+  line's root is in, and says the line in the words the hook holds the write
+  with: `"hook claude --brief 404" in .claude/settings.json: the flag names
+  brief 404, and spec-brief knows no such brief, so the hook holds every
+  write until the line is mended`. `--format json` has the line's `state` as
+  `held`. The hook answers as it did
+  ([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
+  Upgrading: `doctor` exits 1 for such a line, where it exited 0 while every
+  write was held: name a brief spec-brief lists on the line, or take
+  `--brief` off it.
+- **`doctor` reads the event and the matcher of the hook's entries.** It
+  read neither, so a line under `PostToolUse` alone, or under a matcher such
+  as `Bash`, which Claude Code never starts before a write, was reported as
+  the guard. An entry is now read as Claude Code's hooks reference has it:
+  waited on before a tool call under `PreToolUse` alone, for the tools its
+  matcher lets through, and for none where it runs in the background
+  (`async`, `asyncRewake`). A line waited on before no write is said as not
+  the guard, with what it stands under; one waited on before some of `Edit`,
+  `Write`, `MultiEdit` and `NotebookEdit` guards those, and the rest are
+  named as unchecked; an entry with an `if`, whose rule is not read, or with
+  a matcher that is not text or is no pattern, is *cannot tell*. `--format
+  json` has `before`, `after` and `cover` on each of `claudeCode.lines`, and
+  the states `unstarted` and `held` beside `guards`, `off` and `unknown`.
+  Upgrading: a settings file whose only line of the hook is started for no
+  write, before one or after, is no longer one of `init`'s entries, so
+  beside the plugin it is no double install, exit 0 where it was 1, and
+  alone `doctor` reports no guard and does not ask Claude Code its release.
+  `doctor --strict` exits 1 for a line whose entry has an `if`, or a matcher
+  it cannot read. A script that reads `claudeCode.lines[].state` meets the
+  two new states.
+- **`init` writes no hook beside a line of the hook that is there.** It knew
+  only the line it writes and the one 0.1 wrote, so beside a line a person
+  had changed, such as `hook claude --root ${CLAUDE_PROJECT_DIR}`, `init
+  --write` added its own, and both ran for every write; and with the Claude
+  Code plugin on beside such a line it said `skip` where `doctor` exits 1
+  for the double install. It now knows the hook as `doctor` knows it, by its
+  command and the words `hook claude`, with the event and the matcher its
+  entry stands under. Where the file holds such a line that Claude Code
+  starts for a write, `init` writes no hook into it, and says which line it
+  left in `doctor`'s words for it: `keep`, or `advise` where the line turns
+  the guard off, holds every write or is waited on before none. Beside the
+  plugin the file is `advise`, the double install, and so where the line
+  stands in a settings file of your own. It rewrites no line but the one 0.1
+  wrote
+  ([ADR-0012](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0012-one-way-into-claude-code.md)).
+  Upgrading: `init --write` leaves `.claude/settings.json` as it is where it
+  added a second line; a file that holds two since an earlier `init` keeps
+  both, and one of them is yours to take out. A line Claude Code starts for
+  no write, under a matcher that names no writing tool or in the background
+  before a write, no longer counts as installed: `init` writes its hooks
+  beside it. In the programmatic API, `mergeClaudeSettings` takes the
+  hook's reading as an optional second argument; without it, it knows
+  `init`'s own line alone, read with its event and matcher as above.
+
 ## 0.15.0
 
 `doctor` reads the line of Claude Code's hook as the hook itself reads it:

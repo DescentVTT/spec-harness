@@ -187,17 +187,46 @@ export interface LineFault {
 
 /**
  * What Claude Code's hook does with its own line, as far as the line decides
- * it: it guards, in the root the line gives it where it gives one, or the
- * guard is off, for a fault the hook says with exit 1 and holds no write for
- * (ADR-0005). The hook reads its line through the three functions below, and
- * `doctor` reads a line it finds in Claude Code's settings through the same
- * three, so what it says of a line is what the hook does with it.
+ * it: it guards, in the root the line gives it where it gives one and under
+ * the brief it names where it names one; or the guard is off, for a fault
+ * the hook says with exit 1 and holds no write for; or every write is held,
+ * exit 2, for a brief the line names that is not one (ADR-0005). The hook
+ * reads its line through the functions below, and `doctor` reads a line it
+ * finds in Claude Code's settings through the same ones, so what it says of
+ * a line is what the hook does with it.
  */
-export type HookLine = { readonly state: 'guards'; readonly root: string | undefined } | GuardOff;
+export type HookLine = Guards | GuardOff | WritesHeld;
+
+export interface Guards {
+  readonly state: 'guards';
+  readonly root: string | undefined;
+  /**
+   * The brief the line names with `--brief`, as written. Whether it is a
+   * brief is spec-brief's to say, which the caller asks. Absent where the
+   * line names none.
+   */
+  readonly brief?: string;
+}
 
 export interface GuardOff {
   readonly state: 'off';
   readonly fault: LineFault;
+}
+
+export interface WritesHeld {
+  readonly state: 'held';
+  /** What is said of the name, by what named the brief (workspace.ts). */
+  readonly wrong: string;
+}
+
+/**
+ * A line under which the round has no brief to be checked against, since
+ * what names one names a brief spec-brief does not know, or one it has
+ * archived: the hook holds the write, exit 2, and every write after it until
+ * the name is mended (ADR-0004). `wrong` is what is said of the name.
+ */
+export function heldHookLine(wrong: string): WritesHeld {
+  return { state: 'held', wrong };
 }
 
 /**
@@ -218,7 +247,7 @@ export function unreadHookLine(said: string): GuardOff {
  * read as a session outside a work tree, exit 0 and no word, and the guard
  * someone had configured was off.
  */
-export function readHookLine(root: string | undefined, cwd: string, isDirectory: (path: string) => boolean): HookLine {
+export function readHookLine(root: string | undefined, cwd: string, isDirectory: (path: string) => boolean): Guards | GuardOff {
   const given = root === '' ? cwd : root;
   if (given !== undefined && !isDirectory(given)) {
     return { state: 'off', fault: { wrong: noDirectory(given), mend: "give the hook's line a directory that exists, or leave --root out for the project Claude Code names" } };
@@ -233,6 +262,10 @@ export function readHookLine(root: string | undefined, cwd: string, isDirectory:
  * line that parsed and on one that did not, as the command line knows it
  * (cli.ts). `parse` is that parser, which throws its refusal with the words
  * it could still read.
+ *
+ * A line that guards says which brief it names, where it names one: the hook
+ * passes over a `--brief` that is empty, as every release has, and holds
+ * every write under one that names no brief, which only spec-brief can tell.
  */
 export function claudeHookLine(
   words: readonly string[],
@@ -247,7 +280,9 @@ export function claudeHookLine(
     const refused = error as { readonly message: string; readonly words: readonly string[] };
     return isClaudeHook(refused.words[0], refused.words[1]) ? unreadHookLine(refused.message) : null;
   }
-  return isClaudeHook(line.command, line.positionals[0]) ? readHookLine(line.root, cwd, isDirectory) : null;
+  if (!isClaudeHook(line.command, line.positionals[0])) return null;
+  const read = readHookLine(line.root, cwd, isDirectory);
+  return read.state === 'guards' && line.brief !== undefined && !isBlank(line.brief) ? { ...read, brief: line.brief } : read;
 }
 
 /**

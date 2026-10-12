@@ -22,13 +22,12 @@ import {
   describeGitHook,
   describeGraph,
   describeSkipped,
-  enabledPlugin,
   GIT_HOOK_LINE,
   gitHookNote,
   type GitHookState,
   graphReadsBriefs,
   GUARD_HOOK,
-  holdsGuard,
+  isStarted,
   loadsPlugin,
   measuresArchive,
   mergeClaudeSettings,
@@ -45,7 +44,7 @@ import {
 } from './configure.js';
 import { readJsonObject as readJson, writeAtomic } from './fs.js';
 import { hookPath, localBranches, remoteDefault } from './git.js';
-import { claudeSettings, pluginFile } from './round.js';
+import { claudeCodeWiring, pluginFile } from './round.js';
 import { runSibling } from './siblings.js';
 import { EXIT_ERROR, EXIT_OK, json, openWorkspace, type CliIO, type Options, type Workspace } from './workspace.js';
 
@@ -60,6 +59,9 @@ export interface Step {
 }
 
 type Json = Record<string, unknown>;
+
+/** The project's settings file for Claude Code, as a person finds it and as doctor names it. */
+const SETTINGS = '.claude/settings.json';
 
 function stringify(value: unknown): string {
   return `${JSON.stringify(value, null, 2)}\n`;
@@ -100,7 +102,7 @@ export async function gitHook(root: string): Promise<{ readonly hook: GitHookSta
   return { hook: { state: inert ? 'inert' : 'runs', file }, path, note: gitHookNote(text) };
 }
 
-export async function plan(workspace: Workspace, options: Options, env: CliIO['env']): Promise<Step[]> {
+export async function plan(workspace: Workspace, options: Options, io: CliIO): Promise<Step[]> {
   const { root } = workspace;
   const steps: Step[] = [];
 
@@ -216,23 +218,42 @@ export async function plan(workspace: Workspace, options: Options, env: CliIO['e
 
   // The agent's hooks and server, unless the plugin brings them: Claude Code
   // runs a plugin's hook beside the same hook in settings, so both would
-  // guard every write twice (ADR-0012).
-  const plugin = enabledPlugin(await claudeSettings(root, env));
+  // guard every write twice (ADR-0012). The hook's lines are known as doctor
+  // knows them, by the hook's own reading and by the writes Claude Code
+  // starts each for, so that the two say the same of every file (ADR-0005).
+  const wiring = await claudeCodeWiring(root, io);
+  const { plugin } = wiring;
   const settingsFile = join(root, '.claude', 'settings.json');
   const settings = await readJson(settingsFile);
+  const lines = wiring.lines.filter((line) => line.file === SETTINGS);
+  // What doctor says of a line this file holds is said here too, with why
+  // init leaves the line: one a person changed is theirs, and a second line
+  // beside one that is started would run for every write as well.
+  const said = lines.flatMap((line) => [line.detail, line.cover]).filter((note): note is string => note !== null);
+  const left = said.length === 0 ? '' : `${said.join('; ')}; init rewrites no line of the hook it did not write, and writes none beside one Claude Code starts for a write`;
   if (plugin !== null) {
-    const present = holdsGuard(settings);
-    steps.push({ file: '.claude/settings.json', action: present ? 'advise' : 'skip', detail: describeSkipped(plugin, 'hooks', present) });
+    // Doubled in this file or in one of the person's own, it is the double
+    // install doctor fails: said here too, though init writes neither file.
+    // This file's own entry is said first, so the others are named only
+    // where it holds none.
+    const present = wiring.hooks.includes(SETTINGS);
+    steps.push({ file: SETTINGS, action: wiring.hooks.length > 0 ? 'advise' : 'skip', detail: describeSkipped(plugin, 'hooks', present, wiring.hooks) });
   } else if (settings === 'unreadable') {
-    steps.push({ file: '.claude/settings.json', action: 'advise', detail: `cannot be read as JSON; add the guard as a PreToolUse and a PostToolUse hook by hand: ${JSON.stringify(GUARD_HOOK)}` });
+    steps.push({ file: SETTINGS, action: 'advise', detail: `cannot be read as JSON; add the guard as a PreToolUse and a PostToolUse hook by hand: ${JSON.stringify(GUARD_HOOK)}` });
   } else {
-    const merged = mergeClaudeSettings(settings ?? {});
-    if (merged === null) steps.push({ file: '.claude/settings.json', action: 'keep', detail: 'the guard hooks are installed' });
+    // An entry is a line of the hook where doctor reports its words as one in this file.
+    const reported = new Set(lines.map((line) => JSON.stringify(line.line)));
+    const merged = mergeClaudeSettings(settings ?? {}, (words) => reported.has(JSON.stringify(words)));
+    // A line that turns the guard off or holds every write is one doctor
+    // fails, and lines of which none is waited on before a write are no
+    // guard between them: left as they are, they are for the person to mend.
+    const broken = lines.some((line) => line.state === 'off' || line.state === 'held') || !lines.some((line) => isStarted(line.before));
+    if (merged === null) steps.push({ file: SETTINGS, action: broken ? 'advise' : 'keep', detail: left === '' ? 'the guard hooks are installed' : left });
     else
       steps.push({
-        file: '.claude/settings.json',
+        file: SETTINGS,
         action: settings === null ? 'create' : 'update',
-        detail: 'the guard hooks, run with node from the project\'s install: a PreToolUse hook refuses writes to protected files; a PostToolUse hook warns about writes outside the scope',
+        detail: `the guard hooks, run with node from the project's install: a PreToolUse hook refuses writes to protected files; a PostToolUse hook warns about writes outside the scope${left === '' ? '' : `; ${left}`}`,
         apply: () => writeAtomic(settingsFile, stringify(merged)),
       });
   }
@@ -300,7 +321,7 @@ export async function plan(workspace: Workspace, options: Options, env: CliIO['e
 
 export async function initCommand(options: Options, io: CliIO): Promise<number> {
   const workspace = await openWorkspace(options, io);
-  const steps = await plan(workspace, options, io.env);
+  const steps = await plan(workspace, options, io);
   if (options.write) {
     for (const step of steps) {
       if (step.apply !== undefined) {

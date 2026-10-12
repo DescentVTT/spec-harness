@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { HELP } from '../../src/cli.js';
-import { claudeHookLine, emptyValue, isBlank, isClaudeHook, readHookLine, refusal, unreadHookLine } from '../../src/usage.js';
+import { claudeHookLine, emptyValue, heldHookLine, isBlank, isClaudeHook, readHookLine, refusal, unreadHookLine } from '../../src/usage.js';
 import { parseOptions, UsageError } from '../../src/workspace.js';
 
 /** Why a command line is refused, with every `--root` a directory unless the test names those that are. */
@@ -436,13 +436,28 @@ describe("what Claude Code's hook does with its own line", () => {
   it('reads the words it is handed with the command line\'s parser, and knows its line by its command and the argument after it', () => {
     const read = (words: readonly string[]) => claudeHookLine(words, parseOptions, '/here', only('/here', '/the/project'));
     expect(read(['hook', 'claude'])).toEqual({ state: 'guards', root: undefined });
-    expect(read(['hook', 'claude', '--root', '/the/project', '--brief', '001'])).toEqual({ state: 'guards', root: '/the/project' });
+    expect(read(['hook', 'claude', '--root', '/the/project', '--brief', '001'])).toEqual({ state: 'guards', root: '/the/project', brief: '001' });
     expect(read(['hook', 'claude', '--root', ''])).toEqual({ state: 'guards', root: '/here' });
     // What it does not read is passed over, as the hook passes over it.
     expect(read(['hook', 'claude', 'extra', '--strict', '--format', 'json', '--list'])).toEqual({ state: 'guards', root: undefined });
     // An option before the command, and between the two words.
-    expect(read(['--brief', '001', 'hook', '--base', 'main', 'claude'])).toEqual({ state: 'guards', root: undefined });
+    expect(read(['--brief', '001', 'hook', '--base', 'main', 'claude'])).toEqual({ state: 'guards', root: undefined, brief: '001' });
     expect(read(['hook', 'claude', '--root', '/nowhere'])).toEqual({ state: 'off', fault: { wrong: '--root is "/nowhere", which is not a directory', mend: MEND_ROOT } });
+  });
+
+  it('says which brief a line that guards names, as written, and none for one that is empty, which the hook passes over', () => {
+    const read = (words: readonly string[]) => claudeHookLine(words, parseOptions, '/here', only('/here'));
+    // Whether the name is a brief is spec-brief's to say: the line only says what it names.
+    expect(read(['hook', 'claude', '--brief', '404'])).toStrictEqual({ state: 'guards', root: undefined, brief: '404' });
+    expect(read(['hook', 'claude', '--brief', ' rt-7 '])).toStrictEqual({ state: 'guards', root: undefined, brief: ' rt-7 ' });
+    for (const empty of ['', ' ', '\t']) expect(read(['hook', 'claude', '--brief', empty]), JSON.stringify(empty)).toStrictEqual({ state: 'guards', root: undefined });
+    expect(read(['hook', 'claude'])).toStrictEqual({ state: 'guards', root: undefined });
+    // A line that is off reads no brief, so it names none.
+    expect(read(['hook', 'claude', '--root', '/nowhere', '--brief', '404'])).toStrictEqual({ state: 'off', fault: { wrong: '--root is "/nowhere", which is not a directory', mend: MEND_ROOT } });
+  });
+
+  it('holds every write under a name that is no brief, in the words that say what is wrong with the name', () => {
+    expect(heldHookLine('the flag names brief 404, and spec-brief knows no such brief')).toEqual({ state: 'held', wrong: 'the flag names brief 404, and spec-brief knows no such brief' });
   });
 
   it('is off for a line the parser refuses, wherever on the line the fault stands', () => {

@@ -615,7 +615,8 @@ describe('doctor on the Claude Code that runs the guard (ADR-0012)', () => {
 describe("doctor on the line of Claude Code's hook in its settings (ADR-0005)", () => {
   const SCRIPT = '${CLAUDE_PROJECT_DIR}/node_modules/@descent-vtt/spec-harness/bin/spec-harness.js';
   const hook = (rest: readonly string[], more: Readonly<Record<string, unknown>> = {}) => ({ type: 'command', command: 'node', args: [SCRIPT, 'hook', 'claude', ...rest], timeout: 60, ...more });
-  const settings = (...hooks: unknown[]): string => JSON.stringify({ hooks: { PreToolUse: [{ matcher: 'Edit|Write', hooks }], PostToolUse: [{ matcher: 'Edit|Write', hooks }] } });
+  /** The hooks under both events with the matcher given, which is the one init writes unless a test is about another. */
+  const settings = (hooks: readonly unknown[], matcher = 'Edit|Write|MultiEdit|NotebookEdit'): string => JSON.stringify({ hooks: { PreToolUse: [{ matcher, hooks }], PostToolUse: [{ matcher, hooks }] } });
 
   /** A PATH whose Claude Code runs the hooks, told as each platform lets doctor tell it, so that --strict fails for nothing else. */
   function newEnough(): Record<string, string> {
@@ -632,7 +633,7 @@ describe("doctor on the line of Claude Code's hook in its settings (ADR-0005)", 
   }
 
   it('knows the hook with more on its line than init writes: says the line and that it guards, and fails nothing, --strict or not', async () => {
-    const repo = repository({ '.claude/settings.json': settings(hook(['--root', '${CLAUDE_PROJECT_DIR}'])) });
+    const repo = repository({ '.claude/settings.json': settings([hook(['--root', '${CLAUDE_PROJECT_DIR}'])]) });
     const env = newEnough();
     const json = parsed<{ root: string; claudeCode: unknown }>(await cli(['doctor', '--format', 'json'], repo.root, { env }));
     const detail = `"hook claude --root \${CLAUDE_PROJECT_DIR}" in .claude/settings.json is more than init writes, and guards: the hook reads the line, and its root, ${json.root}, is a directory`;
@@ -649,8 +650,8 @@ describe("doctor on the line of Claude Code's hook in its settings (ADR-0005)", 
   it('fails for a line that turns the guard off, says each in the hook\'s words with what onFailure makes of it, and passes once they are mended', async () => {
     const user = temp();
     const userFile = join(user, 'settings.json');
-    write(user, 'settings.json', settings(hook(['--format', 'xml'], { onFailure: 'block' })));
-    const repo = repository({ '.claude/settings.json': settings(hook(['--brief', '1'])), '.claude/settings.local.json': settings(hook(['--root', 'nowhere'])) });
+    write(user, 'settings.json', settings([hook(['--format', 'xml'], { onFailure: 'block' })]));
+    const repo = repository({ '.claude/settings.json': settings([hook(['--base', 'main'])]), '.claude/settings.local.json': settings([hook(['--root', 'nowhere'])]) });
     const result = await cli(['doctor'], repo.root, { env: { CLAUDE_CONFIG_DIR: user } });
     expect(result.code).toBe(1);
     expect(result.stdout).toContain(
@@ -658,15 +659,15 @@ describe("doctor on the line of Claude Code's hook in its settings (ADR-0005)", 
         `claude  init's entries: the guard hooks in ${userFile}, the guard hooks in .claude/settings.json, the guard hooks in .claude/settings.local.json`,
         `        "hook claude --format xml" in ${userFile}: the hook's line cannot be read (--format must be pretty, json, gitlab, sarif or github, not "xml"), so the guard is off and no write is checked; mend it in Claude Code's settings, where init writes "hook claude" and nothing after it`,
         `        "hook claude --format xml" in ${userFile} sets onFailure to "block", so Claude Code 2.1.295 or later holds a write when the hook fails, which with this line is every write, the one that mends the line among them: mend it by hand`,
-        '        "hook claude --brief 1" in .claude/settings.json is more than init writes, and guards: the hook reads the line',
+        '        "hook claude --base main" in .claude/settings.json is more than init writes, and guards: the hook reads the line',
         '        "hook claude --root nowhere" in .claude/settings.local.json: --root is "nowhere", which is not a directory, so the guard is off and no write is checked; give the hook\'s line a directory that exists, or leave --root out for the project Claude Code names',
         '        whether Claude Code is 2.1.139 or later, which the hooks need, cannot be told: ',
       ].join('\n'),
     );
     // One line that is off is enough; with none, a line that only holds more than init writes fails nothing.
-    repo.write('.claude/settings.local.json', settings(hook(['--root', '${CLAUDE_PROJECT_DIR}'])));
+    repo.write('.claude/settings.local.json', settings([hook(['--root', '${CLAUDE_PROJECT_DIR}'])]));
     expect((await cli(['doctor'], repo.root, { env: { CLAUDE_CONFIG_DIR: user } })).code).toBe(1);
-    write(user, 'settings.json', settings(hook([], { onFailure: 'block' })));
+    write(user, 'settings.json', settings([hook([], { onFailure: 'block' })]));
     const mended = await cli(['doctor'], repo.root, { env: { CLAUDE_CONFIG_DIR: user } });
     expect(mended.code).toBe(0);
     expect(mended.stdout).toContain(`\n        "hook claude" in ${userFile} sets onFailure to "block", so Claude Code 2.1.295 or later holds a write when the hook fails, where it lets the write go ahead without it: `);
@@ -674,12 +675,106 @@ describe("doctor on the line of Claude Code's hook in its settings (ADR-0005)", 
 
   it('cannot tell what a shell hands the hook: said, never fine, and a failure under --strict alone', async () => {
     const env = newEnough();
-    const repo = repository({ '.claude/settings.json': settings({ type: 'command', command: `node "${SCRIPT}" hook claude --root "\${CLAUDE_PROJECT_DIR}"` }) });
+    const repo = repository({ '.claude/settings.json': settings([{ type: 'command', command: `node "${SCRIPT}" hook claude --root "\${CLAUDE_PROJECT_DIR}"` }]) });
     const result = await cli(['doctor'], repo.root, { env });
     expect(result.code).toBe(0);
     expect(result.stdout).toContain(
       '\n        "hook claude --root "${CLAUDE_PROJECT_DIR}"" in .claude/settings.json is a shell\'s to read before the hook is handed it, so what the hook does with it cannot be told here: written with "args", each word reaches the hook as it stands\n',
     );
+    expect((await cli(['doctor', '--strict'], repo.root, { env })).code).toBe(1);
+  });
+
+  it('fails for a line that names a brief which is not one, in the words the hook holds every write with, and passes once it names one', async () => {
+    const env = newEnough();
+    // Beside it, a line of the harness's that is not the hook's, which is read and not reported.
+    const other = { type: 'command', command: 'node', args: [SCRIPT, 'hook', 'git'] };
+    const repo = repository({ [BRIEF_FILE]: brief(), '.claude/settings.json': settings([hook(['--brief', '404']), other]) });
+    const result = await cli(['doctor'], repo.root, { env });
+    expect(result.code).toBe(1);
+    expect(result.stdout).toContain(
+      '\nclaude  init\'s entries: the guard hooks in .claude/settings.json\n        "hook claude --brief 404" in .claude/settings.json: the flag names brief 404, and spec-brief knows no such brief, so the hook holds every write until the line is mended: name a brief spec-brief lists, or take --brief off the line\n        Claude Code 2.1.300 ',
+    );
+    // A brief the environment names is not the line's: it is said on doctor's own line for the brief, and
+    // of a line that names none, or names one that is a brief, nothing but that it guards.
+    repo.write('.claude/settings.json', settings([hook(['--brief', '001']), hook(['--base', 'main'])]));
+    const mended = await cli(['doctor', '--strict'], repo.root, { env: { ...env, SPEC_BRIEF: '404' } });
+    expect(mended.code).toBe(0);
+    expect(mended.stdout).toContain('\nbrief   none: the environment names brief 404, and spec-brief knows no such brief\n');
+    expect(mended.stdout).toContain(
+      [
+        '        "hook claude --brief 001" in .claude/settings.json is more than init writes, and guards: the hook reads the line',
+        '        "hook claude --base main" in .claude/settings.json is more than init writes, and guards: the hook reads the line',
+        '        Claude Code 2.1.300 ',
+      ].join('\n'),
+    );
+  });
+
+  it("asks about the brief where the hook would: in the work tree the line's root is in, and of none where the root is in no work tree", async () => {
+    const env = newEnough();
+    // Brief 001 is one in the other repository, and none in the one doctor runs in.
+    const other = repository({ [BRIEF_FILE]: brief() });
+    const outside = temp();
+    const repo = repository({ '.claude/settings.json': settings([hook(['--root', other.root, '--brief', '001']), hook(['--root', outside, '--brief', '001'])]) });
+    const result = await cli(['doctor', '--strict', '--format', 'json'], repo.root, { env });
+    expect(result.code).toBe(0);
+    // A root outside a work tree is said as it was, by its root: the hook reads no brief there.
+    expect(parsed<{ claudeCode: { lines: { state: string; detail: string }[] } }>(result).claudeCode.lines.map((line) => [line.state, line.detail.split(', and guards: ')[1]])).toEqual([
+      ['guards', `the hook reads the line, and its root, ${other.root}, is a directory`],
+      ['guards', `the hook reads the line, and its root, ${outside}, is a directory`],
+    ]);
+    // A root whose configuration does not load ends the hook with exit 2 and that file's fault, and doctor with it.
+    const broken = repository({ '.spec-harness.json': '{ not json' }, null);
+    repo.write('.claude/settings.json', settings([hook(['--root', broken.root, '--brief', '001'])]));
+    const stopped = await cli(['doctor'], repo.root, { env });
+    expect(stopped).toMatchObject({ code: 2, stdout: '' });
+    expect(stopped.stderr).toContain('.spec-harness.json is not valid JSON');
+  });
+
+  it('does not take for the guard a line Claude Code waits on before no write and starts after none, and says what the line stands under', async () => {
+    const env = newEnough();
+    const repo = repository({ '.claude/settings.json': settings([hook([])], 'Bash') });
+    const result = await cli(['doctor', '--strict'], repo.root, { env });
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain(
+      [
+        'claude  neither the spec-harness plugin nor the hooks init writes, so Claude Code guards no write: run spec-harness init --write, or install the plugin',
+        '        "hook claude" in .claude/settings.json: Claude Code waits on it before no write, so it is not the guard and refuses none (under PreToolUse it has the matcher "Bash"); it is started after no write, so it warns of none (under PostToolUse it has the matcher "Bash")',
+        'git     ',
+      ].join('\n'),
+    );
+    // Beside the plugin such a line doubles nothing: the plugin alone is the guard.
+    repo.write('.claude/settings.local.json', JSON.stringify({ enabledPlugins: { 'spec-harness@team': true } }));
+    const beside = await cli(['doctor', '--strict', '--format', 'json'], repo.root, { env });
+    expect(beside.code).toBe(0);
+    expect(parsed<{ claudeCode: unknown }>(beside).claudeCode).toMatchObject({ state: 'plugin', hooks: [], lines: [{ state: 'unstarted', before: [], after: [] }] });
+    // A line that is started after a write alone refuses none either, and still doubles what the plugin says after one.
+    repo.write('.claude/settings.json', JSON.stringify({ hooks: { PostToolUse: [{ hooks: [hook([])] }] } }));
+    const after = await cli(['doctor', '--format', 'json'], repo.root, { env });
+    expect(after.code).toBe(1);
+    expect(parsed<{ claudeCode: unknown }>(after).claudeCode).toMatchObject({ state: 'both', hooks: ['.claude/settings.json'], lines: [{ state: 'unstarted', before: [], after: ['Edit', 'Write', 'MultiEdit', 'NotebookEdit'] }] });
+  });
+
+  it('says which writes a line leaves unchecked and fails for none of them, and cannot tell under an "if", which fails --strict alone', async () => {
+    const env = newEnough();
+    const repo = repository({ '.claude/settings.json': settings([hook([])], 'Edit|Write') });
+    const result = await cli(['doctor', '--strict'], repo.root, { env });
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain(
+      '\nclaude  init\'s entries: the guard hooks in .claude/settings.json\n        "hook claude" in .claude/settings.json: Claude Code waits on it before a write by Edit and Write, and before none by MultiEdit and NotebookEdit, which goes unchecked (under PreToolUse it has the matcher "Edit|Write"); it is started after a write by Edit and Write alone (under PostToolUse it has the matcher "Edit|Write")\n        Claude Code 2.1.300 ',
+    );
+    // Before every write and after none, it is the guard, and one of init's entries.
+    repo.write('.claude/settings.json', JSON.stringify({ hooks: { PreToolUse: [{ hooks: [hook([])] }] } }));
+    const before = await cli(['doctor', '--strict', '--format', 'json'], repo.root, { env });
+    expect(before.code).toBe(0);
+    expect(parsed<{ claudeCode: unknown }>(before).claudeCode).toMatchObject({
+      state: 'init',
+      hooks: ['.claude/settings.json'],
+      lines: [{ state: 'guards', after: [], cover: '"hook claude" in .claude/settings.json (under PreToolUse alone): it is started after no write, so it warns of none (it stands under no PostToolUse)' }],
+    });
+    repo.write('.claude/settings.json', settings([hook([], { if: 'Edit(*.ts)' })]));
+    const untold = await cli(['doctor'], repo.root, { env });
+    expect(untold.code).toBe(0);
+    expect(untold.stdout).toContain('\n        "hook claude" in .claude/settings.json: which writes Claude Code waits on it before cannot be told here (under PreToolUse it has the matcher "Edit|Write|MultiEdit|NotebookEdit" with "if" "Edit(*.ts)"); ');
     expect((await cli(['doctor', '--strict'], repo.root, { env })).code).toBe(1);
   });
 });
