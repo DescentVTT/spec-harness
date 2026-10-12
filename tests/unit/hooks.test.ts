@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { Decision, Verdict } from '../../src/guard.js';
-import { claudeResponse, gitResponse, parseClaudeHook, WRITING_TOOLS } from '../../src/hooks.js';
+import { CALLABLE_TOOLS, claudeResponse, gitResponse, parseClaudeHook, WRITING_TOOLS } from '../../src/hooks.js';
 
 function hook(fields: Record<string, unknown>): string {
   return JSON.stringify({ session_id: 's', hook_event_name: 'PreToolUse', tool_name: 'Write', cwd: '/repo', ...fields });
@@ -52,6 +52,15 @@ describe('reading a Claude Code hook', () => {
     for (const tool of ['Read', 'Bash', 'Grep', 'write', 'WebFetch']) {
       expect(parseClaudeHook(hook({ tool_name: tool, tool_input: { file_path: '/repo/a.ts', path: '/repo' } }))).toMatchObject({ tool, paths: [] });
     }
+  });
+
+  it('calls callable the tools a supported Claude Code has, each one a tool the hook reads a path from', () => {
+    expect(CALLABLE_TOOLS).toEqual(['Edit', 'Write', 'NotebookEdit']);
+    for (const tool of CALLABLE_TOOLS) expect(WRITING_TOOLS, tool).toContain(tool);
+    // The one name more is read all the same: a Claude Code that still has the tool is answered for it.
+    const legacy = WRITING_TOOLS.filter((tool) => !CALLABLE_TOOLS.includes(tool));
+    expect(legacy).toEqual(['MultiEdit']);
+    for (const tool of legacy) expect(parseClaudeHook(hook({ tool_name: tool, tool_input: { file_path: '/repo/a.ts' } }))).toMatchObject({ tool, paths: ['/repo/a.ts'] });
   });
 
   it('reads the working directory only when it is a string', () => {

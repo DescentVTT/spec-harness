@@ -9,6 +9,33 @@ only fixes, reports less or documents, so `^0.7.0` takes only releases that
 cannot turn a run red. The family's policy is
 [spec-core's ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
+## Unreleased
+
+### Changed
+
+- **`doctor` and `init` no longer name `MultiEdit` as a tool whose writes
+  go unchecked.** `doctor` says which of the tools that write a file a
+  hook's line is waited on before, and it counted four: `Edit`, `Write`,
+  `MultiEdit` and `NotebookEdit`. So a line under the matcher
+  `Edit|Write|NotebookEdit` was said to leave a write by `MultiEdit`
+  unchecked. No Claude Code the hooks run under has that tool: its tools
+  reference lists `Edit`, `Write` and `NotebookEdit`, and the tool inputs
+  its releases declare hold a `MultiEdit` up to 1.0.128 and none from 2.0.0
+  on, where the hooks need 2.1.139. A line is now read for those three, and
+  one waited on before all of them is said with nothing more, as a line
+  under the matcher `init` writes is. The hook reads the file a `MultiEdit`
+  names as it did, for whatever still sends one, and `init` writes the
+  matcher it wrote
+  ([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
+  Upgrading: in `doctor --format json`, `before` and `after` of each of
+  `claudeCode.lines` hold `Edit`, `Write` and `NotebookEdit` at most, three
+  names for `init`'s own line where they held four, so a script that
+  compared them with the four names compares with three. A line whose
+  matcher lets `MultiEdit` through and none of the three is `unstarted`
+  where it was `guards`: it is no longer one of `init`'s entries, so beside
+  the plugin `doctor` exits 0 where it exited 1 for a double install, and
+  `init --write` writes its hooks beside such a line.
+
 ## 0.16.0
 
 `doctor` and `init` see the rest of Claude Code's hook. A line that names

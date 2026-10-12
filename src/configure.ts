@@ -11,7 +11,7 @@
 import { isAbsolute } from 'node:path';
 import { runInNewContext } from 'node:vm';
 
-import { WRITING_TOOLS } from './hooks.js';
+import { CALLABLE_TOOLS } from './hooks.js';
 import { literal } from './literal.js';
 import type { AllowedSigner } from './signers.js';
 import type { HookLine } from './usage.js';
@@ -49,6 +49,14 @@ export const PROJECT_DIR = '${CLAUDE_PROJECT_DIR}';
  */
 export const PROJECT_DIR_OR_HERE = '${CLAUDE_PROJECT_DIR:-.}';
 
+/**
+ * The matcher every release wrote: each name the hook reads a file from
+ * (hooks.ts). `MultiEdit` is one no supported Claude Code has a tool for,
+ * and Claude Code compares a listed name with a tool's exactly, so it starts
+ * the hook for nothing there. It stays, since the hook is asked about a name
+ * only under a matcher that lets the name through, and it reads this one for
+ * whatever still sends it.
+ */
 const HOOK_MATCHER = 'Edit|Write|MultiEdit|NotebookEdit';
 /** The event Claude Code runs before a tool call, the only one of the two where a hook can refuse the call. */
 const BEFORE = 'PreToolUse';
@@ -88,8 +96,9 @@ function upgraded(group: unknown): unknown {
 }
 
 /**
- * The tools, of those that write a file, that a group's matcher has Claude
- * Code start the group's hooks for, by its hooks reference
+ * The tools, of those that write a file and a supported Claude Code can call
+ * (hooks.ts), that a group's matcher has Claude Code start the group's hooks
+ * for, by its hooks reference
  * (https://code.claude.com/docs/en/hooks, Matcher patterns, read
  * 2026-10-12): left out, empty or `*`, every tool; made of letters, digits,
  * `_`, `-`, spaces, `,` and `|` alone, the tools it names, one between each
@@ -99,11 +108,11 @@ function upgraded(group: unknown): unknown {
  * is no pattern, or is a pattern whose reading runs out its budget.
  */
 function matchedTools(matcher: unknown): readonly string[] | null {
-  if (matcher === undefined || matcher === '' || matcher === '*') return WRITING_TOOLS;
+  if (matcher === undefined || matcher === '' || matcher === '*') return CALLABLE_TOOLS;
   if (typeof matcher !== 'string') return null;
   if (/^[A-Za-z0-9_\- ,|]*$/.test(matcher)) {
     const names = matcher.split(/[|,]/).map((name) => name.trim());
-    return WRITING_TOOLS.filter((tool) => names.includes(tool));
+    return CALLABLE_TOOLS.filter((tool) => names.includes(tool));
   }
   return patternTools(matcher);
 }
@@ -122,7 +131,7 @@ const PATTERN_BUDGET = 100;
  * is no pattern, or its reading runs out its budget.
  *
  * The pattern is a line of a settings file, which arrives with a clone, and
- * one can be written that a test of four short names never finishes:
+ * one can be written that a test of a few short names never finishes:
  * `^((((([A-Za-z]*)*)*)*)*)*$X` ran for more than ten seconds. Tested as
  * written, one such entry and neither doctor nor init would come back, with
  * no word. So it is made and tested in a context of its own, whose run
@@ -133,7 +142,7 @@ const PATTERN_BUDGET = 100;
  */
 function patternTools(source: string): readonly string[] | null {
   try {
-    const matched: string[] = runInNewContext('tools.filter((tool) => new RegExp(source).test(tool))', { tools: WRITING_TOOLS, source }, { timeout: PATTERN_BUDGET });
+    const matched: string[] = runInNewContext('tools.filter((tool) => new RegExp(source).test(tool))', { tools: CALLABLE_TOOLS, source }, { timeout: PATTERN_BUDGET });
     return matched;
   } catch {
     return null;
@@ -347,7 +356,7 @@ export interface HookReport {
   readonly onFailure: 'block' | null;
   /** What there is to say of what the hook does with the line, or `null`. */
   readonly detail: string | null;
-  /** The writing tools Claude Code waits on the line before a write by, where the hook can refuse it; `null` where that cannot be told. */
+  /** The writing tools Claude Code waits on the line before a write by, where the hook can refuse it, of those a supported Claude Code can call (hooks.ts); `null` where that cannot be told. */
   readonly before: readonly string[] | null;
   /** The writing tools Claude Code starts the line after a write by, where the hook can warn of it; `null` where that cannot be told. */
   readonly after: readonly string[] | null;
@@ -380,8 +389,8 @@ function named(names: readonly string[]): string {
 /** The writing tools a line's entries under `event` are waited on for between them, or `null` where an entry that cannot be told might add one. */
 function toolsUnder(event: string, entries: readonly HarnessEntry[]): readonly string[] | null {
   const read = entries.filter((entry) => entry.event === event).map(toolsOf);
-  const sure = WRITING_TOOLS.filter((tool) => read.some((tools) => tools !== null && tools.includes(tool)));
-  return sure.length < WRITING_TOOLS.length && read.some((tools) => tools === null) ? null : sure;
+  const sure = CALLABLE_TOOLS.filter((tool) => read.some((tools) => tools !== null && tools.includes(tool)));
+  return sure.length < CALLABLE_TOOLS.length && read.some((tools) => tools === null) ? null : sure;
 }
 
 /** What a line's entries under `event` hold that decides when Claude Code starts them, as written. */
@@ -401,10 +410,13 @@ function entriesUnder(event: string, entries: readonly HarnessEntry[]): string {
  * What is said of the writes Claude Code starts a line for, by the event and
  * the matcher of each entry that holds it; `null` where it is waited on
  * before every tool that writes and started after each, as init writes it.
+ * A tool is one a supported Claude Code can call: `MultiEdit`, which the
+ * hook still reads a path from, is named as unchecked for no line, since no
+ * such Claude Code has it to call (hooks.ts).
  */
 function describeCover(where: string, before: readonly string[] | null, after: readonly string[] | null, entries: readonly HarnessEntry[]): string | null {
   const parts: string[] = [];
-  const left = (tools: readonly string[]): string[] => WRITING_TOOLS.filter((tool) => !tools.includes(tool));
+  const left = (tools: readonly string[]): string[] => CALLABLE_TOOLS.filter((tool) => !tools.includes(tool));
   if (before === null) parts.push(`which writes Claude Code waits on it before cannot be told here (${entriesUnder(BEFORE, entries)})`);
   else if (before.length === 0) parts.push(`Claude Code waits on it before no write, so it is not the guard and refuses none (${entriesUnder(BEFORE, entries)})`);
   else if (left(before).length > 0) {

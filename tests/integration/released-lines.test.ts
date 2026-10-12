@@ -21,7 +21,7 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { GIT_HOOK_LINE, GUARD_HOOK, mcpServer, mergeClaudeSettings, PRE_COMMIT, PROJECT_DIR, PROJECT_DIR_OR_HERE, reportHooks } from '../../src/configure.js';
-import { WRITING_TOOLS } from '../../src/hooks.js';
+import { CALLABLE_TOOLS, WRITING_TOOLS } from '../../src/hooks.js';
 import { claudeHookLine, refusal } from '../../src/usage.js';
 import { parseOptions } from '../../src/workspace.js';
 import { brief, BRIEF_FILE, cleanup, cli, parsed, repository, ROOT, temp, type Repository } from './helpers.js';
@@ -412,8 +412,8 @@ describe("doctor, of the hook's line in Claude Code's settings", () => {
     state: 'guards',
     onFailure: null,
     detail: null,
-    before: WRITING_TOOLS,
-    after: WRITING_TOOLS,
+    before: CALLABLE_TOOLS,
+    after: CALLABLE_TOOLS,
     cover: null,
     note: null,
   };
@@ -438,8 +438,11 @@ describe("doctor, of the hook's line in Claude Code's settings", () => {
       for (const event of ['PreToolUse', 'PostToolUse']) expect(groups[event]?.map((group) => group.matcher), event).toEqual([MATCHER]);
       expect(reportHooks([{ file: '.claude/settings.json', settings }], '/the/project', read)).toEqual([RELEASED]);
     }
-    // The tools it names are the ones the hook reads a file from, and no other.
+    // The tools it names are the ones the hook reads a file from, and no other:
+    // every one a supported Claude Code can call, and the one name more that
+    // the hook reads for whatever still sends it.
     expect(MATCHER.split('|')).toEqual(WRITING_TOOLS);
+    for (const tool of CALLABLE_TOOLS) expect(MATCHER.split('|'), tool).toContain(tool);
   });
 
   it('says what the hook does: a write refused where it says the line guards, and the hook\'s own words where it says the guard is off', async () => {

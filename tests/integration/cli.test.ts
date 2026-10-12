@@ -752,12 +752,12 @@ describe("doctor on the line of Claude Code's hook in its settings (ADR-0005)", 
     repo.write('.claude/settings.json', JSON.stringify({ hooks: { PostToolUse: [{ hooks: [hook([])] }] } }));
     const after = await cli(['doctor', '--format', 'json'], repo.root, { env });
     expect(after.code).toBe(1);
-    expect(parsed<{ claudeCode: unknown }>(after).claudeCode).toMatchObject({ state: 'both', hooks: ['.claude/settings.json'], lines: [{ state: 'unstarted', before: [], after: ['Edit', 'Write', 'MultiEdit', 'NotebookEdit'] }] });
+    expect(parsed<{ claudeCode: unknown }>(after).claudeCode).toMatchObject({ state: 'both', hooks: ['.claude/settings.json'], lines: [{ state: 'unstarted', before: [], after: ['Edit', 'Write', 'NotebookEdit'] }] });
   });
 
   it('comes back from a matcher whose pattern backtracks without end, and cannot tell from it', async () => {
     const env = newEnough();
-    // Five stars, each around the last: testing four short names against it does not end.
+    // Five stars, each around the last: testing a tool's name against it does not end.
     const slow = '^((((([A-Za-z]*)*)*)*)*)*$X';
     const held = { hooks: { PreToolUse: [{ matcher: slow, hooks: [hook([])] }], PostToolUse: [{ matcher: 'Edit|Write|MultiEdit|NotebookEdit', hooks: [hook([])] }] } };
     // The budget is held first where a reading without one can be stopped, by
@@ -786,8 +786,16 @@ describe("doctor on the line of Claude Code's hook in its settings (ADR-0005)", 
     const result = await cli(['doctor', '--strict'], repo.root, { env });
     expect(result.code).toBe(0);
     expect(result.stdout).toContain(
-      '\nclaude  init\'s entries: the guard hooks in .claude/settings.json\n        "hook claude" in .claude/settings.json: Claude Code waits on it before a write by Edit and Write, and before none by MultiEdit and NotebookEdit, which goes unchecked (under PreToolUse it has the matcher "Edit|Write"); it is started after a write by Edit and Write alone (under PostToolUse it has the matcher "Edit|Write")\n        Claude Code 2.1.300 ',
+      '\nclaude  init\'s entries: the guard hooks in .claude/settings.json\n        "hook claude" in .claude/settings.json: Claude Code waits on it before a write by Edit and Write, and before none by NotebookEdit, which goes unchecked (under PreToolUse it has the matcher "Edit|Write"); it is started after a write by Edit and Write alone (under PostToolUse it has the matcher "Edit|Write")\n        Claude Code 2.1.300 ',
     );
+    // Edit, Write and NotebookEdit are every tool a supported Claude Code writes a file with: of a line under them there is no more to say than of init's own, and the lists hold no MultiEdit.
+    repo.write('.claude/settings.json', settings([hook([])], 'Edit|Write|NotebookEdit'));
+    const every = await cli(['doctor', '--strict', '--format', 'json'], repo.root, { env });
+    expect(every.code).toBe(0);
+    expect(parsed<{ claudeCode: unknown }>(every).claudeCode).toMatchObject({
+      state: 'init',
+      lines: [{ state: 'guards', detail: null, before: ['Edit', 'Write', 'NotebookEdit'], after: ['Edit', 'Write', 'NotebookEdit'], cover: null }],
+    });
     // Before every write and after none, it is the guard, and one of init's entries.
     repo.write('.claude/settings.json', JSON.stringify({ hooks: { PreToolUse: [{ hooks: [hook([])] }] } }));
     const before = await cli(['doctor', '--strict', '--format', 'json'], repo.root, { env });
