@@ -1081,6 +1081,11 @@ describe("the lines of Claude Code's hook in its settings, and what doctor says 
       after: [],
       cover: `${W}: Claude Code waits on it before no write, so it is not the guard and refuses none (under PreToolUse it has the matcher "MultiEdit"); it is started after no write, so it warns of none (under PostToolUse it has the matcher "MultiEdit")`,
     });
+    // To init such a line is started for no write, whether its matcher names the tool or matches it: it writes its own beside it.
+    for (const matcher of ['MultiEdit', '^MultiEdit$']) {
+      const only = { matcher, hooks: [HOOK] };
+      expect(mergeClaudeSettings({ hooks: { PreToolUse: [only], PostToolUse: [only] } }), matcher).toEqual({ hooks: { PreToolUse: [only, GUARD], PostToolUse: [only, GUARD] } });
+    }
     // Whatever the matcher, the name stands in what is said only where the matcher itself is quoted.
     for (const matcher of ['Edit', 'Write|Edit', 'Bash', 'Edit.*', 'NotebookEdit', '^Write$', 7]) {
       const [report] = reported(both(matcher));
