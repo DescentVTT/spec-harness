@@ -446,7 +446,9 @@ describe("doctor, of the hook's line in Claude Code's settings", () => {
   });
 
   it('says what the hook does: a write refused where it says the line guards, and the hook\'s own words where it says the guard is off', async () => {
-    const LINES: readonly (readonly string[])[] = [['--root', PROJECT_DIR, '--brief', '001'], ['--root', 'nowhere'], ['--format', 'xml'], ['--brief', '404']];
+    // A directory that is there and is in no work tree: the hook reads a session outside one.
+    const outside = temp();
+    const LINES: readonly (readonly string[])[] = [['--root', PROJECT_DIR, '--brief', '001'], ['--root', 'nowhere'], ['--format', 'xml'], ['--brief', '404'], ['--root', outside]];
     repo.write('.claude/settings.json', JSON.stringify(held(...LINES.map((rest) => entry(['node', `${PROJECT_DIR}/${SCRIPT}`, 'hook', 'claude', ...rest])))));
     try {
       const doctor = parsed<{ root: string; claudeCode: { lines: { line: string[]; state: string; detail: string }[] } }>(await cli(['doctor', '--format', 'json'], repo.root));
@@ -455,6 +457,7 @@ describe("doctor, of the hook's line in Claude Code's settings", () => {
         [LINES[1], 'off'],
         [LINES[2], 'off'],
         [LINES[3], 'held'],
+        [LINES[4], 'off'],
       ]);
       for (const [index, rest] of LINES.entries()) {
         const said = doctor.claudeCode.lines[index] as { state: string; detail: string };
@@ -469,6 +472,10 @@ describe("doctor, of the hook's line in Claude Code's settings", () => {
           const mend = ', so the hook holds every write until the line is mended: name a brief spec-brief lists, or take --brief off the line';
           expect(said.detail.startsWith(where) && said.detail.endsWith(mend), said.detail).toBe(true);
           expect(result, rest.join(' ')).toEqual({ code: 2, stdout: '', stderr: `spec-harness: ${said.detail.slice(where.length, -mend.length)}. Fix the brief or the branch before writing.\n` });
+        } else if (rest === LINES[4]) {
+          // The one fault the hook says nothing of: exit 0 and no word, as doctor says of it.
+          expect(said.detail, said.detail).toContain(`--root is "${outside}", a directory outside any git work tree, which the hook reads as a session outside one, exit 0 and no word, so the guard is off`);
+          expect(result, rest.join(' ')).toEqual({ code: 0, stdout: '', stderr: '' });
         } else {
           expect(said.detail.startsWith(where), said.detail).toBe(true);
           expect(result, rest.join(' ')).toEqual({ code: 1, stdout: '', stderr: `spec-harness: ${said.detail.slice(where.length).replace('no write is checked', 'this write is not checked')}\n` });

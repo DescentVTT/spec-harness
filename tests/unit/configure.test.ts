@@ -1,3 +1,4 @@
+import { join } from 'node:path';
 import { runInNewContext } from 'node:vm';
 
 import { describe, expect, it } from 'vitest';
@@ -5,9 +6,12 @@ import { describe, expect, it } from 'vitest';
 import {
   chooseBase,
   describeBase,
+  describeAbsent,
   describeClaudeCode,
   describeClaudeRelease,
   describeGitHook,
+  describeHooksOff,
+  describePresence,
   GIT_HOOK_LINE,
   gitHookNote,
   describePlugin,
@@ -20,7 +24,9 @@ import {
   exportedFile,
   graphReadsBriefs,
   GUARD_HOOK,
+  guardSwitchedOff,
   handedLines,
+  hooksDisabled,
   isStarted,
   loadsPlugin,
   mcpServer,
@@ -31,6 +37,8 @@ import {
   mergeSpecGraph,
   missingGitHook,
   PLUGIN,
+  pluginMarketplace,
+  pluginPresence,
   PRE_COMMIT,
   PROTECT_RULE_FILES,
   PROJECT_DIR,
@@ -42,7 +50,7 @@ import {
   wiringState,
   writtenHooks,
 } from '../../src/configure.js';
-import { claudeHookLine, heldHookLine } from '../../src/usage.js';
+import { claudeHookLine, heldHookLine, outsideHookLine } from '../../src/usage.js';
 import { parseOptions } from '../../src/workspace.js';
 
 const SCRIPT = '${CLAUDE_PROJECT_DIR}/node_modules/@descent-vtt/spec-harness/bin/spec-harness.js';
@@ -688,6 +696,313 @@ describe('spec-graph\'s history', () => {
   });
 });
 
+describe('an entry Claude Code runs as a command, and one it may not (ADR-0005)', () => {
+  const FILE = '.claude/settings.json';
+  const ARGS = [SCRIPT, 'hook', 'claude'];
+  const under = (...hooks: unknown[]) => ({ hooks: { PreToolUse: [{ matcher: GUARD.matcher, hooks }], PostToolUse: [{ matcher: GUARD.matcher, hooks }] } });
+  const read = (words: readonly string[]) => claudeHookLine(words, parseOptions, '/p', () => true);
+  const reported = (settings: unknown) => reportHooks([{ file: FILE, settings }], '/p', read);
+
+  it('finds no line of the hook in an entry of another handler type, whatever command it holds', () => {
+    for (const type of ['http', 'mcp_tool', 'prompt', 'agent']) {
+      const entry = { type, command: 'node', args: ARGS, prompt: 'hook claude', url: 'http://localhost:1/' };
+      expect(writtenHooks(under(entry)), type).toEqual([]);
+      expect(reported(under(entry)), type).toEqual([]);
+      // Such an entry is no guard, so init writes its own beside it.
+      expect(mergeClaudeSettings(under(entry), () => true), type).toEqual({ hooks: { PreToolUse: [{ matcher: GUARD.matcher, hooks: [entry] }, GUARD], PostToolUse: [{ matcher: GUARD.matcher, hooks: [entry] }, GUARD] } });
+    }
+  });
+
+  it('keeps an entry with no type, or with a word the reference does not list, and says what it has for one', () => {
+    expect(writtenHooks(under({ type: 'command', command: 'node', args: ARGS }))).toEqual([{ events: ['PreToolUse', 'PostToolUse'], words: ['hook', 'claude'], shell: false, blocks: false, untyped: null }]);
+    const cases: readonly (readonly [unknown, string])[] = [
+      [undefined, 'no "type"'],
+      ['Command', 'the "type" "Command"'],
+      ['', 'the "type" ""'],
+      [7, 'the "type" 7'],
+      [null, 'the "type" null'],
+      [['command'], 'the "type" ["command"]'],
+    ];
+    for (const [type, said] of cases) {
+      const entry = type === undefined ? { command: 'node', args: ARGS } : { type, command: 'node', args: ARGS };
+      expect(writtenHooks(under(entry)), said).toEqual([{ events: ['PreToolUse', 'PostToolUse'], words: ['hook', 'claude'], shell: false, blocks: false, untyped: said }]);
+    }
+    // The same words on an entry with a type and on one without are two lines.
+    expect(writtenHooks(under({ type: 'command', command: 'node', args: ARGS }, { command: 'node', args: ARGS })).map((line) => line.untyped)).toEqual([null, 'no "type"']);
+  });
+
+  it('cannot tell whether Claude Code runs an entry with no type, whatever its line holds, and says how to write it', () => {
+    const W = '"hook claude" in .claude/settings.json';
+    expect(reported(under({ command: 'node', args: ARGS }))).toEqual([
+      {
+        file: FILE,
+        events: ['PreToolUse', 'PostToolUse'],
+        line: ['hook', 'claude'],
+        state: 'unknown',
+        onFailure: null,
+        detail: `${W} stands on an entry with no "type", where Claude Code's hooks reference has "type": "command" on an entry it runs as a command, so whether Claude Code runs it cannot be told here: give the entry "type": "command"`,
+        before: ['Edit', 'Write', 'NotebookEdit'],
+        after: ['Edit', 'Write', 'NotebookEdit'],
+        cover: null,
+        note: null,
+      },
+    ]);
+    expect(reported(under({ type: 'cmd', command: 'node', args: ARGS }))[0]?.detail).toBe(
+      `${W} stands on an entry with the "type" "cmd", where Claude Code's hooks reference has "type": "command" on an entry it runs as a command, so whether Claude Code runs it cannot be told here: give the entry "type": "command"`,
+    );
+    // Neither a guard that is off nor a shell's line is claimed of it: whether it runs at all comes first.
+    expect(reported(under({ command: 'node', args: [...ARGS, '--nope'] }))[0]).toMatchObject({ state: 'unknown', detail: expect.stringContaining('stands on an entry with no "type"') });
+    expect(reported(under({ command: `node ${SCRIPT} hook claude --root "$PWD"` }))[0]).toMatchObject({ state: 'unknown', detail: expect.stringContaining('stands on an entry with no "type"') });
+    expect(reported(under({ command: 'node', args: ARGS, onFailure: 'block' }))[0]).toMatchObject({ state: 'unknown', note: expect.stringContaining('where it lets the write go ahead without it') });
+    // It is taken as a line that is started, so init writes none beside it.
+    expect(mergeClaudeSettings(under({ command: 'node', args: ARGS }), () => true)).toBeNull();
+    expect(mergeClaudeSettings(under({ command: 'node', args: [...ARGS, '--base', 'main'] }), () => true)).toBeNull();
+  });
+});
+
+describe('a root on the line that is a directory outside any work tree (ADR-0005)', () => {
+  const FILE = '.claude/settings.json';
+  const entry = (more: Record<string, unknown> = {}) => ({ type: 'command', command: 'node', args: [SCRIPT, 'hook', 'claude', '--root', '/elsewhere'], ...more });
+  const under = (matcher: string, hook: unknown) => ({ hooks: { PreToolUse: [{ matcher, hooks: [hook] }], PostToolUse: [{ matcher, hooks: [hook] }] } });
+  const reported = (settings: unknown) => reportHooks([{ file: FILE, settings }], '/p', () => outsideHookLine('/elsewhere'));
+  const W = '"hook claude --root /elsewhere" in .claude/settings.json';
+  const OFF = `${W}: --root is "/elsewhere", a directory outside any git work tree, which the hook reads as a session outside one, exit 0 and no word, so the guard is off and no write is checked; give the hook's line a directory in the work tree, or leave --root out for the project Claude Code names`;
+
+  it('is a guard that is off, said in the words for the hook there', () => {
+    expect(reported(under(GUARD.matcher, entry()))).toEqual([
+      { file: FILE, events: ['PreToolUse', 'PostToolUse'], line: ['hook', 'claude', '--root', '/elsewhere'], state: 'off', onFailure: null, detail: OFF, before: ['Edit', 'Write', 'NotebookEdit'], after: ['Edit', 'Write', 'NotebookEdit'], cover: null, note: null },
+    ]);
+    // Waited on before some writes, or before writes that cannot be told, it is off for those.
+    expect(reported(under('Edit', entry()))[0]).toMatchObject({ state: 'off', detail: OFF, before: ['Edit'] });
+    expect(reported(under(GUARD.matcher, entry({ if: 'Edit(*.ts)' })))[0]).toMatchObject({ state: 'off', detail: OFF, before: null });
+  });
+
+  it('holds no write for onFailure, since the hook exits 0 there and no run of it fails', () => {
+    expect(reported(under(GUARD.matcher, entry({ onFailure: 'block' })))[0]).toMatchObject({
+      state: 'off',
+      onFailure: 'block',
+      note: `${W} sets onFailure to "block", so Claude Code 2.1.295 or later holds a write when the hook fails, where it lets the write go ahead without it: by its exit 1 for a question it cannot read, by not starting, or by running past its timeout`,
+    });
+  });
+
+  it('is not said of a line Claude Code waits on before no write, which leaves none unchecked', () => {
+    expect(reported(under('Bash', entry()))[0]).toMatchObject({ state: 'unstarted', detail: null, before: [], after: [] });
+    expect(reported({ hooks: { PostToolUse: [{ hooks: [entry()] }] } })[0]).toMatchObject({ state: 'unstarted', detail: null, before: [] });
+  });
+});
+
+describe('disableAllHooks in a settings file (ADR-0005)', () => {
+  const USER = '/home/p/.claude/settings.json';
+  const PROJECT = '.claude/settings.json';
+  const LOCAL = '.claude/settings.local.json';
+  const source = (file: string, settings: unknown) => ({ file, settings });
+
+  it('is the file that sets it to true, where none of higher precedence sets it to false', () => {
+    expect(hooksDisabled([source(USER, {}), source(PROJECT, { disableAllHooks: true }), source(LOCAL, {})])).toBe(PROJECT);
+    expect(hooksDisabled([source(USER, { disableAllHooks: true })])).toBe(USER);
+    expect(hooksDisabled([source(USER, { disableAllHooks: true }), source(PROJECT, { disableAllHooks: false })])).toBeNull();
+    expect(hooksDisabled([source(USER, { disableAllHooks: true }), source(PROJECT, { disableAllHooks: false }), source(LOCAL, { disableAllHooks: true })])).toBe(LOCAL);
+    expect(hooksDisabled([source(USER, { disableAllHooks: false }), source(PROJECT, { disableAllHooks: true })])).toBe(PROJECT);
+    // The last file that says so is named: that is the one whose value Claude Code is left with.
+    expect(hooksDisabled([source(USER, { disableAllHooks: true }), source(PROJECT, { disableAllHooks: true })])).toBe(PROJECT);
+  });
+
+  it('is none where no file sets it, and a value that is no Boolean is passed over as the key left out', () => {
+    expect(hooksDisabled([])).toBeNull();
+    expect(hooksDisabled([source(USER, {}), source(PROJECT, { disableAllHooks: false })])).toBeNull();
+    for (const value of ['true', 1, null, {}, ['true']]) {
+      expect(hooksDisabled([source(PROJECT, { disableAllHooks: value })]), JSON.stringify(value)).toBeNull();
+      expect(hooksDisabled([source(USER, { disableAllHooks: true }), source(PROJECT, { disableAllHooks: value })]), JSON.stringify(value)).toBe(USER);
+    }
+    expect(hooksDisabled([source(USER, null), source(PROJECT, 'unreadable'), source(LOCAL, { disableAllHooks: true })])).toBe(LOCAL);
+  });
+
+  const plugin = { id: 'spec-harness@spec-tools', file: USER };
+  const absent = { state: 'absent' as const, detail: 'why' };
+
+  it('switches the guard off where a settings file holds the guard hooks, or a plugin that may be here brings them', () => {
+    const wired = { plugin: null, hooks: [] as string[], server: false, hooksOff: PROJECT as string | null };
+    expect(guardSwitchedOff({ ...wired, hooks: [PROJECT] })).toBe(true);
+    expect(guardSwitchedOff({ ...wired, plugin })).toBe(true);
+    expect(guardSwitchedOff({ ...wired, plugin, presence: { state: 'unknown', detail: 'x' } })).toBe(true);
+    expect(guardSwitchedOff({ ...wired, plugin, presence: { state: 'present', detail: null } })).toBe(true);
+    // Nothing to switch off: no wiring, the server alone, or a plugin that is not on this machine.
+    expect(guardSwitchedOff(wired)).toBe(false);
+    expect(guardSwitchedOff({ ...wired, server: true })).toBe(false);
+    expect(guardSwitchedOff({ ...wired, plugin, presence: absent })).toBe(false);
+    expect(guardSwitchedOff({ ...wired, plugin, presence: absent, hooks: [PROJECT] })).toBe(true);
+    // And nothing is switched off where no file holds the key.
+    expect(guardSwitchedOff({ ...wired, hooks: [PROJECT], plugin, hooksOff: null })).toBe(false);
+  });
+
+  it('is said with the file that holds the key, what Claude Code then runs, and what keeps running', () => {
+    expect(describeHooksOff(PROJECT, true)).toBe(
+      '"disableAllHooks" is true in .claude/settings.json, so Claude Code runs no hook of the user\'s, the project\'s or the local settings, and none of a plugin: no write is guarded. Take the key out of .claude/settings.json, or set it to false, to have the guard back. Hooks of managed settings, and of a plugin managed settings force on, keep running, and no managed settings are read here',
+    );
+    expect(describeHooksOff(USER, false)).toBe(
+      'note: "disableAllHooks" is true in /home/p/.claude/settings.json, so Claude Code runs no hook of the user\'s, the project\'s or the local settings, and none of a plugin: the hooks init writes, and those the plugin brings, would not run while it stands',
+    );
+  });
+});
+
+describe('the plugin that settings turn on, and whether it is on this machine (ADR-0012)', () => {
+  const USER = '/home/p/.claude/settings.json';
+  const PROJECT = '.claude/settings.json';
+  const LOCAL = '.claude/settings.local.json';
+  const ID = 'spec-harness@spec-tools';
+  const plugin = { id: ID, file: PROJECT };
+  const ROOT = join('/home', 'p', '.claude', 'plugins');
+  const SEED = join('/opt', 'seed');
+  const on = (file: string, more: Record<string, unknown> = {}) => ({ file, settings: { enabledPlugins: { [ID]: true }, ...more } });
+  const dir = (more: Partial<{ directory: string; cached: boolean; registry: Record<string, unknown> | null | 'unreadable'; hosted: boolean }> = {}) => ({ directory: ROOT, cached: false, registry: {}, hosted: false, ...more });
+  const ENTRY = { source: { source: 'github', repo: 'example/spec-harness' }, installLocation: join(ROOT, 'marketplaces', 'spec-tools'), lastUpdated: '2026-10-12T00:00:00.000Z' };
+
+  it('names the marketplace of an id, and none for an origin that is no marketplace or for text that names no directory', () => {
+    expect(pluginMarketplace(ID)).toBe('spec-tools');
+    expect(pluginMarketplace('spec-harness@team.tools_2')).toBe('team.tools_2');
+    for (const id of ['spec-harness@inline', 'spec-harness@skills-dir', 'spec-harness@synced', 'spec-harness@..', 'spec-harness@../x', 'spec-harness@a/b', 'spec-harness@a\\b', 'spec-harness@.hidden', 'spec-harness@', 'spec-harness@a b']) {
+      expect(pluginMarketplace(id), id).toBeNull();
+    }
+    // A name that only holds one of the three origins is a marketplace's.
+    expect(pluginMarketplace('spec-harness@synced-tools')).toBe('synced-tools');
+  });
+
+  it('is on the machine where a cache holds a version of it, in the plugins root or in a seed', () => {
+    expect(pluginPresence(plugin, [on(PROJECT)], [dir({ cached: true })])).toEqual({ state: 'present', detail: null });
+    expect(pluginPresence(plugin, [on(PROJECT)], [dir(), dir({ directory: SEED, cached: true })])).toEqual({ state: 'present', detail: null });
+    // A cached version is there whatever the records beside it say.
+    expect(pluginPresence(plugin, [on(PROJECT)], [dir({ cached: true, registry: null }), dir({ directory: SEED, registry: 'unreadable' })])).toEqual({ state: 'present', detail: null });
+  });
+
+  it('is not on the machine where the project alone turns it on, nothing is cached, and no marketplace of the name is fetched or declared', () => {
+    expect(pluginPresence(plugin, [{ file: USER, settings: {} }, on(PROJECT), { file: LOCAL, settings: null }], [dir()])).toEqual({
+      state: 'absent',
+      detail: `.claude/settings.json alone turns it on, and Claude Code fetches no plugin that a project's settings alone turn on, unless its marketplace lists it by a relative path or a seed directory holds it: no marketplace spec-tools is recorded as fetched or declared in settings, and no version of the plugin is in a cache (${join(ROOT, 'cache')})`,
+    });
+    // Other marketplaces fetched or declared, and another plugin turned on elsewhere, change nothing.
+    const others = [{ file: USER, settings: { enabledPlugins: { 'other@spec-tools': true, [ID]: false }, extraKnownMarketplaces: { team: {} } } }, on(PROJECT)];
+    const both = pluginPresence(plugin, others, [dir({ registry: { team: ENTRY } }), dir({ directory: SEED })]);
+    expect(both.state).toBe('absent');
+    expect(both.detail?.endsWith(`(${join(ROOT, 'cache')}, ${join(SEED, 'cache')})`)).toBe(true);
+  });
+
+  it('cannot tell where its id names no marketplace, or no directory for plugins is known', () => {
+    expect(pluginPresence({ id: 'spec-harness@inline', file: PROJECT }, [], [dir({ cached: true })])).toEqual({
+      state: 'unknown',
+      detail: 'spec-harness@inline names no marketplace whose plugins are kept in a cache: a plugin from --plugin-dir, a skills directory or a claude.ai account comes another way',
+    });
+    expect(pluginPresence(plugin, [on(PROJECT)], [])).toEqual({
+      state: 'unknown',
+      detail: 'where Claude Code keeps its plugins is not known here: none of CLAUDE_CODE_PLUGIN_CACHE_DIR, CLAUDE_CONFIG_DIR and a home directory is set',
+    });
+  });
+
+  it('cannot tell where a record of the marketplaces fetched is not there or cannot be read, in any of the directories', () => {
+    const registry = join(ROOT, 'known_marketplaces.json');
+    expect(pluginPresence(plugin, [on(PROJECT)], [dir({ registry: null })])).toEqual({ state: 'unknown', detail: `${registry}, where Claude Code records the marketplaces it has fetched, is not there` });
+    expect(pluginPresence(plugin, [on(PROJECT)], [dir({ registry: 'unreadable' })])).toEqual({ state: 'unknown', detail: `${registry}, where Claude Code records the marketplaces it has fetched, cannot be read as JSON` });
+    expect(pluginPresence(plugin, [on(PROJECT)], [dir(), dir({ directory: SEED, registry: null })])).toEqual({
+      state: 'unknown',
+      detail: `${join(SEED, 'known_marketplaces.json')}, where Claude Code records the marketplaces it has fetched, is not there`,
+    });
+  });
+
+  it('cannot tell where its marketplace is on the machine, or declared in settings, and no version of it is cached', () => {
+    expect(pluginPresence(plugin, [on(PROJECT)], [dir({ registry: { team: ENTRY, 'spec-tools': ENTRY } })])).toEqual({
+      state: 'unknown',
+      detail: `its marketplace, spec-tools, is on this machine (${join(ROOT, 'known_marketplaces.json')}) and no version of the plugin is in the cache: Claude Code loads a plugin that its marketplace lists by a relative path from the marketplace itself, and the marketplace's list is not read here`,
+    });
+    expect(pluginPresence(plugin, [on(PROJECT)], [dir(), dir({ directory: SEED, registry: { 'spec-tools': ENTRY } })]).detail).toContain(`(${join(SEED, 'known_marketplaces.json')})`);
+    // A record names a marketplace by a key of its own: none is inherited.
+    expect(pluginPresence({ id: 'spec-harness@constructor', file: PROJECT }, [{ file: PROJECT, settings: { enabledPlugins: { 'spec-harness@constructor': true } } }], [dir()]).state).toBe('absent');
+    const declared = pluginPresence(plugin, [{ file: USER, settings: { extraKnownMarketplaces: { 'spec-tools': { source: { source: 'github', repo: 'example/spec-harness' } } } } }, on(PROJECT)], [dir()]);
+    expect(declared).toEqual({
+      state: 'unknown',
+      detail: `${USER} declares its marketplace, spec-tools, under extraKnownMarketplaces, which Claude Code fetches after a session has started: nothing of it is on this machine now`,
+    });
+    expect(pluginPresence(plugin, [on(PROJECT, { extraKnownMarketplaces: { 'spec-tools': {} } })], [dir()]).detail?.startsWith('.claude/settings.json declares its marketplace, spec-tools, ')).toBe(true);
+    // Declared as something that holds no marketplaces, it is not declared.
+    expect(pluginPresence(plugin, [on(PROJECT, { extraKnownMarketplaces: ['spec-tools'] })], [dir()]).state).toBe('absent');
+  });
+
+  it('cannot tell where marketplaces hosted on claude.ai are recorded, or a settings file of the person\'s own turns it on', () => {
+    expect(pluginPresence(plugin, [on(PROJECT)], [dir(), dir({ directory: SEED, hosted: true })])).toEqual({
+      state: 'unknown',
+      detail: `${join(SEED, 'known_marketplaces_claudeai.json')} records the marketplaces hosted on claude.ai, in a shape Claude Code's reference does not give, so whether spec-tools is one cannot be read`,
+    });
+    expect(pluginPresence({ id: ID, file: USER }, [on(USER)], [dir()])).toEqual({
+      state: 'unknown',
+      detail: `${USER} turns it on, and Claude Code fetches a plugin that settings of the person's own turn on: neither a version of it nor its marketplace, spec-tools, is on this machine now`,
+    });
+    expect(pluginPresence({ id: ID, file: LOCAL }, [on(USER), on(PROJECT), on(LOCAL)], [dir()]).detail?.startsWith(`${USER} and ${LOCAL} turn it on, and Claude Code fetches `)).toBe(true);
+    // Only true turns it on there.
+    expect(pluginPresence(plugin, [{ file: USER, settings: { enabledPlugins: { [ID]: 'true' } } }, on(PROJECT)], [dir()]).state).toBe('absent');
+  });
+
+  const WHY = 'why';
+  const here = { state: 'present' as const, detail: null };
+  const gone = { state: 'absent' as const, detail: WHY };
+  const untold = { state: 'unknown' as const, detail: WHY };
+  const ON = 'the spec-harness plugin is on (spec-harness@spec-tools in .claude/settings.json)';
+  const OFF = 'turn the plugin off for this project with claude plugin disable spec-harness@spec-tools --scope local';
+  const BRING = 'install it here, with claude plugin install spec-harness@spec-tools once its marketplace is added';
+
+  it('is not counted as wiring where it is not on the machine, and is where it is there or cannot be told', () => {
+    expect(wiringState({ plugin, presence: gone, hooks: [], server: false })).toBe('none');
+    expect(wiringState({ plugin, presence: gone, hooks: [PROJECT], server: false })).toBe('init');
+    expect(wiringState({ plugin, presence: gone, hooks: [], server: true })).toBe('init');
+    for (const presence of [here, untold, null]) {
+      expect(wiringState({ plugin, presence, hooks: [], server: false })).toBe('plugin');
+      expect(wiringState({ plugin, presence, hooks: [PROJECT], server: false })).toBe('both');
+    }
+    expect(wiringState({ plugin: null, presence: null, hooks: [], server: false })).toBe('none');
+  });
+
+  it('is said as no guard where it is not on the machine and nothing else is wired, with what would bring it', () => {
+    expect(describeClaudeCode({ plugin, presence: gone, hooks: [], server: false })).toBe(
+      `${ON} and is not on this machine, so it brings no hook here: why, and Claude Code guards no write. To have the guard, ${BRING}, or ${OFF} and run spec-harness init --write`,
+    );
+    expect(describePresence({ plugin, presence: gone, hooks: [], server: false })).toBeNull();
+    // Beside init's entries those are the wiring, and the plugin is a note under them.
+    expect(describeClaudeCode({ plugin, presence: gone, hooks: [PROJECT], server: true })).toBe("init's entries: the guard hooks in .claude/settings.json, the server in .mcp.json");
+    expect(describePresence({ plugin, presence: gone, hooks: [PROJECT], server: true })).toBe(
+      `${ON} and is not on this machine, so it brings no hook here: why. With the plugin installed as well, every write is guarded twice: ${OFF}`,
+    );
+    // The server alone guards nothing: said as no guard, under it.
+    expect(describeClaudeCode({ plugin, presence: gone, hooks: [], server: true })).toBe("init's entries: the server in .mcp.json");
+    expect(describePresence({ plugin, presence: gone, hooks: [], server: true })).toBe(describeClaudeCode({ plugin, presence: gone, hooks: [], server: false }));
+  });
+
+  it('is said as the plugin where it is there or cannot be told, and what cannot be told is said beside it', () => {
+    for (const presence of [here, untold, null]) {
+      expect(describeClaudeCode({ plugin, presence, hooks: [], server: false })).toBe(`${ON} and brings the guard hooks and the server`);
+      expect(describeClaudeCode({ plugin, presence, hooks: [PROJECT], server: false })).toContain(', beside the guard hooks in .claude/settings.json: every write is guarded twice. ');
+    }
+    for (const presence of [here, null]) expect(describePresence({ plugin, presence, hooks: [], server: false })).toBeNull();
+    // Nor is there more to say of a plugin that is there beside entries of init's: the double install is the wiring's own sentence.
+    expect(describePresence({ plugin, presence: here, hooks: [PROJECT], server: true })).toBeNull();
+    // A caller that does not ask whether the plugin is there says nothing of it.
+    expect(describePresence({ plugin, hooks: [], server: false })).toBeNull();
+    expect(describePresence({ plugin, presence: untold, hooks: [PROJECT], server: false })).toBe(
+      "whether spec-harness@spec-tools is on this machine cannot be told: why. A plugin that is not there brings no hook: Claude Code's /plugin lists it, and its errors",
+    );
+    expect(describePresence({ plugin: null, presence: null, hooks: [PROJECT], server: false })).toBeNull();
+    // With no plugin on there is none to speak of, whatever a caller hands over beside it.
+    expect(describePresence({ plugin: null, presence: untold, hooks: [], server: false })).toBeNull();
+  });
+
+  it('has init say why it writes nothing on that reading alone, and what a file that holds its entry would double', () => {
+    expect(describeAbsent(plugin, WHY, 'hooks', false)).toBe(
+      `${ON} and is not on this machine, so it brings no hook here: why. On that reading alone init writes none, since with a plugin that is there after all every write is guarded twice: ${BRING}, or to have them here instead, ${OFF} and run init again`,
+    );
+    expect(describeAbsent(plugin, WHY, 'server', false)).toBe(
+      `${ON} and is not on this machine, so it brings no server here: why. On that reading alone init registers none, since with a plugin that is there after all the server is registered twice: ${BRING}, or to have it here instead, ${OFF} and run init again`,
+    );
+    expect(describeAbsent(plugin, WHY, 'hooks', true)).toBe(`${ON} and is not on this machine, so it brings no hook here: why. This file holds spec-harness's hooks; with the plugin installed as well, every write is guarded twice: ${OFF}`);
+    expect(describeAbsent(plugin, WHY, 'server', true)).toBe(`${ON} and is not on this machine, so it brings no server here: why. This file holds the spec-harness server; with the plugin installed as well, the server is registered twice: ${OFF}`);
+  });
+});
+
 describe("the lines of Claude Code's hook in its settings, and what doctor says of each (ADR-0005)", () => {
   const FILE = '.claude/settings.json';
   const BOTH = ['PreToolUse', 'PostToolUse'];
@@ -699,7 +1014,7 @@ describe("the lines of Claude Code's hook in its settings, and what doctor says 
   const TOOLS = ['Edit', 'Write', 'NotebookEdit'];
   /** Started before every tool that writes and after each, as init's own entries are: nothing to say of it. */
   const EVERY = { before: TOOLS, after: TOOLS, cover: null };
-  const line = (words: string[], more: { shell?: boolean; blocks?: boolean; events?: string[] } = {}) => ({ events: more.events ?? BOTH, words, shell: more.shell ?? false, blocks: more.blocks ?? false });
+  const line = (words: string[], more: { shell?: boolean; blocks?: boolean; events?: string[] } = {}) => ({ events: more.events ?? BOTH, words, shell: more.shell ?? false, blocks: more.blocks ?? false, untyped: null });
 
   it('knows the harness by its command, the script or the name at the end of a path, and gives what follows it', () => {
     expect(writtenHooks(settings(HOOK))).toEqual([line(['hook', 'claude'])]);
