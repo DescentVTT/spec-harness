@@ -384,8 +384,11 @@ function claudeConfigDirectory(env: CliIO['env'], platform: NodeJS.Platform): st
  * root, which is `CLAUDE_CODE_PLUGIN_CACHE_DIR` when that is set and
  * `plugins` in the configuration directory otherwise, and after it each
  * seed directory `CLAUDE_CODE_PLUGIN_SEED_DIR` names, separated by `;` on
- * Windows and `:` elsewhere. A seed has the layout of the root. Read from
- * the environment this runs in, as the settings files are.
+ * Windows and `:` elsewhere. A seed has the layout of the root, by its page
+ * on plugins for an organization
+ * (https://code.claude.com/docs/en/plugins/org, Seed containers and CI,
+ * read the same day). Read from the environment this runs in, as the
+ * settings files are.
  */
 export function pluginDirectories(env: CliIO['env'], platform: NodeJS.Platform = process.platform): string[] {
   const configDir = claudeConfigDirectory(env, platform);
