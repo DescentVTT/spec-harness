@@ -874,6 +874,126 @@ What was measured for this and left as it was:
   of any matcher that is not text, and reads the file's other entries as
   if they ran.
 
+*Amended a fourth time 2026-10-12.* `doctor` and `init` say three more
+ways in which a guard is set up and checks nothing, and fail them. The
+amendment before the last measured each and left it: a root on the hook's
+line that is a directory outside any work tree, `disableAllHooks`, and an
+entry's `type`. (The fourth it left, a plugin that settings turn on and the
+machine does not have, is in ADR-0012.) Measured again on 0.16.0 through
+the launcher (Windows 11, Node 24.18.1, git 2.55), in a repository with a
+brief that protects a file, with spec-brief 0.8.0 and spec-guard 0.23.0
+installed in it: each entry under both events with the matcher `init`
+writes, `doctor` and `init --write` run there, and the hook handed the
+words of the line before a write to the protected file.
+
+| What the settings hold | The hook, before the write | `doctor` on 0.16.0 | `init --write` on 0.16.0 | `doctor` now | `init --write` now |
+| --- | --- | --- | --- | --- | --- |
+| `hook claude --root <a directory in no work tree>`, with a `--brief` or without | exit 0 and no word: no write is checked | the line guards, by its root; exit 0 | `keep` | the guard is off; exit 1 | `advise`, in the same words; writes nothing |
+| the same line under the matcher `Bash` | not asked before a write | not the guard; exit 0 | writes its hooks beside it | the same | the same |
+| `"disableAllHooks": true` beside `init`'s line, in that file or in the user's | refuses the write, were it started | `init`'s entries; exit 0 | `keep` | `init`'s entries, and that no hook runs, with the file that holds the key; exit 1 | `keep`, and `advise` for the file that holds the key |
+| the same, with `false` in a file of higher precedence | refuses the write | `init`'s entries; exit 0 | `keep` | the same | the same |
+| `"disableAllHooks": true`, and the plugin on and installed | | the plugin; exit 0 | `skip` | the plugin, and that no hook runs; exit 1 | `skip`, and `advise` for the key |
+| `"disableAllHooks": true`, and nothing wired | | no guard; exit 0 | writes its hooks | the same, and a note on the key | writes its hooks, and `advise` for the key |
+| an entry `"type": "prompt"`, or `"http"`, that holds the hook's command | refuses the write, were it run as a command | `init`'s entries; exit 0 | `keep` | no guard; exit 0 | writes its hooks beside the entry |
+| the hook's entry with no `"type"`, or with `"Command"` | refuses the write, were it run | `init`'s entries; exit 0 | `keep` | cannot tell; exit 0, and 1 under `--strict` | `keep`, saying the same |
+
+- **A root that is a directory outside any work tree is said as a guard
+  that is off.** The hook there reads a session outside a work tree, checks
+  no write and says nothing, exit 0 (the amendment of 2026-10-11), and that
+  stays: a hook started where there is no repository has nothing to guard,
+  and no way to tell a root a person mistyped from a session that is simply
+  elsewhere. `doctor` can tell, since it reads a line someone wrote: a
+  `--root` on the hook's line is a person's (no release wrote one), and one
+  that is in no work tree is a guard set up to check nothing. It asks git
+  about the root as the hook does, once for each such line, and says the
+  line in the words above for the hook there, with exit 1, as for a root
+  that is not a directory. It is the one fault the hook says nothing of, so
+  `onFailure` holds no write for it, and the note on that field says what
+  it says of a line that guards. Where Claude Code waits on the line before
+  no write, it is said as that, and fails nothing: no write is left
+  unchecked that the line was ever asked about. A brief on such a line is
+  asked of no one, as before. A root in another repository's work tree is
+  read as it was: the hook guards there, by that repository's briefs.
+- **`disableAllHooks` is read, from the three settings files.** Claude
+  Code's settings reference
+  (<https://code.claude.com/docs/en/settings-reference>, *disableAllHooks*,
+  read 2026-10-12) has the key as a Boolean that any settings file may
+  hold: `true` turns hooks off, with a custom status line and a custom file
+  suggestion. Which hooks depends on the file that holds it. In managed
+  settings, every configured hook, the managed ones among them, but not
+  those the Agent SDK registers. In any
+  other file, the hooks of the user's, the project's and the local settings
+  and those of plugins, while the hooks of managed settings, of the Agent
+  SDK, and of a plugin that managed settings force on through
+  `enabledPlugins` keep running. The hooks reference
+  (<https://code.claude.com/docs/en/hooks>, *Disable or remove hooks*, read
+  the same day) adds that the value that counts is the one left after
+  settings precedence, so `false` in a project's settings overrides `true`
+  in the user's, and that `--settings` comes before the project's and the
+  local file.
+  So `doctor` takes the last of the user's, the project's and the local
+  file that sets the key to a Boolean. Where that is `true`, every hook the
+  harness's wiring stands on is switched off, `init`'s entries in any of
+  the three files and the plugin's own: it says so with the file, and exits
+  1 where there are guard hooks to switch off, a settings file that holds a
+  line Claude Code starts for a write or a plugin that may be on the
+  machine. Where nothing is wired it is a note, since the hooks `init`
+  would write as `doctor` advises would not run. What the reference leaves
+  running is said in the same sentence, and is nothing `doctor` can see:
+  managed settings and `--settings` are no file a project reads (ADR-0012),
+  and either may set the key the other way. A value that is no Boolean is
+  passed over, as the key left out: the settings reference gives the key no
+  other type, and its page on settings files
+  (<https://code.claude.com/docs/en/settings>, *Fix a broken settings
+  file*) has Claude Code set aside a value its schema rejects, the entry or
+  more of the file, without saying which for this key.
+  `init` says the key of the file that holds it, as a step of its own
+  (`advise`), and writes what it would have written: the key is the
+  person's to take out, and the hooks are there when they do.
+- **Only an entry Claude Code runs as a command is a line of the hook.**
+  The hooks reference (*Hook handler fields*, read 2026-10-12) has five
+  types of handler, told apart by `type`: `command` runs a shell command,
+  `http` sends a request, `mcp_tool` calls a tool of an MCP server,
+  `prompt` asks a model and `agent` starts a subagent. Its table of
+  fields has `type` as
+  required, and `command` and `args` as fields of a command hook alone. So
+  an entry of one of the other four types that holds the harness's command
+  runs nothing of the harness's: it is no line, is not reported, and
+  `init` writes its hooks beside it. Of an entry with no `type`, or with a
+  word that is none of the five, the reference says nothing: not that
+  Claude Code runs it as a command, nor that it skips it. It is kept as a
+  line and said as *cannot tell*, with how to write it, never fine, and a
+  failure under `--strict`; `init` takes it as a line that is started, and
+  writes none beside it. Every release wrote `"type": "command"` on both of
+  its entries, read from the 25 tags, v0.1.0 to v0.16.0.
+- **`--format json`** has `claudeCode.hooksOff`, the file whose
+  `disableAllHooks` is `true` or `null`, and `claudeCode.notes`, what is
+  said of the key and of the plugin. A line under a root outside any work
+  tree has the state `off`, and an entry with no `type` the state
+  `unknown`, both states a script met before. The fields are added, so no
+  `schemaVersion` moves.
+- **The hook answers no line differently.** Each tree measured for this
+  was run through the launcher of 0.16.0 and of this change, and the hook's
+  exit code and both its streams compared for each line, before a write and
+  for each of the four names it reads a file from.
+  `tests/integration/released-lines.test.ts` holds `doctor` to the hook's
+  answer for the new fault as for the others: nothing, and exit 0.
+
+An exit code that can change for a tree that passed is a minor release
+(spec-core's ADR-0009). What was measured for this and left as it was:
+
+- **A root in the work tree of another repository.** The hook opens that
+  work tree and decides by its briefs. Measured with a root in a repository
+  that names no brief: it said nothing of a write to this project's
+  protected file, exit 0, and `doctor` says of the line that it guards, by
+  its root. Which repository a person meant the line for is not read from
+  the line.
+- **`allowManagedHooksOnly`**, which the same references have turn off the
+  hooks of the three files and of plugins that managed settings do not
+  force on, is a key of managed settings, which are not read.
+- **An entry of the harness's under another event than the two**, which the
+  hook answers with nothing.
+
 ## Consequences
 
 An agent that writes through a shell passes the guard and is caught at the

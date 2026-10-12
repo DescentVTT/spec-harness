@@ -249,6 +249,130 @@ before and after (ADR-0005 has the table). One pair is left apart: a line
 in a settings file of the person's own, with no plugin, beside which init
 still writes the project's file, since every clone reads that one.
 
+*Amended a third time 2026-10-12.* doctor and init read whether the plugin
+that settings turn on is on the machine. The decision above counts an id
+that a settings file sets to `true`, and ADR-0005 (amended again the same
+day) found what that does not say and left it: where the project's
+`.claude/settings.json` alone turns the plugin on and nothing of it is on a
+person's machine, doctor reported the plugin as the guard and init skipped,
+and no write was guarded (measured on 0.16.0, through the launcher).
+
+What Claude Code's plugin loading reference has of it
+(<https://code.claude.com/docs/en/plugins/loading>, read 2026-10-12, with
+the sections in italics):
+
+- **A plugin is declared, fetched, then loaded** (*Check which stage a
+  plugin reached*). Settings declare it under `enabledPlugins`, and a
+  marketplace under `extraKnownMarketplaces`. What is fetched is kept under
+  one plugins root, `~/.claude/plugins` unless `CLAUDE_CODE_PLUGIN_CACHE_DIR`
+  names another (*Find plugins on disk*): `known_marketplaces.json` records
+  each marketplace fetched, `installed_plugins.json` each install, and
+  `cache/<marketplace>/<plugin>/<version>/` is one directory for each
+  installed version of a marketplace plugin. A session loads from the
+  install record and the cache, without the network, and afterwards fetches
+  a marketplace that settings declare and the record lacks (*Plugins and
+  marketplaces that aren't on disk at session start*).
+- **A plugin whose only `true` is in the project's `.claude/settings.json`
+  is not fetched to a machine that lacks it** (*Enabled in project settings
+  but not installed*), with two exceptions: a marketplace that lists the
+  plugin by a relative path, from which it loads with no install record,
+  and a seed directory that holds it already. A plugin from elsewhere is
+  fetched only where the user's settings, a local settings file git does
+  not track, `--settings` or managed settings set it to `true`.
+- **An id's origin may be no marketplace** (*Find where a plugin came
+  from*): `@inline`, `@skills-dir` and `@synced` are a plugin started from
+  a directory, one saved under a skills directory and one synced from a
+  claude.ai account, and no marketplace may take those names.
+- **An update or an uninstall leaves the old version's directory** for 14
+  days, marked with a file `.orphaned_at` (*Cleanup of previous versions*).
+- Beside it, the environment variables reference
+  (<https://code.claude.com/docs/en/env-vars>, read the same day) has
+  `CLAUDE_CONFIG_DIR` move the configuration directory, plugins with it,
+  and `CLAUDE_CODE_PLUGIN_SEED_DIR` name one or more seed directories,
+  separated by `:`, or by `;` on Windows; the page on plugins for an
+  organization gives a seed the layout of the plugins root; and the error
+  reference and the plugin troubleshooting page speak of an entry of
+  `known_marketplaces.json` by the marketplace's name, and of `{}` as
+  that file with none.
+
+This repository's own marketplace lists the plugin by a relative path,
+`./`, in every release, read from the 25 tags. So for a marketplace made of
+this repository the first exception is the rule: once the marketplace is on
+a machine, or declared, the plugin may load with no install at all. And the
+two ways the README gives to install it, the marketplace added from GitHub
+or from a git URL and the plugin installed from it, both end with a version
+in the cache, since the reference has every marketplace plugin copied there
+at install but one that a marketplace added from a local path lists by a
+relative path, which loads in place (*In-place and copied plugins*).
+
+**Read: only what the reference documents, and three answers.** doctor
+reads the plugins root Claude Code would use, from the environment it runs
+in as it reads the settings files, and each seed directory after it.
+
+- **On the machine**: a cache holds a version of the plugin, a directory
+  under the marketplace's name and `spec-harness` that no `.orphaned_at`
+  marks. Nothing more is said, and the tree reads as it did: the plugin,
+  installed for the user, is the guard, and beside init's entries the
+  double install.
+- **Not on the machine** is said only where the reference leaves the plugin
+  no way to load: the project's `.claude/settings.json` alone sets it to
+  `true`; no cache holds a version; `known_marketplaces.json` is there, in
+  the root and in each seed, and none has an entry of the marketplace's
+  name; no settings file declares that name under `extraKnownMarketplaces`;
+  and no record of marketplaces hosted on claude.ai stands beside them.
+  Then the plugin is not counted as wiring. With hooks of init's in a
+  settings file, those are the guard, and the plugin is a note under them:
+  installed, it would double them. Without them doctor exits 1, as for a
+  guard that is off, and says what would bring it in the reference's terms,
+  the marketplace added and the plugin installed, or how to have init's
+  entries instead. That the plugin then brings no hook follows from the
+  reference, and is not its sentence.
+- **Cannot tell** is everything else, said with what was found, never
+  fine, and a failure under `--strict` alone: a `known_marketplaces.json`
+  that is not there or cannot be read; the marketplace on the machine, or
+  declared, with no version cached, where a relative path would load the
+  plugin from the marketplace, whose own list is not read; a record of
+  marketplaces hosted on claude.ai, whose shape the reference does not
+  give; a `true` in the user's settings or in the local file, for which
+  Claude Code fetches; an id whose origin is no marketplace; and no
+  directory to look in at all.
+
+`installed_plugins.json` is not read. The reference names three of its
+fields and not where a record stands in the file, and the workstation this
+was written on, whose plugins root holds a record of marketplaces and no
+install, has none to compare. The cache says the same for every way the
+README gives.
+
+**init writes no hook on this reading alone.** A wrong "not on the machine"
+would write a second guard beside one that runs, the double install this
+decision is about. So where doctor says the plugin is not there, init
+leaves both files as they are and says so (`advise`, where it said
+`skip`): why the plugin brings nothing here, and the two ways out, install
+it or turn it off for the project and run init again. Where it cannot be
+told, init skips as it did and says that beside the reason.
+
+`--format json` has `claudeCode.presence`: `null` where no plugin is on,
+and otherwise `state`, `present`, `absent` or `unknown`, with the reason
+as `detail`. `claudeCode.state` is `none` or `init` for a plugin that is
+not on the machine. The field is added, so no `schemaVersion` moves; an
+exit code that can change for a tree that passed is a minor release
+(spec-core's ADR-0009). What was found and left as it was:
+
+- **A marketplace's own list.** Reading it through the record's
+  `installLocation` would tell a plugin that loads by a relative path, on
+  the machine with no cached version, from one that needs an install. The
+  reference gives that location as a directory for a marketplace cloned and
+  as the path a person gave for one added from a file, and has relative
+  paths not resolve in a marketplace added from a URL. Until that is read,
+  such a plugin is *cannot tell*, which a person who added this repository
+  from a local path meets under `--strict`.
+- **A marketplace entry that replaces the plugin's hooks**: the
+  marketplace reference
+  (<https://code.claude.com/docs/en/plugins/marketplace-reference>, *Strict
+  mode*, read the same day) has an entry's `hooks` replace the manifest's
+  for an event. And a second enabled plugin of the same name, of which the
+  loading reference has one alone register its hooks. Neither is read.
+
 ## Consequences
 
 - A plugin turned on by managed settings or `--settings` is invisible to
