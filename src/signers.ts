@@ -47,7 +47,11 @@ export interface SignersRead {
  */
 const KEY = /^AAAA[A-Za-z0-9+/]+={0,2}$/;
 
-/** What OpenSSH's `strdelim` skips as whitespace between fields. */
+/**
+ * What OpenSSH's `strdelim` skips as whitespace between fields. Nothing is a
+ * match too, at the start of any text, so the anchor is equivalent to its
+ * mutant.
+ */
 const WHITESPACE = /^[ \t\r\n]*/;
 
 /**

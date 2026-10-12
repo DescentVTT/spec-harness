@@ -134,6 +134,11 @@ describe('the release of the Claude Code a Windows shim runs', () => {
     // PATHEXT's own list, not Windows' default: with .CMD alone, a claude.exe beside the shim is not found.
     write(directory, 'claude.exe', 'not a program\n');
     expect(await claudeVersion({ PATH: directory, PATHEXT: '.CMD' }, 'win32')).toEqual(read);
+    // A batch file is one of Windows' own too, and comes before the shim beside it.
+    const batch = installed(NPM_SHIM, { [MANIFEST]: '{ "version": "2.1.285" }', 'claude.bat': '@echo 2.1.200 (Claude Code)\r\n' });
+    expect(await claudeVersion({ PATH: batch }, 'win32')).toEqual({
+      missing: `claude on PATH is ${join(batch, 'claude.bat')}, a script that cannot be started without a shell, which spec-harness does not use, and it names no @anthropic-ai/claude-code package whose package.json gives a version`,
+    });
   });
 
   it('takes a program before the shim beside it where PATHEXT is not set, a .com before an .exe', async () => {

@@ -92,6 +92,11 @@ describe('the id a branch carries', () => {
     // A detached head with no CI branch: no name, so no brief, whatever the templates.
     expect(briefIdFromBranch(['{id}'], null)).toBeNull();
   });
+
+  it('reads no id from a name that is empty, under any template, and does not stop on it', () => {
+    for (const template of ['{id}', 'brief/{id}', '*/brief-{id}', '*{id}']) expect(idFromBranch(template, ''), template).toBeNull();
+    expect(briefIdFromBranch(['brief/{id}', '{id}'], '')).toBeNull();
+  });
 });
 
 describe('id equality', () => {

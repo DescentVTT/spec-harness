@@ -28,6 +28,11 @@ function isIdChar(ch: string): boolean {
  */
 function prefixEnds(prefix: string, name: string): number[] {
   // reach[j]: the prefix read so far can end at name offset j.
+  // An offset nothing was written at reads as one that cannot be reached,
+  // and `forEach` passes over it. So a list made with no places, here and
+  // for `next`, is equivalent to its mutant, and so is one made two places
+  // short, for every name but the empty one, whose list would have fewer
+  // places than none: a test holds that name.
   let reach: boolean[] = new Array<boolean>(name.length + 1).fill(false);
   reach[0] = true;
   for (const token of prefix) {
@@ -40,10 +45,15 @@ function prefixEnds(prefix: string, name: string): number[] {
         if (name.charAt(j) === '/') open = false;
       }
     } else {
+      // One place past the end `charAt` gives the empty string, which is no
+      // token, so `<=` for `<` is equivalent.
       for (let j = 0; j < name.length; j += 1) if (reach[j] && name.charAt(j) === token) next[j + 1] = true;
     }
     reach = next;
   }
+  // `idFromBranch` reads an id from each offset and passes over one where
+  // none starts, which a text among them is: a list that starts with one is
+  // equivalent.
   const ends: number[] = [];
   reach.forEach((ok, j) => {
     if (ok) ends.push(j);
@@ -65,6 +75,8 @@ export function idFromBranch(template: string, name: string): string | null {
   const prefix = template.slice(0, -'{id}'.length);
   for (const start of prefixEnds(prefix, name)) {
     let end = start;
+    // Past the end `charAt` gives the empty string, which is no character of
+    // an id, so the bound is equivalent to its mutants.
     while (end < name.length && isIdChar(name.charAt(end))) end += 1;
     if (end === start) continue;
     if (end < name.length && !SEPARATORS.has(name.charAt(end))) continue;
