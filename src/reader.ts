@@ -12,7 +12,9 @@ import { splitLines } from './vendor/spec-core/text/index.js';
 /** Section names compare without case, emphasis, a leading number or a trailing colon. */
 export function sameSection(heading: string, name: string): boolean {
   // Both names are folded the same way and then compared, so the mutant that
-  // folds them to upper case is equivalent.
+  // folds them to upper case is equivalent. So is the one that takes a
+  // single space after a leading number: what is left of the run is trimmed
+  // two lines on.
   const normal = (text: string): string =>
     text
       .replace(/[*_`]/g, '')
@@ -41,6 +43,8 @@ function unreadLines(text: string, front: FrontMatter | null): UnreadableFrontMa
 }
 
 function scanOf(text: string, cache: { text: string; scan: MarkdownScan } | null): MarkdownScan {
+  // The scan kept spares a scan of the same text and changes no answer, so
+  // the mutant that never uses it is equivalent.
   return cache !== null && cache.text === text ? cache.scan : scanMarkdown(text);
 }
 

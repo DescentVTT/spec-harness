@@ -488,3 +488,128 @@ library; where it cannot be loaded the script says so and exits 2, and
 counts nothing as none. A place is where a mutator applies, not a mutant:
 each makes one to three, so the count says where to look, and the sweeps
 above say what was there.
+
+*Amended again 2026-10-12.* **A test stands alone, and a kill is a test
+that fails for the mutant.** The amendment above found one test that was
+the recorded killer of mutants it does not test, and left it. Stryker runs
+for a mutant the tests that cover it and no other, in their order, so a test
+that passes only after another in its file fails whenever the other does
+not cover the mutant, whatever the mutant is, and the sweep counts a kill.
+
+**Which tests.** Every file of the suite but
+`tests/integration/round.test.ts` was run on one workstation with the tests
+of each file, and of each suite in it, in the reverse of their order: 19 of
+1,320 tests failed, in seven files. Each of the 19, and every test of
+`tests/integration/rulings.test.ts`, was then run alone, as Stryker runs a
+test: one vitest context, the test's file, and its name as the pattern, so
+that the file's hooks run and every other test is skipped. Four fail alone,
+all in that file, and each passes in its place:
+
+| Test, in `tests/integration/rulings.test.ts` | Leans on |
+| --- | --- |
+| `escalate`: numbers the next request after the last, and lists, shows and prints them as JSON | the request the test before it raises |
+| `escalate`: skips a request it cannot read rather than listing nothing true | the requests of the two tests before it, and the directory they made |
+| a ruling is a row whose commit a person signed: allows a protected path beside one in scope, deciding each | the commit an earlier test signs |
+| the same suite: does not lend a signed line's commit to an uncommitted row written where that line was | the same commit |
+
+The other fifteen pass alone. Five read a repository their file shares
+after a test that follows them in the file's order had changed it, which no
+sweep does, since it keeps the order; ten ran past a bound on a workstation
+under load. `round.test.ts` times out on that workstation on unchanged
+main, and has one test, which makes its own repository.
+
+**Which mutants.** In the report of 0.15.0's sweep (run 38174911926) the
+first of the four is a recorded killer of 38 mutants. Ten are static, so
+every test ran for them, the test before it with the rest. The other 28 are
+not covered by the test before it, so it ran without it: 25 in
+`src/commands.ts`, where `escalate --list` and `--show` are, one in
+`src/rulings.ts` and two in `src/workspace.ts`. For 26 of them the recorded
+failure is one sentence, that the request is `E-001-1` where `E-001-2` was
+expected: the test failing for want of the first request. The sweep before
+it (run 38160632452) has 30 such mutants, the 25, the one, and four in
+`workspace.ts`. The other three tests are the recorded killer of no mutant
+that the test they lean on does not cover.
+
+**The tests now.** The two `escalate` tests each raise, in a round of their
+own, the requests they then number after and list beside. The three tests
+that read the signed row are a suite of their own whose hook signs the
+commit, where the first of them signed it for the two after it. Each of the
+four passes alone, and the file passes whole.
+
+Read against the test as mended, before any sweep, five of the 28 were
+expected to survive it. Written into the source by hand, each did, and two
+more written in as a check were killed, each by an assertion about what it
+changes:
+
+| Where | Mutated | Replacement | What it is |
+| --- | --- | --- | --- |
+| `commands.ts`, the document `escalate --list` prints | `'escalate'` | `""` | the command the document names, which no test read |
+| `commands.ts`, the document `escalate --show` prints | `'escalate'` | `""` | the same |
+| `commands.ts`, the document a request is raised with | `'escalate'` | `""` | the same |
+| `rulings.ts`, the next id | `n > highest` | `n >= highest` | equivalent: a number equal to the highest is the highest |
+| `workspace.ts`, `version()` | `'utf8'` | `""` | equivalent, and said beside the code since the amendment above |
+
+The test now reads the command each of the three documents names, and the
+comparison is said beside its code. The sweep below has the other 21 killed
+by the test as well, each for what it changes.
+
+**A survivor that is a file that did not load.** Stryker counts a test that
+failed, not a test file that failed to load. A mutant under which a module
+throws as it loads takes with it every test file that imports the module,
+and where no other test fails it is scored as survived, as the body of
+`literal()` was in 0.15.0's sweep. That sweep has 1,455 static mutants, and
+33 of them survived. Sixteen are called equivalent beside their code. The
+other seventeen were written into the source by hand, one at a time, with
+the unit suite run and every test file of the suite loaded with no test
+run:
+
+| What happened | Mutants |
+| --- | ---: |
+| a test fails | 1 |
+| a file fails to load, and no test fails | 0 |
+| nothing happens | 16 |
+
+The one is the body of `literal()`: under it 23 of the 52 test files do
+not load, and `tests/unit/literal.test.ts`, which loads the function alone,
+fails. It is the one function every table is built through, and that test
+has held it since 0.15.0. Of the sixteen, four are killed by three tests
+added with this amendment: an empty branch name, for which a list made two
+places short has fewer places than none (`branch.ts`, twice); a
+`claude.bat` found under Windows' own extensions where `PATHEXT` is not set
+(`host.ts`); and a run of whitespace after a signer's principals, skipped
+whole before options as before a key type (`signers.ts`). Twelve are
+equivalent, and each is said beside its code:
+
+| Where | Mutated | Replacement | Why it reads the same |
+| --- | --- | --- | --- |
+| `branch.ts`, the offsets a prefix can end at, twice | `new Array<boolean>(name.length + 1)` | `new Array()` | an offset never written reads as one that cannot be reached, and `forEach` passes over it |
+| `branch.ts`, a token of the prefix | `j < name.length` | `j <= name.length` | one place past the end `charAt` gives the empty string, which is no token |
+| `branch.ts`, the offsets found | `[]` | `["Stryker was here"]` | no id starts at a text, so it is passed over |
+| `branch.ts`, the end of an id, twice | `end < name.length` | `true`, and `end <= name.length` | past the end `charAt` gives the empty string, which is no character of an id |
+| `reader.ts`, a heading's leading number | `/^\s*\d+[.)]?\s+/` | `/^\s*\d+[.)]?\s/` | what is left of the run of spaces is trimmed two lines on |
+| `reader.ts`, the scan kept | `cache !== null && cache.text === text` | `false` | the scan kept spares a scan and changes no answer |
+| `rulings.ts`, the last line of a brief, twice | `lines.length > 0` | `true`, and `lines.length >= 0` | a text splits into one line at least |
+| `rulings.ts`, the same line read again | `lines[lines.length - 1]?.trim` | `lines[lines.length - 1].trim` | it is read only where there is one |
+| `signers.ts`, the whitespace between fields | `/^[ \t\r\n]*/` | `/[ \t\r\n]*/` | nothing is a match too, at the start of any text |
+
+**The sweep.** `mutation.yml` was dispatched on the branch that brought
+this (run 38198901681, on 1664ce6):
+
+| Sweep | Run | Source | Score | Mutants | Killed | Timed out | Survived | No coverage |
+| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: |
+| main's last | 38174911926 | 3c3b1f1 | 97.51% | 8,778 | 8,476 | 83 | 188 | 31 |
+| with the tests mended | 38198901681 | 1664ce6 | 97.54% | 8,778 | 8,478 | 84 | 185 | 31 |
+
+Mutant for mutant, 8,767 are in both, and the other eleven are the same
+mutants under another text: blocks that now hold one of the comments
+above, killed before and after. Of the 28 mutants the test had "killed",
+26 are killed by it for what they change, the three documents' command
+among them, and two survive, the two equivalents. Five survivors of the
+sweep before are killed: the four the new tests are for, and the body of
+`literal()`, by the test it has had since. So the survivors are 188, less
+five, and two more: 185, of which 28 are static where 33 were. Seven
+mutants moved between killed and timed out, three one way and four the
+other, all in `probe`'s command, as between any two sweeps. With every
+timeout lost the sweep would read 96.58%, and the `break` stays 95. The
+shards took 13m37s to 16m55s, with 1,247 tests where the sweep before had
+1,243.
