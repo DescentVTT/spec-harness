@@ -42,6 +42,7 @@ import {
   SPEC_GRAPH_CONFIGS,
   wiringState,
   writtenHooks,
+  type PatternReader,
 } from '../../src/configure.js';
 import { claudeHookLine, heldHookLine } from '../../src/usage.js';
 import { parseOptions } from '../../src/workspace.js';
@@ -1168,6 +1169,18 @@ describe("the lines of Claude Code's hook in its settings, and what doctor says 
     };
     expect(reportHooks([{ file: FILE, settings: plain }], PROJECT, read, none)[0]).toMatchObject({ state: 'guards', before: TOOLS, after: TOOLS });
     expect(mergeClaudeSettings(plain, undefined, none)).toBeNull();
+  });
+
+  it('takes what a pattern matches from the reader it is handed, for its own line and for a line a person wrote', () => {
+    // Read here as matching no tool that writes, where a reading of its own would find Write: init then writes its hooks beside the line.
+    const idle = (): PatternReader => patternReader(() => []);
+    const own = both('W.*');
+    expect(mergeClaudeSettings(own)).toBeNull();
+    expect(mergeClaudeSettings(own, undefined, idle())).toEqual({ hooks: { PreToolUse: [group('W.*', HOOK), GUARD], PostToolUse: [group('W.*', HOOK), GUARD] } });
+    const theirs = both('W.*', exec('--base', 'main'));
+    const isHook = (words: readonly string[]): boolean => read(words) !== null;
+    expect(mergeClaudeSettings(theirs, isHook)).toBeNull();
+    expect(mergeClaudeSettings(theirs, isHook, idle())).toEqual({ hooks: { PreToolUse: [group('W.*', exec('--base', 'main')), GUARD], PostToolUse: [group('W.*', exec('--base', 'main')), GUARD] } });
   });
 
   // Last in the file: it takes the budget, a tenth of a second, each time it
