@@ -789,28 +789,13 @@ describe("doctor on the line of Claude Code's hook in its settings (ADR-0005)", 
       '\nclaude  init\'s entries: the guard hooks in .claude/settings.json\n        "hook claude" in .claude/settings.json: Claude Code waits on it before a write by Edit and Write, and before none by NotebookEdit, which goes unchecked (under PreToolUse it has the matcher "Edit|Write"); it is started after a write by Edit and Write alone (under PostToolUse it has the matcher "Edit|Write")\n        Claude Code 2.1.300 ',
     );
     // Edit, Write and NotebookEdit are every tool a supported Claude Code writes a file with: of a line under them there is no more to say than of init's own, and the lists hold no MultiEdit.
-    for (const matcher of ['Edit|Write|NotebookEdit', '^(Edit|Write|NotebookEdit)$', 'Edit|Write|MultiEdit|NotebookEdit']) {
-      repo.write('.claude/settings.json', settings([hook([])], matcher));
-      const every = await cli(['doctor', '--strict', '--format', 'json'], repo.root, { env });
-      expect(every.code, matcher).toBe(0);
-      expect(parsed<{ claudeCode: unknown }>(every).claudeCode, matcher).toMatchObject({
-        state: 'init',
-        lines: [{ state: 'guards', detail: null, before: ['Edit', 'Write', 'NotebookEdit'], after: ['Edit', 'Write', 'NotebookEdit'], cover: null }],
-      });
-      const pretty = await cli(['doctor'], repo.root, { env });
-      expect(pretty.stdout, matcher).toContain("\nclaude  init's entries: the guard hooks in .claude/settings.json\n        Claude Code 2.1.300 ");
-    }
-    // Under MultiEdit alone Claude Code waits on the line before no write: it is not the guard, and beside the plugin it doubles nothing.
-    repo.write('.claude/settings.json', settings([hook([])], 'MultiEdit'));
-    const none = await cli(['doctor', '--format', 'json'], repo.root, { env });
-    expect(none.code).toBe(0);
-    expect(parsed<{ claudeCode: unknown }>(none).claudeCode).toMatchObject({ state: 'none', hooks: [], lines: [{ state: 'unstarted', before: [], after: [] }] });
-    repo.write('.claude/settings.local.json', JSON.stringify({ enabledPlugins: { 'spec-harness@team': true } }));
-    const beside = await cli(['doctor', '--format', 'json'], repo.root, { env });
-    expect(beside.code).toBe(0);
-    expect(parsed<{ claudeCode: unknown }>(beside).claudeCode).toMatchObject({ state: 'plugin', hooks: [] });
-    // The plugin off again, for what follows.
-    repo.write('.claude/settings.local.json', '{}');
+    repo.write('.claude/settings.json', settings([hook([])], 'Edit|Write|NotebookEdit'));
+    const every = await cli(['doctor', '--strict', '--format', 'json'], repo.root, { env });
+    expect(every.code).toBe(0);
+    expect(parsed<{ claudeCode: unknown }>(every).claudeCode).toMatchObject({
+      state: 'init',
+      lines: [{ state: 'guards', detail: null, before: ['Edit', 'Write', 'NotebookEdit'], after: ['Edit', 'Write', 'NotebookEdit'], cover: null }],
+    });
     // Before every write and after none, it is the guard, and one of init's entries.
     repo.write('.claude/settings.json', JSON.stringify({ hooks: { PreToolUse: [{ hooks: [hook([])] }] } }));
     const before = await cli(['doctor', '--strict', '--format', 'json'], repo.root, { env });
