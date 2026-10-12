@@ -630,3 +630,144 @@ other, all in `probe`'s command, as between any two sweeps. With every
 timeout lost the sweep would read 96.58%, and the `break` stays 95. The
 shards took 13m37s to 16m55s, with 1,247 tests where the sweep before had
 1,243.
+
+*Amended a third time 2026-10-12.* **A change only the full sweep reaches
+is swept before it merges.** Read from the two configurations at 2c652e7,
+with Stryker's reading of `mutate`:
+
+| Sweep | When, until now | Mutates | Against |
+| --- | --- | --- | --- |
+| core, `stryker.core.config.mjs` | every pull request and every push to main (`ci.yml`) | 19 modules whole, and `parseOptions` of `workspace.ts` | `tests/unit` |
+| full, `stryker.config.mjs` | weekly and on request (`mutation.yml`) | 33 modules | the whole suite |
+
+So fourteen modules were mutated by the full sweep alone, and a change to
+one merged with no sweep having read it: `cli.ts`, `commands.ts`,
+`document.ts`, `fs.ts`, `git.ts`, `host.ts`, `plugin.ts`, `premises.ts`,
+`round.ts`, `sandbox.ts`, `server.ts`, `setup.ts`, `siblings.ts`, and
+`workspace.ts` outside its one function. `index.ts` and `types.ts` are in
+neither list and declare no value. Of the 85 pull requests merged from
+2026-09-26 to 2026-10-12, 34 changed one of the fourteen, by the lists as
+they are today: `cli.ts` in 17, `commands.ts` in 14, `round.ts` and
+`server.ts` in 13 each, `setup.ts` and `sandbox.ts` in 10 each. What such a
+change left was found when a release was swept, twice after a replay by
+hand had every mutant killed: the body of `literal()` for 0.15.0, and two
+survivors in `init`'s plan for 0.16.0, both recorded above.
+
+**The sweep runs for the change.** `mutation.yml` also runs for a pull
+request, and for a push to main, that changes one of the fourteen or what
+the sweep is made of: the Stryker configurations, the core sweep's with
+them since it says which modules are left to this one,
+`vitest.mutation.config.ts`, `scripts/mutation-*.mjs` and the workflow.
+The schedule and a dispatch are as they were. A push to main is swept so
+that main has a report of its own head for the next pull request to be
+compared with. The fourteen are written in the workflow by name, once for
+each event, and `tests/mutation-shards.test.ts` holds the two lists equal
+and holds them to the configurations: the sources the full sweep mutates
+and the core sweep does not mutate whole, and no other. A module added to
+`src/` is in neither list, and `npm test` fails until it is in the core
+sweep's or the workflow's.
+
+What GitHub does with the workflow, from its documentation as read on
+2026-10-12:
+
+- *Workflow syntax for GitHub Actions*, under
+  `on.<push|pull_request|pull_request_target>.<paths|paths-ignore>` and its
+  *Git diff comparisons*: a run starts when one changed file matches a
+  path. For a pull request the changed files are those between its branch
+  and the commit where the branch last met its base, and for a push to a
+  branch those between the two heads. The page's exceptions: a push of
+  more than 1,000 commits always runs, and so does a diff that times out;
+  a diff of more than 3,000 files does not run for a match past the first
+  3,000; and a filter of paths is not read for a pushed tag. What follows
+  from the first: every push to a pull request that has changed one of the
+  fourteen runs the sweep again, whatever that push changed.
+- The same section: a check of a workflow that a filter skipped stays
+  pending, and a pull request that requires it cannot merge. What
+  follows: `mutation (full)` is never made a required check. Main's
+  ruleset requires none today.
+- The same page, under `concurrency`, and *Contexts reference*, under
+  `github.ref`: with `cancel-in-progress` a new run ends the run in
+  progress in its group, and the ref of a pull request's run is
+  `refs/pull/<number>/merge`. The group here was already the ref and the
+  event, so a newer push to a pull request ends the sweep of the push
+  before it and no other run's, and the group is unchanged.
+- *Events that trigger workflows*, under `pull_request`: the commit is the
+  pull request's merge into its base, and no workflow runs while the pull
+  request has a merge conflict. So the sweep is of what main would be, and
+  a pull request in conflict is not swept until it is mended.
+- *Workflow syntax*, under `permissions`, and *Permissions required for
+  GitHub Apps*, under the repository permissions for Actions: a job that
+  names a permission has none it does not name, and listing a workflow's
+  runs, listing a run's artifacts and downloading one each take read
+  access to Actions. The second page has that for a private repository
+  and leaves a public one to each endpoint's own page, and the page of the
+  download names no way without. So the merge's job names
+  `contents: read` and `actions: read`, and the shards keep the
+  workflow's `contents: read`.
+- *Using GitHub CLI in workflows*: the CLI is on every hosted runner and
+  takes its token from `GH_TOKEN`, which the one step sets.
+- *Workflow commands for GitHub Actions*, under *Step isolation and
+  limits*: a step's summary may hold 1 MiB. The comparison lists 200 rows
+  there and all of them in the log.
+
+**The merge names the undetected mutants that are new.** A score does not:
+189 survivors of 9,105 mutants read 97.58%, and so do 187 and 191.
+`scripts/mutation-compare.mjs` asks GitHub for main's newest full sweep
+that passed and still has its merged report, a sweep of main itself by a
+push, the schedule or a dispatch, and lists what this sweep leaves
+undetected, survived or without coverage, that the other did not. A mutant
+is its file, its mutator, the text it replaces and what replaces it, never
+its line; mutants the same in all four are told apart by how many there
+are. It writes the list to the job's summary and its log with a count, and
+fails the sweep for none of them: a new survivor may be equivalent, and is
+then said beside its code, and the `break` still gates the score. Where
+there is no report to fetch, it says that nothing was compared, as a
+warning, and never that none is new. The report of run 38205988813 expires
+on 2026-10-26, fourteen days after its run, and the weekly sweep leaves a
+newer one each Monday.
+
+Run by hand on two reports kept from the sweeps above, that of 1664ce6 as
+main's (run 38198901681) and that of d8edba0 (run 38205988813), it names
+five new and one gone, which are what the paragraph on 0.16.0 has: the two
+equivalents, the survivor that moved from `cli.ts` to `round.ts` as one new
+and one gone, and the two in `setup.ts` that were neither. Had the sweep run
+for the pull request that brought them, its summary would have named both
+before the merge.
+
+What the list holds that the change did not make: a mutant whose own text
+changed, a block that gained a line among them, is another mutant, and so
+is one in a function that moved to another file; an undetected mutant of
+anything main took after the commit its report is of; and a verdict that
+differs between two sweeps of one code, as `'hex'` in `round.ts` does. The
+pull request says which of these each is.
+
+**The rule.** A pull request that changes one of these files lists the
+undetected mutants its sweep names as new, and says what each is: killed,
+by a test it adds, or equivalent, in a comment beside the code
+(`CONTRIBUTING.md`, `CLAUDE.md`). A summary that says nothing was compared
+is not one that found none: the two reports are then compared by hand,
+with the same script.
+
+**What it costs.** Main's last three full sweeps (runs 38144471044,
+38174911926 and 38205988813) took 120, 128 and 127 minutes of runners over
+their nine jobs, in shards of 12m16s to 21m01s, and had their merged score
+18 to 22 minutes after they started; CI for a pull request took a median
+of 8.7 minutes over the 39 runs that passed since 2026-10-08. So a pull
+request that changes such a file has nine more checks and waits about
+twenty minutes where it waited nine. Of the 85 merged pull requests, 49
+would have run the sweep: the 34, and 15 that changed only what the sweep
+is made of, eight of them a release, whose one such change is the sentence
+in `stryker.config.mjs` that records its sweep. CI ran 79 times for those
+49, once a push, so with the 49 pushes to main that is at most 128 sweeps
+in seventeen days where 25 were run, fewer by each a newer push ended.
+
+**What still merges unswept.** A change to the tests alone, to the vendored
+spec-core or to a dependency runs no full sweep, and each can move a
+verdict: the pull request that had every test stand alone (the amendment
+above) changed which mutants of `commands.ts` a test kills, and no source
+the full sweep alone reaches. The weekly sweep reads those, and its
+summary names what they left. And the first runs: main's newest report is
+of d8edba0, and main is at 2c652e7, the release of 0.16.0, which changed
+no source and added the two tests that kill the survivors in `setup.ts`.
+Until main has a sweep of its own head, a pull request's summary has those
+two as gone and nothing of main's as new.

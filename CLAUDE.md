@@ -36,14 +36,28 @@ npm run test:mutation   # the core sweep: pure modules against tests/unit
 Both mutation sweeps run in GitHub Actions. The core sweep is a job in
 `ci.yml`, on every change, and its `break` is the gate. The full sweep,
 `npm run test:mutation:full`, every module against the whole suite, is
-`mutation.yml`: weekly and on request, with its own `break` of 95, set below
-its sweep of c385f19 ([ADR-0010](docs/adr/0010-toolchain-and-verification.md)).
+`mutation.yml`: for a change to what only it reaches, weekly and on request,
+with its own `break` of 95, set below its sweep of c385f19
+([ADR-0010](docs/adr/0010-toolchain-and-verification.md)).
 It runs in eight shards, balanced on measured minutes in
 `scripts/mutation-shards.mjs`, and the `break` is applied once, to their
 merged report; a file no shard lists is mutated by the last. A mutant's test
 files run the quickest first there (`vitest.mutation.config.ts`), and a
 static mutant that survives runs them all, so a second added to the suite is
 a second for each of those in every sweep.
+
+A change to a module the core sweep does not mutate whole, the command line,
+`init`, the server, `round.ts` and the edges, or to what the full sweep is
+made of, is swept before it merges: `mutation.yml` runs for such a pull
+request and again for its push to main, and `tests/mutation-shards.test.ts`
+fails for a module of `src/` that is in neither the core sweep's `mutate`
+nor the workflow's paths. The job that merges the shards names, in its
+summary, the undetected mutants that main's newest full sweep did not
+have (`scripts/mutation-compare.mjs`), by file, mutator, mutated text and
+replacement, and fails for none of them. The pull request lists each one
+and what it is: killed, by a test it adds, or equivalent, said beside its
+code. A summary that says nothing was compared is not one that found none
+([ADR-0010](docs/adr/0010-toolchain-and-verification.md)).
 
 A sweep runs for a mutant the tests that cover it and no other, so a test
 stands alone: one that passes only after another in its file fails for
