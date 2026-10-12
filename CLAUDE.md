@@ -45,6 +45,14 @@ files run the quickest first there (`vitest.mutation.config.ts`), and a
 static mutant that survives runs them all, so a second added to the suite is
 a second for each of those in every sweep.
 
+A sweep runs for a mutant the tests that cover it and no other, so a test
+stands alone: one that passes only after another in its file fails for
+every mutant the other does not cover, and the sweep counts a kill. And it
+counts a test that failed, not a test file that failed to load: a mutant
+under which a module throws as it loads is killed only by a test whose file
+still loads, as `tests/unit/literal.test.ts` is for `literal()`
+([ADR-0010](docs/adr/0010-toolchain-and-verification.md)).
+
 Stryker makes no mutant of anything that stands under a TypeScript `as`, a
 const assertion with the rest, so nothing a mutator reads stands under one:
 a value is hoisted and the assertion put on its name, `!` says an index or

@@ -127,6 +127,8 @@ export function nextId(prefix: 'E' | 'R', brief: string, taken: readonly string[
   for (const id of taken) {
     if (!id.toUpperCase().startsWith(stem.toUpperCase())) continue;
     const n = Number(id.slice(stem.length));
+    // A number equal to the highest is the highest already, so `>=` for `>`
+    // is equivalent.
     if (Number.isInteger(n) && n > highest) highest = n;
   }
   return `${stem}${highest + 1}`;
@@ -190,6 +192,8 @@ export function addRulingRow(
 ): string {
   const eol = text.includes('\r\n') ? '\r\n' : '\n';
   const lines = text.split(/\r?\n/);
+  // A text splits into one line at least, so the first check here is the
+  // compiler's, and its mutants are equivalent.
   const trailing = lines.length > 0 && lines[lines.length - 1] === '' ? lines.pop() : undefined;
   const header = ['| Ruling | Paths | Decision | Note |', '| --- | --- | --- | --- |'];
   if (where.tableEndLine !== null) {
@@ -200,6 +204,8 @@ export function addRulingRow(
     const gap = next !== undefined && next.trim() !== '' ? [''] : [];
     lines.splice(where.headingLine, 0, '', ...header, row, ...gap);
   } else {
+    // The last line is read only where there is one, so the `?.` is the
+    // compiler's, and the mutant without it is equivalent.
     if (lines.length > 0 && lines[lines.length - 1]?.trim() !== '') lines.push('');
     lines.push(`## ${section}`, '', ...header, row);
   }

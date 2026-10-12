@@ -61,6 +61,14 @@ describe('the allowed-signers file', () => {
     expect(signers.map((signer) => signer.line)).toEqual([3]);
   });
 
+  it('skips a run of spaces and tabs after the principals whole, before options as before a key type', () => {
+    const signer = { line: 1, principals: ['a@example.com'], certAuthority: false, validAfter: null, validBefore: null, keyType: 'ssh-ed25519', key: ED };
+    expect(readAllowedSigners(`a@example.com  \t namespaces="git" ssh-ed25519 ${ED}`)).toEqual({ signers: [{ ...signer, namespaces: ['git'] }], problems: [] });
+    expect(readAllowedSigners(`a@example.com \t  ssh-ed25519 ${ED}`)).toEqual({ signers: [{ ...signer, namespaces: null }], problems: [] });
+    // And after principals in quotes, which end at the quote.
+    expect(readAllowedSigners(`"a@example.com"   namespaces="git" ssh-ed25519 ${ED}`)).toEqual({ signers: [{ ...signer, namespaces: ['git'] }], problems: [] });
+  });
+
   it('reads fields apart at a tab as at a space, as OpenSSH does', () => {
     expect(readAllowedSigners(`a@example.com\tnamespaces="git"\tssh-ed25519\t${ED}`)).toEqual({
       signers: [{ line: 1, principals: ['a@example.com'], certAuthority: false, namespaces: ['git'], validAfter: null, validBefore: null, keyType: 'ssh-ed25519', key: ED }],

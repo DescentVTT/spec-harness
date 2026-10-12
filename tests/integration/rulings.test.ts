@@ -89,29 +89,42 @@ describe('escalate', () => {
     expect(repo.git('status', '--porcelain')).toBe('');
   });
 
+  // The two tests below each raise, in a round of their own, the requests
+  // they then number after and list beside. They read the ones the test
+  // above had raised, and a mutation sweep runs a test without the tests
+  // before it wherever those do not cover the mutant: the second request was
+  // then the first, the test failed for whatever the mutant was, and the
+  // sweep counted a kill (ADR-0010).
   it('numbers the next request after the last, and lists, shows and prints them as JSON', async () => {
-    const second = await cli(['escalate', '--path', 'src/db/other.ts', '--path', 'src/db/schema.ts', '--reason', 'Two\nlines.', '--format', 'json'], repo.root);
+    const own = round();
+    expect((await cli(['escalate', '--path', 'src/db/schema.ts', '--reason', 'Rotation needs a rotated_at column.'], own.root)).code).toBe(1);
+    const second = await cli(['escalate', '--path', 'src/db/other.ts', '--path', 'src/db/schema.ts', '--reason', 'Two\nlines.', '--format', 'json'], own.root);
     expect(second.code).toBe(1);
-    const document = parsed<{ request: EscalationRequest; memo: string }>(second);
+    const document = parsed<{ command: string; request: EscalationRequest; memo: string }>(second);
     expect(document.request).toMatchObject({ id: 'E-001-2', brief: '001', briefFile: BRIEF_FILE, paths: ['src/db/other.ts', 'src/db/schema.ts'], options: [], recommendation: null, branch: 'brief/001-rotate' });
-    expect(document.request.head).toBe(repo.git('rev-parse', 'HEAD'));
+    // Each of the three documents names the command it answers, as every document the harness prints does.
+    expect(document.command).toBe('escalate');
+    expect(document.request.head).toBe(own.git('rev-parse', 'HEAD'));
     expect(document.memo).toContain('# Escalation E-001-2');
 
-    const list = await cli(['escalate', '--list'], repo.root);
+    const list = await cli(['escalate', '--list'], own.root);
     expect(list.stdout).toBe('E-001-1  brief 001  src/db/schema.ts  Rotation needs a rotated_at column.\nE-001-2  brief 001  src/db/other.ts, src/db/schema.ts  Two\n');
-    const listed = parsed<{ waiting: EscalationRequest[] }>(await cli(['escalate', '--list', '--format', 'json'], repo.root));
+    const listed = parsed<{ command: string; waiting: EscalationRequest[] }>(await cli(['escalate', '--list', '--format', 'json'], own.root));
+    expect(listed.command).toBe('escalate');
     expect(listed.waiting.map((request) => request.id)).toEqual(['E-001-1', 'E-001-2']);
-    expect((await cli(['escalate', '--show', 'E-001-2'], repo.root)).stdout).toBe(document.memo);
-    expect(parsed<{ request: EscalationRequest }>(await cli(['escalate', '--show', 'E-001-1', '--format', 'json'], repo.root)).request.id).toBe('E-001-1');
-    expect(await cli(['escalate', '--show', 'E-001-9'], repo.root)).toMatchObject({ code: 2, stderr: 'spec-harness: no escalation "E-001-9" is waiting\n' });
+    expect((await cli(['escalate', '--show', 'E-001-2'], own.root)).stdout).toBe(document.memo);
+    expect(parsed(await cli(['escalate', '--show', 'E-001-1', '--format', 'json'], own.root))).toMatchObject({ command: 'escalate', request: { id: 'E-001-1' } });
+    expect(await cli(['escalate', '--show', 'E-001-9'], own.root)).toMatchObject({ code: 2, stderr: 'spec-harness: no escalation "E-001-9" is waiting\n' });
   });
 
   it('skips a request it cannot read rather than listing nothing true', async () => {
-    const directory = join(repo.git('rev-parse', '--path-format=absolute', '--git-common-dir'), 'spec-harness', 'escalations');
+    const own = round();
+    for (const path of ['src/db/schema.ts', 'src/db/other.ts']) await cli(['escalate', '--path', path, '--reason', 'r'], own.root);
+    const directory = join(own.git('rev-parse', '--path-format=absolute', '--git-common-dir'), 'spec-harness', 'escalations');
     const { writeFileSync } = await import('node:fs');
     writeFileSync(join(directory, 'E-001-0.json'), '{ broken');
     writeFileSync(join(directory, 'notes.txt'), 'x');
-    expect(parsed<{ waiting: EscalationRequest[] }>(await cli(['escalate', '--list', '--format', 'json'], repo.root)).waiting.map((r) => r.id)).toEqual([
+    expect(parsed<{ waiting: EscalationRequest[] }>(await cli(['escalate', '--list', '--format', 'json'], own.root)).waiting.map((r) => r.id)).toEqual([
       'E-001-1',
       'E-001-2',
     ]);
@@ -299,15 +312,49 @@ describe.skipIf(!hasSshKeygen())('a ruling is a row whose commit a person signed
     expect(await decision(repo, 'src/db/schema.ts')).toMatchObject({ verdict: 'deny', reason: 'protected' });
   });
 
-  it('allows the paths it names once a person signs the commit, and no others', async () => {
-    commitSigned(repo, key, 'ruling R-001-1: allow');
-    const state = await rulings(repo);
-    expect(state.code).toBe(0);
-    expect(state.verified).toEqual([{ id: 'R-001-1', paths: ['src/db/schema.ts'], signer: 't@example.com' }]);
-    expect((await cli(['rulings'], repo.root)).stdout).toBe('R-001-1  allow  src/db/schema.ts  signed by t@example.com\n');
-    expect(await decision(repo, 'src/db/schema.ts')).toMatchObject({ verdict: 'allow', reason: 'ruled', because: ['R-001-1'] });
-    expect(await decision(repo, 'src/db/other.ts')).toMatchObject({ verdict: 'deny', reason: 'protected' });
-    expect((await cli(['context'], repo.root)).stdout).toContain('Rulings in force:\n- R-001-1, signed by t@example.com: `src/db/schema.ts`\n');
+  describe('once a person signs the commit', () => {
+    // Signed here, before each of the three, and not by the first of them
+    // for the two after it: a mutation sweep runs a test without the tests
+    // before it, and an unsigned row allows nothing (ADR-0010).
+    beforeAll(() => {
+      commitSigned(repo, key, 'ruling R-001-1: allow');
+    });
+
+    it('allows the paths it names, and no others', async () => {
+      const state = await rulings(repo);
+      expect(state.code).toBe(0);
+      expect(state.verified).toEqual([{ id: 'R-001-1', paths: ['src/db/schema.ts'], signer: 't@example.com' }]);
+      expect((await cli(['rulings'], repo.root)).stdout).toBe('R-001-1  allow  src/db/schema.ts  signed by t@example.com\n');
+      expect(await decision(repo, 'src/db/schema.ts')).toMatchObject({ verdict: 'allow', reason: 'ruled', because: ['R-001-1'] });
+      expect(await decision(repo, 'src/db/other.ts')).toMatchObject({ verdict: 'deny', reason: 'protected' });
+      expect((await cli(['context'], repo.root)).stdout).toContain('Rulings in force:\n- R-001-1, signed by t@example.com: `src/db/schema.ts`\n');
+    });
+
+    it('allows a protected path beside one in scope, deciding each', async () => {
+      const result = parsed<{ decisions: Decision[] }>(await cli(['guard', 'src/db/schema.ts', 'src/auth/a.ts', 'src/db/other.ts', '--format', 'json'], repo.root));
+      expect(result.decisions.map((d) => [d.path, d.verdict, d.reason])).toEqual([
+        ['src/db/schema.ts', 'allow', 'ruled'],
+        ['src/auth/a.ts', 'allow', 'in-scope'],
+        ['src/db/other.ts', 'deny', 'protected'],
+      ]);
+    });
+
+    it('does not lend a signed line\'s commit to an uncommitted row written where that line was', async () => {
+      // At HEAD, the line this row now occupies is the signed ruling's. Blamed
+      // at HEAD, the agent's own row would verify without anyone signing it.
+      const signed = '| R-001-1 | `src/db/schema.ts` | allow | One column. |';
+      const text = repo.read(BRIEF_FILE);
+      repo.write(BRIEF_FILE, text.replace(signed, `| R-001-2 | \`src/db/other.ts\` | allow | The agent's own. |\n${signed}`));
+      try {
+        const state = await rulings(repo);
+        expect(state.verified.map((r) => r.id)).toEqual(['R-001-1']);
+        expect(state.unverified).toEqual([{ id: 'R-001-2', reason: 'its row is not committed' }]);
+        expect(await decision(repo, 'src/db/other.ts')).toMatchObject({ verdict: 'deny', reason: 'protected' });
+        expect(await decision(repo, 'src/db/schema.ts')).toMatchObject({ verdict: 'allow', reason: 'ruled' });
+      } finally {
+        repo.git('checkout', '--', BRIEF_FILE);
+      }
+    });
   });
 
   it('prints each ruling with its paths and whether its signature verifies', async () => {
@@ -329,15 +376,6 @@ describe.skipIf(!hasSshKeygen())('a ruling is a row whose commit a person signed
         '',
       ].join('\n'),
     });
-  });
-
-  it('allows a protected path beside one in scope, deciding each', async () => {
-    const result = parsed<{ decisions: Decision[] }>(await cli(['guard', 'src/db/schema.ts', 'src/auth/a.ts', 'src/db/other.ts', '--format', 'json'], repo.root));
-    expect(result.decisions.map((d) => [d.path, d.verdict, d.reason])).toEqual([
-      ['src/db/schema.ts', 'allow', 'ruled'],
-      ['src/auth/a.ts', 'allow', 'in-scope'],
-      ['src/db/other.ts', 'deny', 'protected'],
-    ]);
   });
 
   it('points at doctor when spec-brief loads the plugin and its archive still refuses a file a signed ruling allows', async () => {
@@ -373,23 +411,6 @@ describe.skipIf(!hasSshKeygen())('a ruling is a row whose commit a person signed
     expect(findings.find((f) => f.rule === 'archive/protected-file')?.hint).toBe(
       'ruling R-001-1, signed by t@example.com, allows it, and the archive still refused it: check that spec-brief loads the spec-harness installed here and measures from the same base (spec-harness doctor)',
     );
-  });
-
-  it('does not lend a signed line\'s commit to an uncommitted row written where that line was', async () => {
-    // At HEAD, the line this row now occupies is the signed ruling's. Blamed
-    // at HEAD, the agent's own row would verify without anyone signing it.
-    const signed = '| R-001-1 | `src/db/schema.ts` | allow | One column. |';
-    const text = repo.read(BRIEF_FILE);
-    repo.write(BRIEF_FILE, text.replace(signed, `| R-001-2 | \`src/db/other.ts\` | allow | The agent's own. |\n${signed}`));
-    try {
-      const state = await rulings(repo);
-      expect(state.verified.map((r) => r.id)).toEqual(['R-001-1']);
-      expect(state.unverified).toEqual([{ id: 'R-001-2', reason: 'its row is not committed' }]);
-      expect(await decision(repo, 'src/db/other.ts')).toMatchObject({ verdict: 'deny', reason: 'protected' });
-      expect(await decision(repo, 'src/db/schema.ts')).toMatchObject({ verdict: 'allow', reason: 'ruled' });
-    } finally {
-      repo.git('checkout', '--', BRIEF_FILE);
-    }
   });
 
   it('allows nothing once anyone edits the row without signing', async () => {
