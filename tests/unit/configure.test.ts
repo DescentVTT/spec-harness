@@ -695,7 +695,8 @@ describe("the lines of Claude Code's hook in its settings, and what doctor says 
   const shell = (line: string) => ({ type: 'command', command: line });
   /** Settings that hold the hooks under both events, as init writes its own. */
   const settings = (...hooks: unknown[]) => ({ hooks: { PreToolUse: [{ matcher: GUARD.matcher, hooks }], PostToolUse: [{ matcher: GUARD.matcher, hooks }] } });
-  const TOOLS = ['Edit', 'Write', 'MultiEdit', 'NotebookEdit'];
+  /** The tools that write a file and a supported Claude Code can call: the hook reads MultiEdit too, which none has. */
+  const TOOLS = ['Edit', 'Write', 'NotebookEdit'];
   /** Started before every tool that writes and after each, as init's own entries are: nothing to say of it. */
   const EVERY = { before: TOOLS, after: TOOLS, cover: null };
   const line = (words: string[], more: { shell?: boolean; blocks?: boolean; events?: string[] } = {}) => ({ events: more.events ?? BOTH, words, shell: more.shell ?? false, blocks: more.blocks ?? false });
@@ -949,11 +950,18 @@ describe("the lines of Claude Code's hook in its settings, and what doctor says 
       ['Bash', []],
       ['edit|write', []],
       ['Edit Write', []],
+      // A name no supported Claude Code has a tool for adds none, and takes none away.
+      ['Edit|Write|NotebookEdit', TOOLS],
+      ['Edit|Write|MultiEdit|NotebookEdit', TOOLS],
+      ['Write|MultiEdit', ['Write']],
+      ['MultiEdit', []],
       // Any other character in it: a pattern, which may match anywhere in a name.
-      ['Edit.*', ['Edit', 'MultiEdit', 'NotebookEdit']],
+      ['Edit.*', ['Edit', 'NotebookEdit']],
       ['^Edit', ['Edit']],
-      ['Edit$', ['Edit', 'MultiEdit', 'NotebookEdit']],
+      ['Edit$', ['Edit', 'NotebookEdit']],
       ['^(Edit|Write)$', ['Edit', 'Write']],
+      ['^(Edit|Write|NotebookEdit)$', TOOLS],
+      ['^Multi', []],
       ['.*', TOOLS],
       ['Notebook.', ['NotebookEdit']],
       ['^Bash$', []],
@@ -1031,13 +1039,13 @@ describe("the lines of Claude Code's hook in its settings, and what doctor says 
       detail: null,
       before: ['Edit', 'Write'],
       after: ['Edit', 'Write'],
-      cover: `${W}: Claude Code waits on it before a write by Edit and Write, and before none by MultiEdit and NotebookEdit, which goes unchecked (under PreToolUse it has the matcher "Write|Edit"); it is started after a write by Edit and Write alone (under PostToolUse it has the matcher "Write|Edit")`,
+      cover: `${W}: Claude Code waits on it before a write by Edit and Write, and before none by NotebookEdit, which goes unchecked (under PreToolUse it has the matcher "Write|Edit"); it is started after a write by Edit and Write alone (under PostToolUse it has the matcher "Write|Edit")`,
     });
     expect(reported(both('Edit'))[0]?.cover).toBe(
-      `${W}: Claude Code waits on it before a write by Edit, and before none by Write, MultiEdit and NotebookEdit, which goes unchecked (under PreToolUse it has the matcher "Edit"); it is started after a write by Edit alone (under PostToolUse it has the matcher "Edit")`,
+      `${W}: Claude Code waits on it before a write by Edit, and before none by Write and NotebookEdit, which goes unchecked (under PreToolUse it has the matcher "Edit"); it is started after a write by Edit alone (under PostToolUse it has the matcher "Edit")`,
     );
     expect(reported(both('Edit.*'))[0]?.cover).toBe(
-      `${W}: Claude Code waits on it before a write by Edit, MultiEdit and NotebookEdit, and before none by Write, which goes unchecked (under PreToolUse it has the matcher "Edit.*"); it is started after a write by Edit, MultiEdit and NotebookEdit alone (under PostToolUse it has the matcher "Edit.*")`,
+      `${W}: Claude Code waits on it before a write by Edit and NotebookEdit, and before none by Write, which goes unchecked (under PreToolUse it has the matcher "Edit.*"); it is started after a write by Edit and NotebookEdit alone (under PostToolUse it has the matcher "Edit.*")`,
     );
     // Before every write and after none: only that is said.
     expect(reported({ hooks: { PreToolUse: [GUARD] } })[0]).toMatchObject({
@@ -1051,8 +1059,34 @@ describe("the lines of Claude Code's hook in its settings, and what doctor says 
     expect(reported(both('Edit', exec('--root', PROJECT_DIR)))[0]).toMatchObject({
       state: 'guards',
       detail: '"hook claude --root ${CLAUDE_PROJECT_DIR}" in .claude/settings.json is more than init writes, and guards: the hook reads the line, and its root, /the/project, is a directory',
-      cover: expect.stringMatching(/^"hook claude --root \$\{CLAUDE_PROJECT_DIR\}" in \.claude\/settings\.json: Claude Code waits on it before a write by Edit, and before none by Write, MultiEdit and NotebookEdit, /),
+      cover: expect.stringMatching(/^"hook claude --root \$\{CLAUDE_PROJECT_DIR\}" in \.claude\/settings\.json: Claude Code waits on it before a write by Edit, and before none by Write and NotebookEdit, /),
     });
+  });
+
+  it('names as unchecked only a tool a supported Claude Code can call: MultiEdit, which none has, is left unchecked by no line', () => {
+    const every = { state: 'guards', detail: null, ...EVERY };
+    // Edit, Write and NotebookEdit are every tool that writes: there is no more to say than of the matcher init writes.
+    for (const matcher of ['Edit|Write|NotebookEdit', 'NotebookEdit, Write, Edit', '^(Edit|Write|NotebookEdit)$', GUARD.matcher]) expect(reported(both(matcher))[0], matcher).toMatchObject(every);
+    // A matcher that names it beside others guards those, and the rest named are tools there are.
+    expect(reported(both('Edit|Write|MultiEdit'))[0]).toMatchObject({
+      state: 'guards',
+      before: ['Edit', 'Write'],
+      after: ['Edit', 'Write'],
+      cover: `${W}: Claude Code waits on it before a write by Edit and Write, and before none by NotebookEdit, which goes unchecked (under PreToolUse it has the matcher "Edit|Write|MultiEdit"); it is started after a write by Edit and Write alone (under PostToolUse it has the matcher "Edit|Write|MultiEdit")`,
+    });
+    // Alone, it is a line Claude Code waits on before no write.
+    expect(reported(both('MultiEdit'))[0]).toMatchObject({
+      state: 'unstarted',
+      before: [],
+      after: [],
+      cover: `${W}: Claude Code waits on it before no write, so it is not the guard and refuses none (under PreToolUse it has the matcher "MultiEdit"); it is started after no write, so it warns of none (under PostToolUse it has the matcher "MultiEdit")`,
+    });
+    // Whatever the matcher, the name stands in what is said only where the matcher itself is quoted.
+    for (const matcher of ['Edit', 'Write|Edit', 'Bash', 'Edit.*', 'NotebookEdit', '^Write$', 7]) {
+      const [report] = reported(both(matcher));
+      expect([...(report?.before ?? []), ...(report?.after ?? [])], String(matcher)).not.toContain('MultiEdit');
+      expect(report?.cover, String(matcher)).not.toContain('MultiEdit');
+    }
   });
 
   it('cannot tell which writes a line is asked on where an entry has an "if" or a matcher the reference does not describe, and names each entry once', () => {
@@ -1119,7 +1153,7 @@ describe("the lines of Claude Code's hook in its settings, and what doctor says 
   // Last in the file: it takes the budget, a tenth of a second, each time it
   // runs, and a sweep stops a mutant's tests at the first that fails.
   it('cannot tell from a pattern whose reading runs out its budget, and comes back at it', () => {
-    // Five stars, each around the last: testing four short names against it does not end.
+    // Five stars, each around the last: testing a tool's name against it does not end.
     const slow = '^((((([A-Za-z]*)*)*)*)*)*$X';
     const held = { hooks: { PreToolUse: [group(slow, HOOK)], PostToolUse: [GUARD] } };
     // A bound of the test's own around the whole reading. Were the reading's
