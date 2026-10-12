@@ -9,13 +9,16 @@ only fixes, reports less or documents, so `^0.7.0` takes only releases that
 cannot turn a run red. The family's policy is
 [spec-core's ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
-## Unreleased
+## 0.17.0
 
 `doctor` and `init` see four more ways a guard is set up and checks
 nothing: a root on the hook's line that is in no work tree, hooks switched
 off by `disableAllHooks`, an entry that is no command, and a plugin that
 settings turn on and the machine does not have. And they name only a tool
-Claude Code has as one whose writes go unchecked.
+Claude Code has as one whose writes go unchecked. `doctor`, `init` and the
+hooks ask git at once for what waits on nothing else, about half a second
+of the five a `doctor` takes on a Windows workstation, and a matcher that
+is a pattern is read once in a run.
 
 ### Changed
 

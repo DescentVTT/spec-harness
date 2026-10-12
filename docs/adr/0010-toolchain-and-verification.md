@@ -118,6 +118,23 @@ test had such a file. `tests/integration/init.test.ts` has a test for
 each, added with the release; written into the source by hand, each
 mutant fails its test and no other of that suite.
 
+For 0.17.0 the sweep of 262d53b (run 38258557802) read 97.69% over 9,483
+mutants, 96.73% with every timeout lost, in shards of 12m21s to 17m59s, and
+the `break` stays 95. It ran by itself, for the push that brought the last
+of the release's changes to main, as each of those changes was swept as a
+pull request before it merged (the third amendment of 2026-10-12, below). It
+has 378 mutants more than the first sweep after 0.16.0 (run 38227824081, of
+43518f7, whose source is that release's), all in the seven modules the
+release changed, `configure.ts` with 238 of them, and 188 survivors to that
+sweep's 187, with the same 31 without coverage. The one survivor that is new
+is equivalent and said beside its code: the list of plugin directories that
+`claudeCodeWiring` makes for an id that names no marketplace, which nothing
+reads. The sweep of the pull request that brought it had named it before the
+merge, and the sweeps of the release's other three changes named none. From
+this release the figure is recorded here alone: the comment in
+`stryker.config.mjs` that held it made a release's pull request, and its
+push, run the sweep for that one edit.
+
 One runner took 69 to 130 minutes for the full sweep. Before any sharded
 sweep ran, the report of eb39599 was cut into shards the way Stryker writes
 them and put back by the merge: all 7,507 verdicts came back with their
