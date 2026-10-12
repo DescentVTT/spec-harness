@@ -9,7 +9,15 @@ only fixes, reports less or documents, so `^0.7.0` takes only releases that
 cannot turn a run red. The family's policy is
 [spec-core's ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
-## Unreleased
+## 0.16.0
+
+`doctor` and `init` see the rest of Claude Code's hook. A line that names
+a brief which is not one holds every write, and `doctor` says so, exit 1,
+where it said the line guards. An entry is read with the event it stands
+under and its matcher, so a line Claude Code never starts before a write
+is no longer reported as the guard. And `init` writes no second line
+beside a line of the hook a person changed, and says of each file what
+`doctor` says of it.
 
 ### Changed
 

@@ -99,7 +99,24 @@ sweep. The sweep of the change itself had killed it through a test of
 `configure.ts`; that test's file loads `usage.ts` since `doctor` reads a
 hook's line, and no longer runs under the mutant.
 `tests/unit/literal.test.ts`, added with the release, loads the function
-alone and fails for it, which the release's core sweep shows.
+alone and fails for it, which the release's core sweep shows. For 0.16.0
+the sweep of d8edba0 (run 38205988813) read 97.58% over 9,105 mutants,
+96.67% with every timeout lost, in shards of 12m39s to 21m01s, and the
+`break` stays 95. It has 327 mutants more than the sweep taken once every
+test stood alone (run 38198901681, in the amendment of 2026-10-12 below),
+which are what `doctor` and `init` now read of the hook, and 189
+survivors to that sweep's 185. One of the 185 moved with its function,
+from `cli.ts` to `round.ts`. Two of the new ones are equivalent and said
+beside their code: the default of `isHook` in `mergeClaudeSettings`, and
+the check of a line's state in `hookLineHere`. Two were neither, both in
+`init`'s plan (`setup.ts`), which only the full sweep reaches. Under one,
+what `doctor` has of a line is joined with nothing between, which shows
+only where a line has two things said of it, and no test read both.
+Under the other, a file with two lines of the hook, one that turns the
+guard off and one that guards, is `keep` where it is `advise`, and no
+test had such a file. `tests/integration/init.test.ts` has a test for
+each, added with the release; written into the source by hand, each
+mutant fails its test and no other of that suite.
 
 One runner took 69 to 130 minutes for the full sweep. Before any sharded
 sweep ran, the report of eb39599 was cut into shards the way Stryker writes

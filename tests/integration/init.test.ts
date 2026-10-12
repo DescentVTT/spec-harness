@@ -621,6 +621,28 @@ describe('init', () => {
       // A second run finds its own line started for every write, and adds none.
       expect((await step(repo))?.action).toBe('keep');
     });
+
+    it('says each thing doctor has of a line one after another, what the hook does with it and then the writes it is started for', async () => {
+      const repo = repository({ '.claude/settings.json': JSON.stringify({ hooks: { PreToolUse: [under(MATCHER, line('--root', '${CLAUDE_PROJECT_DIR}'))] } }) });
+      const top = repo.git('rev-parse', '--show-toplevel');
+      const where = '"hook claude --root ${CLAUDE_PROJECT_DIR}" in .claude/settings.json (under PreToolUse alone)';
+      expect((await step(repo))?.detail).toBe(
+        `${where} is more than init writes, and guards: the hook reads the line, and its root, ${top}, is a directory; ` +
+          `${where}: it is started after no write, so it warns of none (it stands under no PostToolUse); ${LEFT}`,
+      );
+    });
+
+    it('advises where one line of two turns the guard off, though the other guards, as doctor fails the file', async () => {
+      const own = under(MATCHER, GUARD_HOOK);
+      const unread = under(MATCHER, line('--nope'));
+      const settings = JSON.stringify({ hooks: { PreToolUse: [own, unread], PostToolUse: [own, unread] } });
+      const repo = repository({ '.claude/settings.json': settings });
+      const found = await step(repo, '--write');
+      expect(found?.action).toBe('advise');
+      expect(found?.detail.startsWith('"hook claude --nope" in .claude/settings.json: the hook\'s line cannot be read (Unknown option \'--nope\'')).toBe(true);
+      expect(repo.read('.claude/settings.json')).toBe(settings);
+      expect((await cli(['doctor'], repo.root)).code).toBe(1);
+    });
   });
 
   it('writes the hooks and the server once the plugin is off for the project, whatever the user\'s settings say', async () => {
