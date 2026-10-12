@@ -1,13 +1,13 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
+import { delimiter, join } from 'node:path';
 
 import { afterAll, describe, expect, it } from 'vitest';
 
 import { GUARD_HOOK, mcpServer, mergeMcp, PLUGIN, PRE_COMMIT, PROJECT_DIR_OR_HERE } from '../../src/configure.js';
-import { claudeSettingsFiles } from '../../src/round.js';
+import { claudeCodeWiring, claudeSettingsFiles, pluginDirectories } from '../../src/round.js';
 import { gitHook } from '../../src/setup.js';
-import { cleanup, cli, install, installFake, installHarness, parsed, repository, siblings, temp, write, type Repository } from './helpers.js';
+import { cleanup, cli, install, installFake, installHarness, installPlugin, parsed, repository, siblings, temp, write, type Repository } from './helpers.js';
 
 afterAll(cleanup);
 
@@ -466,6 +466,8 @@ describe('init', () => {
   it('writes no hook and no server while the Claude Code plugin is on, and says how to have them instead', async () => {
     const user = temp();
     write(user, 'settings.json', JSON.stringify({ enabledPlugins: { 'spec-harness@spec-tools': true } }));
+    // Installed for the user, as Claude Code leaves it under its configuration directory.
+    installPlugin(join(user, 'plugins'));
     const env = { CLAUDE_CONFIG_DIR: user };
     const repo = installed();
     const result = await cli(['init', '--write', '--format', 'json'], repo.root, { env });
@@ -510,7 +512,8 @@ describe('init', () => {
     const settings = JSON.stringify({ enabledPlugins: { 'spec-harness@team': true }, hooks: { PostToolUse: [{ matcher: 'Write', hooks: [legacy] }] } });
     const mcp = JSON.stringify(mergeMcp({}));
     const repo = repository({ '.claude/settings.json': settings, '.mcp.json': mcp });
-    const result = await cli(['init', '--write'], repo.root);
+    // The plugin is on this machine, installed from its marketplace: both run.
+    const result = await cli(['init', '--write'], repo.root, { env: { CLAUDE_CODE_PLUGIN_CACHE_DIR: installPlugin(temp(), 'spec-harness@team') } });
     expect(result.code).toBe(0);
     const off = 'turn the plugin off for this project with claude plugin disable spec-harness@team --scope local';
     expect(result.stdout).toContain(
@@ -531,8 +534,10 @@ describe('init', () => {
     const under = (matcher: string, hook: unknown) => ({ matcher, hooks: [hook] });
     const both = (hook: unknown): string => JSON.stringify({ hooks: { PreToolUse: [under(MATCHER, hook)], PostToolUse: [under(MATCHER, hook)] } });
     const LEFT = 'init rewrites no line of the hook it did not write, and writes none beside one Claude Code starts for a write';
+    /** A plugins root of the file's own, with the plugin the tests below turn on installed in it. */
+    const env = { CLAUDE_CODE_PLUGIN_CACHE_DIR: installPlugin(temp(), 'spec-harness@team') };
     const step = async (repo: Repository, ...more: string[]): Promise<Step | undefined> =>
-      parsed<{ steps: Step[] }>(await cli(['init', ...more, '--format', 'json'], repo.root)).steps.find((found) => found.file === '.claude/settings.json');
+      parsed<{ steps: Step[] }>(await cli(['init', ...more, '--format', 'json'], repo.root, { env })).steps.find((found) => found.file === '.claude/settings.json');
 
     it('writes none beside it and says which line it left, in the words doctor has for the line', async () => {
       const settings = both(line('--root', '${CLAUDE_PROJECT_DIR}'));
@@ -642,6 +647,144 @@ describe('init', () => {
       expect(found?.detail.startsWith('"hook claude --nope" in .claude/settings.json: the hook\'s line cannot be read (Unknown option \'--nope\'')).toBe(true);
       expect(repo.read('.claude/settings.json')).toBe(settings);
       expect((await cli(['doctor'], repo.root)).code).toBe(1);
+    });
+  });
+
+  describe('where the plugin that is turned on is not on this machine, or cannot be told to be (ADR-0012)', () => {
+    const ID = 'spec-harness@spec-tools';
+    const ON = JSON.stringify({ enabledPlugins: { [ID]: true } });
+    const steps = async (repo: Repository, env: Record<string, string>, ...more: string[]): Promise<Step[]> =>
+      parsed<{ steps: Step[] }>(await cli(['init', ...more, '--format', 'json'], repo.root, { env })).steps.filter((step) => step.file === '.claude/settings.json' || step.file === '.mcp.json');
+    const off = `turn the plugin off for this project with claude plugin disable ${ID} --scope local`;
+    const bring = `install it here, with claude plugin install ${ID} once its marketplace is added`;
+
+    it('writes neither entry on that reading alone, and says what doctor says and how to have them in the files instead', async () => {
+      const plugins = temp();
+      write(plugins, 'known_marketplaces.json', '{}');
+      const repo = repository({ '.claude/settings.json': ON });
+      const gone = (none: string): string =>
+        `the spec-harness plugin is on (${ID} in .claude/settings.json) and is not on this machine, so it brings ${none} here: .claude/settings.json alone turns it on, and Claude Code fetches no plugin that a project's settings alone turn on, unless its marketplace lists it by a relative path or a seed directory holds it: no marketplace spec-tools is recorded as fetched or declared in settings, and no version of the plugin is in a cache (${join(plugins, 'cache')})`;
+      expect(await steps(repo, { CLAUDE_CODE_PLUGIN_CACHE_DIR: plugins }, '--write')).toEqual([
+        {
+          file: '.claude/settings.json',
+          action: 'advise',
+          detail: `${gone('no hook')}. On that reading alone init writes none, since with a plugin that is there after all every write is guarded twice: ${bring}, or to have them here instead, ${off} and run init again`,
+        },
+        {
+          file: '.mcp.json',
+          action: 'advise',
+          detail: `${gone('no server')}. On that reading alone init registers none, since with a plugin that is there after all the server is registered twice: ${bring}, or to have it here instead, ${off} and run init again`,
+        },
+      ]);
+      expect(repo.read('.claude/settings.json')).toBe(ON);
+      expect(existsSync(join(repo.root, '.mcp.json'))).toBe(false);
+      // A file that holds init's entry is said as what the plugin, installed, would double.
+      const held = repository({ '.claude/settings.json': JSON.stringify({ ...JSON.parse(ON), hooks: { PreToolUse: [{ matcher: 'Edit|Write', hooks: [GUARD_HOOK] }] } }), '.mcp.json': JSON.stringify(mergeMcp({})) });
+      expect(await steps(held, { CLAUDE_CODE_PLUGIN_CACHE_DIR: plugins })).toEqual([
+        { file: '.claude/settings.json', action: 'advise', detail: `${gone('no hook')}. This file holds spec-harness's hooks; with the plugin installed as well, every write is guarded twice: ${off}` },
+        { file: '.mcp.json', action: 'advise', detail: `${gone('no server')}. This file holds the spec-harness server; with the plugin installed as well, the server is registered twice: ${off}` },
+      ]);
+    });
+
+    it('skips as it did where that cannot be told, and says so beside the reason', async () => {
+      const plugins = temp();
+      const repo = repository({ '.claude/settings.json': ON });
+      const [settings, server] = await steps(repo, { CLAUDE_CODE_PLUGIN_CACHE_DIR: plugins });
+      expect(settings).toEqual({
+        file: '.claude/settings.json',
+        action: 'skip',
+        detail: `the spec-harness plugin is on (${ID} in .claude/settings.json) and brings the guard hooks, so init writes none: with both, every write is guarded twice. To have them here instead, for every clone of the repository, ${off} and run init again. whether ${ID} is on this machine cannot be told: ${join(plugins, 'known_marketplaces.json')}, where Claude Code records the marketplaces it has fetched, is not there. A plugin that is not there brings no hook: Claude Code's /plugin lists it, and its errors`,
+      });
+      expect(server).toMatchObject({ action: 'skip', detail: expect.stringMatching(/ and run init again$/) });
+    });
+
+    it('says disableAllHooks of the file that holds it, and writes what it would have written', async () => {
+      const repo = repository({ '.claude/settings.json': JSON.stringify({ disableAllHooks: true }) });
+      const plan = parsed<{ steps: Step[] }>(await cli(['init', '--write', '--format', 'json'], repo.root)).steps;
+      const at = plan.findIndex((step) => step.file === '.claude/settings.json');
+      expect(plan.slice(at, at + 3).map((step) => [step.file, step.action])).toEqual([
+        ['.claude/settings.json', 'update'],
+        ['.claude/settings.json', 'advise'],
+        ['.mcp.json', 'create'],
+      ]);
+      expect(plan[at + 1]?.detail).toMatch(/^note: "disableAllHooks" is true in \.claude\/settings\.json, .* would not run while it stands$/);
+      const written = JSON.parse(repo.read('.claude/settings.json'));
+      expect(written.disableAllHooks).toBe(true);
+      expect(written.hooks.PreToolUse[0].hooks[0]).toEqual(GUARD_HOOK);
+      // With the hooks in the file, the key is what switches the guard off.
+      const again = parsed<{ steps: Step[] }>(await cli(['init', '--format', 'json'], repo.root)).steps.filter((step) => step.file === '.claude/settings.json');
+      expect(again.map((step) => step.action)).toEqual(['keep', 'advise']);
+      expect(again[1]?.detail).toContain(': no write is guarded. Take the key out of .claude/settings.json, or set it to false, to have the guard back.');
+      // Without the key, nothing is said of it.
+      const plain = repository({});
+      expect(parsed<{ steps: Step[] }>(await cli(['init', '--format', 'json'], plain.root)).steps.filter((step) => step.detail.includes('disableAllHooks'))).toEqual([]);
+    });
+  });
+
+  describe('the directories Claude Code keeps plugins in, and what is read of them (ADR-0012)', () => {
+    it('are the plugins root, from CLAUDE_CODE_PLUGIN_CACHE_DIR or the configuration directory, and each seed after it', () => {
+      expect(pluginDirectories({ CLAUDE_CODE_PLUGIN_CACHE_DIR: 'p', CLAUDE_CONFIG_DIR: 'c', HOME: 'h' }, 'linux')).toEqual(['p']);
+      expect(pluginDirectories({ CLAUDE_CODE_PLUGIN_CACHE_DIR: '', CLAUDE_CONFIG_DIR: 'c', HOME: 'h' }, 'linux')).toEqual([join('c', 'plugins')]);
+      expect(pluginDirectories({ HOME: 'h', USERPROFILE: 'u' }, 'linux')).toEqual([join('h', '.claude', 'plugins')]);
+      expect(pluginDirectories({ HOME: 'h', USERPROFILE: 'u' }, 'win32')).toEqual([join('u', '.claude', 'plugins')]);
+      expect(pluginDirectories({}, 'linux')).toEqual([]);
+      // Seeds are separated as PATH is on each platform, and an empty place between two names none.
+      expect(pluginDirectories({ HOME: 'h', CLAUDE_CODE_PLUGIN_SEED_DIR: '/a:/b::' }, 'linux')).toEqual([join('h', '.claude', 'plugins'), '/a', '/b']);
+      expect(pluginDirectories({ CLAUDE_CODE_PLUGIN_SEED_DIR: 'C:\\a;D:\\b' }, 'win32')).toEqual(['C:\\a', 'D:\\b']);
+      expect(pluginDirectories({ CLAUDE_CODE_PLUGIN_SEED_DIR: '/a;/b' }, 'linux')).toEqual(['/a;/b']);
+      expect(pluginDirectories({ CLAUDE_CODE_PLUGIN_SEED_DIR: '' }, 'linux')).toEqual([]);
+    });
+
+    const ID = 'spec-harness@spec-tools';
+    const io = (env: Record<string, string>, cwd: string) => ({ stdout: { write: () => true }, stderr: { write: () => true }, cwd, env });
+    const presence = async (repo: Repository, env: Record<string, string>) => (await claudeCodeWiring(repo.root, io(env, repo.root))).presence;
+
+    it('find a version of the plugin in a cache, in the root or in a seed, and none in what an update or an uninstall left behind', async () => {
+      const repo = repository({ '.claude/settings.json': JSON.stringify({ enabledPlugins: { [ID]: true } }) });
+      const plugins = temp();
+      write(plugins, 'known_marketplaces.json', '{}');
+      const env = { CLAUDE_CODE_PLUGIN_CACHE_DIR: plugins };
+      expect(await presence(repo, env)).toMatchObject({ state: 'absent' });
+      const versions = join(plugins, 'cache', 'spec-tools', 'spec-harness');
+      // A file where a version's directory would be is no version.
+      mkdirSync(versions, { recursive: true });
+      writeFileSync(join(versions, '0.15.0'), '');
+      expect(await presence(repo, env)).toMatchObject({ state: 'absent' });
+      // Nor is a directory marked as left behind.
+      mkdirSync(join(versions, '0.14.0'));
+      writeFileSync(join(versions, '0.14.0', '.orphaned_at'), '2026-10-01T00:00:00.000Z');
+      expect(await presence(repo, env)).toMatchObject({ state: 'absent' });
+      // Another marketplace's plugin of the name, and another plugin of this marketplace, are not it.
+      mkdirSync(join(plugins, 'cache', 'team', 'spec-harness', '1.0.0'), { recursive: true });
+      mkdirSync(join(plugins, 'cache', 'spec-tools', 'other', '1.0.0'), { recursive: true });
+      expect(await presence(repo, env)).toMatchObject({ state: 'absent' });
+      mkdirSync(join(versions, '0.16.0'));
+      expect(await presence(repo, env)).toEqual({ state: 'present', detail: null });
+      // A seed directory holds it as the root does.
+      const seed = installPlugin(temp());
+      const other = temp();
+      write(other, 'known_marketplaces.json', '{}');
+      const seeded = { CLAUDE_CODE_PLUGIN_CACHE_DIR: other, CLAUDE_CODE_PLUGIN_SEED_DIR: [temp(), seed].join(delimiter) };
+      expect(await presence(repo, seeded)).toEqual({ state: 'present', detail: null });
+    });
+
+    it('read the record of marketplaces fetched, and whether one of those hosted on claude.ai stands beside it', async () => {
+      const repo = repository({ '.claude/settings.json': JSON.stringify({ enabledPlugins: { [ID]: true } }) });
+      const plugins = temp();
+      const env = { CLAUDE_CODE_PLUGIN_CACHE_DIR: plugins };
+      expect((await presence(repo, env))?.detail).toBe(`${join(plugins, 'known_marketplaces.json')}, where Claude Code records the marketplaces it has fetched, is not there`);
+      write(plugins, 'known_marketplaces.json', '{ not json');
+      expect((await presence(repo, env))?.detail).toBe(`${join(plugins, 'known_marketplaces.json')}, where Claude Code records the marketplaces it has fetched, cannot be read as JSON`);
+      write(plugins, 'known_marketplaces.json', JSON.stringify({ 'spec-tools': { installLocation: join(plugins, 'marketplaces', 'spec-tools') } }));
+      expect(await presence(repo, env)).toMatchObject({ state: 'unknown', detail: expect.stringContaining(`its marketplace, spec-tools, is on this machine (${join(plugins, 'known_marketplaces.json')})`) });
+      write(plugins, 'known_marketplaces.json', '{}');
+      write(plugins, 'known_marketplaces_claudeai.json', '{}');
+      expect(await presence(repo, env)).toMatchObject({ state: 'unknown', detail: expect.stringContaining(`${join(plugins, 'known_marketplaces_claudeai.json')} records the marketplaces hosted on claude.ai`) });
+      // An id that names no marketplace has no directory to look in, whatever is on disk.
+      const inline = repository({ '.claude/settings.json': JSON.stringify({ enabledPlugins: { 'spec-harness@inline': true } }) });
+      expect(await presence(inline, { CLAUDE_CODE_PLUGIN_CACHE_DIR: installPlugin(temp(), 'spec-harness@inline') })).toMatchObject({ state: 'unknown', detail: expect.stringContaining('spec-harness@inline names no marketplace') });
+      // And where no plugin is on, nothing is read or said.
+      expect(await presence(repository({}), env)).toBeNull();
     });
   });
 

@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { HELP, run } from '../../src/cli.js';
 import { mergeClaudeSettings, mergeMcp, reportHooks } from '../../src/configure.js';
-import { BIN, brief, BRIEF_FILE, cleanup, cli, installFake, installHarness, parsed, repository, ROOT, SPEC_BRIEF, spawnBin, temp, write, type Repository } from './helpers.js';
+import { BIN, brief, BRIEF_FILE, cleanup, cli, installFake, installHarness, installPlugin, parsed, repository, ROOT, SPEC_BRIEF, spawnBin, temp, write, type Repository } from './helpers.js';
 
 afterAll(cleanup);
 
@@ -717,12 +717,12 @@ describe("doctor on the line of Claude Code's hook in its settings (ADR-0005)", 
     const outside = temp();
     const repo = repository({ '.claude/settings.json': settings([hook(['--root', other.root, '--brief', '001']), hook(['--root', outside, '--brief', '001'])]) });
     const result = await cli(['doctor', '--strict', '--format', 'json'], repo.root, { env });
-    expect(result.code).toBe(0);
-    // A root outside a work tree is said as it was, by its root: the hook reads no brief there.
-    expect(parsed<{ claudeCode: { lines: { state: string; detail: string }[] } }>(result).claudeCode.lines.map((line) => [line.state, line.detail.split(', and guards: ')[1]])).toEqual([
-      ['guards', `the hook reads the line, and its root, ${other.root}, is a directory`],
-      ['guards', `the hook reads the line, and its root, ${outside}, is a directory`],
-    ]);
+    // A root in no work tree is a guard that is off, whatever brief its line names: the hook reads none there, and none is asked about.
+    expect(result.code).toBe(1);
+    const lines = parsed<{ claudeCode: { lines: { state: string; detail: string }[] } }>(result).claudeCode.lines;
+    expect(lines.map((line) => line.state)).toEqual(['guards', 'off']);
+    expect(lines[0]?.detail.split(', and guards: ')[1]).toBe(`the hook reads the line, and its root, ${other.root}, is a directory`);
+    expect(lines[1]?.detail).toContain(`--root is "${outside}", a directory outside any git work tree, which the hook reads as a session outside one, exit 0 and no word, so the guard is off`);
     // A root whose configuration does not load ends the hook with exit 2 and that file's fault, and doctor with it.
     const broken = repository({ '.spec-harness.json': '{ not json' }, null);
     repo.write('.claude/settings.json', settings([hook(['--root', broken.root, '--brief', '001'])]));
@@ -745,7 +745,7 @@ describe("doctor on the line of Claude Code's hook in its settings (ADR-0005)", 
     );
     // Beside the plugin such a line doubles nothing: the plugin alone is the guard.
     repo.write('.claude/settings.local.json', JSON.stringify({ enabledPlugins: { 'spec-harness@team': true } }));
-    const beside = await cli(['doctor', '--strict', '--format', 'json'], repo.root, { env });
+    const beside = await cli(['doctor', '--strict', '--format', 'json'], repo.root, { env: { ...env, CLAUDE_CODE_PLUGIN_CACHE_DIR: installPlugin(temp(), 'spec-harness@team') } });
     expect(beside.code).toBe(0);
     expect(parsed<{ claudeCode: unknown }>(beside).claudeCode).toMatchObject({ state: 'plugin', hooks: [], lines: [{ state: 'unstarted', before: [], after: [] }] });
     // A line that is started after a write alone refuses none either, and still doubles what the plugin says after one.
@@ -789,28 +789,13 @@ describe("doctor on the line of Claude Code's hook in its settings (ADR-0005)", 
       '\nclaude  init\'s entries: the guard hooks in .claude/settings.json\n        "hook claude" in .claude/settings.json: Claude Code waits on it before a write by Edit and Write, and before none by NotebookEdit, which goes unchecked (under PreToolUse it has the matcher "Edit|Write"); it is started after a write by Edit and Write alone (under PostToolUse it has the matcher "Edit|Write")\n        Claude Code 2.1.300 ',
     );
     // Edit, Write and NotebookEdit are every tool a supported Claude Code writes a file with: of a line under them there is no more to say than of init's own, and the lists hold no MultiEdit.
-    for (const matcher of ['Edit|Write|NotebookEdit', '^(Edit|Write|NotebookEdit)$', 'Edit|Write|MultiEdit|NotebookEdit']) {
-      repo.write('.claude/settings.json', settings([hook([])], matcher));
-      const every = await cli(['doctor', '--strict', '--format', 'json'], repo.root, { env });
-      expect(every.code, matcher).toBe(0);
-      expect(parsed<{ claudeCode: unknown }>(every).claudeCode, matcher).toMatchObject({
-        state: 'init',
-        lines: [{ state: 'guards', detail: null, before: ['Edit', 'Write', 'NotebookEdit'], after: ['Edit', 'Write', 'NotebookEdit'], cover: null }],
-      });
-      const pretty = await cli(['doctor'], repo.root, { env });
-      expect(pretty.stdout, matcher).toContain("\nclaude  init's entries: the guard hooks in .claude/settings.json\n        Claude Code 2.1.300 ");
-    }
-    // Under MultiEdit alone Claude Code waits on the line before no write: it is not the guard, and beside the plugin it doubles nothing.
-    repo.write('.claude/settings.json', settings([hook([])], 'MultiEdit'));
-    const none = await cli(['doctor', '--format', 'json'], repo.root, { env });
-    expect(none.code).toBe(0);
-    expect(parsed<{ claudeCode: unknown }>(none).claudeCode).toMatchObject({ state: 'none', hooks: [], lines: [{ state: 'unstarted', before: [], after: [] }] });
-    repo.write('.claude/settings.local.json', JSON.stringify({ enabledPlugins: { 'spec-harness@team': true } }));
-    const beside = await cli(['doctor', '--format', 'json'], repo.root, { env });
-    expect(beside.code).toBe(0);
-    expect(parsed<{ claudeCode: unknown }>(beside).claudeCode).toMatchObject({ state: 'plugin', hooks: [] });
-    // The plugin off again, for what follows.
-    repo.write('.claude/settings.local.json', '{}');
+    repo.write('.claude/settings.json', settings([hook([])], 'Edit|Write|NotebookEdit'));
+    const every = await cli(['doctor', '--strict', '--format', 'json'], repo.root, { env });
+    expect(every.code).toBe(0);
+    expect(parsed<{ claudeCode: unknown }>(every).claudeCode).toMatchObject({
+      state: 'init',
+      lines: [{ state: 'guards', detail: null, before: ['Edit', 'Write', 'NotebookEdit'], after: ['Edit', 'Write', 'NotebookEdit'], cover: null }],
+    });
     // Before every write and after none, it is the guard, and one of init's entries.
     repo.write('.claude/settings.json', JSON.stringify({ hooks: { PreToolUse: [{ hooks: [hook([])] }] } }));
     const before = await cli(['doctor', '--strict', '--format', 'json'], repo.root, { env });
@@ -825,6 +810,109 @@ describe("doctor on the line of Claude Code's hook in its settings (ADR-0005)", 
     expect(untold.code).toBe(0);
     expect(untold.stdout).toContain('\n        "hook claude" in .claude/settings.json: which writes Claude Code waits on it before cannot be told here (under PreToolUse it has the matcher "Edit|Write|MultiEdit|NotebookEdit" with "if" "Edit(*.ts)"); ');
     expect((await cli(['doctor', '--strict'], repo.root, { env })).code).toBe(1);
+  });
+
+  describe('a guard that is set up and checks nothing (ADR-0005, ADR-0012)', () => {
+    const under = (...hooks: unknown[]) => ({ hooks: { PreToolUse: [{ matcher: 'Edit|Write|MultiEdit|NotebookEdit', hooks }], PostToolUse: [{ matcher: 'Edit|Write|MultiEdit|NotebookEdit', hooks }] } });
+    const ID = 'spec-harness@spec-tools';
+    const ON = { enabledPlugins: { [ID]: true } };
+    interface Wiring {
+      state: string;
+      presence: { state: string; detail: string | null } | null;
+      hooksOff: string | null;
+      hooks: string[];
+      notes: string[];
+      detail: string;
+      lines: { line: string[]; state: string; detail: string | null }[];
+    }
+    const wiring = async (repo: Repository, env: Record<string, string>, ...more: string[]) => {
+      const result = await cli(['doctor', ...more, '--format', 'json'], repo.root, { env });
+      return { code: result.code, ...parsed<{ claudeCode: Wiring }>(result).claudeCode };
+    };
+    /** A plugins root that records no marketplace and caches nothing: Claude Code has run here, and has fetched none. */
+    const empty = (): string => {
+      const directory = temp();
+      write(directory, 'known_marketplaces.json', '{}');
+      return directory;
+    };
+
+    it('fails for a root on the line that is a directory outside any work tree, which the hook checks no write under and says nothing of', async () => {
+      const outside = temp();
+      const repo = repository({ '.claude/settings.json': JSON.stringify(under(hook(['--root', outside]), hook(['--root', 'packages/app']), hook(['--brief', '404', '--root', outside]))), 'packages/app/a.ts': 'a;\n' });
+      const said = await wiring(repo, {});
+      const off = (line: string): string =>
+        `"hook claude ${line}" in .claude/settings.json: --root is "${outside}", a directory outside any git work tree, which the hook reads as a session outside one, exit 0 and no word, so the guard is off and no write is checked; give the hook's line a directory in the work tree, or leave --root out for the project Claude Code names`;
+      expect(said.code).toBe(1);
+      expect(said.lines.map((line) => [line.state, line.detail])).toEqual([
+        ['off', off(`--root ${outside}`)],
+        // A root in the work tree, written from the project, is one the hook guards in.
+        ['guards', expect.stringContaining('"hook claude --root packages/app" in .claude/settings.json is more than init writes, and guards')],
+        // No brief is asked about under such a root: the hook reads none there.
+        ['off', off(`--brief 404 --root ${outside}`)],
+      ]);
+      // With those lines gone the file passes. And a line that names no brief is asked about none, whatever the branch names: a branch that names one spec-brief does not know holds every write for every line, which is said of the brief, not of the line.
+      repo.write('.claude/settings.json', JSON.stringify(under(hook(['--root', 'packages/app']))));
+      repo.git('checkout', '-q', '-b', 'brief/404-nowhere');
+      const mended = await wiring(repo, {});
+      expect(mended.code).toBe(0);
+      expect(mended.lines.map((line) => line.state)).toEqual(['guards']);
+    });
+
+    it('fails where disableAllHooks switches the guard hooks off, with the file that holds the key, and notes it where there is no guard to switch off', async () => {
+      const OFF = '"disableAllHooks" is true in .claude/settings.json, so Claude Code runs no hook of the user\'s, the project\'s or the local settings, and none of a plugin: no write is guarded. Take the key out of .claude/settings.json, or set it to false, to have the guard back. Hooks of managed settings, and of a plugin managed settings force on, keep running, and no managed settings are read here';
+      const repo = repository({ '.claude/settings.json': JSON.stringify({ disableAllHooks: true, ...under(hook(['--base', 'main'])) }) });
+      const pretty = await cli(['doctor'], repo.root);
+      expect(pretty.code).toBe(1);
+      // Said under the wiring, before what is said of each line.
+      expect(pretty.stdout).toContain(
+        ["claude  init's entries: the guard hooks in .claude/settings.json", `        ${OFF}`, '        "hook claude --base main" in .claude/settings.json is more than init writes, and guards: the hook reads the line', ''].join('\n'),
+      );
+      expect(await wiring(repo, {})).toMatchObject({ code: 1, state: 'init', hooksOff: '.claude/settings.json', notes: [OFF] });
+      // Where nothing is wired there is no guard to switch off: a note, which fails nothing.
+      const bare = repository({ '.claude/settings.json': JSON.stringify({ disableAllHooks: true }) });
+      const noted = await wiring(bare, {});
+      expect(noted).toMatchObject({ code: 0, state: 'none', hooksOff: '.claude/settings.json' });
+      expect(noted.notes).toEqual([expect.stringMatching(/^note: "disableAllHooks" is true in \.claude\/settings\.json, .* would not run while it stands$/)]);
+    });
+
+    it('fails where the plugin the project turns on is not on this machine and no hook of init\'s guards instead, and says what would bring it', async () => {
+      const env = { CLAUDE_CODE_PLUGIN_CACHE_DIR: empty() };
+      const repo = repository({ '.claude/settings.json': JSON.stringify(ON) });
+      const pretty = await cli(['doctor'], repo.root, { env });
+      expect(pretty.code).toBe(1);
+      const why = `.claude/settings.json alone turns it on, and Claude Code fetches no plugin that a project's settings alone turn on, unless its marketplace lists it by a relative path or a seed directory holds it: no marketplace spec-tools is recorded as fetched or declared in settings, and no version of the plugin is in a cache (${join(env.CLAUDE_CODE_PLUGIN_CACHE_DIR, 'cache')})`;
+      const gone = `the spec-harness plugin is on (${ID} in .claude/settings.json) and is not on this machine, so it brings no hook here: ${why}`;
+      // Nothing wires Claude Code to the guard, so its release is not asked: git's hook is the next line.
+      expect(pretty.stdout).toContain(
+        `\nclaude  ${gone}, and Claude Code guards no write. To have the guard, install it here, with claude plugin install ${ID} once its marketplace is added, or turn the plugin off for this project with claude plugin disable ${ID} --scope local and run spec-harness init --write\ngit     `,
+      );
+      // Beside init's hooks those guard, and the plugin is a note under them that fails nothing.
+      repo.write('.claude/settings.json', JSON.stringify({ ...ON, ...under(hook([])) }));
+      const beside = await wiring(repo, env);
+      expect(beside).toMatchObject({ code: 0, state: 'init', presence: { state: 'absent', detail: why }, detail: "init's entries: the guard hooks in .claude/settings.json" });
+      expect(beside.notes).toEqual([`${gone}. With the plugin installed as well, every write is guarded twice: turn the plugin off for this project with claude plugin disable ${ID} --scope local`]);
+      // The server alone guards nothing: the plugin that is not there is the problem still.
+      repo.write('.claude/settings.json', JSON.stringify(ON));
+      repo.write('.mcp.json', JSON.stringify(mergeMcp({})));
+      expect(await wiring(repo, env)).toMatchObject({ code: 1, state: 'init', hooks: [], notes: [expect.stringContaining(', and Claude Code guards no write. To have the guard, ')] });
+    });
+
+    it('cannot tell where what Claude Code keeps on disk does not say, which fails --strict alone', async () => {
+      const env = { ...newEnough(), CLAUDE_CODE_PLUGIN_CACHE_DIR: temp() };
+      const repo = repository({ '.claude/settings.json': JSON.stringify(ON) });
+      const untold = await wiring(repo, env, '--strict');
+      const record = join(env.CLAUDE_CODE_PLUGIN_CACHE_DIR, 'known_marketplaces.json');
+      expect(untold).toMatchObject({
+        code: 1,
+        state: 'plugin',
+        presence: { state: 'unknown', detail: `${record}, where Claude Code records the marketplaces it has fetched, is not there` },
+        detail: `the spec-harness plugin is on (${ID} in .claude/settings.json) and brings the guard hooks and the server`,
+      });
+      expect(untold.notes).toEqual([
+        `whether ${ID} is on this machine cannot be told: ${record}, where Claude Code records the marketplaces it has fetched, is not there. A plugin that is not there brings no hook: Claude Code's /plugin lists it, and its errors`,
+      ]);
+      expect((await wiring(repo, env)).code).toBe(0);
+    });
   });
 });
 

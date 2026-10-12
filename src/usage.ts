@@ -211,6 +211,12 @@ export interface Guards {
 export interface GuardOff {
   readonly state: 'off';
   readonly fault: LineFault;
+  /**
+   * Set where the hook says nothing of the fault and exits 0, so that no
+   * run of it fails: a root outside any work tree. Every other fault it
+   * says, with exit 1.
+   */
+  readonly silent?: true;
 }
 
 export interface WritesHeld {
@@ -253,6 +259,25 @@ export function readHookLine(root: string | undefined, cwd: string, isDirectory:
     return { state: 'off', fault: { wrong: noDirectory(given), mend: "give the hook's line a directory that exists, or leave --root out for the project Claude Code names" } };
   }
   return { state: 'guards', root: given };
+}
+
+/**
+ * A line whose root is a directory outside any git work tree. The hook
+ * reads that as a session outside one, where it has nothing to guard: it
+ * checks no write and says nothing, exit 0 (ADR-0005), and that stays. Only
+ * git can tell such a root, so the caller asks it. A line that carries one
+ * is a guard someone set up that checks nothing, and `doctor` says it as
+ * off.
+ */
+export function outsideHookLine(root: string): GuardOff {
+  return {
+    state: 'off',
+    silent: true,
+    fault: {
+      wrong: `--root is "${root}", a directory outside any git work tree, which the hook reads as a session outside one, exit 0 and no word`,
+      mend: "give the hook's line a directory in the work tree, or leave --root out for the project Claude Code names",
+    },
+  };
 }
 
 /**

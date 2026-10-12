@@ -19,14 +19,18 @@ import { dirname, isAbsolute, join, relative, sep } from 'node:path';
 import { CONFIG_FILE } from './config.js';
 import {
   chooseBase,
+  describeAbsent,
   describeGitHook,
   describeGraph,
+  describeHooksOff,
+  describePresence,
   describeSkipped,
   GIT_HOOK_LINE,
   gitHookNote,
   type GitHookState,
   graphReadsBriefs,
   GUARD_HOOK,
+  guardSwitchedOff,
   isStarted,
   loadsPlugin,
   measuresArchive,
@@ -37,6 +41,7 @@ import {
   missingGitHook,
   PLUGIN,
   PRE_COMMIT,
+  PROJECT_SETTINGS,
   PROTECT_RULE_FILES,
   registersServer,
   SPEC_BRIEF_CONFIGS,
@@ -61,7 +66,7 @@ export interface Step {
 type Json = Record<string, unknown>;
 
 /** The project's settings file for Claude Code, as a person finds it and as doctor names it. */
-const SETTINGS = '.claude/settings.json';
+const SETTINGS = PROJECT_SETTINGS;
 
 function stringify(value: unknown): string {
   return `${JSON.stringify(value, null, 2)}\n`;
@@ -223,6 +228,11 @@ export async function plan(workspace: Workspace, options: Options, io: CliIO): P
   // starts each for, so that the two say the same of every file (ADR-0005).
   const wiring = await claudeCodeWiring(root, io);
   const { plugin } = wiring;
+  // A plugin that is not on this machine brings neither. init writes none
+  // on that reading alone, which a plugin that is there after all would
+  // make a second guard: it says what doctor says, and how to have the
+  // entries here instead.
+  const absent = wiring.presence?.state === 'absent' ? wiring.presence.detail : null;
   const settingsFile = join(root, '.claude', 'settings.json');
   const settings = await readJson(settingsFile);
   const lines = wiring.lines.filter((line) => line.file === SETTINGS);
@@ -237,7 +247,14 @@ export async function plan(workspace: Workspace, options: Options, io: CliIO): P
     // This file's own entry is said first, so the others are named only
     // where it holds none.
     const present = wiring.hooks.includes(SETTINGS);
-    steps.push({ file: SETTINGS, action: wiring.hooks.length > 0 ? 'advise' : 'skip', detail: describeSkipped(plugin, 'hooks', present, wiring.hooks) });
+    if (absent !== null) steps.push({ file: SETTINGS, action: 'advise', detail: describeAbsent(plugin, absent, 'hooks', present) });
+    else {
+      // A plugin that cannot be told to be on this machine is no reason to
+      // write either: said beside the reason, as doctor says it.
+      const untold = describePresence(wiring);
+      const detail = describeSkipped(plugin, 'hooks', present, wiring.hooks);
+      steps.push({ file: SETTINGS, action: wiring.hooks.length > 0 ? 'advise' : 'skip', detail: untold === null ? detail : `${detail}. ${untold}` });
+    }
   } else if (settings === 'unreadable') {
     steps.push({ file: SETTINGS, action: 'advise', detail: `cannot be read as JSON; add the guard as a PreToolUse and a PostToolUse hook by hand: ${JSON.stringify(GUARD_HOOK)}` });
   } else {
@@ -257,11 +274,16 @@ export async function plan(workspace: Workspace, options: Options, io: CliIO): P
         apply: () => writeAtomic(settingsFile, stringify(merged)),
       });
   }
+  // disableAllHooks turns off whatever hooks there are, and those init
+  // writes with them: said of the file that holds the key, which is the
+  // person's to change. init writes what it would have written.
+  if (wiring.hooksOff !== null) steps.push({ file: wiring.hooksOff, action: 'advise', detail: describeHooksOff(wiring.hooksOff, guardSwitchedOff(wiring)) });
   const mcpFile = join(root, '.mcp.json');
   const mcp = await readJson(mcpFile);
   if (plugin !== null) {
     const present = registersServer(mcp);
-    steps.push({ file: '.mcp.json', action: present ? 'advise' : 'skip', detail: describeSkipped(plugin, 'server', present) });
+    if (absent !== null) steps.push({ file: '.mcp.json', action: 'advise', detail: describeAbsent(plugin, absent, 'server', present) });
+    else steps.push({ file: '.mcp.json', action: present ? 'advise' : 'skip', detail: describeSkipped(plugin, 'server', present) });
   } else if (mcp === 'unreadable') {
     steps.push({ file: '.mcp.json', action: 'advise', detail: 'cannot be read as JSON; add the spec-harness server by hand' });
   } else {

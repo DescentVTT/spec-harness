@@ -187,6 +187,21 @@ export function installFake(root: string, name: SiblingName, manifest: string | 
   return join(directory, 'bin', `${name}.js`);
 }
 
+/**
+ * A directory Claude Code keeps plugins in, filled as an install of the
+ * Claude Code plugin `id` leaves it: the marketplace in the record of those
+ * fetched, and a version of the plugin in the cache. Made up, in a directory
+ * of the test's own: `plugins` under a CLAUDE_CONFIG_DIR, or what
+ * CLAUDE_CODE_PLUGIN_CACHE_DIR names. Returns the directory.
+ */
+export function installPlugin(directory: string, id = 'spec-harness@spec-tools'): string {
+  const [name, marketplace] = id.split('@') as [string, string];
+  mkdirSync(join(directory, 'cache', marketplace, name, '0.16.0'), { recursive: true });
+  const entry = { source: { source: 'github', repo: 'example/spec-harness' }, installLocation: join(directory, 'marketplaces', marketplace), lastUpdated: '2026-10-12T00:00:00.000Z' };
+  writeFileSync(join(directory, 'known_marketplaces.json'), JSON.stringify({ [marketplace]: entry }));
+  return directory;
+}
+
 /** The `tools` entry naming this repository's copies of spec-brief and spec-guard. */
 export function siblings(): Record<string, string[]> {
   return { 'spec-brief': ['node', SPEC_BRIEF], 'spec-guard': ['node', SPEC_GUARD] };

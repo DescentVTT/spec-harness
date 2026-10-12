@@ -18,10 +18,13 @@ import {
   describeClaudeCode,
   describeClaudeRelease,
   describeGitHook,
+  describeHooksOff,
   describePlugin,
+  describePresence,
   describeSignerKeys,
   describeSignerProblem,
   describeSigners,
+  guardSwitchedOff,
   wiringState,
 } from './configure.js';
 import { isDirectory } from './fs.js';
@@ -90,7 +93,9 @@ Commands:
                       named, how Claude Code runs the guard, and git's hook. Exit 1
                       when a sibling is older than this release needs, the guard is
                       installed twice, its hook's line turns it off or holds every
-                      write, or Claude Code is too old to run its hooks.
+                      write, disableAllHooks switches it off, the plugin that is
+                      turned on is not on this machine and nothing else guards, or
+                      Claude Code is too old to run its hooks.
 
 Options:
   --brief <id>        The brief the round works on. Otherwise SPEC_BRIEF, then the branch.
@@ -318,6 +323,11 @@ async function doctorCommand(options: Options, io: CliIO): Promise<number> {
   // Claude Code starts it for where they are not all of them, and what
   // onFailure changes.
   const lineNotes = wiring.lines.flatMap((line) => [line.detail, line.cover, line.note]).filter((note): note is string => note !== null);
+  // What stands over every line: a plugin that is turned on and is not on
+  // this machine, or cannot be told to be, and disableAllHooks, which
+  // switches off whatever hooks there are.
+  const switchedOff = guardSwitchedOff(wiring);
+  const wiringNotes = [describePresence(wiring), wiring.hooksOff === null ? null : describeHooksOff(wiring.hooksOff, switchedOff)].filter((note): note is string => note !== null);
   // Only a Claude Code that runs the guard is asked its release: one older
   // than the hooks need lets every write through unguarded.
   const release = claude === 'none' ? null : checkClaudeCode(await claudeVersion(io.env));
@@ -346,6 +356,7 @@ async function doctorCommand(options: Options, io: CliIO): Promise<number> {
           state: claude,
           ...wiring,
           detail: describeClaudeCode(wiring),
+          notes: wiringNotes,
           release:
             release === null
               ? { state: 'unchecked', version: null, minimum: CLAUDE_CODE_MINIMUM, detail: 'not asked: nothing wires Claude Code to the guard here' }
@@ -367,6 +378,7 @@ async function doctorCommand(options: Options, io: CliIO): Promise<number> {
         ...more(signerNotes),
         `plugin  ${describePlugin(plugin)}`,
         `claude  ${describeClaudeCode(wiring)}`,
+        ...more(wiringNotes),
         ...more(lineNotes),
         ...more(release === null ? [] : [describeClaudeRelease(release)]),
         `git     ${describeGitHook(hook)}`,
@@ -381,15 +393,19 @@ async function doctorCommand(options: Options, io: CliIO): Promise<number> {
   // a choice; with none installed, the harness can check nothing. A double
   // install is a problem too, where no Claude Code wiring at all is a choice,
   // and so are a hook whose own line turns the guard off or holds every
-  // write, and a Claude Code too old to run the hooks. A release that cannot
-  // be told is not fine either, nor a line whose reading cannot be: --strict
-  // fails both.
+  // write, guard hooks that disableAllHooks switches off, a plugin that is
+  // turned on and is not on this machine where no hook of init's stands in
+  // for it, and a Claude Code too old to run the hooks. A release that
+  // cannot be told is not fine either, nor a line whose reading cannot be,
+  // nor a plugin that cannot be told to be on this machine: --strict fails
+  // the three.
   const outdated = rows.some((row) => row.state === 'outdated');
   const usable = rows.some((row) => row.state === 'found');
   const off = wiring.lines.some((line) => line.state === 'off' || line.state === 'held');
+  const missing = wiring.presence?.state === 'absent' && wiring.hooks.length === 0;
   const tooOld = release?.state === 'outdated';
-  const untold = options.strict && (release?.state === 'unknown' || wiring.lines.some((line) => line.state === 'unknown'));
-  return outdated || !usable || claude === 'both' || off || tooOld || untold ? EXIT_FAILED : EXIT_OK;
+  const untold = options.strict && (release?.state === 'unknown' || wiring.lines.some((line) => line.state === 'unknown') || wiring.presence?.state === 'unknown');
+  return outdated || !usable || claude === 'both' || off || switchedOff || missing || tooOld || untold ? EXIT_FAILED : EXIT_OK;
 }
 
 /* ---------------------------------------------------------------- dispatch */
