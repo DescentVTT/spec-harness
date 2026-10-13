@@ -14,12 +14,13 @@
  * The order the sweep runs a mutant's test files in is held here too: it is
  * the sweep's, and no mutant is under it. So is which changes the sweep runs
  * for: the paths the workflow names, against what each sweep mutates, so that
- * no module of src/ is left between the two.
+ * no module of src/ is left between the two, and against the tests and the
+ * vendored copy its verdicts are made of.
  */
 
 import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { join, posix, relative } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { minimatch } from 'minimatch';
@@ -476,10 +477,14 @@ describe('this repository', () => {
   const reads = (patterns: readonly string[], file: string): boolean =>
     patterns.reduce((hit, pattern) => (pattern.startsWith('!') ? hit && !minimatch(file, pattern.slice(1)) : hit || minimatch(file, pattern)), false);
 
-  const sources = () =>
-    readdirSync(join(ROOT, 'src'), { recursive: true, withFileTypes: true })
-      .filter((entry) => entry.isFile() && entry.name.endsWith('.ts'))
-      .map((entry) => relative(ROOT, join(entry.parentPath, entry.name)).replaceAll('\\', '/'));
+  /** Every file under a directory of the repository, by its path from the root. */
+  const filesUnder = (directory: string): string[] =>
+    readdirSync(join(ROOT, directory), { recursive: true, withFileTypes: true })
+      .filter((entry) => entry.isFile())
+      .map((entry) => relative(ROOT, join(entry.parentPath, entry.name)).replaceAll('\\', '/'))
+      .sort();
+
+  const sources = () => filesUnder('src').filter((file) => file.endsWith('.ts'));
 
   afterEach(() => {
     delete process.env['MUTATION_SHARD'];
@@ -577,6 +582,17 @@ describe('this repository', () => {
       return entries;
     };
 
+    /** The entries that name one module of src/, which is how each source is written, and not a directory of it. */
+    const named = (paths: readonly string[]): string[] => paths.filter((path) => path.startsWith('src/') && !path.endsWith('/**'));
+
+    /**
+     * Whether GitHub's filter matches a file by an entry: `*` is any run of
+     * characters but a slash and `**` any run at all. By those words a
+     * name that starts with a dot is matched with the rest, and minimatch
+     * matches one only where it is told to (its `dot`).
+     */
+    const runsFor = (path: string, file: string): boolean => minimatch(file, path, { dot: true });
+
     /**
      * The sources a pull request could change with no sweep reading the
      * change: the full sweep mutates them, the core sweep does not mutate
@@ -618,9 +634,11 @@ describe('this repository', () => {
       expect(core).toContain('src/usage.ts');
       expect(left).not.toContain('src/usage.ts');
       expect(
-        paths.filter((path) => path.startsWith('src/')),
+        named(paths),
         "A module of src/ is in the core sweep's list in stryker.core.config.mjs, whole, or among the paths of .github/workflows/mutation.yml, under pull_request and under push.",
       ).toEqual(left);
+      // The one entry under src/ that is no module's name is the vendored copy, which no sweep here mutates.
+      expect(paths.filter((path) => path.startsWith('src/') && !named(paths).includes(path))).toEqual(['src/vendor/**']);
       expect(between(sources(), full, core, paths)).toEqual([]);
     });
 
@@ -636,11 +654,13 @@ describe('this repository', () => {
 
     it('name each source by its own name, which GitHub reads as that file and no other', () => {
       // A filter reads `*`, `?`, `+`, brackets and a leading `!` as a pattern.
-      for (const path of pathsOf('pull_request').filter((entry) => entry.startsWith('src/'))) expect(path).toMatch(/^src\/[a-z-]+\.ts$/);
+      const modules = named(pathsOf('pull_request'));
+      expect(modules.length).toBeGreaterThan(10);
+      for (const path of modules) expect(path).toMatch(/^src\/[a-z-]+\.ts$/);
     });
 
     it("are also what the sweep is made of: the Stryker configurations, its suite's, its scripts and the workflow", async () => {
-      const paths = pathsOf('pull_request').filter((path) => !path.startsWith('src/'));
+      const paths = pathsOf('pull_request').filter((path) => !path.startsWith('src/') && !path.startsWith('tests/'));
       expect(paths).toEqual(['stryker.config.mjs', 'stryker.core.config.mjs', 'stryker.shard.config.mjs', 'vitest.mutation.config.ts', 'scripts/mutation-*.mjs', '.github/workflows/mutation.yml']);
       // What the workflow runs, read from it, so that a script it comes to run is one it runs for.
       const scripts = [...new Set([...workflow.matchAll(/\bnode (scripts\/[\w.-]+)/g)].map((match) => match[1] as string))].sort();
@@ -652,6 +672,63 @@ describe('this repository', () => {
       for (const file of ['.github/workflows/mutation.yml', 'stryker.config.mjs', shard as string, suite, ...scripts]) {
         expect(paths.some((path) => minimatch(file, path)), file).toBe(true);
       }
+    });
+
+    it("are also what its verdicts are made of beside the sources it mutates: every file of the integration suite, and every file of the vendored spec-core", async () => {
+      const paths = pathsOf('pull_request');
+      // A directory and all under it, as GitHub reads `dir/**`; `dir/*` would stop at its own files.
+      expect(paths.filter((path) => path.endsWith('/**'))).toEqual(['tests/integration/**', 'src/vendor/**']);
+      const suite = filesUnder('tests/integration');
+      const vendored = filesUnder('src/vendor');
+      expect(suite.filter((file) => file.endsWith('.test.ts')).length).toBeGreaterThan(15);
+      expect(suite).toEqual(expect.arrayContaining(['tests/integration/helpers.ts', 'tests/integration/registry.ts']));
+      expect(vendored).toEqual(expect.arrayContaining(['src/vendor/spec-core/VENDOR.json', 'src/vendor/spec-core/pattern/glob.ts']));
+      for (const file of [...suite, ...vendored, 'tests/integration/later/deep.test.ts', 'src/vendor/spec-core/later/.hidden']) {
+        expect(paths.some((path) => runsFor(path, file)), file).toBe(true);
+      }
+      // The suite is in the sweep, and the vendored copy is in no sweep's `mutate`: its path alone runs one for it.
+      const { include, exclude } = ((await mutationSuite()).default as { test: { include: string[]; exclude: string[] } }).test;
+      expect(suite.filter((file) => file.endsWith('.test.ts') && !(include.some((pattern) => minimatch(file, pattern)) && !exclude.some((pattern) => minimatch(file, pattern))))).toEqual([]);
+      const full = (await strykerConfig()).mutate;
+      expect(vendored.filter((file) => reads(full, file))).toEqual([]);
+    });
+
+    it('have the integration suite share its helpers with nothing outside its directory, where a change would move a verdict and run no sweep', () => {
+      const outside: string[] = [];
+      for (const file of filesUnder('tests/integration').filter((name) => name.endsWith('.ts'))) {
+        const text = readFileSync(join(ROOT, file), 'utf8');
+        // What a file imports by a path of its own, statically, for its effects or when it runs.
+        for (const match of text.matchAll(/(?:\bfrom\s+|\bimport\s+|\bimport\(\s*)(['"])(\.{1,2}\/[^'"]+)\1/g)) {
+          const target = posix.normalize(posix.join(posix.dirname(file), match[2] as string));
+          if (!target.startsWith('tests/integration/') && !target.startsWith('src/')) outside.push(`${file} imports ${target}`);
+        }
+      }
+      // The run's temporary directory, which its own test reads: it reaches
+      // no source, and the sweep runs without it (vitest.mutation.config.ts).
+      expect(outside).toEqual(['tests/integration/temporary.test.ts imports tests/temporary.js']);
+    });
+
+    it('are none of what is left to the core sweep and to the schedule: a module the core sweep mutates whole, a unit test, a test of the repository itself, a dependency, a document', async () => {
+      const paths = pathsOf('pull_request');
+      const core = (await coreConfig()).mutate;
+      const whole = sources().filter((file) => core.includes(file));
+      expect(whole).toEqual(expect.arrayContaining(['src/configure.ts', 'src/usage.ts']));
+      const left = [
+        ...whole,
+        ...filesUnder('tests/unit'),
+        ...filesUnder('tests').filter((file) => !file.startsWith('tests/integration/') && !file.startsWith('tests/unit/')),
+        // A file beside a directory that is named is not in it.
+        'tests/integration.test.ts',
+        'src/vendor.ts',
+        'package.json',
+        'package-lock.json',
+        'README.md',
+        'docs/adr/0010-toolchain-and-verification.md',
+        '.github/workflows/ci.yml',
+        'scripts/release.ts',
+      ];
+      expect(left).toEqual(expect.arrayContaining(['tests/unit/git.test.ts', 'tests/source.test.ts', 'tests/temporary.ts']));
+      for (const file of left) expect(paths.filter((path) => runsFor(path, file)), file).toEqual([]);
     });
   });
 });

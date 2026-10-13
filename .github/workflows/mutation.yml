@@ -35,9 +35,19 @@ on:
   #
   # GitHub reads a filter against everything a pull request changes, not
   # against its last push, so every push to one that changes such a file
-  # runs the sweep again. A change to the tests alone, to the vendored
-  # spec-core or to a dependency runs none, though each can move a verdict:
-  # the schedule below is what reads those.
+  # runs the sweep again.
+  #
+  # The last two entries are what the sweep's verdicts are made of beside
+  # the sources it mutates (ADR-0010, amended 2026-10-14). The integration
+  # suite is where the kills of those fourteen modules' mutants come from,
+  # nineteen in twenty of them, and it shares its helpers with nothing
+  # outside tests/integration, which the same test holds. The vendored
+  # spec-core is mutated in spec-core's sweep and not in this one, and six
+  # of the modules mutated here read through it. `dir/**` is every file in
+  # the directory and under it. What still runs no sweep, and the schedule
+  # below reads: a dependency's bump alone, and a unit test alone, which the
+  # core sweep in ci.yml reads for the modules it mutates and no sweep reads
+  # for git.ts and workspace.ts until Monday.
   pull_request:
     paths:
       - src/cli.ts
@@ -60,6 +70,8 @@ on:
       - vitest.mutation.config.ts
       - scripts/mutation-*.mjs
       - .github/workflows/mutation.yml
+      - tests/integration/**
+      - src/vendor/**
   # The same change once it is on main, so that main has a report of its own
   # head for the next pull request to be compared with. The two lists are
   # one list, written twice because a filter belongs to its event; the same
@@ -87,6 +99,8 @@ on:
       - vitest.mutation.config.ts
       - scripts/mutation-*.mjs
       - .github/workflows/mutation.yml
+      - tests/integration/**
+      - src/vendor/**
   schedule:
     # An hour after spec-guard's and two after spec-brief's and spec-graph's,
     # which start at 03:00 on the same account's runners.
