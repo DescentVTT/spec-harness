@@ -57,8 +57,7 @@ import { calculateMutationTestMetrics } from 'mutation-testing-metrics';
 //
 // Stryker instruments only a shard's own files, but here that saves nothing:
 // the suite spends its time in git and the sibling tools rather than in the
-// harness's own code. So a file's minutes add up wherever it goes, and a
-// shard is balanced by adding them; a job takes about three minutes more,
+// harness's own code. A job takes about three minutes more than its files,
 // its start and its initial run of the suite. More than half of the minutes
 // are static mutants, each of which runs every test file until a test
 // fails, and the whole suite when none does or one hangs. So a file's
@@ -66,14 +65,32 @@ import { calculateMutationTestMetrics } from 'mutation-testing-metrics';
 // and timeouts: eight survivors in branch.ts, ten timeouts in siblings.ts,
 // five in git.ts.
 //
+// A file's minutes do not simply add up where it goes. Those of its mutants
+// that are not static do: each runs the tests that cover it. Those of the
+// static mutants beside it do not. A worker runs a static mutant's files
+// the quickest first by what it last timed each at
+// (vitest.mutation.config.ts), and vitest keeps for a file the time of its
+// last run, whatever part of it ran (`updateResults` in its
+// `dist/chunks/cli-api.*.js`, 4.1.11). Before the static mutants begin, a
+// worker has run of a file only the tests that cover some mutant. So every
+// test file a shard's sources are covered by stands among the quickest
+// when the static mutants start, and the first of them run those files
+// whole before the one that kills them. With setup.ts beside commands.ts,
+// which brought the fifty-one tests of init and four more integration
+// files, the 59 static mutants of commands.ts ran 13,848 tests before they
+// were decided where they had run about 1,500, and the shard took 17.2
+// minutes for its files where adding them up gave 13.6 (run 38456021914).
+// So a file is moved by the test files it brings as much as by its
+// minutes: one that brings unit tests alone costs its own minutes and no
+// more.
+//
 // The timeline reads a file's minutes off the count of mutants tested, and
 // the count runs on into the next file while one worker is still on a
 // survivor, so a file is charged for the survivors of the file before it in
-// its shard. A shard's own minutes are the measure, and a file's are what
-// to move it by. The last shard's files took 13.4 minutes in one of the
-// five sweeps and 19.8 in another of the same source and table, each file
-// of it longer by about the same share: one runner is that much slower
-// than another.
+// its shard. A shard's own minutes are the measure. The last shard's files
+// took 13.4 minutes in one of the five sweeps and 19.8 in another of the
+// same source and table, each file of it longer by about the same share:
+// one runner is that much slower than another.
 //
 // A file cannot be split, so no shard takes less time than round.ts or
 // sandbox.ts, which have a shard each, and eight shards come level with
@@ -87,20 +104,24 @@ import { calculateMutationTestMetrics } from 'mutation-testing-metrics';
 // more than the sweeps differ, re-measure and move files or add a shard,
 // and add it to the workflow's matrix, which a test checks.
 //
-// Two files moved on the five sweeps, both out of the last shard, which had
-// taken 13.4 to 19.8 minutes for its files where the shard of rulings.ts
-// and commands.ts took 9.6 to 11.1: setup.ts to that shard, and usage.ts to
-// the shard of siblings.ts. Beside each shard, what its files took in each
-// of the five sweeps, oldest first.
+// Four files left the last shard, which had taken 13.4 to 19.8 minutes for
+// its files where the shard of rulings.ts and commands.ts took 9.6 to 11.1.
+// manifests.ts, context.ts and junit.ts went to that shard: nearly all of
+// their minutes are mutants that are not static, and the only test files
+// they bring to it are unit tests. usage.ts went to the shard of
+// siblings.ts, and the two took 14.5 minutes there in run 38456021914.
+// setup.ts stays in the last shard, where the static mutants beside it are
+// killed by a unit test. Beside each shard, what its files took in each of
+// the five sweeps, oldest first.
 export const ASSIGNED = [
   ['src/round.ts'], // 15.4, 15.4, 14.7, 14.6, 11.2
   ['src/siblings.ts', 'src/usage.ts'], // 11.6, 14.6, 14.2, 14.8, 13.1
   ['src/sandbox.ts'], // 14.0, 13.6, 14.1, 14.2, 14.8
   ['src/git.ts', 'src/premises.ts', 'src/host.ts', 'src/briefs.ts', 'src/hooks.ts', 'src/guard.ts'], // 14.2, 12.4, 15.0, 14.2, 14.5
   ['src/branch.ts', 'src/reader.ts'], // 12.5, 13.2, 10.5, 12.6, 12.8
-  ['src/rulings.ts', 'src/commands.ts', 'src/setup.ts'], // 13.4, 13.2, 12.3, 14.3, 14.7
+  ['src/rulings.ts', 'src/commands.ts', 'src/manifests.ts', 'src/context.ts', 'src/junit.ts'], // 12.8, 14.9, 12.2, 14.0, 14.4
   ['src/cli.ts', 'src/signers.ts', 'src/workspace.ts', 'src/server.ts', 'src/probe.ts', 'src/config.ts'], // 15.4, 11.4, 13.6, 12.9, 10.5
-]; // and the rest: 10.3, 13.3, 9.7, 13.5, 14.5
+]; // and the rest: 10.9, 11.6, 9.8, 13.8, 14.8
 
 export const SHARD_COUNT = ASSIGNED.length + 1;
 

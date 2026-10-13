@@ -876,19 +876,70 @@ gained 238 mutants for 0.17.0: `setup.ts` took 2.3 to 3.6 minutes there,
 `usage.ts` 1.3 to 1.9. The comment above the table in
 `scripts/mutation-shards.mjs` has every file's.
 
-Two files move, both out of the last shard: `setup.ts` to the shard of
-`rulings.ts` and `commands.ts`, which the amendment of 2026-10-09 had as
-the one with room, and `usage.ts` to the shard of `siblings.ts`. By the
-same five sweeps, file by file:
+**A file's minutes do not add up where it goes.** The first table made on
+those minutes moved `setup.ts` to the shard of `rulings.ts` and
+`commands.ts`, which the amendment of 2026-10-09 had as the one with room,
+and `usage.ts` to the shard of `siblings.ts`. Added up file by file it had
+the eight shards at means of 12.3 to 14.3 minutes. The pull request that
+brought it ran the sweep on it (run 38456021914, 97.69% over 9,483 mutants,
+no undetected mutant new against main's), and it was not level:
+
+| Shard | Its files, added up from the five sweeps | In run 38456021914 | Its job |
+| --- | ---: | ---: | ---: |
+| `round.ts` | 14.3 | 9.8 | 12m13s |
+| `siblings.ts`, `usage.ts` | 13.7 | 14.5 | 17m11s |
+| `sandbox.ts` | 14.1 | 14.1 | 16m56s |
+| `git.ts`, `premises.ts`, `host.ts`, `briefs.ts`, `hooks.ts`, `guard.ts` | 14.1 | 12.9 | 15m39s |
+| `branch.ts`, `reader.ts` | 12.3 | 10.3 | 12m58s |
+| `rulings.ts`, `commands.ts`, `setup.ts` | 13.6 | 17.2 | 20m05s |
+| `cli.ts`, `signers.ts`, `workspace.ts`, `server.ts`, `probe.ts`, `config.ts` | 12.8 | 15.3 | 18m18s |
+| the rest | 12.3 | 9.5 | 12m10s |
+
+The five shards that did not change stood from 4.5 minutes under their
+means to 2.5 over, which is what one runner differs from another by. The
+shard that gained `setup.ts` took 3.6 minutes more than its files had
+taken apart, and the reports say where. The 59 static mutants of
+`commands.ts` had run 1,479 to 1,591 tests between them before they were
+decided, in three of the five sweeps read; beside `setup.ts` they ran
+13,848, thirteen of them more than 600 each where none had. The mutants
+that are not static took what they had taken: 4.2 minutes for
+`commands.ts`, 3.6 for `setup.ts`.
+
+A worker runs a static mutant's files the quickest first, by what it last
+timed each at (`vitest.mutation.config.ts`). Vitest keeps for a file the
+time of its last run (`updateResults` in its `dist/chunks/cli-api.*.js`,
+4.1.11), and before the static mutants begin a worker has run of a file
+only the tests that cover some mutant. What follows, and the counts agree
+with: every test file a shard's sources are covered by stands among the
+quickest when the static mutants start, whatever it takes whole, and the
+first static mutants of the shard run those files to their end before the
+one that kills them. `setup.ts` is covered by
+`tests/integration/init.test.ts`, fifty-one tests, and by four more
+integration files, none of which anything in that shard had brought. In the
+last shard it had stood beside static mutants that a unit test kills, 121
+of `configure.ts`'s 138, 213 of `usage.ts`'s 215 and all 52 of
+`versions.ts`'s, and a unit file is quick whatever part of it ran.
+So a file's mutants that are not static cost the same wherever it goes, and
+its neighbours' static mutants cost by the test files it brings. No trace
+of a worker's order was taken: the mechanism is read from the two sources
+and the counts, and the order is left as it is here, a change to the
+sweep's own and not to its table.
+
+**The table.** `setup.ts` stays in the last shard. Three files leave it for
+the shard of `rulings.ts` and `commands.ts`: `manifests.ts`, `context.ts`
+and `junit.ts`, which have 30 static mutants among 1,496, and which bring
+that shard no test file but unit tests. `usage.ts` stays with
+`siblings.ts`, where the two took 14.5 minutes in the run above. By the
+five sweeps, file by file:
 
 | Shard | Its files' minutes, oldest first | Mean |
 | --- | --- | ---: |
 | `siblings.ts`, `usage.ts` | 11.6, 14.6, 14.2, 14.8, 13.1 | 13.7 |
-| `rulings.ts`, `commands.ts`, `setup.ts` | 13.4, 13.2, 12.3, 14.3, 14.7 | 13.6 |
-| the rest | 10.3, 13.3, 9.7, 13.5, 14.5 | 12.3 |
+| `rulings.ts`, `commands.ts`, `manifests.ts`, `context.ts`, `junit.ts` | 12.8, 14.9, 12.2, 14.0, 14.4 | 13.7 |
+| the rest | 10.9, 11.6, 9.8, 13.8, 14.8 | 12.2 |
 
 The other five are as they were, with means of 12.3 to 14.3 minutes, so
-the eight stand at 12.3 to 14.3 where they stood at 10.4 to 17.0, and the
+the eight stand at 12.2 to 14.3 where they stood at 10.4 to 17.0, and the
 last shard is the shortest, since that is where the sources grow unasked.
 No test names a file's shard: `tests/mutation-shards.test.ts` holds the
 table to the configuration and to the workflow's matrix, and passes with it
