@@ -786,6 +786,8 @@ describe('init', () => {
         const turning = repository({ '.claude/settings.json': JSON.stringify({ hooks: { PreToolUse: [comma], PostToolUse: [own] } }) });
         expect(await release(turning, false)).toMatchObject(told);
         expect(await release(turning)).toMatchObject(told);
+        // And the lines are read under the release that was asked: one older than 2.1.191 starts this line before no write.
+        expect((await claudeCodeWiring(turning.root, io(claudeOf('2.1.190'), turning.root), undefined, false)).lines).toMatchObject([{ state: 'unstarted', before: [], after: ['Edit', 'Write', 'NotebookEdit'] }]);
         // Names with a comma that list none: no release starts the line for a write, and neither asks.
         const idle = repository({ '.claude/settings.json': JSON.stringify({ hooks: { PreToolUse: [under('Bash, Read', GUARD_HOOK)] } }) });
         expect(await release(idle, false)).toBeNull();
