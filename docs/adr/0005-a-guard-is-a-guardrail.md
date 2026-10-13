@@ -1300,7 +1300,8 @@ it, and stops the commit.
 
 Every other path the harness reads where it expects a file was made a
 directory, one at a time, and each command that reads it run (Linux, as
-above, and the same on Windows for the first rows):
+above, and on Windows for the hook's path, the project's settings file, the
+configuration and the probe's report):
 
 | The path | What reads it says |
 | --- | --- |

@@ -100,12 +100,13 @@ function shown(root: string, path: string): string {
  * constants, read 2026-10-14), and git there runs whatever is.
  */
 function executable(path: string): boolean {
+  let may = true;
   try {
     accessSync(path, constants.X_OK);
-    return true;
   } catch {
-    return false;
+    may = false;
   }
+  return may;
 }
 
 /** What stands at a path, links followed, or `null` where nothing does: a link to nothing is nothing, to git as well. */
