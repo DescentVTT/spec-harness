@@ -5,8 +5,8 @@
  * The full sweep mutates every module against the whole suite, git and the
  * sibling tools included, and one runner took 69 to 130 minutes for it
  * (ADR-0010). The amendment of 2026-10-01 to ADR-0010 has the measurements
- * behind the split, and that of 2026-10-09 those behind the table below. The
- * core sweep, in ci.yml, is not split.
+ * behind the split, and those of 2026-10-09 and 2026-10-14 the ones behind
+ * the table below. The core sweep, in ci.yml, is not split.
  *
  * Each shard runs Stryker with stryker.shard.config.mjs, which takes `mutate`
  * from mutateFor() and switches the break threshold off, because a shard is not
@@ -35,71 +35,72 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { minimatch } from 'minimatch';
 import { calculateMutationTestMetrics } from 'mutation-testing-metrics';
 
-// Minutes each file took in the two full sweeps of a475910's source that ran
-// a mutant's quickest test files first (vitest.mutation.config.ts), runs
-// 37810898544 and 37818344640, read off the shards' logs with
-// scripts/mutation-timeline.mjs:
+// Minutes each file took in the five full sweeps that ran last on the table
+// before this one, all on 2026-10-12: runs 38249083949, 38258557802,
+// 38261238288 and 38264176050, of 0.17.0's source, and 38252478668, of the
+// commit before its last change. Read off the shards' logs with
+// scripts/mutation-timeline.mjs, the least and the most:
 //
-//   round 11.4-12.4   siblings 12.0   sandbox 11.3-12.7   git 5.2-9.3
-//   branch 7.2-7.5   rulings 4.3-6.2   commands 5.0-6.7   reader 3.8-4.5
-//   cli 1.9-3.5   config 0.8-3.4   host 0.8-3.2   signers 0.5-3.1
-//   workspace 2.7-2.8   server 1.5-2.6   setup 2.3-2.4   versions 2.1-2.2
-//   probe 1.3-2.0   fs 1.5-1.7   manifests 1.3-1.4   premises 1.1-1.4
-//   configure 1.2   context 0.8-1.0   audit 0.7-0.9   guard 0.2-0.9
-//   junit 0.7   hooks 0.4-0.5   formats 0.3-0.4   briefs 0.3-0.4
-//   answers 0.2   plugin 0.1
+//   round 11.2-15.4   sandbox 13.6-14.8   siblings 10.3-12.9   git 6.2-8.7
+//   branch 6.2-7.9   commands 6.1-7.3   reader 4.3-5.3   rulings 3.4-4.5
+//   cli 2.4-4.5   host 2.2-4.2   workspace 3.2-4.2   setup 2.3-3.6
+//   configure 2.2-3.3   fs 1.1-3.3   manifests 0.9-3.2   versions 2.0-2.8
+//   server 1.7-2.6   probe 1.4-2.3   usage 1.3-1.9   premises 1.2-1.6
+//   config 0.8-1.3   context 0.6-1.0   junit 0.6-1.1   audit 0.5-1.1
+//   guard 0.4-1.1   signers 0.5-0.8   hooks 0.5-0.6   briefs 0.3-0.4
+//   formats 0.3-0.4   answers 0.1-0.2   plugin 0.1-0.2   literal 0.0
 //
-// 95 minutes in all, both times. The sweep before them, of the same source in
-// vitest's own order (run 37791578721), took 183, on a table balanced a week
-// earlier on 110 to 119: ADR-0010, amended 2026-10-09, has where the minutes
-// had gone.
+// 104 to 111 minutes in all, where the table of 2026-10-09 was made on 95:
+// the sources have 1,459 more mutants than they had then and the suite 187
+// more tests. ADR-0010 has both measurements, amended 2026-10-09 and
+// 2026-10-14.
 //
 // Stryker instruments only a shard's own files, but here that saves nothing:
 // the suite spends its time in git and the sibling tools rather than in the
 // harness's own code. So a file's minutes add up wherever it goes, and a
-// shard is balanced by adding them; a job takes two to three minutes more,
-// its initial run of the suite. Three in five of the minutes are static
-// mutants, each of which runs every test file until a test fails, and the
-// whole suite when none does or one hangs. So a file's minutes follow the
-// suite's seconds and the file's own static survivors and timeouts: ten
-// survivors in branch.ts, ten timeouts in siblings.ts, five in git.ts.
+// shard is balanced by adding them; a job takes about three minutes more,
+// its start and its initial run of the suite. More than half of the minutes
+// are static mutants, each of which runs every test file until a test
+// fails, and the whole suite when none does or one hangs. So a file's
+// minutes follow the suite's seconds and the file's own static survivors
+// and timeouts: eight survivors in branch.ts, ten timeouts in siblings.ts,
+// five in git.ts.
 //
-// A file that moved between the two sweeps moved with its neighbours. The
-// timeline reads a file's minutes off the count of mutants tested, and the
-// count runs on into the next file while one worker is still on a survivor,
-// so a file is charged for the survivors of the file before it: config.ts
-// took 0.8 minutes after cli.ts and 3.4 after branch.ts. A shard's own
-// minutes are the measure, and the second sweep is why config.ts, hooks.ts
-// and guard.ts are where they are: with config.ts, the shard of branch.ts
-// and reader.ts, fourteen static survivors between them, took 15.2 where the
-// others took 9.7 to 12.7.
+// The timeline reads a file's minutes off the count of mutants tested, and
+// the count runs on into the next file while one worker is still on a
+// survivor, so a file is charged for the survivors of the file before it in
+// its shard. A shard's own minutes are the measure, and a file's are what
+// to move it by. The last shard's files took 13.4 minutes in one of the
+// five sweeps and 19.8 in another of the same source and table, each file
+// of it longer by about the same share: one runner is that much slower
+// than another.
 //
-// A file cannot be split, so no shard takes less time than round.ts,
-// siblings.ts or sandbox.ts, which have a shard each, and eight shards come
-// level with them; a ninth would wait on them. The last shard mutates
-// everything else the base configuration mutates, so a file added later is
-// still mutated without anyone remembering to list it here; it holds the
-// small files. A file listed here must have mutants: the merge refuses a
-// listed file its shard did not report, and document.ts, which holds only
-// types, has none, so it stays in the last shard. When a shard passes the
-// others by more than the sweeps differ - the same shard moved by up to six
-// minutes between two sweeps of the same code and table in vitest's order -
-// re-measure and move files or add a shard, and add it to the workflow's
-// matrix, which a test checks.
+// A file cannot be split, so no shard takes less time than round.ts or
+// sandbox.ts, which have a shard each, and eight shards come level with
+// them; a ninth would wait on them. The last shard mutates everything else
+// the base configuration mutates, so a file added later is still mutated
+// without anyone remembering to list it here; it holds the small files, and
+// is kept the shortest, since that is where the sources grow unasked. A
+// file listed here must have mutants: the merge refuses a listed file its
+// shard did not report, and document.ts, which holds only types, has none,
+// so it stays in the last shard. When a shard keeps passing the others by
+// more than the sweeps differ, re-measure and move files or add a shard,
+// and add it to the workflow's matrix, which a test checks.
 //
-// Minutes in eight shards: by the files' minutes in each of the two sweeps,
-// and in brackets what the shard's files took in the sweep of this table,
-// run 37821498621, on 08b8ab4, where sandbox.ts has 25 more mutants. Its jobs
-// took 12m10s to 16m48s.
+// Two files moved on the five sweeps, both out of the last shard, which had
+// taken 13.4 to 19.8 minutes for its files where the shard of rulings.ts
+// and commands.ts took 9.6 to 11.1: setup.ts to that shard, and usage.ts to
+// the shard of siblings.ts. Beside each shard, what its files took in each
+// of the five sweeps, oldest first.
 export const ASSIGNED = [
-  ['src/round.ts'], // 12.4, 11.4 (11.9)
-  ['src/siblings.ts'], // 12.0, 12.0 (11.0)
-  ['src/sandbox.ts'], // 11.3, 12.7 (13.0)
-  ['src/git.ts', 'src/premises.ts', 'src/host.ts', 'src/briefs.ts', 'src/hooks.ts', 'src/guard.ts'], // 12.6, 11.1 (10.4)
-  ['src/branch.ts', 'src/reader.ts'], // 11.3, 11.7 (13.3)
-  ['src/rulings.ts', 'src/commands.ts'], // 11.2, 11.0 (9.3)
-  ['src/cli.ts', 'src/signers.ts', 'src/workspace.ts', 'src/server.ts', 'src/probe.ts', 'src/config.ts'], // 12.9, 13.2 (11.2)
-]; // and the rest: 11.3, 12.1 (12.8)
+  ['src/round.ts'], // 15.4, 15.4, 14.7, 14.6, 11.2
+  ['src/siblings.ts', 'src/usage.ts'], // 11.6, 14.6, 14.2, 14.8, 13.1
+  ['src/sandbox.ts'], // 14.0, 13.6, 14.1, 14.2, 14.8
+  ['src/git.ts', 'src/premises.ts', 'src/host.ts', 'src/briefs.ts', 'src/hooks.ts', 'src/guard.ts'], // 14.2, 12.4, 15.0, 14.2, 14.5
+  ['src/branch.ts', 'src/reader.ts'], // 12.5, 13.2, 10.5, 12.6, 12.8
+  ['src/rulings.ts', 'src/commands.ts', 'src/setup.ts'], // 13.4, 13.2, 12.3, 14.3, 14.7
+  ['src/cli.ts', 'src/signers.ts', 'src/workspace.ts', 'src/server.ts', 'src/probe.ts', 'src/config.ts'], // 15.4, 11.4, 13.6, 12.9, 10.5
+]; // and the rest: 10.3, 13.3, 9.7, 13.5, 14.5
 
 export const SHARD_COUNT = ASSIGNED.length + 1;
 
