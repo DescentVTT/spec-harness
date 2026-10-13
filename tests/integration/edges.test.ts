@@ -4,11 +4,11 @@ import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 
 import { ConfigError, DEFAULT_CONFIG } from '../../src/config.js';
-import { loadConfig, readJsonObject, readText, realSpelling, repositoryPath, stateDirectory, writeAtomic } from '../../src/fs.js';
-import { addWorktree, blameLine, changes, GitError, mergeBase, revision, show, stagedChanges, workTreeRoot } from '../../src/git.js';
+import { holdsGit, isTop, loadConfig, readJsonObject, readText, realSpelling, repositoryPath, stateDirectory, writeAtomic } from '../../src/fs.js';
+import { addWorktree, blameLine, changes, commonDirectory, currentBranch, GitError, mergeBase, revision, show, stagedChanges, workTree, workTreeRoot } from '../../src/git.js';
 import { runCommand, withWorktree } from '../../src/sandbox.js';
 import { createSiblings, locate, runSibling, SiblingError } from '../../src/siblings.js';
-import { brief, BRIEF_FILE, cleanup, cli, ignoresCase, install, installFake, parsed, repository, ROOT, temp } from './helpers.js';
+import { brief, BRIEF_FILE, cleanup, cli, git, ignoresCase, install, installFake, parsed, repository, ROOT, temp } from './helpers.js';
 
 afterAll(cleanup);
 
@@ -97,6 +97,83 @@ describe('state and files', () => {
     expect(loaded.file).toBe(join(root, '.spec-harness.json'));
     writeFileSync(join(root, '.spec-harness.json'), '{');
     await expect(loadConfig(root)).rejects.toBeInstanceOf(ConfigError);
+  });
+});
+
+describe('the top of a work tree', () => {
+  it('is the directory git names, however the directory was spelled, and no directory below or beside it', () => {
+    const repo = repository({ 'src/a.ts': 'a\n' });
+    const top = repo.git('rev-parse', '--show-toplevel');
+    expect(isTop(repo.root, top)).toBe(true);
+    expect(isTop(join(repo.root, 'src', '..'), top)).toBe(true);
+    expect(isTop(join(repo.root, 'src'), top)).toBe(false);
+    expect(isTop(temp(), top)).toBe(false);
+    // Through a link, which is another spelling of the same directory.
+    const link = join(temp(), 'link');
+    symlinkSync(repo.root, link, 'junction');
+    expect(isTop(link, top)).toBe(true);
+    if (ignoresCase(repo.root)) expect(isTop(repo.root.toUpperCase(), top)).toBe(true);
+  });
+
+  it('holds a .git, a directory or the file that names one, and a directory below it holds none', () => {
+    const repo = repository({ 'src/a.ts': 'a\n' });
+    expect(holdsGit(repo.root)).toBe(true);
+    expect(holdsGit(join(repo.root, 'src'))).toBe(false);
+    expect(holdsGit(temp())).toBe(false);
+    const linked = join(temp(), 'linked');
+    repo.git('worktree', 'add', '-q', '--detach', linked);
+    expect(holdsGit(linked)).toBe(true);
+  });
+
+  it('is named with the common directory in one start of git, as the two are named apart', async () => {
+    const repo = repository({ 'src/a.ts': 'a\n' });
+    const apart = async (cwd: string): Promise<unknown> => ({ root: await workTreeRoot(cwd), commonDir: await commonDirectory((await workTreeRoot(cwd)) as string) });
+    expect(await workTree(repo.root)).toEqual(await apart(repo.root));
+    expect(await workTree(repo.root)).toEqual({ root: repo.git('rev-parse', '--show-toplevel'), commonDir: `${repo.git('rev-parse', '--show-toplevel')}/.git` });
+    // From below, the same top, and the common directory by its whole path.
+    expect(await workTree(join(repo.root, 'src'))).toEqual(await apart(repo.root));
+    // A linked worktree shares the repository's.
+    const linked = join(temp(), 'linked');
+    repo.git('worktree', 'add', '-q', '--detach', linked);
+    expect(await workTree(linked)).toEqual({ root: realpathSync.native(linked).split('\\').join('/'), commonDir: `${repo.git('rev-parse', '--show-toplevel')}/.git` });
+    expect(await workTree(linked)).toEqual(await apart(linked));
+  });
+
+  it('is none in a directory that is in no work tree: outside a repository, in a bare one, and inside a git directory', async () => {
+    const repo = repository({ 'a.txt': 'a\n' });
+    expect(await workTree(temp())).toBeNull();
+    const bare = temp();
+    repo.git('clone', '-q', '--bare', '.', bare);
+    expect(await workTree(bare)).toBeNull();
+    expect(await workTreeRoot(bare)).toBeNull();
+    expect(await workTree(join(repo.root, '.git'))).toBeNull();
+    expect(await workTreeRoot(join(repo.root, '.git'))).toBeNull();
+    expect(await workTree(join(repo.root, 'no-such-directory'))).toBeNull();
+  });
+
+  it('is named in a repository with no commit and on a detached head, where the branch is and is not', async () => {
+    const unborn = temp();
+    git(unborn, 'init', '-q', '-b', 'brief/001-rotate');
+    expect(await workTree(unborn)).toMatchObject({ root: unborn.split('\\').join('/') });
+    expect(await currentBranch(unborn)).toBe('brief/001-rotate');
+    const repo = repository({ 'a.txt': 'a\n' });
+    repo.git('checkout', '-q', '--detach');
+    expect(await workTree(repo.root)).toMatchObject({ root: repo.root.split('\\').join('/') });
+    expect(await currentBranch(repo.root)).toBeNull();
+  });
+
+  it.skipIf(process.platform === 'win32')('is asked for one question at a time where its name holds a line break, or ends in a space', async () => {
+    for (const name of ['two\nlines', 'ends in a space ']) {
+      const root = join(temp(), name);
+      mkdirSync(root);
+      git(root, 'init', '-q', '-b', 'main');
+      expect(await workTree(root), JSON.stringify(name)).toBe('unread');
+    }
+    // The first of them is read whole, one question at a time, as it was.
+    const root = join(temp(), 'two\nlines');
+    mkdirSync(root);
+    git(root, 'init', '-q', '-b', 'main');
+    expect(await workTreeRoot(root)).toBe(root);
   });
 });
 

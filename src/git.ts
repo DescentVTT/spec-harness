@@ -53,6 +53,48 @@ export async function commonDirectory(cwd: string): Promise<string | null> {
   return value(['rev-parse', '--path-format=absolute', '--git-common-dir'], cwd);
 }
 
+/** A work tree as one start of git names it: its top, and the git directory its worktrees share. */
+export interface WorkTree {
+  readonly root: string;
+  readonly commonDir: string;
+}
+
+/**
+ * The top of the work tree holding `cwd` and the common directory, asked of
+ * git in one start where {@link workTreeRoot} and {@link commonDirectory}
+ * are two: `null` outside a work tree, and `'unread'` where the one answer
+ * cannot be taken for the two, which are then to be asked for as they were.
+ *
+ * Measured with git 2.43 and 2.55, rev-parse answers the two in the order
+ * they stand on its line, a line each, and prints nothing where the first
+ * fails. Its manual says of that only that `--show-toplevel` reports an
+ * error where there is no working tree (git-rev-parse(1), Options for
+ * Files, as git 2.55.0 has it, read 2026-10-14), so nothing is read on
+ * trust. Two lines that are each what `trim` would leave, from a git that
+ * did not fail, are the two answers. Nothing printed, by a git that
+ * failed, is the first question failing, the one {@link workTreeRoot}
+ * asks: `cwd` is in no work tree. Anything else is not read: a path that
+ * holds a line break is more lines than two, and so is what a git before
+ * 2.31 would print, to which `--path-format=absolute` is a flag to hand
+ * back (the same manual, Options for Filtering; the option is new in the
+ * release notes of 2.31.0). No such git was measured.
+ *
+ * `--path-format` reaches only what follows it on the line (Options for
+ * Files), so the top is printed as it is where it is asked for alone. The
+ * common directory is asked for from `cwd` here, and from the top by
+ * {@link commonDirectory}: the same directory only where `cwd` is the top.
+ */
+export async function workTree(cwd: string): Promise<WorkTree | 'unread' | null> {
+  const run = await git(['rev-parse', '--show-toplevel', '--path-format=absolute', '--git-common-dir'], cwd);
+  if (run.stdout === '') return run.code === 0 ? 'unread' : null;
+  const lines = run.stdout.split('\n');
+  if (run.code !== 0 || lines.length !== 3 || lines[2] !== '') return 'unread';
+  const root = lines[0]!;
+  const commonDir = lines[1]!;
+  if (root === '' || commonDir === '' || root.trim() !== root || commonDir.trim() !== commonDir) return 'unread';
+  return { root, commonDir };
+}
+
 /**
  * Where git runs the hook `name` from, absolute: `core.hooksPath` read as git
  * reads it - relative to the work tree, absolute, or under `~` - and a linked
