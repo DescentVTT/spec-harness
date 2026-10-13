@@ -252,11 +252,11 @@ jobs:
       # No `retention-days` here. This is the report a later sweep is compared
       # with, and it is kept for as long as the repository keeps any artifact:
       # 14 days today, which is the repository's setting and the most that
-      # may be set there, and a number here could only shorten that. So a
-      # fortnight in which no sweep of main passes leaves a pull request
-      # nothing to compare with, and the step above then says that nothing
-      # was compared. Keeping it a month is a change to that setting and to
-      # no file here (ADR-0010, amended 2026-10-14).
+      # may be set there, and a number here could only shorten that. Monday's
+      # sweep leaves a newer one inside the fortnight. Where two Mondays
+      # running leave none, a pull request has nothing to compare with, and
+      # the step above says that nothing was compared (ADR-0010, amended
+      # 2026-10-14).
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:

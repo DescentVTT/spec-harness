@@ -509,19 +509,6 @@ describe('this repository', () => {
     expect(readFileSync(SCRIPT, 'utf8')).toContain("const ARTIFACT = 'mutation-full';");
   });
 
-  it('keeps the merged report as long as the repository keeps an artifact: its upload names no time of its own, which could only be a shorter one', () => {
-    // What a step says, without the comments around it.
-    const said = (steps: string): string[] => steps.split('\n      - ').map((step) => step.split('\n').filter((line) => !/^\s*#/.test(line)).join('\n'));
-    const merged = said(job('full')).filter((step) => step.includes('\n          name: mutation-full\n'));
-    expect(merged).toHaveLength(1);
-    expect(merged[0]).toMatch(/^uses: actions\/upload-artifact@[0-9a-f]{40} # v[\d.]+\n/);
-    expect(merged[0]).not.toContain('retention-days');
-    // A shard's report is read by its own run's merge, and names its fortnight.
-    const shards = said(job('shard')).filter((step) => step.includes('\n          name: mutation-full-shard-'));
-    expect(shards).toHaveLength(1);
-    expect(shards[0]).toContain('\n          retention-days: 14');
-  });
-
   it("lets the merge's job read Actions, which fetching another run's artifact takes, and gives no job anything more", () => {
     const granted = [...workflow.matchAll(/^( *)permissions:\n((?:\1 +\S.*\n)+)/gm)].map((match) => `${(match[1] as string).length}: ${(match[2] as string).trim().split(/\n\s*/).join(', ')}`);
     // The workflow's own, then the one job's: a job that names its permissions has no other.

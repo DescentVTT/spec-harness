@@ -941,6 +941,32 @@ five sweeps, file by file:
 The other five are as they were, with means of 12.3 to 14.3 minutes, so
 the eight stand at 12.2 to 14.3 where they stood at 10.4 to 17.0, and the
 last shard is the shortest, since that is where the sources grow unasked.
+The sweep of the commit that brought this table measured it (run
+38463439916, 97.70% over 9,483 mutants, no undetected mutant new against
+main's, and one of main's gone, `'hex'` in `round.ts`, which the amendment
+of 2026-10-01 has as killed now and then):
+
+| Shard | Its files, added up from the five sweeps | In run 38463439916 | Its job |
+| --- | ---: | ---: | ---: |
+| `round.ts` | 14.3 | 14.7 | 17m39s |
+| `siblings.ts`, `usage.ts` | 13.7 | 15.6 | 18m31s |
+| `sandbox.ts` | 14.1 | 14.1 | 17m11s |
+| `git.ts`, `premises.ts`, `host.ts`, `briefs.ts`, `hooks.ts`, `guard.ts` | 14.1 | 14.3 | 17m13s |
+| `branch.ts`, `reader.ts` | 12.3 | 12.7 | 15m37s |
+| `rulings.ts`, `commands.ts`, `manifests.ts`, `context.ts`, `junit.ts` | 13.7 | 12.9 | 15m27s |
+| `cli.ts`, `signers.ts`, `workspace.ts`, `server.ts`, `probe.ts`, `config.ts` | 12.8 | 12.7 | 15m20s |
+| the rest | 12.2 | 12.5 | 15m57s |
+
+Its jobs took 15m20s to 18m31s, where those of the first table took 12m10s
+to 20m05s and those of the five sweeps before it 12m17s to 22m49s. Beside
+the three files that bring unit tests alone, the static mutants of
+`commands.ts` ran 3,635 tests, none of them more than 600. The shard of
+`siblings.ts` and `usage.ts` was the longest, at 15.6 minutes where the
+sum gave 13.7 and the run before had it at 14.5: the static mutants of
+`siblings.ts` ran 11,640 and 11,431 tests in the two runs where they had
+run 9,173 and 9,749 alone. If a shard keeps passing the others it is that
+one, and `usage.ts` goes back to the last.
+
 No test names a file's shard: `tests/mutation-shards.test.ts` holds the
 table to the configuration and to the workflow's matrix, and passes with it
 as it did. The sign to measure again stays a shard that keeps passing 22
@@ -971,15 +997,33 @@ From GitHub's documentation as read the same day:
   workflow runs and commit statuses as well from 2026-10-01.
 
 What follows, and is not the pages': no line of this workflow can keep the
-report a month. An owner raising the organisation's limit and then the
-repository's setting can, and the merged report then follows it with no
-change here, since its upload names no time of its own;
-`tests/mutation-compare.test.ts` holds that it names none. Until then a
-fortnight in which no sweep of main passes leaves a pull request's sweep
-nothing to compare with, and it says that nothing was compared. And a run
-made since 2026-10-01 is kept as long as its artifacts are: the runs this
-record cites by number will stop answering fourteen days after each, and
-the figures written here are then what is left of them.
+report a month, and none is added for it. The limit is the organisation's
+to set. Where an owner raises it, the merged report follows with no change
+here, since its upload names no time of its own. And a run made since
+2026-10-01 is kept as long as its artifacts are: the runs this record cites
+by number will stop answering fourteen days after each, and the figures
+written here are then what is left of them.
+
+What does hold is the schedule. Monday's sweep of main leaves a newer
+report inside the fourteen days, and so does a push to main that changes
+one of the workflow's paths. The schedule has run on each of the three
+Mondays since the workflow has had it, 2026-09-28, 2026-10-05 and
+2026-10-12 (runs 36416689848, 37307780901 and 38252478668), and each sweep
+passed: no Monday has yet failed to leave a report. Each was made 6h37m to
+7h59m after the hour its cron names. *Events that trigger workflows*, under
+`schedule`, as read on 2026-10-14, has a scheduled run delayed while GitHub
+is under load, the start of an hour above all, and at times dropped, and
+has a public repository's schedules switched off after 60 days in which
+nothing happens in it.
+
+So a pull request's sweep has nothing to compare with only after two
+Mondays running whose sweep did not pass, or did not run, with no such
+push between them. What it says then is the amendment of 2026-10-12's: a
+warning in the log and the summary *not compared*, with the reason, that
+main has no full sweep that passed or that none of its five newest gave
+its report, and exit 0. It never reads as none new. The way back is a
+sweep of main, `gh workflow run mutation.yml --ref main`, after which the
+pull request's sweep, run again, has a report to fetch.
 
 **The count of what stands under an `as` is held to the Stryker
 installed.** spec-core's test of the same count found three defects that
