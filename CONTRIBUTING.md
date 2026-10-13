@@ -61,10 +61,15 @@ is known of new survivors: download the two sweeps' `mutation-full`
 artifacts and compare them with the same script,
 `node scripts/mutation-compare.mjs <main's mutation.json> <this sweep's mutation.json>`.
 
-A change to the tests alone, to the vendored spec-core or to a dependency
-runs no full sweep; the weekly one reads those. Run it on a branch before
-then where a change of that kind is meant to move a verdict
-(`gh workflow run mutation.yml --ref <branch>`).
+A change to the integration suite, anything under `tests/integration`, or
+to the vendored spec-core runs the sweep as well, since its verdicts are
+made of both. A dependency's bump alone runs none, and neither does a unit
+test alone; the weekly sweep reads those. Run it on a branch before then
+where a change of that kind is meant to move a verdict
+(`gh workflow run mutation.yml --ref <branch>`): a bump of spec-brief or
+spec-guard, which the integration suite runs, or a change to
+`tests/unit/git.test.ts` or `tests/unit/workspace.test.ts`, whose modules
+the core sweep does not mutate whole.
 
 ## Sibling minimums
 

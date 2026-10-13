@@ -16,7 +16,7 @@
  * A file of its own, because a mock reaches everything the file imports.
  */
 
-import { copyFileSync, linkSync, symlinkSync } from 'node:fs';
+import { chmodSync, copyFileSync, linkSync, symlinkSync } from 'node:fs';
 import { basename, join } from 'node:path';
 
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -110,6 +110,17 @@ function atOnce(...parts: readonly string[]): boolean {
   return Math.max(...parts.map((part) => when('asked', part))) < Math.min(...parts.map((part) => when('answered', part)));
 }
 
+/**
+ * Waits until every answer still on its way is in. A run that ends on a
+ * fault of a work tree it was opening leaves the two processes it had asked
+ * at once with the configuration, and their answers are not the next test's
+ * to count.
+ */
+async function settled(): Promise<void> {
+  const count = (what: 'asked' | 'answered'): number => seen.log.filter((entry) => entry.what === what).length;
+  await vi.waitFor(() => expect(count('answered')).toBe(count('asked')), { timeout: 60_000, interval: 20 });
+}
+
 const TOP = 'rev-parse --show-toplevel';
 const COMMON = '--git-common-dir';
 /** The top and the common directory, asked in one start of git. */
@@ -179,16 +190,21 @@ describe('doctor', () => {
     when('answered', SIGNERS);
   });
 
-  it('ends on the first of them to fail in the order it read them in, whichever failed first', async () => {
+  // A directory for git's hook ended a run too, and is now a line of the
+  // report (ADR-0005). What is left at the hook's path that ends one is a file
+  // the account may not read, which only a system with such bits can hold,
+  // and which an account that may do anything reads all the same.
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)('ends on the first of them to fail in the order it read them in, whichever failed first', async () => {
     // Two things fail. The root on the hook's line has a configuration that
-    // does not load, and git's pre-commit hook is a directory, which is not
-    // read as a hook. The line was read before the hook was, so the run ends
-    // on the line's fault, said in a line. Here the hook's fault is known
-    // first: the root's work tree is not answered until git has been asked
-    // for the signers' file, two answers after it was asked where its hooks are.
+    // does not load, and git's pre-commit hook is a file nobody may read.
+    // The line was read before the hook was, so the run ends on the line's
+    // fault, said in a line. Here the hook's fault is known first: the
+    // root's work tree is not answered until git has been asked for the
+    // signers' file, two answers after it was asked where its hooks are.
     const broken = repository({ '.spec-harness.json': '{ not json' }, null);
-    const repo = repository({ '.claude/settings.json': JSON.stringify({ hooks: { PreToolUse: [{ hooks: [line('--root', broken.root, '--brief', '001')] }] } }), '.githooks/pre-commit/keep': '' });
+    const repo = repository({ '.claude/settings.json': JSON.stringify({ hooks: { PreToolUse: [{ hooks: [line('--root', broken.root, '--brief', '001')] }] } }), '.githooks/pre-commit': '#!/bin/sh\n' });
     repo.git('config', 'core.hooksPath', '.githooks');
+    chmodSync(join(repo.root, '.githooks', 'pre-commit'), 0o000);
     seen.kept = { answer: TOP, nth: 2, until: SIGNERS };
     const result = await cli(['doctor'], repo.root, { env: { PATH: temp() } });
     expect(result).toMatchObject({ code: 2, stdout: '' });
@@ -198,7 +214,24 @@ describe('doctor', () => {
     seen.kept = null;
     const alone = await cli(['doctor'], repo.root, { env: { PATH: temp() } });
     expect(alone).toMatchObject({ code: 2, stdout: '' });
-    expect(alone.stderr).toContain('EISDIR');
+    expect(alone.stderr).toContain('EACCES');
+    await settled();
+  });
+
+  it('ends on a fault of the root on the hook\'s line however late it is known, and on nothing the report has a line for', async () => {
+    // What stands for git's pre-commit hook is a directory, which is said in
+    // the report and ends no run. The root on the hook's line has a
+    // configuration that does not load, and its work tree is not answered
+    // until git has been asked for the signers' file, by when the hook has
+    // long been read: the run ends on the line's fault all the same.
+    const broken = repository({ '.spec-harness.json': '{ not json' }, null);
+    const repo = repository({ '.claude/settings.json': JSON.stringify({ hooks: { PreToolUse: [{ hooks: [line('--root', broken.root, '--brief', '001')] }] } }), '.githooks/pre-commit/keep': '' });
+    repo.git('config', 'core.hooksPath', '.githooks');
+    seen.kept = { answer: TOP, nth: 2, until: SIGNERS };
+    const result = await cli(['doctor'], repo.root, { env: { PATH: temp() } });
+    expect(result).toMatchObject({ code: 2, stdout: '' });
+    expect(result.stderr).toMatch(/^spec-harness: \.spec-harness\.json is not valid JSON: .*\n$/);
+    await settled();
   });
 });
 

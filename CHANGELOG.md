@@ -11,42 +11,66 @@ cannot turn a run red. The family's policy is
 
 ## Unreleased
 
+`doctor` and `init` say more of what looks like a guard and checks
+nothing: a matcher the Claude Code on this machine reads otherwise, and a
+root on the hook's line that is in another work tree. And a directory where
+git looks for its hook, or a probe for its report, ends in a sentence where
+it ended on a stack
+([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
+
+### Changed
+
+- **A matcher that lists names with a comma is read as the Claude Code on
+  `PATH` reads it.** A comma separates names from Claude Code 2.1.191 on;
+  before it, by Claude Code's page on debugging a configuration, the matcher
+  matched no tool, and `doctor` said a line under `Edit, Write` guards
+  where Claude Code never started it. Under an older release the line is
+  now said as no guard, with the release and what the matcher is from
+  2.1.191 on, and `init --write` writes its own hooks beside it; where the
+  release cannot be told, or the matcher holds a `|` as well, it is
+  *cannot tell*.
+  Upgrading: under a Claude Code older than 2.1.191 `doctor` reports no
+  guard for such a line, exits 0 where it exited 1 for the plugin beside it,
+  and `--strict` fails a matcher with a comma and a `|`. Write the matcher
+  with `|` alone, as `Edit|Write`, or update Claude Code.
+- **`doctor` fails where an array for a matcher keeps Claude Code from
+  loading a settings file's hooks.** By the same page, a `matcher` that is
+  an array is an invalid setting that starts no hook, and under
+  `PreToolUse` or `PermissionRequest` none of that file's other hooks
+  load either. Every line of the hook in such a file is said as one Claude
+  Code does not start, a guard that is off where it stood to be started for
+  a write, and `init` writes no hook into the file (`advise`).
+  Upgrading: `doctor` exits 1 for such a file, where it exited 0, or 1
+  under `--strict` alone: write the matcher as one string, its names
+  between `|`.
+- **`doctor` fails for a hook's line whose root is in a work tree that does
+  not hold the project.** The hook opens the work tree its root is in and
+  passes a write to any file outside it with no word, so under a root in a
+  repository beside the project, or in one inside it, a submodule or a
+  linked worktree among them, no write to the project is checked: the line
+  is said as a guard that is off, and `init` advises. Under a root in a
+  work tree that holds the project, `doctor` says whose briefs a write
+  here is checked by, and fails nothing.
+  Upgrading: `doctor` exits 1 for such a line, where it exited 0: give the
+  line a directory in the project's work tree, or take `--root` off it.
+- **`doctor` and `init` say a directory at the path of git's pre-commit
+  hook, where they ended on a stack.** git tries to run whatever it may
+  execute there, cannot run a directory, and stops every commit, so
+  `doctor` says the path and what git does with it and exits 1; `init`
+  advises and writes nothing over it. Where git may not execute it and
+  skips it, that is said and fails nothing. `--format json` has the two as
+  the `gitHook.state` `stops` and `ignored`.
+  Upgrading: `doctor` exits 1 there, and `init` 0, where each exited 2
+  with `unexpected error: Error: EISDIR`. Take the directory away, then run
+  `spec-harness init --git-hook --write`.
+
 ### Fixed
 
-- **A command loads what it runs, and the hook no other command.** `hook
-  claude` is started before and after every write an agent makes, and the
-  command line loaded every command before it read which one was typed: 52
-  modules, 44 ms on Linux, half of a hook that names no brief. A module
-  that only some commands run is now loaded where one of them is the
-  command, and such a hook loads 26. Measured on Linux with the two builds
-  taking turns, at the median of ten runs, the hook took 72 ms where it
-  took 96, and 171 where it took 196 on a brief's branch; `doctor` 97 where
-  it took 114, and `--version` 45 where it took 80. Nothing any command
-  prints changes, nor an exit code, but in a build with a file of `dist/`
-  missing: a command that does not run that module now answers, where
-  every command ended on `build output is missing`, and one that runs it
-  ends on that line still, exit 2. In the programmatic API, `checkPaths`
-  takes as its reader a reader or a function that makes one
-  ([ADR-0002](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0002-siblings-through-their-command-lines.md)).
-- **A work tree is opened in two starts of git, asked at once, where it
-  took three in two waves.** Git is asked for the top of the work tree and
-  its common directory in one start, and where the command runs at the top
-  of its work tree, for the branch beside them. A process is what a command
-  takes on a Windows workstation. Measured on one whose every processor
-  other work held, where starting node to do nothing took five seconds,
-  with the two builds taking turns, at the median of ten runs: a hook that
-  names no brief took 13.7 seconds where it took 22.7, with this and the
-  change above. On Linux, where git answers in milliseconds, it is three
-  of the 24 milliseconds the hook is quicker by. Below the top of a work
-  tree, and in a directory that is in none, as many processes are started
-  as before.
-- **A write the brief protects is refused without asking git for the
-  base.** The base is read for the allowed signers a ruling is checked
-  against, and it was resolved, three of git's processes, before the
-  brief's rulings were read. Where no ruling of the brief allows anything
-  the refusal now starts three processes where it started seven, and on
-  that Windows workstation took 20.9 seconds where it took 35.0; where one
-  does, the base is asked for as before.
+- **`probe` says a report that is a directory, where it ended on a
+  stack.** Where a probe's `junit` names a directory the repository holds,
+  the run is `no-report`, `cannot be read: it is a directory, not a
+  report`, and the probe invalid, exit 1, where it was `unexpected error`
+  and exit 2.
 
 ## 0.17.0
 

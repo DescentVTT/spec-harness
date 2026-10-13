@@ -226,6 +226,14 @@ describe('probe', () => {
     ]);
   });
 
+  it('says of a report that is a directory, which a repository can hold, that it cannot be read, and judges the run as one with no report', async () => {
+    const repo = defect('id: v\nrun: node -e "process.exit(1)"\ntest: value is fixed\njunit: reports', { tracked: { 'reports/keep': 'x\n' } });
+    const result = await cli(['probe', '--format', 'json'], repo.root);
+    // A verdict, and no error of Node's: the probe is invalid, which is exit 1.
+    expect({ code: result.code, stderr: result.stderr }).toEqual({ code: 1, stderr: '' });
+    expect(parsed<ProbeReport>(result).results[0]?.runs).toEqual([{ outcome: 'no-report', detail: 'reports cannot be read: it is a directory, not a report', output: '' }]);
+  });
+
   it('writes each probe file with a final newline, and runs the setup before the probe', async () => {
     const check = "const text = require('node:fs').readFileSync('data.txt', 'utf8'); console.log(text === 'x\\n' ? 'expected fixed' : JSON.stringify(text)); process.exit(1);";
     const repo = defect('id: v\nsetup: node -e "process.exit(0)"\nrun: node check.js\nsignature: expected fixed', { files: { 'check.js': check, 'data.txt': 'x' } });

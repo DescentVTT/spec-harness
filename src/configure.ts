@@ -14,9 +14,9 @@ import { runInNewContext } from 'node:vm';
 import { CALLABLE_TOOLS } from './hooks.js';
 import { literal } from './literal.js';
 import type { AllowedSigner } from './signers.js';
-import type { HookLine } from './usage.js';
+import { namedTree, type HookLine } from './usage.js';
 import { parseGlobList } from './vendor/spec-core/pattern/index.js';
-import { CLAUDE_CODE_MINIMUM, type ClaudeCodeCheck } from './versions.js';
+import { CLAUDE_CODE_MINIMUM, meets, parseVersion, type ClaudeCodeCheck } from './versions.js';
 
 type Json = Record<string, unknown>;
 
@@ -104,17 +104,92 @@ function upgraded(group: unknown): unknown {
  * `_`, `-`, spaces, `,` and `|` alone, the tools it names, one between each
  * `|` or `,`; with any other character in it, a JavaScript regular
  * expression that may match anywhere in a tool's name. `null` where the
- * reference does not say, or it cannot be told: a matcher that is not text,
- * is no pattern, or is a pattern whose reading runs out its budget.
+ * reference does not say, or it cannot be told: a matcher that is neither
+ * text nor an array, is no pattern, or is a pattern whose reading runs out
+ * its budget.
+ *
+ * Two things its page on debugging a configuration adds
+ * (https://code.claude.com/docs/en/debug-your-config, Check hooks and Check
+ * common causes, read 2026-10-14). A matcher that is an array is an entry
+ * Claude Code lists as an invalid setting, among the reasons a hook is not
+ * loaded and never fires: no tool. And a comma separates names only from
+ * {@link COMMA_SINCE} on, so a matcher that lists names with one is read as
+ * `commas` has the Claude Code here read it.
  */
-function matchedTools(matcher: unknown, pattern: PatternReader): readonly string[] | null {
+function matchedTools(matcher: unknown, pattern: PatternReader, commas: Commas): readonly string[] | null {
   if (matcher === undefined || matcher === '' || matcher === '*') return CALLABLE_TOOLS;
+  if (Array.isArray(matcher)) return [];
   if (typeof matcher !== 'string') return null;
-  if (/^[A-Za-z0-9_\- ,|]*$/.test(matcher)) {
-    const names = matcher.split(/[|,]/).map((name) => name.trim());
-    return CALLABLE_TOOLS.filter((tool) => names.includes(tool));
-  }
-  return pattern(matcher);
+  if (!NAMES.test(matcher)) return pattern(matcher);
+  const comma = commas.as === 'separator' ? null : commaReading(matcher, pattern);
+  if (comma === null) return listedTools(matcher);
+  if (commas.as === 'pattern') return comma.earlier;
+  // Which of the two readings holds cannot be told, and where both are no
+  // tool that writes it need not be.
+  return comma.earlier !== null && comma.listed.length === 0 ? comma.listed : null;
+}
+
+/** A matcher that is a name, or names between `|` and `,`: what the reference compares with a tool's name exactly. */
+const NAMES = /^[A-Za-z0-9_\- ,|]*$/;
+
+/** The writing tools a matcher of names lists, one between each `|` or `,`. */
+function listedTools(matcher: string): readonly string[] {
+  const names = matcher.split(/[|,]/).map((name) => name.trim());
+  return CALLABLE_TOOLS.filter((tool) => names.includes(tool));
+}
+
+/**
+ * The release of Claude Code from which a comma in a matcher separates
+ * names as a `|` does. Its page on debugging a configuration (Check hooks,
+ * read 2026-10-14) has a comma before it fall through to the reading of a
+ * pattern, under which the matcher never matched, and its changelog has the
+ * fix under this release: hooks with comma-separated matchers no longer
+ * silently never firing.
+ */
+export const COMMA_SINCE = '2.1.191';
+
+/**
+ * How the Claude Code that runs the hooks reads a comma in a matcher of
+ * names: as a separator, from {@link COMMA_SINCE} on; as part of a pattern,
+ * in the release named, which is older; or it cannot be told, where the
+ * release cannot.
+ */
+export type Commas = { readonly as: 'separator' } | { readonly as: 'pattern'; readonly release: string } | { readonly as: 'untold' };
+
+/** The reading every release from {@link COMMA_SINCE} on has, and what a caller that asks no release is given. */
+const SEPARATOR: Commas = { as: 'separator' };
+
+/**
+ * How the Claude Code doctor asked its release reads a comma. A release that
+ * was not asked, or could not be told, leaves the reading untold: asked or
+ * not, nothing says which it is.
+ */
+export function commasUnder(release: ClaudeCodeCheck | null): Commas {
+  if (release === null || release.state === 'unknown') return { as: 'untold' };
+  // A release that was told is one whose version was read as one, and the
+  // constant is a version, so both parse.
+  return meets(parseVersion(release.version)!, parseVersion(COMMA_SINCE)!) ? SEPARATOR : { as: 'pattern', release: release.version };
+}
+
+/** A matcher of names that holds a comma, by the two readings a release may have of it. */
+interface CommaReading {
+  /** From {@link COMMA_SINCE} on: the writing tools it lists. */
+  readonly listed: readonly string[];
+  /**
+   * Before it: no tool, where the matcher read as a pattern matches none of
+   * the writing tools, which is what the page has such a matcher do. `null`
+   * where read as a pattern it matches one, as `Edit|Write,Bash` matches
+   * `Edit`: the page says a comma is read as part of a pattern and says the
+   * matcher never matched, and for such a matcher the two disagree.
+   */
+  readonly earlier: readonly string[] | null;
+}
+
+/** The two readings of a matcher of names that holds a comma, or `null` for any other matcher, which every release reads one way. */
+function commaReading(matcher: unknown, pattern: PatternReader): CommaReading | null {
+  if (typeof matcher !== 'string' || !NAMES.test(matcher) || !matcher.includes(',')) return null;
+  const read = pattern(matcher);
+  return { listed: listedTools(matcher), earlier: read !== null && read.length === 0 ? read : null };
 }
 
 /**
@@ -191,10 +266,10 @@ function inBackground(hook: Json): boolean {
  * entry started only for the calls its rule matches, in the syntax of a
  * permission rule, which is not read here.
  */
-function answered(event: string, matcher: unknown, hook: Json, pattern: PatternReader): readonly string[] | null {
+function answered(event: string, matcher: unknown, hook: Json, pattern: PatternReader, commas: Commas): readonly string[] | null {
   if (event === BEFORE && inBackground(hook)) return [];
   if (hook['if'] !== undefined) return null;
-  return matchedTools(matcher, pattern);
+  return matchedTools(matcher, pattern, commas);
 }
 
 /**
@@ -212,10 +287,19 @@ function answered(event: string, matcher: unknown, hook: Json, pattern: PatternR
  *
  * `pattern` reads a matcher that is a pattern: the run's own reader, where
  * the run has read the file's matchers already ({@link patternReader}).
+ * `commas` is how the Claude Code here reads a comma in a matcher of names,
+ * where the run asked its release ({@link commasUnder}): a line that
+ * release starts for no write is no guard, and init's own is written beside
+ * it.
  */
-export function mergeClaudeSettings(current: Json, isHook: (words: readonly string[]) => boolean = () => false, pattern: PatternReader = patternReader()): Json | null {
+export function mergeClaudeSettings(
+  current: Json,
+  isHook: (words: readonly string[]) => boolean = () => false,
+  pattern: PatternReader = patternReader(),
+  commas: Commas = SEPARATOR,
+): Json | null {
   const hooks = isObject(current['hooks']) ? current['hooks'] : {};
-  const theirs = harnessEntries(current).some((entry) => !isGuard(entry.hook) && !isLegacyGuard(entry.hook) && isHook(entry.words) && isStarted(toolsOf(entry, pattern)));
+  const theirs = harnessEntries(current).some((entry) => !isGuard(entry.hook) && !isLegacyGuard(entry.hook) && isHook(entry.words) && isStarted(toolsOf(entry, pattern, commas)));
   if (theirs) return null;
   let changed = false;
   const next: Json = { ...hooks };
@@ -224,7 +308,7 @@ export function mergeClaudeSettings(current: Json, isHook: (words: readonly stri
     const before: unknown[] = Array.isArray(listed) ? listed : [];
     const groups = before.map(upgraded);
     const replaced = groups.some((group, index) => group !== before[index]);
-    const present = harnessEntries({ hooks: { [event]: groups } }).some((entry) => isGuard(entry.hook) && isStarted(toolsOf(entry, pattern)));
+    const present = harnessEntries({ hooks: { [event]: groups } }).some((entry) => isGuard(entry.hook) && isStarted(toolsOf(entry, pattern, commas)));
     if (!present) groups.push({ matcher: HOOK_MATCHER, hooks: [{ ...GUARD_HOOK, args: [...GUARD_ARGS] }] });
     if (replaced || !present) {
       next[event] = groups;
@@ -366,8 +450,8 @@ interface HarnessEntry extends Line {
  * `null` where that cannot be told. Read where it is asked for and no
  * sooner: a matcher that is a pattern can cost its whole budget.
  */
-function toolsOf(entry: HarnessEntry, pattern: PatternReader): readonly string[] | null {
-  return answered(entry.event, entry.matcher, entry.hook, pattern);
+function toolsOf(entry: HarnessEntry, pattern: PatternReader, commas: Commas): readonly string[] | null {
+  return answered(entry.event, entry.matcher, entry.hook, pattern, commas);
 }
 
 /** Every entry that runs the harness under the two events the guard answers, in the order the settings hold them. */
@@ -404,7 +488,8 @@ export interface HookReport {
    * `guards`: Claude Code waits on the hook before a write, and the hook
    * checks it. `off`: the hook checks no write, for a line it cannot read, a
    * root that is no directory, or a root that is a directory outside any
-   * work tree. `held`: the hook holds every write, for a
+   * work tree; or it is never started, in a file an array for a matcher
+   * keeps Claude Code from loading the hooks of. `held`: the hook holds every write, for a
    * brief the line names that is not one. `unstarted`: Claude Code waits on
    * the line before no write, so it is not the guard. `unknown`: what the
    * hook is handed, which writes it is started for, or whether Claude Code
@@ -445,18 +530,42 @@ function named(names: readonly string[]): string {
 }
 
 /** The writing tools a line's entries under `event` are waited on for between them, or `null` where an entry that cannot be told might add one. */
-function toolsUnder(event: string, entries: readonly HarnessEntry[], pattern: PatternReader): readonly string[] | null {
-  const read = entries.filter((entry) => entry.event === event).map((entry) => toolsOf(entry, pattern));
+function toolsUnder(event: string, entries: readonly HarnessEntry[], reading: Reading): readonly string[] | null {
+  const read = entries.filter((entry) => entry.event === event).map((entry) => toolsOf(entry, reading.pattern, reading.commas));
   const sure = CALLABLE_TOOLS.filter((tool) => read.some((tools) => tools !== null && tools.includes(tool)));
   return sure.length < CALLABLE_TOOLS.length && read.some((tools) => tools === null) ? null : sure;
 }
 
+/** What a run reads every matcher with: its reader of patterns, and how the Claude Code here reads a comma. */
+interface Reading {
+  readonly pattern: PatternReader;
+  readonly commas: Commas;
+}
+
+/**
+ * What is said after a matcher that Claude Code does not read as its text
+ * suggests: an array, which it loads no hook under, and names with a comma
+ * where the release here reads the comma another way than the newest does,
+ * or cannot be told. Nothing for any other matcher, and nothing for a comma
+ * where both readings come to no tool that writes.
+ */
+function saidOfMatcher(matcher: unknown, { pattern, commas }: Reading): string {
+  if (Array.isArray(matcher)) return ', an array, which Claude Code lists as an invalid setting and loads no hook under';
+  if (commas.as === 'separator') return '';
+  const comma = commaReading(matcher, pattern);
+  if (comma === null || (comma.earlier !== null && comma.listed.length === 0)) return '';
+  const listed = comma.listed.length === 0 ? 'no tool that writes' : named(comma.listed);
+  const earlier = comma.earlier === null ? 'a pattern whose matches its documentation does not give' : 'a pattern that matches no tool';
+  if (commas.as === 'untold') return `, which is ${listed} from Claude Code ${COMMA_SINCE} on, where a comma separates names, and ${earlier} before it: the release here cannot be told`;
+  return `, which Claude Code ${commas.release} reads as ${earlier}: a comma separates names from ${COMMA_SINCE} on, where the matcher is ${listed}`;
+}
+
 /** What a line's entries under `event` hold that decides when Claude Code starts them, as written. */
-function entriesUnder(event: string, entries: readonly HarnessEntry[]): string {
+function entriesUnder(event: string, entries: readonly HarnessEntry[], reading: Reading): string {
   const under = entries.filter((entry) => entry.event === event);
   if (under.length === 0) return `it stands under no ${event}`;
   const said = under.map(({ matcher, hook }) => {
-    const pattern = matcher === undefined ? 'no matcher' : `the matcher ${JSON.stringify(matcher)}`;
+    const pattern = matcher === undefined ? 'no matcher' : `the matcher ${JSON.stringify(matcher)}${saidOfMatcher(matcher, reading)}`;
     const background = inBackground(hook) ? ' in the background' : '';
     const rule = hook['if'] === undefined ? '' : ` with "if" ${JSON.stringify(hook['if'])}`;
     return `${pattern}${background}${rule}`;
@@ -472,19 +581,61 @@ function entriesUnder(event: string, entries: readonly HarnessEntry[]): string {
  * hook still reads a path from, is named as unchecked for no line, since no
  * such Claude Code has it to call (hooks.ts).
  */
-function describeCover(where: string, before: readonly string[] | null, after: readonly string[] | null, entries: readonly HarnessEntry[]): string | null {
+function describeCover(where: string, before: readonly string[] | null, after: readonly string[] | null, entries: readonly HarnessEntry[], reading: Reading): string | null {
   const parts: string[] = [];
   const left = (tools: readonly string[]): string[] => CALLABLE_TOOLS.filter((tool) => !tools.includes(tool));
-  if (before === null) parts.push(`which writes Claude Code waits on it before cannot be told here (${entriesUnder(BEFORE, entries)})`);
-  else if (before.length === 0) parts.push(`Claude Code waits on it before no write, so it is not the guard and refuses none (${entriesUnder(BEFORE, entries)})`);
+  if (before === null) parts.push(`which writes Claude Code waits on it before cannot be told here (${entriesUnder(BEFORE, entries, reading)})`);
+  else if (before.length === 0) parts.push(`Claude Code waits on it before no write, so it is not the guard and refuses none (${entriesUnder(BEFORE, entries, reading)})`);
   else if (left(before).length > 0) {
-    parts.push(`Claude Code waits on it before a write by ${named(before)}, and before none by ${named(left(before))}, which goes unchecked (${entriesUnder(BEFORE, entries)})`);
+    parts.push(`Claude Code waits on it before a write by ${named(before)}, and before none by ${named(left(before))}, which goes unchecked (${entriesUnder(BEFORE, entries, reading)})`);
   }
-  if (after === null) parts.push(`which writes it is started after cannot be told here (${entriesUnder(AFTER, entries)})`);
-  else if (after.length === 0) parts.push(`it is started after no write, so it warns of none (${entriesUnder(AFTER, entries)})`);
-  else if (left(after).length > 0) parts.push(`it is started after a write by ${named(after)} alone (${entriesUnder(AFTER, entries)})`);
+  if (after === null) parts.push(`which writes it is started after cannot be told here (${entriesUnder(AFTER, entries, reading)})`);
+  else if (after.length === 0) parts.push(`it is started after no write, so it warns of none (${entriesUnder(AFTER, entries, reading)})`);
+  else if (left(after).length > 0) parts.push(`it is started after a write by ${named(after)} alone (${entriesUnder(AFTER, entries, reading)})`);
   return parts.length === 0 ? null : `${where}: ${parts.join('; ')}`;
 }
+
+/** The events under which an array for a matcher keeps Claude Code from loading the rest of a file's hooks. */
+const UNLOADING: readonly string[] = [BEFORE, 'PermissionRequest'];
+
+/** An array that stands for a matcher where it unloads a settings file's hooks: the event it stands under, and the array as written. */
+export interface ArrayMatcher {
+  readonly event: string;
+  readonly matcher: string;
+}
+
+/**
+ * The first array that stands for a matcher under `PreToolUse` or
+ * `PermissionRequest` in a settings file, or `null`.
+ *
+ * Claude Code's page on debugging a configuration
+ * (https://code.claude.com/docs/en/debug-your-config, Check hooks, read
+ * 2026-10-14) has a matcher that is an array, where it must be one string,
+ * as an entry Claude Code lists as an invalid setting, at the start of an
+ * interactive session and in `claude doctor`; and where the array is under
+ * one of these two events, none of that file's other hooks load either. It
+ * names no release. So a file that holds one runs no hook at all, whoever
+ * wrote the entry and whatever it runs: the array's own is not loaded, and
+ * neither is any other.
+ */
+export function arrayMatcher(settings: unknown): ArrayMatcher | null {
+  const hooks = field(settings, 'hooks');
+  for (const event of UNLOADING) {
+    const groups = field(hooks, event);
+    if (!Array.isArray(groups)) continue;
+    const group = groups.find((candidate) => Array.isArray(field(candidate, 'matcher')));
+    if (group !== undefined) return { event, matcher: JSON.stringify(field(group, 'matcher')) };
+  }
+  return null;
+}
+
+/** What is said of a settings file that an array for a matcher keeps Claude Code from loading the hooks of. */
+export function describeArrayMatcher(file: string, { event, matcher }: ArrayMatcher): string {
+  return `${file} has an array for a matcher under ${event}, ${matcher}, which Claude Code lists as an invalid setting, and beside one under PreToolUse or PermissionRequest it loads none of the file's other hooks`;
+}
+
+/** How a matcher that is an array is mended. */
+export const ONE_STRING = 'write the matcher as one string, its names between "|"';
 
 /** The words Claude Code hands the hook for a line: what follows the harness's command, each `${CLAUDE_PROJECT_DIR}` filled with `project`. */
 function handedWords(words: readonly string[], project: string): string[] {
@@ -506,23 +657,35 @@ export function handedLines(sources: readonly ClaudeSettings[], project: string)
  * A line that guards and holds no more than a release wrote is reported
  * with nothing to say, as it always was. One with more on it is said as it
  * is, and fails nothing. One the hook cannot read, or whose root is no
- * directory, is a guard that is off, and one that names a brief which is not
+ * directory, or is in no work tree that holds the project, is a guard that
+ * is off, and one that names a brief which is not
  * one holds every write: each a problem, and doctor exits 1 for it. A line
  * Claude Code waits on before no write is not the guard, whatever the hook
  * would do with it.
  *
  * `pattern` reads a matcher that is a pattern, once for every entry under
  * it in every file: the run's own reader, where something else in the run
- * reads the same files ({@link patternReader}).
+ * reads the same files ({@link patternReader}). `commas` is how the Claude
+ * Code here reads a comma in a matcher of names, where its release was
+ * asked ({@link commasUnder}); a caller that asks none reads a comma as
+ * every release from {@link COMMA_SINCE} on does.
+ *
+ * A file that holds an array for a matcher under `PreToolUse` or
+ * `PermissionRequest` has none of its hooks loaded ({@link arrayMatcher}):
+ * each line of the hook there is started for no write, and one that stood
+ * to be started for a write is a guard that is off.
  */
 export function reportHooks(
   sources: readonly ClaudeSettings[],
   project: string,
   read: (words: readonly string[]) => HookLine | null,
   pattern: PatternReader = patternReader(),
+  commas: Commas = SEPARATOR,
 ): HookReport[] {
+  const reading: Reading = { pattern, commas };
   return sources.flatMap(({ file, settings }) => {
     const entries = harnessEntries(settings);
+    const array = arrayMatcher(settings);
     return writtenHooks(settings).flatMap((hook): HookReport[] => {
       const handed = read(handedWords(hook.words, project));
       if (handed === null) return [];
@@ -531,9 +694,23 @@ export function reportHooks(
       // A line that is not under both events is under one.
       const where = `"${hook.words.map((word) => (word === '' ? "''" : word)).join(' ')}" in ${file}${both ? '' : ` (under ${hook.events[0]} alone)`}`;
       const mine = entries.filter((entry) => sameLine(entry, hook));
-      const before = toolsUnder(BEFORE, mine, pattern);
-      const after = toolsUnder(AFTER, mine, pattern);
-      const written = { file, events: hook.events, line: hook.words, onFailure: hook.blocks ? 'block' : null, before, after, cover: describeCover(where, before, after, mine) } satisfies Partial<HookReport>;
+      const before = toolsUnder(BEFORE, mine, reading);
+      const after = toolsUnder(AFTER, mine, reading);
+      if (array !== null) {
+        // Nothing of the file is loaded, whatever the line holds and
+        // whatever the hook would do with it. A line that stood to be
+        // started for a write, or stands under an array itself, where
+        // someone meant a matcher, is a guard set up that checks nothing;
+        // one that stood to be started for none leaves no write unchecked
+        // that it was ever asked about.
+        const unloaded = { file, events: hook.events, line: hook.words, onFailure: hook.blocks ? 'block' : null, before: [], after: [], cover: null, note: null } satisfies Partial<HookReport>;
+        const said = `${where}: ${describeArrayMatcher(file, array)}`;
+        if (isStarted(before) || isStarted(after) || mine.some((entry) => Array.isArray(entry.matcher))) {
+          return [{ ...unloaded, state: 'off', detail: `${said}, so the guard is off and no write is checked; ${ONE_STRING}` }];
+        }
+        return [{ ...unloaded, state: 'unstarted', detail: `${said}: the line is not started, and stood to be started for no write as it is, so no guard is switched off` }];
+      }
+      const written = { file, events: hook.events, line: hook.words, onFailure: hook.blocks ? 'block' : null, before, after, cover: describeCover(where, before, after, mine, reading) } satisfies Partial<HookReport>;
       const note = describeOnFailure(where, hook.blocks, false);
       if (hook.untyped !== null) {
         const detail = `${where} stands on an entry with ${hook.untyped}, where Claude Code's hooks reference has "type": "command" on an entry it runs as a command, so whether Claude Code runs it cannot be told here: give the entry "type": "command"`;
@@ -547,14 +724,14 @@ export function reportHooks(
       const unstarted: HookReport = { ...written, state: 'unstarted', detail: null, note };
       const waited = before === null || before.length > 0;
       if (handed.state === 'off') {
-        const detail = `${where}: ${handed.fault.wrong}, so the guard is off and no write is checked; ${handed.fault.mend}`;
+        const detail = `${where}: ${handed.fault.wrong}, so the guard is off and ${handed.unchecked ?? 'no write is checked'}; ${handed.fault.mend}`;
         // A fault the hook says, it says with exit 1 after every write it is
         // started for as well, so it is said wherever the line stands.
         if (handed.silent !== true) return [{ ...written, state: 'off', detail, note: describeOnFailure(where, hook.blocks, true) }];
-        // A root outside any work tree, of which the hook says nothing: no
-        // run of it fails there, so onFailure holds no write for it, and
-        // where the line is waited on before no write there is none it
-        // leaves unchecked.
+        // A root outside any work tree, or in one that does not hold the
+        // project, of which the hook says nothing: no run of it fails
+        // there, so onFailure holds no write for it, and where the line is
+        // waited on before no write there is none it leaves unchecked.
         return [waited ? { ...written, state: 'off', detail, note } : unstarted];
       }
       if (!waited) return [unstarted];
@@ -566,7 +743,9 @@ export function reportHooks(
       // What a release wrote: its hook, and nothing after it.
       if (sameStrings(hook.words, ['hook', 'claude'])) return [{ ...written, state: 'guards', detail: null, note }];
       const root = handed.root === undefined ? '' : `, and its root, ${handed.root}, is a directory`;
-      return [{ ...written, state: 'guards', detail: `${where} is more than init writes, and guards: the hook reads the line${root}`, note }];
+      // Whose briefs a write is checked by, where they are not the project's own.
+      const holder = handed.holder === undefined ? '' : ` in ${namedTree(handed.holder)}, which holds this project: the hook checks a write here by that work tree's briefs and its branch, as a file under ${handed.holder.path}/ there`;
+      return [{ ...written, state: 'guards', detail: `${where} is more than init writes, and guards: the hook reads the line${root}${holder}`, note }];
     });
   });
 }
@@ -815,6 +994,12 @@ export interface ClaudeCodeWiring {
   readonly lines: readonly HookReport[];
   /** Whether `.mcp.json` registers the server. */
   readonly server: boolean;
+  /**
+   * The release of the Claude Code on `PATH`, where it was asked: a matcher
+   * that lists names with a comma is read as that release reads it
+   * ({@link commasUnder}). `null` where it was not asked.
+   */
+  readonly release: ClaudeCodeCheck | null;
 }
 
 export type WiringState = 'plugin' | 'init' | 'both' | 'none';
@@ -1102,6 +1287,13 @@ export function describeClaudeRelease(check: ClaudeCodeCheck): string {
 /** Where git's pre-commit hook stands: git's path for it, shown from the root, and what is there. */
 export type GitHookState =
   | { readonly state: 'runs' | 'absent' | 'other' | 'inert'; readonly file: string }
+  /**
+   * What stands at the path is no file, `what` it is instead. `stops`: git
+   * can execute it, tries to run it as the hook, fails, and stops every
+   * commit. `ignored`: git cannot execute it, and skips it as it skips a
+   * hook that is not executable.
+   */
+  | { readonly state: 'stops' | 'ignored'; readonly file: string; readonly what: string }
   | { readonly state: 'unknown'; readonly reason: string };
 
 /**
@@ -1176,6 +1368,10 @@ export function describeGitHook(hook: GitHookState): string {
       return `${hook.file} runs spec-harness, but is not executable, so git skips it: chmod +x ${hook.file}`;
     case 'other':
       return `${hook.file} does not run spec-harness: add the line "${GIT_HOOK_LINE}" to it`;
+    case 'stops':
+      return `${hook.file} is ${hook.what}, not a hook, and git stops every commit at it, since it cannot run it ("cannot spawn" on Windows, "cannot exec" elsewhere): nothing is checked there, and nothing is committed. Take it away, then run spec-harness init --git-hook --write`;
+    case 'ignored':
+      return `${hook.file} is ${hook.what}, not a hook, and is not executable, so git skips it and runs no hook: take it away, then run spec-harness init --git-hook --write`;
     case 'absent':
       return missingGitHook(hook.file);
     case 'unknown':

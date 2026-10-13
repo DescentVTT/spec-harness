@@ -35,9 +35,19 @@ on:
   #
   # GitHub reads a filter against everything a pull request changes, not
   # against its last push, so every push to one that changes such a file
-  # runs the sweep again. A change to the tests alone, to the vendored
-  # spec-core or to a dependency runs none, though each can move a verdict:
-  # the schedule below is what reads those.
+  # runs the sweep again.
+  #
+  # The last two entries are what the sweep's verdicts are made of beside
+  # the sources it mutates (ADR-0010, amended 2026-10-14). The integration
+  # suite is where the kills of those fourteen modules' mutants come from,
+  # nineteen in twenty of them, and it shares its helpers with nothing
+  # outside tests/integration, which the same test holds. The vendored
+  # spec-core is mutated in spec-core's sweep and not in this one, and six
+  # of the modules mutated here read through it. `dir/**` is every file in
+  # the directory and under it. What still runs no sweep, and the schedule
+  # below reads: a dependency's bump alone, and a unit test alone, which the
+  # core sweep in ci.yml reads for the modules it mutates and no sweep reads
+  # for git.ts and workspace.ts until Monday.
   pull_request:
     paths:
       - src/cli.ts
@@ -60,6 +70,8 @@ on:
       - vitest.mutation.config.ts
       - scripts/mutation-*.mjs
       - .github/workflows/mutation.yml
+      - tests/integration/**
+      - src/vendor/**
   # The same change once it is on main, so that main has a report of its own
   # head for the next pull request to be compared with. The two lists are
   # one list, written twice because a filter belongs to its event; the same
@@ -87,6 +99,8 @@ on:
       - vitest.mutation.config.ts
       - scripts/mutation-*.mjs
       - .github/workflows/mutation.yml
+      - tests/integration/**
+      - src/vendor/**
   schedule:
     # An hour after spec-guard's and two after spec-brief's and spec-graph's,
     # which start at 03:00 on the same account's runners.
@@ -119,16 +133,16 @@ jobs:
     # The image the hosted sweeps in ADR-0010 were measured on. Another image
     # is another measurement: spec-core's ADR-0008 says what moving takes.
     runs-on: ubuntu-24.04
-    # Headroom for a bad runner, not a budget: the shards took 12 to 17
-    # minutes in the sweep of the table (run 37821498621; ADR-0010, amended
-    # 2026-10-09). Stryker writes a shard's report only when the shard ends,
-    # so a shard cut short measures nothing and the merge refuses the sweep;
-    # Re-run failed jobs runs that shard again, and the merge takes the other
-    # shards' reports from the first attempt. A shard that keeps passing 22,
-    # half as long again as the table has it, means the table in
-    # scripts/mutation-shards.mjs needs re-measuring, or that the suite has
-    # grown, which every static mutant that survives runs whole: not this
-    # number raising.
+    # Headroom for a bad runner, not a budget: by the five sweeps the table in
+    # scripts/mutation-shards.mjs was levelled on, a shard's files take 12 to
+    # 14 minutes and its job about three more (ADR-0010, amended 2026-10-14).
+    # Stryker writes a shard's report only when the shard ends, so a shard cut
+    # short measures nothing and the merge refuses the sweep; Re-run failed
+    # jobs runs that shard again, and the merge takes the other shards'
+    # reports from the first attempt. A shard that keeps passing 22, five
+    # minutes more than the table has its longest, means the table needs
+    # re-measuring, or that the suite has grown, which every static mutant
+    # that survives runs whole: not this number raising.
     timeout-minutes: 60
     strategy:
       # One broken shard should not hide what the others found. The merge
@@ -171,6 +185,9 @@ jobs:
           npx --no-install stryker run stryker.shard.config.mjs
           echo "{\"seconds\": $((SECONDS - started))}" > "reports/mutation/shard-$MUTATION_SHARD.timing.json"
 
+      # A shard's report is read by the merge of its own run, and its minutes
+      # by the next levelling of the table: a fortnight is enough for both,
+      # whatever the repository comes to keep.
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: mutation-full-shard-${{ matrix.shard }}
@@ -232,6 +249,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/mutation-compare.mjs --main reports/mutation/mutation.json
 
+      # No `retention-days` here. This is the report a later sweep is compared
+      # with, and it is kept for as long as the repository keeps any artifact:
+      # 14 days today, which is the repository's setting and the most that
+      # may be set there, and a number here could only shorten that. Monday's
+      # sweep leaves a newer one inside the fortnight. Where two Mondays
+      # running leave none, a pull request has nothing to compare with, and
+      # the step above says that nothing was compared (ADR-0010, amended
+      # 2026-10-14).
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:

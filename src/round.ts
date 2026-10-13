@@ -5,9 +5,10 @@
  * `audit.ts`, `guard.ts` and `rulings.ts`.
  *
  * The hook loads this module before every write it decides, so what only
- * an audit or a verified ruling runs is imported where it runs: the audit's
- * judgement, which brings the Markdown scanner with it, and the hash a
- * copy of the signers is named by.
+ * an audit, a verified ruling or `doctor` runs is imported where it runs:
+ * the audit's judgement, which brings the Markdown scanner with it, the
+ * hash a copy of the signers is named by, and what asks Claude Code its
+ * release.
  */
 
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
@@ -20,6 +21,7 @@ import type { ArchiveReason, AssertionOutcome, AuditInput, AuditReport, Unreadab
 import { SiblingOutputError } from './briefs.js';
 import { sameId } from './branch.js';
 import {
+  commasUnder,
   enabledPlugin,
   exportedFile,
   handedLines,
@@ -35,6 +37,7 @@ import {
   registersServer,
   reportHooks,
   SPEC_BRIEF_CONFIGS,
+  wiringState,
   type BaseSource,
   type ClaudeCodeWiring,
   type ClaudeSettings,
@@ -45,7 +48,7 @@ import {
 import { readRules, renderContext, type CitedDocument, type ContextPacket, type Rules } from './context.js';
 import type { DocumentReader } from './document.js';
 import { isDirectory, readJsonObject, readText, repositoryPath, stateDirectory, writeAtomic } from './fs.js';
-import { blameLine, changes, isUncommitted, mergeBase, remoteDefault, revision, show, verifyCommit, workTreeRoot } from './git.js';
+import { blameLine, changes, commonDirectory, isUncommitted, mergeBase, remoteDefault, revision, show, verifyCommit, workTreeRoot } from './git.js';
 import { decide, type Decision, type VerifiedRuling } from './guard.js';
 import { diffManifest, ecosystemOf, readManifestNames, type DependencyChange, type InstallScriptChange } from './manifests.js';
 import {
@@ -62,7 +65,8 @@ import type { BriefRow, Finding } from './types.js';
 import { compileGlob, type LiteralReading } from './vendor/spec-core/pattern/index.js';
 import { dirname, isRelativeReference, resolveInside, splitReference } from './vendor/spec-core/path/index.js';
 import { SiblingError } from './siblings.js';
-import { claudeHookLine, emptyValue, heldHookLine, isBlank, outsideHookLine, type HookLine } from './usage.js';
+import { claudeHookLine, elsewhereHookLine, emptyValue, heldHookLine, holderHookLine, isBlank, outsideHookLine, type HookLine } from './usage.js';
+import { checkClaudeCode, type ClaudeCodeCheck } from './versions.js';
 import { activeBrief, describeActive, namedId, openWorkspace, parseOptions, UsageError, type CliIO, type Options, type Workspace } from './workspace.js';
 
 /* -------------------------------------------------------------------- base */
@@ -481,14 +485,23 @@ export async function claudeSettings(root: string, env: CliIO['env']): Promise<C
  * `init` reads the wiring through this too, so that it and `doctor` say
  * the same of every tree, and hands it the reader it reads the matchers of
  * the same files with, so that the two read each pattern once between them.
+ *
+ * A matcher that lists names with a comma is read as the Claude Code on
+ * `PATH` reads it, which turns on its release (configure.ts). `doctor`
+ * reports the release, and asks it wherever something wires the guard,
+ * since one too old for the hooks lets every write through: the lines are
+ * first read as a release that cannot be told reads them, under which a
+ * line that may be started counts as wiring. `init` has no other use for
+ * the release, so it says that it does not report it, and it is asked only
+ * where a line turns on it: where what is read of the lines differs between
+ * a release that cannot be told and the newest.
  */
-export async function claudeCodeWiring(root: string, io: CliIO, pattern: PatternReader = patternReader()): Promise<ClaudeCodeWiring> {
+export async function claudeCodeWiring(root: string, io: CliIO, pattern: PatternReader = patternReader(), reported = true): Promise<ClaudeCodeWiring> {
   const sources = await claudeSettings(root, io.env);
   // Each line is read once, before any is reported: what the brief on one
   // names is spec-brief's to say, and the report itself asks nothing.
   const read = new Map<string, HookLine | null>();
   for (const words of handedLines(sources, root)) read.set(JSON.stringify(words), await hookLineHere(words, root, io));
-  const lines = reportHooks(sources, root, (words) => read.get(JSON.stringify(words))!, pattern);
   const plugin = enabledPlugin(sources);
   // An id that names no marketplace has no directory to look in, and is said
   // as one that cannot be told whatever is on disk: pluginPresence answers
@@ -496,41 +509,69 @@ export async function claudeCodeWiring(root: string, io: CliIO, pattern: Pattern
   // equivalent to its mutant.
   const marketplace = plugin === null ? null : pluginMarketplace(plugin.id);
   const roots = marketplace === null ? [] : await Promise.all(pluginDirectories(io.env).map((directory) => pluginsRoot(directory, marketplace)));
-  return {
-    plugin,
-    presence: plugin === null ? null : pluginPresence(plugin, sources, roots),
-    hooksOff: hooksDisabled(sources),
+  const presence = plugin === null ? null : pluginPresence(plugin, sources, roots);
+  const server = registersServer(await readJsonObject(join(root, '.mcp.json')));
+  const under = (release: ClaudeCodeCheck | null): ClaudeCodeWiring => {
+    const lines = reportHooks(sources, root, (words) => read.get(JSON.stringify(words))!, pattern, commasUnder(release));
     // A line Claude Code starts for no write, before one or after, is in no
     // one's way: it is said, and the file is not counted for it.
-    hooks: sources.map(({ file }) => file).filter((file) => lines.some((line) => line.file === file && (isStarted(line.before) || isStarted(line.after)))),
-    lines,
-    server: registersServer(await readJsonObject(join(root, '.mcp.json'))),
+    const hooks = sources.map(({ file }) => file).filter((file) => lines.some((line) => line.file === file && (isStarted(line.before) || isStarted(line.after))));
+    // In the order a document has them, which a script may compare by the byte.
+    return { plugin, presence, hooksOff: hooksDisabled(sources), hooks, lines, server, release };
   };
+  const untold = under(null);
+  const asked = reported ? wiringState(untold) !== 'none' : JSON.stringify(untold.lines) !== JSON.stringify(reportHooks(sources, root, (words) => read.get(JSON.stringify(words))!, pattern));
+  // Read again under the release, where it was asked: what is read without
+  // one is what is read under one that cannot be told. What asks it is
+  // loaded here, where it is asked: the hook loads these operations for
+  // every write, and asks no release.
+  return under(asked ? checkClaudeCode(await (await import('./host.js')).claudeVersion(io.env)) : null);
 }
 
 /**
  * What the hook does with the words a session started at `root` hands it:
- * its own reading of the line (usage.ts), and two steps past it, where the
- * line guards. The hook opens the work tree its root is in. Where the root
- * is a directory in none, it reads a session outside a work tree, checks no
- * write and says nothing (ADR-0005): git is asked here as the hook asks it,
- * and the line is one under which the guard is off. Where the line names a
- * brief, the hook asks spec-brief in that work tree which brief the name
- * is, and holds every write under a name that is none (ADR-0004). So this
- * asks the same, of the same work tree.
+ * its own reading of the line (usage.ts), and what follows from where its
+ * root is, where the line guards. The hook opens the work tree its root is
+ * in. Where the root is a directory in none, it reads a session outside a
+ * work tree, checks no write and says nothing (ADR-0005): git is asked here
+ * as the hook asks it, and the line is one under which the guard is off.
+ * Where the root is in another work tree than the project's, the hook
+ * decides by that work tree's briefs, and a file outside it is none of its
+ * repository's: so a work tree that does not hold the project leaves every
+ * write to a file of the project unchecked, and one that holds it checks
+ * them, by its own briefs. Where the line names a brief, the hook asks
+ * spec-brief in the work tree it opened which brief the name is, and holds
+ * every write under a name that is none (ADR-0004). So this asks the same,
+ * of the same work tree, and a line that holds every write is said as that
+ * wherever its root is.
  */
 async function hookLineHere(words: readonly string[], root: string, io: CliIO): Promise<HookLine | null> {
   const line = claudeHookLine(words, parseOptions, root, (path) => isDirectory(resolve(root, path)));
   // Only a line that guards gives a root to open or names a brief, so the
   // check of its state is the compiler's, and its mutant is equivalent.
   if (line === null || line.state !== 'guards') return line;
+  let told: HookLine = line;
   // With no root on its line the hook opens the project, which is the work
   // tree this runs in: git is asked only about a root the line gives.
-  if (line.root !== undefined && (await workTreeRoot(resolve(root, line.root))) === null) return outsideHookLine(line.root);
-  if (line.brief === undefined) return line;
+  if (line.root !== undefined) {
+    const top = await workTreeRoot(resolve(root, line.root));
+    if (top === null) return outsideHookLine(line.root);
+    // The project's top as the root's work tree names it: nothing where the
+    // two are one work tree, which is every root in the project, and
+    // `null` where the project is not in it.
+    const path = repositoryPath(root, top, root);
+    if (path !== '') {
+      // One repository's work trees share a git directory, and no two
+      // repositories do.
+      const [theirs, ours] = await Promise.all([commonDirectory(top), commonDirectory(root)]);
+      const tree = { top, ours: theirs === ours };
+      told = path === null ? elsewhereHookLine(line.root, tree) : holderHookLine(line, tree, path);
+    }
+  }
+  if (line.brief === undefined) return told;
   const workspace = await openWorkspace({ root: line.root === undefined ? root : resolve(root, line.root) }, io);
   const { problem } = await diagnoseBrief(workspace, { brief: line.brief }, io.env);
-  return problem === null ? line : heldHookLine(problem);
+  return problem === null ? told : heldHookLine(problem);
 }
 
 /**

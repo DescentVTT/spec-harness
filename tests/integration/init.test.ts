@@ -1,5 +1,5 @@
-import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 
 import { afterAll, describe, expect, it } from 'vitest';
@@ -7,7 +7,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { GUARD_HOOK, mcpServer, mergeMcp, PLUGIN, PRE_COMMIT, PROJECT_DIR_OR_HERE } from '../../src/configure.js';
 import { claudeCodeWiring, claudeSettingsFiles, pluginDirectories } from '../../src/round.js';
 import { gitHook } from '../../src/setup.js';
-import { cleanup, cli, install, installFake, installHarness, installPlugin, parsed, repository, siblings, temp, write, type Repository } from './helpers.js';
+import { claudeOf, cleanup, cli, install, installFake, installHarness, installPlugin, parsed, repository, siblings, temp, write, type Repository } from './helpers.js';
 
 afterAll(cleanup);
 
@@ -393,6 +393,93 @@ describe('init', () => {
     expect(other.read('.git/hooks/pre-commit')).toBe('#!/bin/sh\nnpm test\n');
   });
 
+  describe("what stands at the path of git's pre-commit hook and is no file (ADR-0005)", () => {
+    const STOPS = (file: string, what = 'a directory'): string =>
+      `${file} is ${what}, not a hook, and git stops every commit at it, since it cannot run it ("cannot spawn" on Windows, "cannot exec" elsewhere): nothing is checked there, and nothing is committed. Take it away, then run spec-harness init --git-hook --write`;
+    /** Whether git makes a commit there, with what stands at the hook's path, and what it says where it does not. */
+    const commits = (repo: Repository): { made: boolean; said: string } => {
+      repo.write('work.txt', `${Math.random()}\n`);
+      repo.git('add', 'work.txt');
+      const result = spawnSync('git', ['commit', '-q', '-m', 'work'], { cwd: repo.root, encoding: 'utf8' });
+      return { made: result.status === 0, said: result.stderr };
+    };
+    /** What doctor says of git's hook, with its exit code and what it wrote on stderr. */
+    const doctor = async (repo: Repository): Promise<{ code: number; stderr: string; hook: { state: string; file: string; detail: string; note: string | null } }> => {
+      const result = await cli(['doctor', '--format', 'json'], repo.root);
+      return { code: result.code, stderr: result.stderr, hook: parsed<{ gitHook: { state: string; file: string; detail: string; note: string | null } }>(result).gitHook };
+    };
+
+    it('is said as a directory git stops every commit at, fails doctor as git fails the commit, and has init write nothing over it', async () => {
+      const repo = repository({});
+      const directory = join(repo.root, '.git', 'hooks', 'pre-commit');
+      mkdirSync(directory, { recursive: true });
+      const stops = STOPS('.git/hooks/pre-commit');
+      // No stack and nothing on stderr: a sentence in the report, and a failure, since nothing is committed while it stands.
+      expect(await doctor(repo)).toEqual({ code: 1, stderr: '', hook: { state: 'stops', file: '.git/hooks/pre-commit', detail: stops, note: null } });
+      expect(await gitHook(repo.root)).toEqual({ hook: { state: 'stops', file: '.git/hooks/pre-commit', what: 'a directory' }, path: repo.git('rev-parse', '--path-format=absolute', '--git-path', 'hooks/pre-commit'), note: null });
+      // What git does with it is what the exit code follows: it stops the commit, and names the path.
+      const commit = commits(repo);
+      expect(commit.made).toBe(false);
+      expect(commit.said).toContain('pre-commit');
+      // init says the same, asked for the hook or not, and leaves what is there.
+      for (const args of [['init', '--write'], ['init', '--git-hook', '--write']]) {
+        const result = await cli(args, repo.root);
+        expect({ code: result.code, stderr: result.stderr }, args.join(' ')).toEqual({ code: 0, stderr: '' });
+        expect(result.stdout, args.join(' ')).toContain(`advise  .git/hooks/pre-commit\n        ${stops}\n`);
+      }
+      expect(statSync(directory).isDirectory()).toBe(true);
+      expect(readdirSync(directory)).toEqual([]);
+      // Taken away, the hook is written as into any repository, and doctor fails nothing for it.
+      rmSync(directory, { recursive: true });
+      expect((await cli(['init', '--git-hook', '--write'], repo.root)).stdout).toContain('create  .git/hooks/pre-commit\n');
+      expect(await doctor(repo)).toMatchObject({ code: 0, hook: { state: 'runs' } });
+    });
+
+    it('is the same where the repository holds the directory, under a core.hooksPath in its work tree', async () => {
+      const repo = repository({ '.githooks/pre-commit/keep': 'x\n' });
+      repo.git('config', 'core.hooksPath', '.githooks');
+      expect(await doctor(repo)).toEqual({ code: 1, stderr: '', hook: { state: 'stops', file: '.githooks/pre-commit', detail: STOPS('.githooks/pre-commit'), note: null } });
+      expect(commits(repo).made).toBe(false);
+      const planned = await cli(['init', '--git-hook', '--write'], repo.root);
+      expect(planned.stdout).toContain(`advise  .githooks/pre-commit\n        ${STOPS('.githooks/pre-commit')}\n`);
+      expect(repo.read('.githooks/pre-commit/keep')).toBe('x\n');
+    });
+
+    // Windows has no executable bit, and git there runs whatever stands at the path. An account that may do anything is told it may execute a directory whatever its bits, by git as by this.
+    it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)('is one git skips where it may not execute it, which fails nothing: no hook runs, as where there is none', async () => {
+      const repo = repository({});
+      const directory = join(repo.root, '.git', 'hooks', 'pre-commit');
+      mkdirSync(directory, { recursive: true });
+      chmodSync(directory, 0o644);
+      const ignored = '.git/hooks/pre-commit is a directory, not a hook, and is not executable, so git skips it and runs no hook: take it away, then run spec-harness init --git-hook --write';
+      expect(await doctor(repo)).toEqual({ code: 0, stderr: '', hook: { state: 'ignored', file: '.git/hooks/pre-commit', detail: ignored, note: null } });
+      expect(commits(repo).made).toBe(true);
+      expect((await cli(['init', '--git-hook', '--write'], repo.root)).stdout).toContain(`advise  .git/hooks/pre-commit\n        ${ignored}\n`);
+      expect(statSync(directory).isDirectory()).toBe(true);
+    });
+
+    it.skipIf(process.platform === 'win32')('comes back from a named pipe there, which it does not open, and follows a link: to a directory, and to nothing', async () => {
+      const repo = repository({});
+      const hook = join(repo.root, '.git', 'hooks', 'pre-commit');
+      mkdirSync(join(repo.root, '.git', 'hooks'), { recursive: true });
+      execFileSync('mkfifo', [hook]);
+      chmodSync(hook, 0o755);
+      // Opened as a file, a pipe nothing writes to is read without end.
+      expect((await doctor(repo)).hook).toEqual({ state: 'stops', file: '.git/hooks/pre-commit', detail: STOPS('.git/hooks/pre-commit', 'neither a file nor a directory'), note: null });
+      expect(commits(repo).made).toBe(false);
+      rmSync(hook);
+      const elsewhere = temp();
+      symlinkSync(elsewhere, hook);
+      expect((await doctor(repo)).hook).toMatchObject({ state: 'stops', detail: expect.stringContaining(' is a directory, not a hook') });
+      expect(commits(repo).made).toBe(false);
+      // A link to nothing is no hook to git, which commits: there is none.
+      rmSync(hook);
+      symlinkSync(join(elsewhere, 'nowhere'), hook);
+      expect((await doctor(repo)).hook).toMatchObject({ state: 'absent' });
+      expect(commits(repo).made).toBe(true);
+    });
+  });
+
   it('writes the hook where core.hooksPath points, relative to the work tree', async () => {
     const repo = repository({});
     repo.git('config', 'core.hooksPath', '.githooks');
@@ -647,6 +734,114 @@ describe('init', () => {
       expect(found?.detail.startsWith('"hook claude --nope" in .claude/settings.json: the hook\'s line cannot be read (Unknown option \'--nope\'')).toBe(true);
       expect(repo.read('.claude/settings.json')).toBe(settings);
       expect((await cli(['doctor'], repo.root)).code).toBe(1);
+    });
+
+    describe('under a matcher the Claude Code on this machine reads otherwise', () => {
+      const stepUnder = async (repo: Repository, release: Record<string, string>, ...more: string[]): Promise<Step | undefined> =>
+        parsed<{ steps: Step[] }>(await cli(['init', ...more, '--format', 'json'], repo.root, { env: release })).steps.find((found) => found.file === '.claude/settings.json');
+      const comma = under('Edit, Write', GUARD_HOOK);
+      const own = under(MATCHER, GUARD_HOOK);
+      const WRITES = "the guard hooks, run with node from the project's install: a PreToolUse hook refuses writes to protected files; a PostToolUse hook warns about writes outside the scope";
+
+      it('writes its hooks beside a line whose comma the release here reads as part of a pattern, and none where the release reads a separator or cannot be told', async () => {
+        const settings = JSON.stringify({ hooks: { PreToolUse: [comma], PostToolUse: [comma] } });
+        const repo = repository({ '.claude/settings.json': settings });
+        // A release that reads the matcher as written starts the line for Edit and Write: it is left, with what it leaves unchecked.
+        const kept = await stepUnder(repo, claudeOf('2.1.191'), '--write');
+        expect(kept?.action).toBe('keep');
+        expect(kept?.detail).toBe(
+          '"hook claude" in .claude/settings.json: Claude Code waits on it before a write by Edit and Write, and before none by NotebookEdit, which goes unchecked (under PreToolUse it has the matcher "Edit, Write"); it is started after a write by Edit and Write alone (under PostToolUse it has the matcher "Edit, Write"); ' +
+            LEFT,
+        );
+        // Where the release cannot be told the line may be started, and a second one beside it would run as well.
+        const untold = await stepUnder(repo, { PATH: temp() }, '--write');
+        expect(untold?.action).toBe('keep');
+        expect(untold?.detail).toContain('which writes Claude Code waits on it before cannot be told here (under PreToolUse it has the matcher "Edit, Write", which is Edit and Write from Claude Code 2.1.191 on');
+        expect(repo.read('.claude/settings.json')).toBe(settings);
+        // An older release starts it for no write: init writes its own, and says which line it left and why.
+        const aside = ', which Claude Code 2.1.190 reads as a pattern that matches no tool: a comma separates names from 2.1.191 on, where the matcher is Edit and Write';
+        expect(await stepUnder(repo, claudeOf('2.1.190'), '--write')).toEqual({
+          file: '.claude/settings.json',
+          action: 'update',
+          detail:
+            `${WRITES}; "hook claude" in .claude/settings.json: Claude Code waits on it before no write, so it is not the guard and refuses none (under PreToolUse it has the matcher "Edit, Write"${aside}); ` +
+            `it is started after no write, so it warns of none (under PostToolUse it has the matcher "Edit, Write"${aside}); ${LEFT}`,
+        });
+        expect(JSON.parse(repo.read('.claude/settings.json'))).toEqual({ hooks: { PreToolUse: [comma, own], PostToolUse: [comma, own] } });
+        // A second run under that release finds its own line started for every write, and adds none.
+        expect(await stepUnder(repo, claudeOf('2.1.190'), '--write')).toEqual({ file: '.claude/settings.json', action: 'keep', detail: 'the guard hooks are installed' });
+      });
+
+      it('asks Claude Code its release only where what is read of a line turns on it, where doctor asks wherever the guard is wired', async () => {
+        const io = (env: Record<string, string>, cwd: string) => ({ stdout: { write: () => true }, stderr: { write: () => true }, cwd, env });
+        /** The release the wiring asked, for a caller that reports it, as doctor does, and for one that does not, as init. */
+        const release = async (repo: Repository, reported?: boolean) => (await claudeCodeWiring(repo.root, io(claudeOf('2.1.190'), repo.root), undefined, reported)).release;
+        const told = { state: 'ok', version: '2.1.190' };
+        // The matcher every release wrote is read one way by every Claude Code: init has no use for the release there.
+        const plain = repository({ '.claude/settings.json': both(GUARD_HOOK) });
+        expect(await release(plain, false)).toBeNull();
+        expect(await release(plain, true)).toMatchObject(told);
+        expect(await release(plain)).toMatchObject(told);
+        // Names with a comma that list a tool that writes: both ask.
+        const turning = repository({ '.claude/settings.json': JSON.stringify({ hooks: { PreToolUse: [comma], PostToolUse: [own] } }) });
+        expect(await release(turning, false)).toMatchObject(told);
+        expect(await release(turning)).toMatchObject(told);
+        // And the lines are read under the release that was asked: one older than 2.1.191 starts this line before no write.
+        expect((await claudeCodeWiring(turning.root, io(claudeOf('2.1.190'), turning.root), undefined, false)).lines).toMatchObject([{ state: 'unstarted', before: [], after: ['Edit', 'Write', 'NotebookEdit'] }]);
+        // Names with a comma that list none: no release starts the line for a write, and neither asks.
+        const idle = repository({ '.claude/settings.json': JSON.stringify({ hooks: { PreToolUse: [under('Bash, Read', GUARD_HOOK)] } }) });
+        expect(await release(idle, false)).toBeNull();
+        expect(await release(idle)).toBeNull();
+        expect(await release(repository({}))).toBeNull();
+      });
+
+      // On Windows a claude.cmd is read and never started, so there is nothing to see started.
+      it.skipIf(process.platform === 'win32')('starts no claude for init where no line turns on its release, and starts it where one does, as doctor does wherever the guard is wired', async () => {
+        const directory = temp();
+        const started = join(directory, 'started');
+        const file = join(directory, 'claude');
+        // A claude of the test's own, which leaves a file behind each time it is started.
+        writeFileSync(file, `#!/bin/sh\necho started >> '${started}'\necho '2.1.190 (Claude Code)'\n`);
+        chmodSync(file, 0o755);
+        const env = { PATH: directory };
+        const plain = repository({ '.claude/settings.json': both(GUARD_HOOK) });
+        expect((await cli(['init'], plain.root, { env })).code).toBe(0);
+        expect(existsSync(started)).toBe(false);
+        expect((await cli(['doctor'], plain.root, { env })).stdout).toContain('Claude Code 2.1.190 runs the hooks');
+        expect(existsSync(started)).toBe(true);
+        rmSync(started);
+        const turning = repository({ '.claude/settings.json': JSON.stringify({ hooks: { PreToolUse: [comma], PostToolUse: [comma] } }) });
+        expect((await cli(['init'], turning.root, { env })).stdout).toContain('which Claude Code 2.1.190 reads as a pattern that matches no tool');
+        expect(existsSync(started)).toBe(true);
+      });
+
+      it('writes no hook into a file whose hooks an array for a matcher keeps Claude Code from loading, and says how the matcher is mended', async () => {
+        const other = { matcher: ['Bash', 'PowerShell'], hooks: [{ type: 'command', command: '/usr/local/bin/lint-check.sh' }] };
+        const advice = {
+          file: '.claude/settings.json',
+          action: 'advise',
+          detail:
+            '.claude/settings.json has an array for a matcher under PreToolUse, ["Bash","PowerShell"], which Claude Code lists as an invalid setting, and beside one under PreToolUse or PermissionRequest it loads none of the file\'s other hooks, ' +
+            'those init writes among them, so it writes none: write the matcher as one string, its names between "|", and run init again',
+        };
+        // With no line of the hook, and with init's own beside a line a person wrote: the file is left as it is.
+        for (const groups of [[other], [own, under(MATCHER, line('--base', 'main')), other]]) {
+          const settings = JSON.stringify({ hooks: { PreToolUse: groups } });
+          const repo = repository({ '.claude/settings.json': settings });
+          expect(await stepUnder(repo, { PATH: temp() }, '--write'), settings).toEqual(advice);
+          expect(repo.read('.claude/settings.json'), settings).toBe(settings);
+        }
+        // Mended, the hooks are written as into any file.
+        const mended = { matcher: 'Bash|PowerShell', hooks: other.hooks };
+        const repo = repository({ '.claude/settings.json': JSON.stringify({ hooks: { PreToolUse: [mended] } }) });
+        expect(await stepUnder(repo, { PATH: temp() }, '--write')).toEqual({ file: '.claude/settings.json', action: 'update', detail: WRITES });
+        expect(JSON.parse(repo.read('.claude/settings.json'))).toEqual({ hooks: { PreToolUse: [mended, own], PostToolUse: [own] } });
+        // An array after a write unloads its own entry and no other: init completes its line under that event.
+        const arrayed = { matcher: ['Edit', 'Write'], hooks: [GUARD_HOOK] };
+        const after = repository({ '.claude/settings.json': JSON.stringify({ hooks: { PreToolUse: [own], PostToolUse: [arrayed] } }) });
+        expect((await stepUnder(after, { PATH: temp() }, '--write'))?.action).toBe('update');
+        expect(JSON.parse(after.read('.claude/settings.json'))).toEqual({ hooks: { PreToolUse: [own], PostToolUse: [arrayed, own] } });
+      });
     });
   });
 

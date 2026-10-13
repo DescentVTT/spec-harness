@@ -12,7 +12,8 @@ import { describeMeasured } from './audit.js';
 import { briefIdFromBranch } from './branch.js';
 import { findActive } from './briefs.js';
 import { formatFindings } from './formats.js';
-import { readJUnit } from './junit.js';
+import { isDirectory } from './fs.js';
+import { readJUnit, type JUnitRead } from './junit.js';
 import { classify, endOfOutput, readProbes, renderEvidence, renderUnexplained, verdictOf, type ProbeResult, type ProbeSpec } from './probe.js';
 import { createReader } from './reader.js';
 import {
@@ -224,15 +225,25 @@ export async function rulingsCommand(options: Options, io: CliIO): Promise<numbe
  */
 const LEFT_RUNNING = ', and something it started was left running, holding its output';
 
+/**
+ * What is read of a probe's report where a directory stands under its name,
+ * as a repository can hold one: no report, said in the probe's own words
+ * for one it cannot read. Taken away as a file or read as one, it ended the
+ * command on Node's EISDIR and a stack.
+ */
+const A_DIRECTORY: JUnitRead = { ok: false, error: 'it is a directory, not a report' };
+
 async function runProbe(directory: string, probe: ProbeSpec, runs: number, timeout: number): Promise<ProbeResult['runs']> {
   const classified = [];
   for (let i = 0; i < runs; i += 1) {
     const report = probe.junit === null ? null : join(directory, probe.junit);
-    if (report !== null) await rm(report, { force: true });
+    // A report an earlier run left is taken away, so that what is read
+    // after this run is this run's. A directory is none, and is left.
+    if (report !== null && !isDirectory(report)) await rm(report, { force: true });
     const run = await runCommand(probe.run, directory, timeout);
     // existsSync answers false for null, so the null check is there for the
     // type, and its mutant is equivalent.
-    const junit = report === null || !existsSync(report) ? null : readJUnit(await readFile(report, 'utf8'));
+    const junit = report === null || !existsSync(report) ? null : isDirectory(report) ? A_DIRECTORY : readJUnit(await readFile(report, 'utf8'));
     const judged = classify(probe, { exitCode: run.exitCode, output: run.output, junit });
     // After whatever `classify` says of the run: red, green or stopped, it
     // is judged by its shell, and what it left is said beside the verdict.

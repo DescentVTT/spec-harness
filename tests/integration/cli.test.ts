@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { HELP, run } from '../../src/cli.js';
 import { mergeClaudeSettings, mergeMcp, reportHooks } from '../../src/configure.js';
-import { BIN, brief, BRIEF_FILE, cleanup, cli, installFake, installHarness, installPlugin, parsed, repository, ROOT, SPEC_BRIEF, spawnBin, temp, write, type Repository } from './helpers.js';
+import { BIN, brief, BRIEF_FILE, claudeOf, cleanup, cli, git, installFake, installHarness, installPlugin, parsed, repository, ROOT, siblings, SPEC_BRIEF, spawnBin, temp, write, type Repository } from './helpers.js';
 
 afterAll(cleanup);
 
@@ -763,14 +763,18 @@ describe("doctor on the line of Claude Code's hook in its settings (ADR-0005)", 
     // Brief 001 is one in the other repository, and none in the one doctor runs in.
     const other = repository({ [BRIEF_FILE]: brief() });
     const outside = temp();
-    const repo = repository({ '.claude/settings.json': settings([hook(['--root', other.root, '--brief', '001']), hook(['--root', outside, '--brief', '001'])]) });
+    const repo = repository({
+      '.claude/settings.json': settings([hook(['--root', other.root, '--brief', '001']), hook(['--root', other.root, '--brief', '404']), hook(['--root', outside, '--brief', '001'])]),
+    });
     const result = await cli(['doctor', '--strict', '--format', 'json'], repo.root, { env });
-    // A root in no work tree is a guard that is off, whatever brief its line names: the hook reads none there, and none is asked about.
     expect(result.code).toBe(1);
     const lines = parsed<{ claudeCode: { lines: { state: string; detail: string }[] } }>(result).claudeCode.lines;
-    expect(lines.map((line) => line.state)).toEqual(['guards', 'off']);
-    expect(lines[0]?.detail.split(', and guards: ')[1]).toBe(`the hook reads the line, and its root, ${other.root}, is a directory`);
-    expect(lines[1]?.detail).toContain(`--root is "${outside}", a directory outside any git work tree, which the hook reads as a session outside one, exit 0 and no word, so the guard is off`);
+    // Asked in the other repository, 001 is a brief and 404 is none; asked in this one, neither would be. Under 404 the hook holds every write, and under 001 it checks the other repository's writes and none of this project's.
+    expect(lines.map((line) => line.state)).toEqual(['off', 'held', 'off']);
+    expect(lines[0]?.detail).toContain(`--root is "${other.root}", a directory in ${other.git('rev-parse', '--show-toplevel')}, the work tree of another repository, which does not hold this project`);
+    expect(lines[1]?.detail).toContain('the flag names brief 404, and spec-brief knows no such brief, so the hook holds every write until the line is mended');
+    // A root in no work tree is a guard that is off, whatever brief its line names: the hook reads none there, and none is asked about.
+    expect(lines[2]?.detail).toContain(`--root is "${outside}", a directory outside any git work tree, which the hook reads as a session outside one, exit 0 and no word, so the guard is off`);
     // A root whose configuration does not load ends the hook with exit 2 and that file's fault, and doctor with it.
     const broken = repository({ '.spec-harness.json': '{ not json' }, null);
     repo.write('.claude/settings.json', settings([hook(['--root', broken.root, '--brief', '001'])]));
@@ -860,6 +864,69 @@ describe("doctor on the line of Claude Code's hook in its settings (ADR-0005)", 
     expect((await cli(['doctor', '--strict'], repo.root, { env })).code).toBe(1);
   });
 
+  describe('a matcher the Claude Code on this machine reads otherwise (ADR-0005)', () => {
+    interface Read {
+      state: string;
+      hooks: string[];
+      lines: { state: string; before: string[] | null; after: string[] | null; detail: string | null; cover: string | null }[];
+      release: { state: string; version: string | null };
+    }
+    const read = async (repo: Repository, env: Record<string, string>, ...more: string[]) => {
+      const result = await cli(['doctor', ...more, '--format', 'json'], repo.root, { env });
+      return { code: result.code, ...parsed<{ claudeCode: Read }>(result).claudeCode };
+    };
+    const NONE = 'claude  neither the spec-harness plugin nor the hooks init writes, so Claude Code guards no write: run spec-harness init --write, or install the plugin';
+
+    it('reads names with a comma as the release on PATH reads them: no guard before 2.1.191, the guard from it on, and it cannot tell without a release', async () => {
+      const repo = repository({ '.claude/settings.json': settings([hook([])], 'Edit, Write') });
+      const aside = ', which Claude Code 2.1.190 reads as a pattern that matches no tool: a comma separates names from 2.1.191 on, where the matcher is Edit and Write';
+      // No guard is a choice, and fails nothing, --strict or not: the line is said with the release, which was asked and is reported.
+      const old = await read(repo, claudeOf('2.1.190'), '--strict');
+      expect(old).toMatchObject({ code: 0, state: 'none', hooks: [], lines: [{ state: 'unstarted', before: [], after: [], detail: null }], release: { state: 'ok', version: '2.1.190' } });
+      expect(old.lines[0]?.cover).toBe(
+        `"hook claude" in .claude/settings.json: Claude Code waits on it before no write, so it is not the guard and refuses none (under PreToolUse it has the matcher "Edit, Write"${aside}); it is started after no write, so it warns of none (under PostToolUse it has the matcher "Edit, Write"${aside})`,
+      );
+      // The release that mended it reads the matcher as it is written.
+      const told = await read(repo, claudeOf('2.1.191'), '--strict');
+      expect(told).toMatchObject({ code: 0, state: 'init', hooks: ['.claude/settings.json'], lines: [{ state: 'guards', before: ['Edit', 'Write'], after: ['Edit', 'Write'] }] });
+      expect(told.lines[0]?.cover).not.toContain('2.1.191');
+      // A release too old for the hooks fails as it did, and reads the comma as every release before 2.1.191.
+      expect(await read(repo, claudeOf('2.1.100'))).toMatchObject({ code: 1, state: 'none', lines: [{ state: 'unstarted' }], release: { state: 'outdated', version: '2.1.100' } });
+      // No release, no reading: which writes the line is started for cannot be told, which is never fine.
+      const untold = await read(repo, { PATH: temp() });
+      expect(untold).toMatchObject({ code: 0, state: 'init', lines: [{ state: 'unknown', before: null, after: null }], release: { state: 'unknown' } });
+      expect(untold.lines[0]?.cover).toContain('from Claude Code 2.1.191 on, where a comma separates names, and a pattern that matches no tool before it: the release here cannot be told');
+    });
+
+    it('asks no release where nothing is wired under any reading of a comma, as before', async () => {
+      // Names that are no tool that writes, with a comma between them: no release makes this line the guard.
+      const repo = repository({ '.claude/settings.json': settings([hook([])], 'Bash, Read') });
+      const result = await cli(['doctor', '--strict', '--format', 'json'], repo.root, { env: { PATH: temp() } });
+      expect(result.code).toBe(0);
+      expect(parsed<{ claudeCode: Read }>(result).claudeCode).toMatchObject({ state: 'none', lines: [{ state: 'unstarted', before: [], after: [] }], release: { state: 'unchecked' } });
+    });
+
+    it('fails for a guard that an array for a matcher keeps Claude Code from loading, says it of each line the array reaches, and passes once it is one string', async () => {
+      const env = newEnough();
+      const other = { type: 'command', command: '/usr/local/bin/lint-check.sh' };
+      const GUARD = 'Edit|Write|MultiEdit|NotebookEdit';
+      const held = (matcher: unknown): string =>
+        JSON.stringify({ hooks: { PreToolUse: [{ matcher: GUARD, hooks: [hook([]), hook(['--base', 'main'])] }, { matcher, hooks: [other] }], PostToolUse: [{ matcher: GUARD, hooks: [hook([])] }] } });
+      const repo = repository({ '.claude/settings.json': held(['Bash', 'PowerShell']) });
+      const array =
+        '.claude/settings.json has an array for a matcher under PreToolUse, ["Bash","PowerShell"], which Claude Code lists as an invalid setting, and beside one under PreToolUse or PermissionRequest it loads none of the file\'s other hooks, so the guard is off and no write is checked; write the matcher as one string, its names between "|"';
+      const pretty = await cli(['doctor'], repo.root, { env });
+      expect(pretty.code).toBe(1);
+      // Nothing of the file is loaded, so nothing wires Claude Code to the guard, and its release is not asked: git's hook is the next line.
+      expect(pretty.stdout).toContain([NONE, `        "hook claude" in .claude/settings.json: ${array}`, `        "hook claude --base main" in .claude/settings.json (under PreToolUse alone): ${array}`, 'git     '].join('\n'));
+      // The same names as one string, and an array in another settings file, which reaches no line of this one: every hook of this file is loaded.
+      repo.write('.claude/settings.json', held('Bash|PowerShell'));
+      const user = temp();
+      write(user, 'settings.json', JSON.stringify({ hooks: { PermissionRequest: [{ matcher: ['Bash'], hooks: [other] }] } }));
+      expect(await read(repo, { ...env, CLAUDE_CONFIG_DIR: user }, '--strict')).toMatchObject({ code: 0, state: 'init', lines: [{ state: 'guards' }, { state: 'guards' }], release: { state: 'ok' } });
+    });
+  });
+
   describe('a guard that is set up and checks nothing (ADR-0005, ADR-0012)', () => {
     const under = (...hooks: unknown[]) => ({ hooks: { PreToolUse: [{ matcher: 'Edit|Write|MultiEdit|NotebookEdit', hooks }], PostToolUse: [{ matcher: 'Edit|Write|MultiEdit|NotebookEdit', hooks }] } });
     const ID = 'spec-harness@spec-tools';
@@ -904,6 +971,58 @@ describe("doctor on the line of Claude Code's hook in its settings (ADR-0005)", 
       const mended = await wiring(repo, {});
       expect(mended.code).toBe(0);
       expect(mended.lines.map((line) => line.state)).toEqual(['guards']);
+    });
+
+    it('fails for a root on the line in a work tree that does not hold the project, where the hook checks no write to a file of it, and says whose briefs check one where the work tree holds it', async () => {
+      const INNER = brief({ affected: ['src/**'], protected: ['src/db/**'] });
+      /** A repository made where the test says, with the siblings named as every test repository names them; its top as git spells it. */
+      const at = (directory: string, files: Readonly<Record<string, string>>): string => {
+        mkdirSync(directory, { recursive: true });
+        git(directory, 'init', '-q', '-b', 'main');
+        write(directory, '.spec-harness.json', JSON.stringify({ base: 'main', tools: siblings() }));
+        for (const [path, content] of Object.entries(files)) write(directory, path, content);
+        git(directory, 'add', '-A');
+        git(directory, 'commit', '-q', '-m', 'base');
+        return git(directory, 'rev-parse', '--show-toplevel');
+      };
+      // A repository beside the project; one that holds it, whose brief protects the project's files by the path they have in it; and inside the project a repository of its own and a linked worktree.
+      const beside = repository({ [BRIEF_FILE]: INNER, 'src/db/schema.ts': 'table;\n' });
+      const outer = repository({ [BRIEF_FILE]: brief({ affected: ['packages/**'], protected: ['packages/app/src/db/**'] }), '.gitignore': 'packages/\n' });
+      const root = join(outer.root, 'packages', 'app');
+      at(root, { 'src/db/schema.ts': 'table;\n', '.gitignore': 'vendor/\nlinked/\n' });
+      const nested = join(root, 'vendor', 'lib');
+      const nestedTop = at(nested, { [BRIEF_FILE]: INNER, 'src/db/schema.ts': 'table;\n' });
+      const linked = join(root, 'linked');
+      git(root, 'worktree', 'add', '-q', linked, '-b', 'another');
+      const LINES = [['--root', outer.root, '--brief', '001'], ['--root', beside.root, '--brief', '001'], ['--root', nested, '--brief', '001'], ['--root', linked]];
+      write(root, '.claude/settings.json', JSON.stringify(under(...LINES.map((rest) => hook(rest)))));
+      const result = await cli(['doctor', '--format', 'json'], root);
+      expect(result.code).toBe(1);
+      const lines = parsed<{ claudeCode: Wiring }>(result).claudeCode.lines;
+      expect(lines.map((line) => line.state)).toEqual(['guards', 'off', 'off', 'off']);
+      const top = (directory: string): string => git(directory, 'rev-parse', '--show-toplevel');
+      expect(lines[0]?.detail).toBe(
+        `"hook claude --root ${outer.root} --brief 001" in .claude/settings.json is more than init writes, and guards: the hook reads the line, and its root, ${outer.root}, is a directory in ${top(outer.root)}, the work tree of another repository, which holds this project: the hook checks a write here by that work tree's briefs and its branch, as a file under packages/app/ there`,
+      );
+      const elsewhere = (line: readonly string[], tree: string): string =>
+        `"hook claude ${line.join(' ')}" in .claude/settings.json: --root is "${line[1]}", a directory in ${tree}, which does not hold this project: the hook checks a write to a file of that work tree, by its briefs, and passes any other with no word, exit 0, so the guard is off and no write to a file of this project is checked; give the hook's line a directory in this work tree, or leave --root out for the project Claude Code names`;
+      expect(lines[1]?.detail).toBe(elsewhere(LINES[1]!, `${top(beside.root)}, the work tree of another repository`));
+      expect(lines[2]?.detail).toBe(elsewhere(LINES[2]!, `${nestedTop}, the work tree of another repository`));
+      // A linked worktree is this repository's own, and holds no file of this work tree either.
+      expect(lines[3]?.detail).toBe(elsewhere(LINES[3]!, `${top(linked)}, another work tree of this repository`));
+      // The hook, handed each line: a write to the project's file is refused where doctor says the line guards, by the holder's brief, and passed with no word where it says no write here is checked.
+      const before = (file: string): string => JSON.stringify({ session_id: 's', cwd: root, hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: file } });
+      const mine = join(root, 'src', 'db', 'schema.ts');
+      const held = await cli(['hook', 'claude', ...LINES[0]!], root, { stdin: before(mine) });
+      expect(held).toMatchObject({ code: 0, stderr: '' });
+      expect(JSON.parse(held.stdout)).toMatchObject({ hookSpecificOutput: { permissionDecision: 'deny', permissionDecisionReason: expect.stringContaining('packages/app/src/db/schema.ts (protectedFiles: packages/app/src/db/**)') } });
+      for (const line of [LINES[1]!, LINES[3]!]) expect(await cli(['hook', 'claude', ...line], root, { stdin: before(mine) }), line.join(' ')).toEqual({ code: 0, stdout: '', stderr: '' });
+      // And a write to a file of the work tree the root is in is checked there, by its briefs.
+      const there = await cli(['hook', 'claude', ...LINES[1]!], root, { stdin: before(join(beside.root, 'src', 'db', 'schema.ts')) });
+      expect(JSON.parse(there.stdout)).toMatchObject({ hookSpecificOutput: { permissionDecision: 'deny' } });
+      // A work tree that holds the project fails nothing: its briefs are whose a write here is checked by, and that is said.
+      write(root, '.claude/settings.json', JSON.stringify(under(hook(LINES[0]!))));
+      expect((await cli(['doctor', '--strict'], root, { env: newEnough() })).code).toBe(0);
     });
 
     it('fails where disableAllHooks switches the guard hooks off, with the file that holds the key, and notes it where there is no guard to switch off', async () => {

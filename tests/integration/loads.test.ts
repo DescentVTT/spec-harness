@@ -82,7 +82,7 @@ async function fresh(argv: readonly string[], cwd: string, options: { readonly e
   // doctor asks for its modules at once, and ends on the first that cannot
   // be loaded while the others are still loading. They are waited for here:
   // one that came to its end during the next run would be that run's.
-  await Promise.allSettled([import('../../src/configure.js'), import('../../src/host.js'), import('../../src/round.js'), import('../../src/setup.js'), import('../../src/signers.js')]);
+  await Promise.allSettled([import('../../src/configure.js'), import('../../src/round.js'), import('../../src/setup.js'), import('../../src/signers.js')]);
   seen.broken = new Set();
   return { code, stdout, stderr, loaded };
 }
@@ -93,6 +93,11 @@ const ofThem = (ran: Ran): string[] => ran.loaded.filter((name) => name !== 'con
 const question = (event: string, file: string, cwd: string): string => JSON.stringify({ hook_event_name: event, tool_name: 'Edit', tool_input: { file_path: file }, cwd });
 const hook = (repo: Repository, event: string, path: string, options: { readonly broken?: readonly string[] } = {}): Promise<Ran> =>
   fresh(['hook', 'claude'], repo.root, { env: { CLAUDE_PROJECT_DIR: repo.root }, stdin: question(event, join(repo.root, ...path.split('/')), repo.root), ...options });
+
+/** The settings of a project whose writes Claude Code hands to the hook, as `init` writes the entry. */
+const WIRED = JSON.stringify({
+  hooks: { PreToolUse: [{ matcher: 'Edit|Write', hooks: [{ type: 'command', command: 'node', args: ['${CLAUDE_PROJECT_DIR}/node_modules/@descent-vtt/spec-harness/bin/spec-harness.js', 'hook', 'claude'], timeout: 60 }] }] },
+});
 
 const RULINGS = ['## Rulings', '', '| id | paths | decision | note |', '| --- | --- | --- | --- |'];
 const ALLOW = '| R-001-1 | `src/db/schema.ts` | allow | the schema moves with the token |';
@@ -183,14 +188,28 @@ describe('the command line', () => {
     const outside = temp();
     const doctor = await fresh(['doctor'], outside);
     expect(doctor).toMatchObject({ code: 2, stdout: '', stderr: nowhere(outside) });
-    expect([...doctor.loaded].sort()).toEqual(expect.arrayContaining(['configure', 'host', 'round', 'setup', 'signers']));
-    expect(doctor.loaded.filter((name) => ['commands', 'premises', 'server'].includes(name))).toEqual([]);
+    expect([...doctor.loaded].sort()).toEqual(expect.arrayContaining(['configure', 'round', 'setup', 'signers']));
+    expect(doctor.loaded.filter((name) => ['commands', 'premises', 'server', 'host'].includes(name))).toEqual([]);
+  });
+
+  it('loads what asks Claude Code its release where doctor asks it, which is where something wires the guard', async () => {
+    const env = { PATH: temp() };
+    const bare = await fresh(['doctor'], repository({}).root, { env });
+    expect(bare).toMatchObject({ code: 0, stderr: '' });
+    expect(bare.stdout).not.toContain('claude is on PATH');
+    expect(bare.loaded).not.toContain('host');
+    const wired = await fresh(['doctor'], repository({ '.claude/settings.json': WIRED }).root, { env });
+    expect(wired).toMatchObject({ code: 0, stderr: '' });
+    expect(wired.stdout).toContain('cannot be told: no claude is on PATH');
+    expect(wired.loaded).toContain('host');
   });
 });
 
 describe('a module that cannot be loaded', () => {
   it('ends the command that runs it in a line and exit 2, and no other command', async () => {
     const repo = onBrief();
+    // doctor asks a release, and loads what asks it, where a guard is wired.
+    repo.write('.claude/settings.json', WIRED);
     for (const [argv, broken] of [
       [['context'], 'commands'],
       [['premises'], 'premises'],
