@@ -32,7 +32,6 @@ import { isDirectory } from './fs.js';
 import { GitError, show, stagedChanges } from './git.js';
 import type { Decision } from './guard.js';
 import { claudeResponse, gitResponse, parseClaudeHook, type HookRequest } from './hooks.js';
-import { claudeVersion } from './host.js';
 import { premisesCommand } from './premises.js';
 import { createReader } from './reader.js';
 import { checkPaths, claudeCodeWiring, diagnoseBrief, resolveBase, specBriefPlugin, type Base } from './round.js';
@@ -41,7 +40,7 @@ import { gitHook, initCommand } from './setup.js';
 import { notFido2, readAllowedSigners } from './signers.js';
 import { SiblingError } from './siblings.js';
 import { emptyValue, heldHookLine, isBlank, isClaudeHook, readHookLine, refusal, unreadHookLine, type Command, type LineFault } from './usage.js';
-import { checkClaudeCode, CLAUDE_CODE_MINIMUM, MINIMUM_VERSIONS, type ClaudeCodeCheck } from './versions.js';
+import { CLAUDE_CODE_MINIMUM, MINIMUM_VERSIONS, type ClaudeCodeCheck } from './versions.js';
 import {
   activeBrief,
   answerOf,
@@ -95,9 +94,10 @@ Commands:
                       named, how Claude Code runs the guard, and git's hook. Exit 1
                       when a sibling is older than this release needs, the guard is
                       installed twice, its hook's line turns it off or holds every
-                      write, disableAllHooks switches it off, the plugin that is
-                      turned on is not on this machine and nothing else guards, or
-                      Claude Code is too old to run its hooks.
+                      write, disableAllHooks or an array for a matcher switches it
+                      off, the plugin that is turned on is not on this machine and
+                      nothing else guards, Claude Code is too old to run its hooks,
+                      or git stops every commit at what stands for its hook.
 
 Options:
   --brief <id>        The brief the round works on. Otherwise SPEC_BRIEF, then the branch.
@@ -301,11 +301,13 @@ async function baseAndSigners(workspace: Workspace, flag: string | undefined, si
  * How Claude Code is wired to the guard, and the release of the one on
  * `PATH`, which waits on the wiring: only a Claude Code that runs the guard
  * is asked its release, since one older than the hooks need lets every
- * write through unguarded. `null` where it was not asked.
+ * write through unguarded. `null` where it was not asked. The wiring asks
+ * it itself, since which writes a line is started for can turn on the
+ * release as well (round.ts); the two are told apart here for the report,
+ * which has a place of its own for the release.
  */
-async function wiringAndRelease(root: string, io: CliIO): Promise<{ readonly wiring: ClaudeCodeWiring; readonly release: ClaudeCodeCheck | null }> {
-  const wiring = await claudeCodeWiring(root, io);
-  const release = wiringState(wiring) === 'none' ? null : checkClaudeCode(await claudeVersion(io.env));
+async function wiringAndRelease(root: string, io: CliIO): Promise<{ readonly wiring: Omit<ClaudeCodeWiring, 'release'>; readonly release: ClaudeCodeCheck | null }> {
+  const { release, ...wiring } = await claudeCodeWiring(root, io);
   return { wiring, release };
 }
 
@@ -426,17 +428,19 @@ async function doctorCommand(options: Options, io: CliIO): Promise<number> {
   // and so are a hook whose own line turns the guard off or holds every
   // write, guard hooks that disableAllHooks switches off, a plugin that is
   // turned on and is not on this machine where no hook of init's stands in
-  // for it, and a Claude Code too old to run the hooks. A release that
-  // cannot be told is not fine either, nor a line whose reading cannot be,
-  // nor a plugin that cannot be told to be on this machine: --strict fails
-  // the three.
+  // for it, a Claude Code too old to run the hooks, and something at the
+  // path of git's pre-commit hook that git cannot run and stops every
+  // commit at. A release that cannot be told is not fine either, nor a
+  // line whose reading cannot be, nor a plugin that cannot be told to be on
+  // this machine: --strict fails the three.
   const outdated = rows.some((row) => row.state === 'outdated');
   const usable = rows.some((row) => row.state === 'found');
   const off = wiring.lines.some((line) => line.state === 'off' || line.state === 'held');
   const missing = wiring.presence?.state === 'absent' && wiring.hooks.length === 0;
   const tooOld = release?.state === 'outdated';
+  const stopped = hook.state === 'stops';
   const untold = options.strict && (release?.state === 'unknown' || wiring.lines.some((line) => line.state === 'unknown') || wiring.presence?.state === 'unknown');
-  return outdated || !usable || claude === 'both' || off || switchedOff || missing || tooOld || untold ? EXIT_FAILED : EXIT_OK;
+  return outdated || !usable || claude === 'both' || off || switchedOff || missing || tooOld || stopped || untold ? EXIT_FAILED : EXIT_OK;
 }
 
 /* ---------------------------------------------------------------- dispatch */

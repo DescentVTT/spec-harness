@@ -4,7 +4,11 @@ import { runInNewContext } from 'node:vm';
 import { describe, expect, it } from 'vitest';
 
 import {
+  arrayMatcher,
   chooseBase,
+  COMMA_SINCE,
+  commasUnder,
+  describeArrayMatcher,
   describeBase,
   describeAbsent,
   describeClaudeCode,
@@ -36,6 +40,7 @@ import {
   mergeSpecBrief,
   mergeSpecGraph,
   missingGitHook,
+  ONE_STRING,
   patternReader,
   PLUGIN,
   pluginMarketplace,
@@ -50,9 +55,10 @@ import {
   SPEC_GRAPH_CONFIGS,
   wiringState,
   writtenHooks,
+  type Commas,
   type PatternReader,
 } from '../../src/configure.js';
-import { claudeHookLine, heldHookLine, outsideHookLine } from '../../src/usage.js';
+import { claudeHookLine, elsewhereHookLine, heldHookLine, holderHookLine, outsideHookLine, type HookLine } from '../../src/usage.js';
 import { parseOptions } from '../../src/workspace.js';
 
 const SCRIPT = '${CLAUDE_PROJECT_DIR}/node_modules/@descent-vtt/spec-harness/bin/spec-harness.js';
@@ -542,6 +548,15 @@ describe("what doctor says of the keys, the Claude Code release and git's hook",
     expect(describeGitHook({ state: 'unknown', reason: 'r' })).toBe('where git runs its hooks cannot be told: r');
   });
 
+  it("says what stands at the hook's path that is no file, and what git does with it: stops every commit, or skips it", () => {
+    expect(describeGitHook({ state: 'stops', file: '.githooks/pre-commit', what: 'a directory' })).toBe(
+      '.githooks/pre-commit is a directory, not a hook, and git stops every commit at it, since it cannot run it ("cannot spawn" on Windows, "cannot exec" elsewhere): nothing is checked there, and nothing is committed. Take it away, then run spec-harness init --git-hook --write',
+    );
+    expect(describeGitHook({ state: 'ignored', file: '.git/hooks/pre-commit', what: 'neither a file nor a directory' })).toBe(
+      '.git/hooks/pre-commit is neither a file nor a directory, not a hook, and is not executable, so git skips it and runs no hook: take it away, then run spec-harness init --git-hook --write',
+    );
+  });
+
   it('runs git\'s hook with node and the script in the project\'s install, as it runs Claude Code\'s, read from the top of the work tree', () => {
     expect(GIT_HOOK_LINE).toBe('node node_modules/@descent-vtt/spec-harness/bin/spec-harness.js hook git');
     // The script the Claude Code hooks name under the project, here under the directory git starts the hook in.
@@ -790,6 +805,52 @@ describe('a root on the line that is a directory outside any work tree (ADR-0005
   it('is not said of a line Claude Code waits on before no write, which leaves none unchecked', () => {
     expect(reported(under('Bash', entry()))[0]).toMatchObject({ state: 'unstarted', detail: null, before: [], after: [] });
     expect(reported({ hooks: { PostToolUse: [{ hooks: [entry()] }] } })[0]).toMatchObject({ state: 'unstarted', detail: null, before: [] });
+  });
+});
+
+describe('a root on the line that is in another work tree than the project\'s (ADR-0005)', () => {
+  const FILE = '.claude/settings.json';
+  const TOOLS = ['Edit', 'Write', 'NotebookEdit'];
+  const entry = (more: Record<string, unknown> = {}) => ({ type: 'command', command: 'node', args: [SCRIPT, 'hook', 'claude', '--root', '../other'], ...more });
+  const under = (matcher: string, hook: unknown) => ({ hooks: { PreToolUse: [{ matcher, hooks: [hook] }], PostToolUse: [{ matcher, hooks: [hook] }] } });
+  const reported = (settings: unknown, line: HookLine) => reportHooks([{ file: FILE, settings }], '/work/app', () => line);
+  const W = '"hook claude --root ../other" in .claude/settings.json';
+  const THEIRS = { top: '/work/other', ours: false };
+  const OURS = { top: '/work/other', ours: true };
+  const off = (whose: string): string =>
+    `${W}: --root is "../other", a directory in /work/other, ${whose}, which does not hold this project: the hook checks a write to a file of that work tree, by its briefs, and passes any other with no word, exit 0, so the guard is off and no write to a file of this project is checked; give the hook's line a directory in this work tree, or leave --root out for the project Claude Code names`;
+
+  it('is a guard that is off where that work tree does not hold the project, said with whose work tree it is and what the hook checks there', () => {
+    expect(reported(under(GUARD.matcher, entry()), elsewhereHookLine('../other', THEIRS))).toEqual([
+      { file: FILE, events: ['PreToolUse', 'PostToolUse'], line: ['hook', 'claude', '--root', '../other'], state: 'off', onFailure: null, detail: off('the work tree of another repository'), before: TOOLS, after: TOOLS, cover: null, note: null },
+    ]);
+    // A linked worktree of the project's own repository is named as that, and checks no more of the project.
+    expect(reported(under(GUARD.matcher, entry()), elsewhereHookLine('../other', OURS))[0]).toMatchObject({ state: 'off', detail: off('another work tree of this repository') });
+    // The hook exits 0 under such a root, so no run of it fails: onFailure holds no write for it.
+    expect(reported(under(GUARD.matcher, entry({ onFailure: 'block' })), elsewhereHookLine('../other', THEIRS))[0]).toMatchObject({
+      state: 'off',
+      note: expect.stringContaining('where it lets the write go ahead without it: by its exit 1 for a question it cannot read'),
+    });
+    // Waited on before no write, it leaves none unchecked that it was asked about: said as that, and no fault.
+    expect(reported(under('Bash', entry()), elsewhereHookLine('../other', THEIRS))[0]).toMatchObject({ state: 'unstarted', detail: null });
+    // A fault the hook says nothing of, as a root outside any work tree is, and what goes unchecked under it is the project's writes alone.
+    expect(elsewhereHookLine('../other', THEIRS)).toMatchObject({ state: 'off', silent: true, unchecked: 'no write to a file of this project is checked' });
+    expect(outsideHookLine('/elsewhere')).not.toHaveProperty('unchecked');
+  });
+
+  it('guards where that work tree holds the project, and says whose briefs a write here is checked by', () => {
+    const line = holderHookLine({ state: 'guards', root: '/work' }, { top: '/work', ours: false }, 'app');
+    const guards = (whose: string, path: string): string =>
+      `${W} is more than init writes, and guards: the hook reads the line, and its root, /work, is a directory in /work, ${whose}, which holds this project: the hook checks a write here by that work tree's briefs and its branch, as a file under ${path}/ there`;
+    expect(reported(under(GUARD.matcher, entry()), line)).toEqual([
+      { file: FILE, events: ['PreToolUse', 'PostToolUse'], line: ['hook', 'claude', '--root', '../other'], state: 'guards', onFailure: null, detail: guards('the work tree of another repository', 'app'), before: TOOLS, after: TOOLS, cover: null, note: null },
+    ]);
+    // The main work tree around a linked one is the project's own repository.
+    const main = holderHookLine({ state: 'guards', root: '/work', brief: '001' }, { top: '/work', ours: true }, '.claude/worktrees/x');
+    expect(main).toEqual({ state: 'guards', root: '/work', brief: '001', holder: { top: '/work', ours: true, path: '.claude/worktrees/x' } });
+    expect(reported(under(GUARD.matcher, entry()), main)[0]).toMatchObject({ state: 'guards', detail: guards('another work tree of this repository', '.claude/worktrees/x') });
+    // A root in the project's own work tree has no other work tree to name, as before.
+    expect(reported(under(GUARD.matcher, entry()), { state: 'guards', root: '/work/app/src' })[0]?.detail).toBe(`${W} is more than init writes, and guards: the hook reads the line, and its root, /work/app/src, is a directory`);
   });
 });
 
@@ -1282,11 +1343,11 @@ describe("the lines of Claude Code's hook in its settings, and what doctor says 
       ['.*', TOOLS],
       ['Notebook.', ['NotebookEdit']],
       ['^Bash$', []],
-      // What the reference does not describe: a matcher that is not text, or is no pattern.
+      // What the reference does not describe: a matcher that is neither text nor an array, or is no pattern.
       ['(', null],
       [7, null],
       [null, null],
-      [['Edit'], null],
+      [{ tool: 'Edit' }, null],
     ];
     for (const [matcher, tools] of cases) expect(started(both(matcher)), JSON.stringify(matcher)).toEqual([tools, tools]);
   });
@@ -1430,6 +1491,244 @@ describe("the lines of Claude Code's hook in its settings, and what doctor says 
     expect(reported(several)[0]?.cover).toBe(
       `${W}: Claude Code waits on it before no write, so it is not the guard and refuses none (under PreToolUse it has the matcher "Bash", the matcher "Read" in the background and the matcher "Glob")`,
     );
+  });
+
+  describe('a matcher the Claude Code on this machine reads otherwise (ADR-0005)', () => {
+    const OLD: Commas = { as: 'pattern', release: '2.1.190' };
+    const UNTOLD: Commas = { as: 'untold' };
+    const under = (hooks: unknown, commas: Commas, pattern?: PatternReader) => reportHooks([{ file: FILE, settings: hooks }], PROJECT, read, pattern, commas);
+    /** The writing tools the one line of `hooks` is waited on before a write by and started after one by, under a reading of the comma. */
+    const startedUnder = (hooks: unknown, commas: Commas): unknown => {
+      const [report] = under(hooks, commas);
+      return [report?.before, report?.after];
+    };
+
+    it('takes the reading of a comma from the release doctor asked: a separator from 2.1.191 on, part of a pattern before it, untold where the release is', () => {
+      expect(COMMA_SINCE).toBe('2.1.191');
+      const separator: Commas = { as: 'separator' };
+      expect(commasUnder({ state: 'ok', version: '2.1.191' })).toEqual(separator);
+      expect(commasUnder({ state: 'ok', version: '2.1.300' })).toEqual(separator);
+      expect(commasUnder({ state: 'ok', version: '2.2.0', file: '/p/package.json' })).toEqual(separator);
+      expect(commasUnder({ state: 'ok', version: '3.0.0' })).toEqual(separator);
+      expect(commasUnder({ state: 'ok', version: '2.1.190' })).toEqual(OLD);
+      expect(commasUnder({ state: 'ok', version: '2.1.139' })).toEqual({ as: 'pattern', release: '2.1.139' });
+      // A release too old for the hooks is older than this one too, and a prerelease of 2.1.191 comes before it.
+      expect(commasUnder({ state: 'outdated', version: '2.1.100' })).toEqual({ as: 'pattern', release: '2.1.100' });
+      expect(commasUnder({ state: 'ok', version: '2.1.191-beta.1' })).toEqual({ as: 'pattern', release: '2.1.191-beta.1' });
+      expect(commasUnder({ state: 'unknown', reason: 'no claude is on PATH' })).toEqual(UNTOLD);
+      expect(commasUnder(null)).toEqual(UNTOLD);
+    });
+
+    it('is waited on before no write under names with a comma on a release older than 2.1.191, said with the release and what the matcher is from 2.1.191', () => {
+      const aside = ', which Claude Code 2.1.190 reads as a pattern that matches no tool: a comma separates names from 2.1.191 on, where the matcher is Edit and Write';
+      expect(under(both('Edit, Write'), OLD)).toEqual([
+        {
+          file: FILE,
+          events: BOTH,
+          line: ['hook', 'claude'],
+          state: 'unstarted',
+          onFailure: null,
+          detail: null,
+          before: [],
+          after: [],
+          cover: `${W}: Claude Code waits on it before no write, so it is not the guard and refuses none (under PreToolUse it has the matcher "Edit, Write"${aside}); it is started after no write, so it warns of none (under PostToolUse it has the matcher "Edit, Write"${aside})`,
+          note: null,
+        },
+      ]);
+      for (const matcher of ['Edit,Write', 'Edit, Write ,NotebookEdit', 'Edit, Write, MultiEdit, NotebookEdit', 'NotebookEdit,', ',Edit']) expect(startedUnder(both(matcher), OLD), matcher).toEqual([[], []]);
+      expect(under(both('Edit,Write,NotebookEdit'), OLD)[0]?.cover).toContain('where the matcher is Edit, Write and NotebookEdit)');
+      // The same release reads a matcher with no comma as every release does, and a pattern as the pattern it is, a comma in it or not.
+      const same: readonly (readonly [unknown, readonly string[] | null])[] = [
+        [undefined, TOOLS],
+        ['', TOOLS],
+        ['*', TOOLS],
+        ['Edit|Write', ['Edit', 'Write']],
+        ['Edit | Write', ['Edit', 'Write']],
+        [GUARD.matcher, TOOLS],
+        ['Bash', []],
+        ['^(Edit|Write),?$', ['Edit', 'Write']],
+        ['Edit.*', ['Edit', 'NotebookEdit']],
+        ['(', null],
+        [7, null],
+        [null, null],
+      ];
+      for (const commas of [OLD, UNTOLD]) {
+        for (const [matcher, tools] of same) {
+          expect(startedUnder(both(matcher), commas), JSON.stringify(matcher)).toEqual([tools, tools]);
+          // And nothing is said of it that is not said under the newest release: its state, and every word.
+          expect(under(both(matcher), commas), JSON.stringify(matcher)).toEqual(reported(both(matcher)));
+        }
+      }
+      // An entry beside it that names a tool without a comma still guards that tool.
+      const two = { hooks: { PreToolUse: [group('Edit,Write', HOOK), group('NotebookEdit', HOOK)], PostToolUse: [GUARD] } };
+      expect(under(two, OLD)[0]).toMatchObject({ state: 'guards', before: ['NotebookEdit'], after: TOOLS });
+      // A release from 2.1.191 on, and a caller that asked none, read the comma as the reference has it today, with nothing more to say.
+      for (const commas of [{ as: 'separator' } satisfies Commas, undefined]) {
+        const [report] = reportHooks([{ file: FILE, settings: both('Edit, Write') }], PROJECT, read, undefined, commas);
+        expect(report).toMatchObject({ state: 'guards', before: ['Edit', 'Write'], after: ['Edit', 'Write'] });
+        expect(report?.cover).toBe(reported(both('Edit, Write'))[0]?.cover);
+        expect(report?.cover).not.toContain('2.1.191');
+      }
+    });
+
+    it('cannot tell where the release cannot be told and the two readings differ, and says both; where both come to no tool that writes there is nothing to tell', () => {
+      const aside = ', which is Edit and Write from Claude Code 2.1.191 on, where a comma separates names, and a pattern that matches no tool before it: the release here cannot be told';
+      expect(under(both('Edit, Write'), UNTOLD)[0]).toMatchObject({
+        state: 'unknown',
+        detail: null,
+        before: null,
+        after: null,
+        cover: `${W}: which writes Claude Code waits on it before cannot be told here (under PreToolUse it has the matcher "Edit, Write"${aside}); which writes it is started after cannot be told here (under PostToolUse it has the matcher "Edit, Write"${aside})`,
+      });
+      // No tool that writes either way: no release makes it a guard, and none is named.
+      for (const commas of [OLD, UNTOLD]) {
+        for (const matcher of ['Bash,PowerShell', 'Bash, Read', ',', 'MultiEdit, Bash']) {
+          expect(under(both(matcher), commas)[0], matcher).toMatchObject({
+            state: 'unstarted',
+            before: [],
+            after: [],
+            cover: `${W}: Claude Code waits on it before no write, so it is not the guard and refuses none (under PreToolUse it has the matcher ${JSON.stringify(matcher)}); it is started after no write, so it warns of none (under PostToolUse it has the matcher ${JSON.stringify(matcher)})`,
+          });
+        }
+      }
+    });
+
+    it('cannot tell under names with a comma and a bar where read as a pattern they match a tool: the page says such a matcher never matched, and a pattern would', () => {
+      // Read as a pattern, "Edit" stands alone before the bar, and is in NotebookEdit as well.
+      const mixed = 'Edit|Write, NotebookEdit';
+      const old = ', which Claude Code 2.1.190 reads as a pattern whose matches its documentation does not give: a comma separates names from 2.1.191 on, where the matcher is Edit, Write and NotebookEdit';
+      expect(under(both(mixed), OLD)[0]).toMatchObject({
+        state: 'unknown',
+        before: null,
+        after: null,
+        cover: `${W}: which writes Claude Code waits on it before cannot be told here (under PreToolUse it has the matcher "${mixed}"${old}); which writes it is started after cannot be told here (under PostToolUse it has the matcher "${mixed}"${old})`,
+      });
+      expect(under(both(mixed), UNTOLD)[0]?.cover).toContain(
+        ', which is Edit, Write and NotebookEdit from Claude Code 2.1.191 on, where a comma separates names, and a pattern whose matches its documentation does not give before it: the release here cannot be told)',
+      );
+      // Names that list no tool that writes, where a part of one is in a tool's name: said as no tool from 2.1.191, and not told before it.
+      const part = 'Bash,X|dit';
+      expect(reported(both(part))[0]).toMatchObject({ state: 'unstarted', before: [], after: [] });
+      expect(under(both(part), OLD)[0]).toMatchObject({ state: 'unknown', before: null });
+      expect(under(both(part), OLD)[0]?.cover).toContain('a comma separates names from 2.1.191 on, where the matcher is no tool that writes)');
+      expect(under(both(part), UNTOLD)[0]?.cover).toContain(', which is no tool that writes from Claude Code 2.1.191 on, where a comma separates names, and a pattern whose matches');
+      // A reading that runs out its budget is one that cannot be told, for this pattern as for any.
+      const spent = (): PatternReader => patternReader(() => null);
+      expect(under(both('Edit, Write'), OLD, spent())[0]).toMatchObject({ state: 'unknown', before: null, after: null });
+      expect(under(both('Bash, Read'), UNTOLD, spent())[0]).toMatchObject({ state: 'unknown', before: null, after: null });
+    });
+
+    it('has init write its hooks beside a line the release here starts for no write, and none beside one it may start', () => {
+      const own = both('Edit, Write');
+      const added = { hooks: { PreToolUse: [group('Edit, Write', HOOK), GUARD], PostToolUse: [group('Edit, Write', HOOK), GUARD] } };
+      expect(mergeClaudeSettings(own)).toBeNull();
+      expect(mergeClaudeSettings(own, undefined, undefined, { as: 'separator' })).toBeNull();
+      expect(mergeClaudeSettings(own, undefined, undefined, UNTOLD)).toBeNull();
+      expect(mergeClaudeSettings(own, undefined, undefined, OLD)).toEqual(added);
+      // A line a person wrote, known by the hook's own reading: the same.
+      const longer = exec('--base', 'main');
+      const theirs = both('Edit, Write', longer);
+      const isHook = (words: readonly string[]): boolean => read(words) !== null;
+      expect(mergeClaudeSettings(theirs, isHook, undefined, UNTOLD)).toBeNull();
+      expect(mergeClaudeSettings(theirs, isHook, undefined, OLD)).toEqual({ hooks: { PreToolUse: [group('Edit, Write', longer), GUARD], PostToolUse: [group('Edit, Write', longer), GUARD] } });
+    });
+
+    it('is started for no write under an array, which Claude Code lists as an invalid setting, and says so of the entry', () => {
+      const after = { hooks: { PreToolUse: [GUARD], PostToolUse: [group(['Edit', 'Write'], HOOK)] } };
+      expect(reported(after)).toEqual([
+        {
+          file: FILE,
+          events: BOTH,
+          line: ['hook', 'claude'],
+          state: 'guards',
+          onFailure: null,
+          detail: null,
+          before: TOOLS,
+          after: [],
+          cover: `${W}: it is started after no write, so it warns of none (under PostToolUse it has the matcher ["Edit","Write"], an array, which Claude Code lists as an invalid setting and loads no hook under)`,
+          note: null,
+        },
+      ]);
+      // An entry beside it under the same event is started as its own matcher has it.
+      expect(started({ hooks: { PreToolUse: [GUARD], PostToolUse: [group(['Edit'], HOOK), group('Write', HOOK)] } })).toEqual([TOOLS, ['Write']]);
+      // init completes its own line under the event, where the entry under the array is started for nothing.
+      expect(mergeClaudeSettings(after)).toEqual({ hooks: { PreToolUse: [GUARD], PostToolUse: [group(['Edit', 'Write'], HOOK), GUARD] } });
+    });
+
+    it('finds the array that keeps a file\'s hooks from loading: under PreToolUse or PermissionRequest, and under no other event', () => {
+      const other = { type: 'command', command: '/usr/local/bin/lint-check.sh' };
+      expect(arrayMatcher({ hooks: { PreToolUse: [GUARD, group(['Bash'], other)] } })).toEqual({ event: 'PreToolUse', matcher: '["Bash"]' });
+      expect(arrayMatcher({ hooks: { PermissionRequest: [group(['Bash', 7], other)] } })).toEqual({ event: 'PermissionRequest', matcher: '["Bash",7]' });
+      expect(arrayMatcher({ hooks: { PreToolUse: [group([], HOOK)] } })).toEqual({ event: 'PreToolUse', matcher: '[]' });
+      // The first of them, PreToolUse before PermissionRequest, whatever order the file has the events in.
+      expect(arrayMatcher({ hooks: { PermissionRequest: [group(['a'], other)], PreToolUse: [group('Bash', other), group(['b'], other), group(['c'], other)] } })).toEqual({ event: 'PreToolUse', matcher: '["b"]' });
+      // An array under any other event unloads nothing beside it, and a matcher that is anything else is no array.
+      for (const hooks of [
+        { PostToolUse: [group(['Edit'], HOOK)], Stop: [group(['x'], other)], SessionStart: [group(['startup'], other)] },
+        { PreToolUse: [GUARD, group('Bash', other), group(undefined, other), group(7, other), group({ 0: 'Edit' }, other), group(null, other)] },
+        { PreToolUse: 'Edit', PermissionRequest: { matcher: ['Edit'] } },
+        { PreToolUse: [null, 'x', ['matcher']] },
+        {},
+      ]) {
+        expect(arrayMatcher({ hooks }), JSON.stringify(hooks)).toBeNull();
+      }
+      for (const settings of [null, 'unreadable', {}, { hooks: 7 }, { hooks: [] }, { PreToolUse: [group(['Bash'], other)] }]) expect(arrayMatcher(settings), JSON.stringify(settings)).toBeNull();
+      expect(describeArrayMatcher('a/settings.json', { event: 'PermissionRequest', matcher: '["Bash"]' })).toBe(
+        'a/settings.json has an array for a matcher under PermissionRequest, ["Bash"], which Claude Code lists as an invalid setting, and beside one under PreToolUse or PermissionRequest it loads none of the file\'s other hooks',
+      );
+      expect(ONE_STRING).toBe('write the matcher as one string, its names between "|"');
+    });
+
+    it('says every line of the hook in such a file as one Claude Code does not start, and as a guard that is off where it stood to be started for a write', () => {
+      const other = { type: 'command', command: '/usr/local/bin/lint-check.sh' };
+      const array = (event: string): string => `${FILE} has an array for a matcher under ${event}, ["Bash"], which Claude Code lists as an invalid setting, and beside one under PreToolUse or PermissionRequest it loads none of the file's other hooks`;
+      const off = (event: string): string => `${W}: ${array(event)}, so the guard is off and no write is checked; write the matcher as one string, its names between "|"`;
+      expect(reported({ hooks: { PreToolUse: [GUARD, group(['Bash'], other)], PostToolUse: [GUARD] } })).toEqual([
+        { file: FILE, events: BOTH, line: ['hook', 'claude'], state: 'off', onFailure: null, detail: off('PreToolUse'), before: [], after: [], cover: null, note: null },
+      ]);
+      expect(reported({ hooks: { PreToolUse: [GUARD], PostToolUse: [GUARD], PermissionRequest: [group(['Bash'], other)] } })[0]).toMatchObject({ state: 'off', detail: off('PermissionRequest'), before: [], after: [] });
+      // The hook's own entry under an array: whatever the array holds, someone meant a matcher by it.
+      for (const matcher of [['Edit', 'Write'], ['Bash'], []]) {
+        expect(reported(both(matcher))[0], JSON.stringify(matcher)).toMatchObject({ state: 'off', before: [], after: [], cover: null, detail: expect.stringContaining(`under PreToolUse, ${JSON.stringify(matcher)}, which Claude Code lists as an invalid setting`) });
+      }
+      // One entry of the line under an array is enough, beside one under a matcher that starts it for nothing.
+      expect(reported({ hooks: { PreToolUse: [group(['Edit'], HOOK), group('Bash', HOOK)] } })[0]).toMatchObject({ state: 'off', before: [], after: [] });
+      // Started before a write alone, or after one alone, it stood to be started: the guard that refuses, or the one that warns.
+      expect(reported({ hooks: { PreToolUse: [GUARD], PermissionRequest: [group(['Bash'], other)] } })[0]).toMatchObject({ state: 'off', events: ['PreToolUse'] });
+      expect(reported({ hooks: { PreToolUse: [group(['Bash'], other)], PostToolUse: [GUARD] } })[0]).toMatchObject({ state: 'off', events: ['PostToolUse'], detail: expect.stringMatching(/^"hook claude" in \.claude\/settings\.json \(under PostToolUse alone\): /) });
+      // Where which writes it stood to be started for cannot be told, it is taken as started, as everywhere.
+      expect(reported({ hooks: { PreToolUse: [group(GUARD.matcher, { ...HOOK, if: 'Edit(*.ts)' }), group(['Bash'], other)] } })[0]).toMatchObject({ state: 'off' });
+      // A line that stood to be started for no write is no guard switched off: it is said, and fails nothing.
+      expect(reported({ hooks: { PreToolUse: [group('Bash', HOOK), group(['Bash'], other)], PostToolUse: [group('Bash', HOOK)] } })).toEqual([
+        {
+          file: FILE,
+          events: BOTH,
+          line: ['hook', 'claude'],
+          state: 'unstarted',
+          onFailure: null,
+          detail: `${W}: ${array('PreToolUse')}: the line is not started, and stood to be started for no write as it is, so no guard is switched off`,
+          before: [],
+          after: [],
+          cover: null,
+          note: null,
+        },
+      ]);
+      // Whatever the hook would do with the line, and whatever its entry holds: it is never started, so that is what is said, and onFailure changes nothing.
+      const held = { hooks: { PreToolUse: [group(GUARD.matcher, exec('--nope'), { ...exec('--brief', '404'), onFailure: 'block' }, shell(`${LEGACY} --root "$PWD"`), { command: 'node', args: [SCRIPT, 'hook', 'claude', '--base', 'x'] }), group(['Bash'], other)] } };
+      const said = reportHooks([{ file: FILE, settings: held }], PROJECT, (words) => (words.includes('404') ? heldHookLine('x') : read(words)));
+      expect(said.map((report) => [report.state, report.onFailure, report.note, report.cover, report.detail?.includes(array('PreToolUse'))])).toEqual([
+        ['off', null, null, null, true],
+        ['off', 'block', null, null, true],
+        ['off', null, null, null, true],
+        ['off', null, null, null, true],
+      ]);
+      // Another file's hooks are loaded as that file has them.
+      const two = reportHooks([{ file: 'user', settings: { hooks: { PreToolUse: [group(['Bash'], other)] } } }, { file: FILE, settings: settings(HOOK) }, { file: 'local', settings: { hooks: { PreToolUse: [GUARD, group(['x'], other)] } } }], PROJECT, read);
+      expect(two.map((report) => [report.file, report.state])).toEqual([
+        [FILE, 'guards'],
+        ['local', 'off'],
+      ]);
+    });
   });
 
   it('says a line under a brief that is not one as holding every write, in the words for the name', () => {

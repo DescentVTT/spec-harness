@@ -9,6 +9,69 @@ only fixes, reports less or documents, so `^0.7.0` takes only releases that
 cannot turn a run red. The family's policy is
 [spec-core's ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
+## Unreleased
+
+`doctor` and `init` say more of what looks like a guard and checks
+nothing: a matcher the Claude Code on this machine reads otherwise, and a
+root on the hook's line that is in another work tree. And a directory where
+git looks for its hook, or a probe for its report, ends in a sentence where
+it ended on a stack
+([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
+
+### Changed
+
+- **A matcher that lists names with a comma is read as the Claude Code on
+  `PATH` reads it.** A comma separates names from Claude Code 2.1.191 on;
+  before it, by Claude Code's page on debugging a configuration, the matcher
+  matched no tool, and `doctor` said a line under `Edit, Write` guards
+  where Claude Code never started it. Under an older release the line is
+  now said as no guard, with the release and what the matcher is from
+  2.1.191 on, and `init --write` writes its own hooks beside it; where the
+  release cannot be told, or the matcher holds a `|` as well, it is
+  *cannot tell*.
+  Upgrading: under a Claude Code older than 2.1.191 `doctor` reports no
+  guard for such a line, exits 0 where it exited 1 for the plugin beside it,
+  and `--strict` fails a matcher with a comma and a `|`. Write the matcher
+  with `|` alone, as `Edit|Write`, or update Claude Code.
+- **`doctor` fails where an array for a matcher keeps Claude Code from
+  loading a settings file's hooks.** By the same page, a `matcher` that is
+  an array is an invalid setting that starts no hook, and under
+  `PreToolUse` or `PermissionRequest` none of that file's other hooks
+  load either. Every line of the hook in such a file is said as one Claude
+  Code does not start, a guard that is off where it stood to be started for
+  a write, and `init` writes no hook into the file (`advise`).
+  Upgrading: `doctor` exits 1 for such a file, where it exited 0, or 1
+  under `--strict` alone: write the matcher as one string, its names
+  between `|`.
+- **`doctor` fails for a hook's line whose root is in a work tree that does
+  not hold the project.** The hook opens the work tree its root is in and
+  passes a write to any file outside it with no word, so under a root in a
+  repository beside the project, or in one inside it, a submodule or a
+  linked worktree among them, no write to the project is checked: the line
+  is said as a guard that is off, and `init` advises. Under a root in a
+  work tree that holds the project, `doctor` says whose briefs a write
+  here is checked by, and fails nothing.
+  Upgrading: `doctor` exits 1 for such a line, where it exited 0: give the
+  line a directory in the project's work tree, or take `--root` off it.
+- **`doctor` and `init` say a directory at the path of git's pre-commit
+  hook, where they ended on a stack.** git tries to run whatever it may
+  execute there, cannot run a directory, and stops every commit, so
+  `doctor` says the path and what git does with it and exits 1; `init`
+  advises and writes nothing over it. Where git may not execute it and
+  skips it, that is said and fails nothing. `--format json` has the two as
+  the `gitHook.state` `stops` and `ignored`.
+  Upgrading: `doctor` exits 1 there, and `init` 0, where each exited 2
+  with `unexpected error: Error: EISDIR`. Take the directory away, then run
+  `spec-harness init --git-hook --write`.
+
+### Fixed
+
+- **`probe` says a report that is a directory, where it ended on a
+  stack.** Where a probe's `junit` names a directory the repository holds,
+  the run is `no-report`, `cannot be read: it is a directory, not a
+  report`, and the probe invalid, exit 1, where it was `unexpected error`
+  and exit 2.
+
 ## 0.17.0
 
 `doctor` and `init` see four more ways a guard is set up and checks

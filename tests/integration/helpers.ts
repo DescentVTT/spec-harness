@@ -5,7 +5,7 @@
  */
 
 import { execFileSync, spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -200,6 +200,26 @@ export function installPlugin(directory: string, id = 'spec-harness@spec-tools')
   const entry = { source: { source: 'github', repo: 'example/spec-harness' }, installLocation: join(directory, 'marketplaces', marketplace), lastUpdated: '2026-10-12T00:00:00.000Z' };
   writeFileSync(join(directory, 'known_marketplaces.json'), JSON.stringify({ [marketplace]: entry }));
   return directory;
+}
+
+/**
+ * A `PATH` whose `claude` is of the release given, told as each platform
+ * lets doctor tell it: on Windows a claude.cmd that runs Claude Code's
+ * package, which doctor reads and never starts, and elsewhere a script that
+ * prints the release. Made up, in a directory of the test's own: no Claude
+ * Code is started by it.
+ */
+export function claudeOf(version: string): Record<string, string> {
+  const directory = temp();
+  if (process.platform === 'win32') {
+    write(directory, 'claude.cmd', ['@ECHO off', 'SETLOCAL', 'SET dp0=%~dp0', '"%dp0%\\node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe"   %*', ''].join('\r\n'));
+    write(directory, 'node_modules/@anthropic-ai/claude-code/package.json', `{ "name": "@anthropic-ai/claude-code", "version": "${version}" }\n`);
+    return { PATH: directory, PATHEXT: '.COM;.EXE;.BAT;.CMD' };
+  }
+  const file = join(directory, 'claude');
+  writeFileSync(file, `#!/bin/sh\necho '${version} (Claude Code)'\n`);
+  chmodSync(file, 0o755);
+  return { PATH: directory };
 }
 
 /** The `tools` entry naming this repository's copies of spec-brief and spec-guard. */

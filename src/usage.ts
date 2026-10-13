@@ -206,6 +206,27 @@ export interface Guards {
    * line names none.
    */
   readonly brief?: string;
+  /**
+   * The work tree the root is in, where that is not the project's own and
+   * holds it: the hook opens the work tree its root is in, so a write to a
+   * file of the project is checked there, by that work tree's briefs, under
+   * the path the file has in it. Only git can tell, so the caller asks it.
+   * Absent where the line gives no root, or one in the project's work tree.
+   */
+  readonly holder?: OtherTree & { readonly path: string };
+}
+
+/** A work tree the root on the hook's line is in that is not the project's own. */
+export interface OtherTree {
+  /** Its top, as git names it. */
+  readonly top: string;
+  /** Whether it is a work tree of the project's own repository, linked or main, where it is otherwise another repository's. */
+  readonly ours: boolean;
+}
+
+/** How such a work tree is named: by its top, and whose it is. */
+export function namedTree({ top, ours }: OtherTree): string {
+  return `${top}, ${ours ? 'another work tree of this repository' : 'the work tree of another repository'}`;
 }
 
 export interface GuardOff {
@@ -213,10 +234,16 @@ export interface GuardOff {
   readonly fault: LineFault;
   /**
    * Set where the hook says nothing of the fault and exits 0, so that no
-   * run of it fails: a root outside any work tree. Every other fault it
-   * says, with exit 1.
+   * run of it fails: a root outside any work tree, or in a work tree that
+   * does not hold the project. Every other fault it says, with exit 1.
    */
   readonly silent?: true;
+  /**
+   * What goes unchecked, where that is not every write: under a root in a
+   * work tree that does not hold the project, the hook checks a write to a
+   * file of that work tree, and none to a file of the project.
+   */
+  readonly unchecked?: string;
 }
 
 export interface WritesHeld {
@@ -278,6 +305,39 @@ export function outsideHookLine(root: string): GuardOff {
       mend: "give the hook's line a directory in the work tree, or leave --root out for the project Claude Code names",
     },
   };
+}
+
+/**
+ * A line whose root is in a git work tree that does not hold the project:
+ * another repository beside it, or a work tree inside it, a repository of
+ * its own, a submodule or a linked worktree. The hook opens the work tree
+ * its root is in and decides by that work tree's briefs. A file of the
+ * project is outside it, which the hook reads as a file outside the
+ * repository: it says nothing, exit 0, as it has in every release, and that
+ * stays. So no write to a file of the project is checked under the line,
+ * and `doctor` says it as a guard that is off. Only git can tell such a
+ * root, so the caller asks it.
+ */
+export function elsewhereHookLine(root: string, tree: OtherTree): GuardOff {
+  return {
+    state: 'off',
+    silent: true,
+    unchecked: 'no write to a file of this project is checked',
+    fault: {
+      wrong: `--root is "${root}", a directory in ${namedTree(tree)}, which does not hold this project: the hook checks a write to a file of that work tree, by its briefs, and passes any other with no word, exit 0`,
+      mend: "give the hook's line a directory in this work tree, or leave --root out for the project Claude Code names",
+    },
+  };
+}
+
+/**
+ * A line that guards under a root in a work tree which holds the project
+ * and is not its own: a repository the project is nested in, or the main
+ * work tree around a linked one. `path` is the project's top as that work
+ * tree names it.
+ */
+export function holderHookLine(line: Guards, tree: OtherTree, path: string): Guards {
+  return { ...line, holder: { ...tree, path } };
 }
 
 /**

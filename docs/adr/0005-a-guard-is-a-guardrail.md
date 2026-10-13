@@ -994,6 +994,359 @@ An exit code that can change for a tree that passed is a minor release
 - **An entry of the harness's under another event than the two**, which the
   hook answers with nothing.
 
+*Amended 2026-10-14.* `doctor` and `init` read a matcher as the Claude
+Code on this machine reads it. The amendment that took the tools down to
+three measured two things about a matcher and left them: names with a comma
+before Claude Code 2.1.191, and a matcher that is an array. *Claimed* there,
+from a page that was not kept: before 2.1.191 a matcher that lists names
+with commas matched no tool, and an array for a matcher has Claude Code load
+none of the settings file's other hooks under the event. *Measured*, each
+page read again on 2026-10-14:
+
+- **The page on debugging a configuration**
+  (<https://code.claude.com/docs/en/debug-your-config>, *Check hooks* and
+  *Check common causes*). Of a hook that is listed and does not fire: a
+  `,` separates the names of a matcher as a `|` does, and "Before
+  v2.1.191, a comma fell through to regex evaluation and the matcher never
+  matched". Its table says the same of `"Edit,Write"`: read with the comma
+  as a literal character, it matches nothing. Of a hook that is not listed
+  at all: a `matcher` that is an array, where it must be one string, is an
+  entry Claude Code lists as an invalid setting, when an interactive session
+  starts and in `claude doctor`; and where the array is under `PreToolUse`
+  or `PermissionRequest`, none of that file's other hooks load either. The
+  page names no release for the array. So the first claim holds, and the
+  second holds more widely than it was made: the page has the whole file,
+  not the event, and two events an array does that under.
+- **The hooks reference** (<https://code.claude.com/docs/en/hooks>, *Matcher
+  patterns*) has a matcher made of letters, digits, `_`, `-`, spaces, `,`
+  and `|` alone as a name, or a list of names between `|` or `,`, as it
+  had on 2026-10-12, and names no release for the comma.
+- **The changelog** (<https://code.claude.com/docs/en/changelog>, 2.1.191,
+  of June 24, 2026) has, among its fixes, hooks with comma-separated
+  matchers that silently never fired, `"Bash,PowerShell"` its example.
+
+Measured through the launcher of 0.17.0 and of this change, in a repository
+with a brief that protects a file, the hook's line under both events with
+the matcher given unless the row says otherwise, and a `claude` on `PATH`
+of the release given, made up and never a Claude Code (Linux, Node 24.21,
+git 2.47, in a container; the rows were run again on Windows 11, Node
+24.18.1, git 2.55):
+
+| What the settings hold, and the release | `doctor` on 0.17.0 | `init --write` on 0.17.0 | `doctor` now | `init --write` now |
+| --- | --- | --- | --- | --- |
+| `Edit, Write`, under 2.1.191 or later | guards a write by Edit and Write; exit 0 | `keep` | the same | the same |
+| the same, under 2.1.139 to 2.1.190 | the same | `keep` | waited on before no write, so not the guard, with the release and what the matcher is from 2.1.191; exit 0 | writes its hooks beside the line |
+| the same, with no `claude` on `PATH` | the same; exit 0, and 1 under `--strict` for the release | `keep` | cannot tell which writes; the same exit codes | `keep`, saying the same |
+| the same under 2.1.190, the plugin on and installed | the double install; exit 1 | `advise` | the plugin alone is the guard; exit 0 | `skip` |
+| `Edit\|Write, NotebookEdit` under 2.1.190 | guards; exit 0 | `keep` | cannot tell; exit 0, and 1 under `--strict` | `keep` |
+| `Bash, Read`, under any release or none | not the guard; exit 0 | writes its hooks | the same | the same |
+| an array, `["Edit","Write"]`, over the hook's own entry under both events | cannot tell; exit 0, and 1 under `--strict` | `keep` | the guard is off; exit 1 | `advise`; writes nothing |
+| `init`'s line, and another program's entry under an array under `PreToolUse` or `PermissionRequest` | `init`'s entries; exit 0 | `keep` | the guard is off; exit 1 | `advise`; writes nothing |
+| the same array, and no line of the hook | no guard; exit 0 | writes its hooks into the file | the same | `advise`; writes nothing |
+| the same array, and the hook's line under `Bash` | not the guard; exit 0 | writes its hooks | not started, and no guard switched off; exit 0 | `advise`; writes nothing |
+| `init`'s line, and another program's array under `PostToolUse` or `SessionStart` | `init`'s entries; exit 0 | `keep` | the same | the same |
+| the hook under `init`'s matcher before a write, and under an array after one | guards, and cannot tell after which writes; exit 0 | `keep` | guards, and is started after no write; exit 0 | completes its line under `PostToolUse` |
+| an array under `PreToolUse` in the user's settings, `init`'s line in the project's | `init`'s entries; exit 0 | `keep` | the same | the same |
+
+- **A comma is read as the release on `PATH` reads it.** `doctor` asks
+  that release where something wires the guard (ADR-0012), and the reading
+  of a matcher of names that holds a comma now turns on it. From 2.1.191 on
+  the matcher is the names it lists, as it was read for every release. Under
+  an older release it is what the page has that release make of it, a
+  pattern with the comma in it: read as one within the budget every pattern
+  is read in, a matcher of names and commas matches none of the three
+  tools, since no tool's name holds a comma. An entry under it is started
+  for no write, and a line all of whose entries before a write are such is
+  one Claude Code waits on before no write: not the guard (`unstarted`),
+  said with the release and with what the matcher is from 2.1.191 on, and
+  no failure, as a line under `Bash` is none. `init` writes its own hooks
+  beside it, as beside any line that is started for no write.
+- **Where the release cannot be told, the line is *cannot tell*.** No
+  `claude` on `PATH`, or one whose release cannot be read, leaves both
+  readings open: which writes the line is started for is said as that, with
+  both readings, never fine, and a failure under `--strict` alone
+  (`unknown`). `init` takes the line as one that may be started and writes
+  none beside it.
+- **A comma beside a `|` under an older release is *cannot tell* as well**,
+  where the matcher read as a pattern matches a tool. `Edit|Write,
+  NotebookEdit` read as a JavaScript regular expression matches `Edit`, and
+  `NotebookEdit` by the same four letters. The page says of a comma both
+  that it was read as part of a pattern and that the matcher never matched,
+  and for such a matcher the two cannot both hold. That a pattern would
+  match follows from the hooks reference's reading of a pattern, and is not
+  the page's sentence; no Claude Code was run to see which it is.
+- **Where both readings come to no tool that writes, nothing turns on the
+  release**, and nothing is said of it: `Bash, Read` is no guard under any.
+  And a matcher with any other character in it is a pattern under every
+  release, a comma in it or not.
+- **The release is asked as before by `doctor`, and by `init` only where
+  it decides something.** `doctor` asks where something wires the guard,
+  and a line that may be started under either reading counts as wiring for
+  that question; a release that then reads the line as started for nothing
+  is still said, since it was asked, and a release too old for the hooks
+  still fails. `init` asked no release and now asks where what it reads of
+  a line differs between a release that cannot be told and the newest: one
+  more process, or one file read on Windows (ADR-0012), in a repository
+  that has such a matcher and in no other.
+- **An array for a matcher starts no hook, and under two events unloads the
+  file.** An entry under an array is started for no tool, where it was
+  *cannot tell*: after a write that is said of the entry, with what the
+  page has of it. And a settings file that holds an array for a matcher
+  under `PreToolUse` or `PermissionRequest`, in an entry of the hook's or of
+  any other program's, has none of its hooks loaded. Every line of the hook
+  in the file is said as one Claude Code does not start, with the array and
+  the event it stands under. A line that stood to be started for a write,
+  before one or after, or that stands under an array itself, is a guard
+  someone set up that checks nothing: off, and `doctor` exits 1, as it does
+  where `disableAllHooks` switches the guard off. A line that stood to be
+  started for no write, as one under `Bash`, is said and fails nothing: no
+  guard is switched off. Nothing of the file counts as wiring, so beside the
+  plugin there is no double install, and the release is not asked for the
+  file's sake.
+- **`init` writes no hook into a file that an array unloads.** A hook
+  written there would be one more that is not loaded. It says the array, the
+  event and how the matcher is mended, as one string with its names between
+  `|`, and is run again after (`advise`). An array under another event
+  unloads nothing beside it, and `init` completes its own line there as it
+  does under any event its line is not started under.
+- **`--format json`** gains no field. A line under names with a comma has
+  the `state`, `before` and `after` the release gives it, and a line in a
+  file an array unloads has the `state` `off`, or `unstarted`, with no tool
+  under either.
+- **The hook answers no line differently, and no line a release wrote is
+  read another way.** The hook reads nothing of a settings file. Every
+  release wrote the matcher `Edit|Write|MultiEdit|NotebookEdit`, one string
+  with no comma, read from the tags v0.1.0 to v0.17.0;
+  `tests/integration/released-lines.test.ts` holds what `doctor` says of it
+  under a release from before 2.1.191, under one from after it and under
+  none. The trees above, and those of the amendments before, were run
+  through both builds, and the hook's exit code and both its streams
+  compared for each line.
+
+A `state` and an exit code that can change for a tree are a minor release
+(spec-core's ADR-0009). What was measured for this and left as it was:
+
+- **A name with a hyphen, before Claude Code 2.1.195.** The changelog has,
+  under 2.1.195, hook matchers with hyphenated identifiers that matched as
+  substrings, and exact-match from there on. So under 2.1.139 to 2.1.194 a
+  matcher such as `Edit|Write|my-tool` may have been read as a pattern,
+  under which `Edit` is in `NotebookEdit` too, where `doctor` says that
+  `NotebookEdit` goes unchecked. No page says what else such a matcher was
+  read as, and it is read as the hooks reference has it today.
+- **A hook whose matching fails.** The changelog has, under 2.1.288, hooks
+  under `PreToolUse` and `PermissionRequest` that were skipped when
+  matching them failed, and the tool call blocked from there on. What makes
+  a matching fail is not said: whether a matcher that is no pattern, which
+  `doctor` says it cannot tell, is such a one, or an array, of which the
+  page on debugging says what is above.
+- **A matcher that is neither text nor an array**, a number, an object or
+  `null`: no page says what Claude Code does with one, and it stays
+  *cannot tell*.
+- **A file an array unloads that holds no line of the hook.** `doctor`
+  says a thing of a line, and has none there: it reports no guard and
+  advises `init`, which then says the array.
+
+*Amended again 2026-10-14.* A root on the hook's line that is in another
+work tree than the project's is said by what the hook checks under it. The
+fourth amendment of 2026-10-12 measured a root in the work tree of another
+repository and left it: `doctor` said of the line that it guards, by its
+root. *Claimed* then: with such a root the hook said nothing of a write to
+this project's protected file. *Measured* through the launcher of 0.17.0
+(Linux, Node 24.21, git 2.47, in a container, and Windows 11, Node 24.18.1,
+git 2.55, with the same answers): the project a repository with a brief
+that protects `src/db/**`, on the brief's branch, the hook's line
+`hook claude --root <the directory>` in its settings, and the hook handed
+that line before an edit of the project's protected file, and of the file
+of that name in the root's work tree. What each root is, git's own commands
+say: `rev-parse --show-toplevel` its work tree, `--git-common-dir` the git
+directory that work tree's repository keeps, which every work tree of one
+repository shares, and `--show-superproject-working-tree` the project a
+submodule is one of.
+
+| Where the root is | The hook, before a write to the project's protected file | The hook, before a write to that work tree's | `doctor` on 0.17.0 | `doctor` now |
+| --- | --- | --- | --- | --- |
+| a subdirectory of the project | refuses | the same file | guards; exit 0 | the same |
+| another repository beside the project, on a branch that names no brief | exit 0, no word | exit 0, no word | guards; exit 0 | the guard is off; exit 1 |
+| the same, on a branch that names a brief of its own | exit 0, no word | refuses, by that repository's brief | guards; exit 0 | the guard is off; exit 1 |
+| inside the project, a repository of its own | exit 0, no word | refuses | guards; exit 0 | the guard is off; exit 1 |
+| inside the project, a submodule | exit 0, no word | refuses | guards; exit 0 | the guard is off; exit 1 |
+| inside the project, a linked worktree of its repository | exit 0, no word | refuses | guards; exit 0 | the guard is off; exit 1 |
+| beside the project, a linked worktree of its repository | exit 0, no word | refuses | guards; exit 0 | the guard is off; exit 1 |
+| the main work tree of the repository, where the project is a linked worktree beside it | exit 0, no word | refuses | guards; exit 0 | the guard is off; exit 1 |
+| a repository the project is nested in, a repository of its own, whose brief protects `packages/project/src/db/**` | refuses, as `packages/project/src/db/schema.ts`, by that repository's brief | refuses | guards; exit 0 | guards, and says whose briefs; exit 0 |
+| the same, whose brief protects `src/db/**` alone | exit 0, no word; after a write outside its scope, a warning that names the file by its path there | refuses | guards; exit 0 | guards, and says whose briefs; exit 0 |
+| the main work tree, where the project is a linked worktree inside it | as the row above | refuses | guards; exit 0 | guards, and says whose briefs; exit 0 |
+| a bare repository, or the project's own `.git` | exit 0, no word | exit 0, no word | the guard is off; exit 1 | the same |
+
+So the claim holds, and more widely than the case it was made for. The hook
+opens the work tree its root is in and reads every path from that work
+tree's top: a file under it is checked by its briefs, read from its own
+branch and configuration, and a file outside it is to the hook a file
+outside the repository, which it lets pass with no word.
+
+- **Whether the root's work tree holds the project decides what is said.**
+  `doctor` asks git for the top of the root's work tree, as it did for a
+  root outside any, and reads where the project's top is from there, links
+  and case resolved as the hook resolves a path. The same work tree: the
+  line is read as it was. A work tree that does not hold the project,
+  beside it or inside it: no write to a file of the project is checked, and
+  the line is a guard that is off, said with that work tree and with what
+  the hook does there, and `doctor` exits 1, as for a root outside any work
+  tree. It is a fault the hook says nothing of, so `onFailure` holds no
+  write for it, and where Claude Code waits on the line before no write it
+  is said as that and fails nothing. A work tree that holds the project: a
+  write here is checked, by that work tree's briefs and its branch, under
+  the path the file has there. The line guards, `doctor` says whose briefs
+  they are and the path the project has in that work tree, and it fails
+  nothing.
+- **A work tree of the project's own repository is named as that, and read
+  by the same rule.** The decision handed over had a linked worktree of
+  this repository be this repository. git says which a work tree is, by the
+  git directory it shares, and the sentence follows it: `another work tree
+  of this repository`, where any other is `the work tree of another
+  repository`. What the hook checks does not turn on whose the work tree
+  is, and the exit code follows what the hook checks. Measured, under a
+  root in a linked worktree, beside the project or inside it, a write to the
+  project's protected file passes with no word, as under another
+  repository's: a linked worktree holds no file of the work tree it is
+  linked from. And under the main work tree around a linked one, the write
+  is checked as under any work tree that holds the project.
+- **A brief on the line is asked of the work tree the hook opens, as it
+  was**, and a name that is none there holds every write, which is said as
+  that wherever the root is: a line that stops all work is the larger
+  fault.
+- **The hook is not touched**, and no line a release wrote carries a root
+  (`tests/integration/released-lines.test.ts`). The layouts above were run
+  through both builds, and the hook's exit code and both its streams
+  compared for each. A test builds four of them, and holds `doctor` to the
+  hook: a write to the project's file refused where it says the line
+  guards, and passed with no word where it says no write here is checked.
+- **`--format json`** gains no field: such a line has the `state` `off`,
+  or `guards` with what is said of it as `detail`.
+
+An exit code that can change for a tree that passed is a minor release
+(spec-core's ADR-0009). What was measured for this and left as it was:
+
+- **What else of the other work tree the hook reads.** Under such a root
+  the hook loads that work tree's configuration, takes the brief its branch
+  names, and runs the siblings installed there. A configuration there that
+  does not load, a branch that names a brief which is not one, or a
+  spec-brief that is not installed there, each holds every write of the
+  session, exit 2. `doctor` asks that work tree about the brief the line
+  names and about nothing else, so a line it says guards, by a holder's
+  briefs, may hold every write for the holder's branch.
+- **Which of the project's files a holder's briefs reach.** A work tree
+  that holds the project reads its own patterns from its own top: a brief
+  there that protects `src/db/**` protects nothing under
+  `packages/project/`. `doctor` says the path the project has there, and
+  reads no brief's patterns.
+- **A line meant for the other work tree.** A person may write a second
+  line with a root in a submodule, or in a repository beside the project,
+  so that a session's writes there are checked by that work tree's briefs.
+  Such a line is said as a guard that is off for the project, and fails
+  `doctor`, though it does what was meant: the sentence says what the hook
+  checks under it.
+
+*Amended a third time 2026-10-14.* What stands at the path of git's
+pre-commit hook and is no file is said, with what git does with it, and no
+command ends on a stack for something a repository can hold. The amendment
+of 2026-09-30 has `doctor` and `init` find the hook where git runs it from,
+and both then read what is there as a file. *Claimed:* where
+`.git/hooks/pre-commit` is a directory, both end on `unexpected error:
+EISDIR` and a stack, exit 2, in 0.16.0 as well. *Measured*, through the
+launcher of 0.17.0 and with git itself at a commit (git 2.47.3 on Linux as
+an ordinary account, Node 24.21, in a container; Git for Windows 2.55.0,
+Node 24.18.1):
+
+| What stands at git's path for the hook | git, at a commit | `doctor` and `init` on 0.17.0 | Now |
+| --- | --- | --- | --- |
+| a directory, as `mkdir` makes one; on Windows, any | stops the commit, exit 1: `cannot exec '.git/hooks/pre-commit': Permission denied`, and on Windows `cannot spawn .git/hooks/pre-commit: No such file or directory` | `unexpected error: Error: EISDIR` and a stack; exit 2 | `doctor` says it, exit 1; `init` advises, exit 0, and writes nothing |
+| the same under a `core.hooksPath` in the work tree, held by the repository | the same | the same | the same |
+| a link to a directory | the same | the same | the same |
+| a directory nobody may execute (not on Windows) | skips it, with the hint it has for a hook that is not executable, and commits | the same stack | said as skipped; exit 0 |
+| a named pipe that may be executed | stops the commit | neither comes back | said as neither a file nor a directory; exit 1 |
+| a link to nothing, or to itself | no hook: commits | no hook, as it is | the same |
+| a file nobody may execute (not on Windows) | skips it, with the hint | not executable, so git skips it | the same |
+
+So the claim holds, and what git does with such a path is not to pass it
+over: it takes whatever it may execute there for the hook, fails to start
+it, and stops the commit.
+
+- **Only a file is read.** What else stands at the path is said with what
+  it is, a directory or neither a file nor a directory, and what git does
+  with it. Nothing there is opened, so a named pipe is said like the rest.
+- **The exit code follows what git does.** Where git stops every commit at
+  it, nothing is checked and nothing is committed: `doctor` exits 1, with
+  git's own words for it, `cannot spawn` on Windows and `cannot exec`
+  elsewhere, so that the error a person met at a commit leads here. Where
+  git skips it, no hook runs, as where there is none, and that is said and
+  fails nothing: no hook at commit is a choice (ADR-0012).
+- **Whether git runs what is there is asked as git asks it**: whether the
+  account may execute the path. `doctor` read the mode's three executable
+  bits for a hook that is a file, outside Windows. A directory answers
+  another way for an account that may do anything, which may always enter
+  one, and git, run as such an account, stops the commit at a directory
+  with none of the bits (measured in a container as root). So both are
+  asked through Node's access check for execution, which on Windows is by
+  Node's fs page no more than whether the path is there
+  (<https://nodejs.org/docs/latest-v24.x/api/fs.html>, *File access
+  constants*, read 2026-10-14), as git on Windows runs whatever is. A hook
+  that is a file reads as it did.
+- **`init` advises, and writes nothing over it**, with `--git-hook` or
+  without, in `doctor`'s words: what is there is the person's to take
+  away, as a hook that exists is theirs to add the line to.
+- **`--format json`** has the two as the `gitHook.state` `stops` and
+  `ignored`, beside the five it had.
+
+Every other path the harness reads where it expects a file was made a
+directory, one at a time, and each command that reads it run (Linux, as
+above, and on Windows for the hook's path, the project's settings file, the
+configuration and the probe's report):
+
+| The path | What reads it says |
+| --- | --- |
+| `.claude/settings.json`, `.claude/settings.local.json`, the user's `settings.json` | read as a file that cannot be read as JSON, which holds no hook and no plugin (ADR-0012); `init`: `cannot be read as JSON; add the guard ... by hand`, and writes nothing over it |
+| `.claude`, a file where the directory should be | `doctor` reads no settings there; `init --write`: `spec-harness: .claude/settings.json: EEXIST: file already exists, mkdir ...`, exit 2, in Node's words and with no stack |
+| `.mcp.json` | `init`: `cannot be read as JSON; add the spec-harness server by hand` |
+| `.spec-harness.json` | every command, the hook among them: `.spec-harness.json is a directory, not a configuration file`, exit 2 |
+| `.spec-brief.json` | `doctor` and `init`: `cannot be read as JSON`, so whether spec-brief loads the plugin is unknown; spec-brief's own sentence from every command that asks it, `is a directory, not a configuration file`, exit 2, and the hook holds the write |
+| `package.json` | spec-guard's own sentence from `audit`, exit 2; nothing else reads it where spec-graph is not installed |
+| the allowed-signers file, a directory on the base | `doctor`: `.github/allowed_signers is on main`, and its lines noted as no signers; a ruling is not verified |
+| a brief's file, or the briefs' directory a file | spec-brief lists no such brief, or says its own sentence: the brief is none, exit 2 from every command that needs it |
+| `known_marketplaces.json`, and the plugin's directory in a cache a file | *cannot tell*, and not on the machine, as for a record that cannot be read |
+| a sibling's `package.json` | `declares no version`, as for one that is not JSON |
+| a document a brief cites | `context`: cited and not found, as one that is not there |
+| the report a probe's `junit` names | `unexpected error: SystemError [ERR_FS_EISDIR]` and a stack; exit 2 |
+
+One more ended on a stack, then: `probe`, which took the report away as a
+file before each run. A directory under that name is the repository's, and
+is now left and read as a report that cannot be read: the run is
+`no-report`, in the probe's own words for one (ADR-0007), and the probe
+invalid.
+
+What was measured for this and left as it was:
+
+- **The allowed-signers file as a directory.** git shows a directory at a
+  commit as a list of its entries, which `doctor` reads as the file: it
+  says the file is on the base, and each line of the list as no signer. No
+  ruling verifies against it, so nothing is allowed that should not be;
+  the first sentence is wrong.
+- **A settings file that is a directory** says nothing to `doctor`, which
+  reports no guard and no more, as for any settings file that cannot be
+  read (ADR-0012, Consequences).
+- **A `core.hooksPath` that names a file.** git cannot name the hook's path
+  under it (`Invalid path ...: Not a directory`) and commits with no hook.
+  `doctor` says that where git runs its hooks cannot be told, and gives the
+  reason it has for a git older than 2.31, which is not this one.
+- **What stands under the git directory.** The harness's own state
+  directory as a file (`.git/spec-harness`) ends `escalate` on Node's
+  ENOTDIR and a stack, and a hook file the account may not read ends
+  `doctor` on EACCES and one. Neither is something a repository holds: git
+  keeps one bit of a file's mode, and nothing of its own directory.
+- **A named pipe where a settings file is expected** is read as a file, and
+  a pipe nothing writes to is read without end. A repository cannot hold
+  one.
+
 ## Consequences
 
 An agent that writes through a shell passes the guard and is caught at the
