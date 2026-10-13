@@ -8,37 +8,25 @@
  * failed, an output its reader closed, an error nothing here expected. A run
  * that could not look must never exit as though it looked and found nothing
  * (spec-core ADR-0005).
+ *
+ * A command loads what it runs. This module imports what every run needs,
+ * the hook's before a write among them, and a module that only some
+ * commands run is imported where one of them is the command: the hook
+ * runs before and after every write an agent makes, and what it loaded of
+ * the other commands was a wait before each (ADR-0002). A module that
+ * cannot be loaded is thrown where it was asked for, and ends the run in a
+ * line and exit 2, as every error does.
  */
 
 import { SiblingOutputError } from './briefs.js';
-import { auditCommand, contextCommand, escalateCommand, probeCommand, ruleCommand, rulingsCommand } from './commands.js';
 import { ConfigError, SIBLINGS } from './config.js';
-import {
-  describeBase,
-  describeClaudeCode,
-  describeClaudeRelease,
-  describeGitHook,
-  describeHooksOff,
-  describePlugin,
-  describePresence,
-  describeSignerKeys,
-  describeSignerProblem,
-  describeSigners,
-  guardSwitchedOff,
-  wiringState,
-  type ClaudeCodeWiring,
-} from './configure.js';
+import type { ClaudeCodeWiring } from './configure.js';
 import { isDirectory } from './fs.js';
 import { GitError, show, stagedChanges } from './git.js';
+import type { DocumentReader } from './document.js';
 import type { Decision } from './guard.js';
 import { claudeResponse, gitResponse, parseClaudeHook, type HookRequest } from './hooks.js';
-import { claudeVersion } from './host.js';
-import { premisesCommand } from './premises.js';
-import { createReader } from './reader.js';
-import { checkPaths, claudeCodeWiring, diagnoseBrief, resolveBase, specBriefPlugin, type Base } from './round.js';
-import { mcpCommand } from './server.js';
-import { gitHook, initCommand } from './setup.js';
-import { notFido2, readAllowedSigners } from './signers.js';
+import type { Base } from './round.js';
 import { SiblingError } from './siblings.js';
 import { emptyValue, heldHookLine, isBlank, isClaudeHook, readHookLine, refusal, unreadHookLine, type Command, type LineFault } from './usage.js';
 import { checkClaudeCode, CLAUDE_CODE_MINIMUM, MINIMUM_VERSIONS, type ClaudeCodeCheck } from './versions.js';
@@ -125,7 +113,11 @@ Exit codes: 0 clean, 1 refused or found something, 2 the answer cannot be truste
 
 /* ------------------------------------------------------------------- guard */
 
-const reader = createReader();
+/**
+ * The reader of a brief's rulings, loaded where a ruling is read: a write
+ * to a file no brief protects reads none.
+ */
+const reader = async (): Promise<DocumentReader> => (await import('./reader.js')).createReader();
 
 async function decisionsFor(
   workspace: Workspace,
@@ -137,6 +129,7 @@ async function decisionsFor(
   const active = await activeBrief(workspace, options, io.env);
   const { brief, note, problem } = describeActive(active);
   if (problem !== null) return { problem };
+  const { checkPaths } = await import('./round.js');
   return { decisions: await checkPaths(workspace, brief, note, given, cwd, reader, options.base) };
 }
 
@@ -287,7 +280,12 @@ async function hookCommand(options: Options, io: CliIO): Promise<number> {
  * the base, and the two on nothing else doctor asks. A --base given nothing
  * is no base, said as the brief's is, in the report.
  */
-async function baseAndSigners(workspace: Workspace, flag: string | undefined, signersFile: string): Promise<{ readonly base: Base; readonly signersText: string | null }> {
+async function baseAndSigners(
+  { resolveBase }: Pick<typeof import('./round.js'), 'resolveBase'>,
+  workspace: Workspace,
+  flag: string | undefined,
+  signersFile: string,
+): Promise<{ readonly base: Base; readonly signersText: string | null }> {
   // Nothing in doctor asks what kind a base is but whether it is resolved, so
   // the mutant that names this one otherwise is equivalent.
   const base: Base = flag !== undefined && isBlank(flag) ? { kind: 'unresolved', reason: emptyValue('--base', 'base', flag) } : await resolveBase(workspace, flag);
@@ -303,13 +301,24 @@ async function baseAndSigners(workspace: Workspace, flag: string | undefined, si
  * is asked its release, since one older than the hooks need lets every
  * write through unguarded. `null` where it was not asked.
  */
-async function wiringAndRelease(root: string, io: CliIO): Promise<{ readonly wiring: ClaudeCodeWiring; readonly release: ClaudeCodeCheck | null }> {
+async function wiringAndRelease(
+  { claudeCodeWiring, claudeVersion, wiringState }: Pick<typeof import('./round.js'), 'claudeCodeWiring'> & Pick<typeof import('./host.js'), 'claudeVersion'> & Pick<typeof import('./configure.js'), 'wiringState'>,
+  root: string,
+  io: CliIO,
+): Promise<{ readonly wiring: ClaudeCodeWiring; readonly release: ClaudeCodeCheck | null }> {
   const wiring = await claudeCodeWiring(root, io);
   const release = wiringState(wiring) === 'none' ? null : checkClaudeCode(await claudeVersion(io.env));
   return { wiring, release };
 }
 
 async function doctorCommand(options: Options, io: CliIO): Promise<number> {
+  // What doctor alone runs of them, loaded before anything is asked: the
+  // five things below are asked at once, and none waits on a module.
+  const [configure, host, round, setup, signing] = await Promise.all([import('./configure.js'), import('./host.js'), import('./round.js'), import('./setup.js'), import('./signers.js')]);
+  const { describeBase, describeClaudeCode, describeClaudeRelease, describeGitHook, describeHooksOff, describePlugin, describePresence, describeSignerKeys, describeSignerProblem, describeSigners, guardSwitchedOff, wiringState } = configure;
+  const { diagnoseBrief, specBriefPlugin } = round;
+  const { gitHook } = setup;
+  const { notFido2, readAllowedSigners } = signing;
   const workspace = await openWorkspace(options, io);
   const rows = SIBLINGS.map((name) => {
     const sibling = workspace.siblings.locate(name);
@@ -330,9 +339,9 @@ async function doctorCommand(options: Options, io: CliIO): Promise<number> {
   // failed first by the clock (ADR-0002).
   const [briefAsked, baseAsked, pluginAsked, claudeAsked, hookAsked] = await Promise.allSettled([
     diagnoseBrief(workspace, options, io.env),
-    baseAndSigners(workspace, options.base, signersFile),
+    baseAndSigners(round, workspace, options.base, signersFile),
     specBriefPlugin(workspace.root),
-    wiringAndRelease(workspace.root, io),
+    wiringAndRelease({ claudeCodeWiring: round.claudeCodeWiring, claudeVersion: host.claudeVersion, wiringState }, workspace.root, io),
     gitHook(workspace.root),
   ]);
   const named = answerOf(briefAsked);
@@ -448,19 +457,21 @@ async function doctorCommand(options: Options, io: CliIO): Promise<number> {
  * construct` is an unknown command with exit 2.
  */
 const COMMANDS: ReadonlyMap<string, (options: Options, io: CliIO) => Promise<number>> = new Map(
-  // One for every command that has a shape (usage.ts), which the compiler holds.
+  // One for every command that has a shape (usage.ts), which the compiler
+  // holds. A command of another module loads its module when it is the one
+  // typed, and no other command's.
   Object.entries({
     guard: guardCommand,
     hook: hookCommand,
-    context: contextCommand,
-    audit: auditCommand,
-    escalate: escalateCommand,
-    rule: ruleCommand,
-    rulings: rulingsCommand,
-    probe: probeCommand,
-    premises: premisesCommand,
-    init: initCommand,
-    mcp: mcpCommand,
+    context: async (options, io) => (await import('./commands.js')).contextCommand(options, io),
+    audit: async (options, io) => (await import('./commands.js')).auditCommand(options, io),
+    escalate: async (options, io) => (await import('./commands.js')).escalateCommand(options, io),
+    rule: async (options, io) => (await import('./commands.js')).ruleCommand(options, io),
+    rulings: async (options, io) => (await import('./commands.js')).rulingsCommand(options, io),
+    probe: async (options, io) => (await import('./commands.js')).probeCommand(options, io),
+    premises: async (options, io) => (await import('./premises.js')).premisesCommand(options, io),
+    init: async (options, io) => (await import('./setup.js')).initCommand(options, io),
+    mcp: async (options, io) => (await import('./server.js')).mcpCommand(options, io),
     doctor: doctorCommand,
   } satisfies Record<Command, (options: Options, io: CliIO) => Promise<number>>),
 );
@@ -519,6 +530,12 @@ async function dispatch(argv: readonly string[], io: CliIO): Promise<number> {
  * launcher answers in the same words; here it is a caller's stream that
  * throws it. It is read by its code: stdout and stderr are the only pipes
  * the harness writes to.
+ *
+ * Nor is a module of the build that is not there. The launcher says a build
+ * without its command line in a line, and a module a command asks for where
+ * it runs is said in the same line: a build with a file missing is not a
+ * defect a stack leads to. It is read by its code too: the harness imports
+ * nothing but its own modules and Node's.
  */
 export async function run(argv: readonly string[], io: CliIO): Promise<number> {
   try {
@@ -539,6 +556,7 @@ export async function run(argv: readonly string[], io: CliIO): Promise<number> {
     }
     if (!(error instanceof Error)) io.stderr.write(`spec-harness: unexpected error: ${String(error)}\n`);
     else if ((error as NodeJS.ErrnoException).code === 'EPIPE') io.stderr.write('spec-harness: stdout was closed before all of the output was written\n');
+    else if ((error as NodeJS.ErrnoException).code === 'ERR_MODULE_NOT_FOUND') io.stderr.write('spec-harness: build output is missing; run "npm run build" first, or install the published package.\n');
     else io.stderr.write(`spec-harness: unexpected error: ${error.stack ?? error.message}\n`);
     return EXIT_ERROR;
   }

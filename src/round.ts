@@ -3,16 +3,20 @@
  * share. Each gathers what a pure module needs - from git, the disk and the
  * siblings - and hands it over; the decisions are made in `context.ts`,
  * `audit.ts`, `guard.ts` and `rulings.ts`.
+ *
+ * The hook loads this module before every write it decides, so what only
+ * an audit or a verified ruling runs is imported where it runs: the audit's
+ * judgement, which brings the Markdown scanner with it, and the hash a
+ * copy of the signers is named by.
  */
 
-import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { readdir, readFile, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { readArchivePlan, readGuardRun } from './answers.js';
-import { audit, tally, type ArchiveReason, type AssertionOutcome, type AuditInput, type AuditReport, type UnreadableAssertion } from './audit.js';
+import type { ArchiveReason, AssertionOutcome, AuditInput, AuditReport, UnreadableAssertion } from './audit.js';
 import { SiblingOutputError } from './briefs.js';
 import { sameId } from './branch.js';
 import {
@@ -126,6 +130,7 @@ export async function checkRulings(workspace: Workspace, brief: Pick<BriefRow, '
   // with no encoding names the file by its bytes, which a path refuses when
   // one of them is NUL: a sweep counts that mutant killed now and then.
   const directory = await stateDirectory(workspace.commonDir, 'signers');
+  const { createHash } = await import('node:crypto');
   const file = join(directory, `${createHash('sha256').update(signers).digest('hex').slice(0, 16)}`);
   await writeAtomic(file, signers);
   const verified: VerifiedRuling[] = [];
@@ -154,14 +159,19 @@ export async function briefText(workspace: Workspace, brief: BriefRow): Promise<
   return text;
 }
 
-/** Decides paths against the brief, with the rulings verified against the base `baseFlag` names, or the configured one. */
+/**
+ * Decides paths against the brief, with the rulings verified against the
+ * base `baseFlag` names, or the configured one. The reader may be given as
+ * what makes one: it is asked for where a ruling is read, and a caller that
+ * decides every write need not load a scanner for those that read none.
+ */
 export async function checkPaths(
   workspace: Workspace,
   brief: BriefRow | null,
   noBrief: string | undefined,
   given: readonly string[],
   cwd: string,
-  reader: DocumentReader,
+  reader: DocumentReader | (() => Promise<DocumentReader>),
   baseFlag: string | undefined,
 ): Promise<Decision[]> {
   const resolved = given.map((path) => ({ given: path, path: repositoryPath(path, workspace.root, cwd) }));
@@ -175,7 +185,8 @@ export async function checkPaths(
   // check is there for the type.
   if (brief === null || !first.some((decision) => decision.reason === 'protected')) return first;
   const base = await resolveBase(workspace, baseFlag);
-  return decideAll((await checkRulings(workspace, brief, await briefText(workspace, brief), reader, base)).verified);
+  const documents = typeof reader === 'function' ? await reader() : reader;
+  return decideAll((await checkRulings(workspace, brief, await briefText(workspace, brief), documents, base)).verified);
 }
 
 /* ----------------------------------------------------------------- context */
@@ -580,6 +591,7 @@ export interface AuditResult {
 }
 
 export async function runAudit(workspace: Workspace, brief: BriefRow, reader: DocumentReader, baseFlag: string | undefined): Promise<AuditResult> {
+  const { audit, tally } = await import('./audit.js');
   const base = await resolveBase(workspace, baseFlag);
   const text = await briefText(workspace, brief);
   const [dependencies, archive, assertions, rulings, plugin] = await Promise.all([

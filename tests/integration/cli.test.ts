@@ -1,6 +1,6 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { runInNewContext } from 'node:vm';
-import { chmodSync, copyFileSync, existsSync, linkSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, cpSync, existsSync, linkSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -211,6 +211,54 @@ describe('a reader that closed the output', () => {
     const result = await refusing(['--version'], ROOT, { thrown: new Error('EPIPE: broken pipe, write') });
     expect(result.code).toBe(2);
     expect(result.stderr).toMatch(/^spec-harness: unexpected error: Error: EPIPE: broken pipe, write\n {4}at /);
+  });
+});
+
+describe('a module of the build that is not there', () => {
+  // The launcher says a build without its command line in this line. A
+  // module the command line asks for where a command runs it is missing
+  // from the same build, and is said the same way, with no stack.
+  const MISSING = 'spec-harness: build output is missing; run "npm run build" first, or install the published package.\n';
+  const gone = (code: string): Error => Object.assign(new Error("Cannot find module '/x/dist/commands.js' imported from /x/dist/cli.js"), { code });
+
+  it('ends the run with exit 2 and the line the launcher has for it, read by its code', async () => {
+    expect(await refusing(['--version'], ROOT, { thrown: gone('ERR_MODULE_NOT_FOUND') })).toEqual({ code: 2, stderr: MISSING });
+    expect(readFileSync(BIN, 'utf8')).toContain(MISSING.trimEnd());
+    // Any other failure to load keeps its stack.
+    const other = await refusing(['--version'], ROOT, { thrown: gone('ERR_UNSUPPORTED_DIR_IMPORT') });
+    expect(other.code).toBe(2);
+    expect(other.stderr).toMatch(/^spec-harness: unexpected error: Error: Cannot find module [^]*\n {4}at /);
+  });
+
+  it('is said by the built command line for the command that runs the module, and is nothing to a command that does not', () => {
+    // A copy of the build with one command's module taken out of it.
+    const build = temp();
+    for (const part of ['bin', 'dist', 'package.json']) cpSync(join(ROOT, part), join(build, part), { recursive: true });
+    rmSync(join(build, 'dist', 'commands.js'));
+    const repo = repository({ [BRIEF_FILE]: brief({ affected: ['src/**'], protected: ['src/db/schema.ts'] }), 'src/db/schema.ts': 'x\n' });
+    repo.git('checkout', '-q', '-b', 'brief/001-rotate');
+    const built = (args: readonly string[], input = ''): { code: number | null; stdout: string; stderr: string } => {
+      const result = spawnSync(process.execPath, [join(build, 'bin', 'spec-harness.js'), ...args], { cwd: repo.root, input, encoding: 'utf8', env: { ...process.env, SPEC_BRIEF: '' } });
+      return { code: result.status, stdout: result.stdout, stderr: result.stderr };
+    };
+    expect(built(['context'])).toEqual({ code: 2, stdout: '', stderr: MISSING });
+    expect(built(['audit'])).toEqual({ code: 2, stdout: '', stderr: MISSING });
+    expect(built(['--version'])).toEqual({ code: 0, stdout: `${VERSION}\n`, stderr: '' });
+    const question = (event: string): string => JSON.stringify({ hook_event_name: event, tool_name: 'Edit', cwd: repo.root, tool_input: { file_path: 'src/db/schema.ts' } });
+    const hook = built(['hook', 'claude'], question('PreToolUse'));
+    expect(hook).toMatchObject({ code: 0, stderr: '' });
+    expect(JSON.parse(hook.stdout).hookSpecificOutput.permissionDecision).toBe('deny');
+    // Without the operations of a round the hook cannot check a write: it
+    // holds the write before it, and ends in the launcher's line after it.
+    rmSync(join(build, 'dist', 'round.js'));
+    const held = built(['hook', 'claude'], question('PreToolUse'));
+    expect(held).toMatchObject({ code: 2, stdout: '' });
+    expect(held.stderr).toMatch(/^spec-harness: cannot check this write: Cannot find module .*round\.js' imported from .*cli\.js\n$/);
+    expect(built(['hook', 'claude'], question('PostToolUse'))).toEqual({ code: 2, stdout: '', stderr: MISSING });
+    expect(built(['guard', 'src/db/schema.ts'])).toEqual({ code: 2, stdout: '', stderr: MISSING });
+    // And without the command line itself, the launcher's own line.
+    rmSync(join(build, 'dist', 'cli.js'));
+    expect(built(['--version'])).toEqual({ code: 2, stdout: '', stderr: MISSING });
   });
 });
 

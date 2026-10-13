@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { join } from 'node:path';
 
+import { targetBrief } from '../../src/commands.js';
 import { tools } from '../../src/server.js';
 import { declaredVersion } from '../../src/siblings.js';
 import { meets, parseVersion } from '../../src/versions.js';
@@ -378,6 +379,19 @@ describe('context', () => {
       expect(started.text).toContain(RULE);
       expect(started.text.includes(SAID)).toBe(names);
     });
+  });
+
+  it('acts on the brief a command is given, else on the one the branch names, and on none where nothing names one', async () => {
+    const io = { stdout: { write: () => true }, stderr: { write: () => true }, cwd: repo.root, env: {} };
+    const workspace = await openWorkspace(parseOptions(['context']), io);
+    expect((await targetBrief(workspace, parseOptions(['context']), io, undefined)).brief.id).toBe('001');
+    const given = await targetBrief(workspace, parseOptions(['context']), io, '2');
+    expect(given.brief.id).toBe('002');
+    expect(given.briefs.map((row) => row.id).sort()).toEqual(['001', '002', '003']);
+    await expect(targetBrief(workspace, parseOptions(['context']), io, '404')).rejects.toThrow('the argument names brief 404, and spec-brief knows no such brief');
+    const unnamed = repository({ [BRIEF_FILE]: brief() });
+    const elsewhere = await openWorkspace(parseOptions(['context']), { ...io, cwd: unnamed.root });
+    await expect(targetBrief(elsewhere, parseOptions(['context']), { ...io, cwd: unnamed.root }, undefined)).rejects.toThrow(/^no brief is named/);
   });
 
   it('reads a percent-encoded link, and skips a link out of the repository, to its root, or to code whose name holds a document\'s extension', async () => {
