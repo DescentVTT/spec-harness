@@ -1146,6 +1146,107 @@ A `state` and an exit code that can change for a tree are a minor release
   says a thing of a line, and has none there: it reports no guard and
   advises `init`, which then says the array.
 
+*Amended again 2026-10-14.* A root on the hook's line that is in another
+work tree than the project's is said by what the hook checks under it. The
+fourth amendment of 2026-10-12 measured a root in the work tree of another
+repository and left it: `doctor` said of the line that it guards, by its
+root. *Claimed* then: with such a root the hook said nothing of a write to
+this project's protected file. *Measured* through the launcher of 0.17.0
+(Linux, Node 24.21, git 2.47, in a container, and Windows 11, Node 24.18.1,
+git 2.55, with the same answers): the project a repository with a brief
+that protects `src/db/**`, on the brief's branch, the hook's line
+`hook claude --root <the directory>` in its settings, and the hook handed
+that line before an edit of the project's protected file, and of the file
+of that name in the root's work tree. What each root is, git's own commands
+say: `rev-parse --show-toplevel` its work tree, `--git-common-dir` the git
+directory that work tree's repository keeps, which every work tree of one
+repository shares, and `--show-superproject-working-tree` the project a
+submodule is one of.
+
+| Where the root is | The hook, before a write to the project's protected file | The hook, before a write to that work tree's | `doctor` on 0.17.0 | `doctor` now |
+| --- | --- | --- | --- | --- |
+| a subdirectory of the project | refuses | the same file | guards; exit 0 | the same |
+| another repository beside the project, on a branch that names no brief | exit 0, no word | exit 0, no word | guards; exit 0 | the guard is off; exit 1 |
+| the same, on a branch that names a brief of its own | exit 0, no word | refuses, by that repository's brief | guards; exit 0 | the guard is off; exit 1 |
+| inside the project, a repository of its own | exit 0, no word | refuses | guards; exit 0 | the guard is off; exit 1 |
+| inside the project, a submodule | exit 0, no word | refuses | guards; exit 0 | the guard is off; exit 1 |
+| inside the project, a linked worktree of its repository | exit 0, no word | refuses | guards; exit 0 | the guard is off; exit 1 |
+| beside the project, a linked worktree of its repository | exit 0, no word | refuses | guards; exit 0 | the guard is off; exit 1 |
+| the main work tree of the repository, where the project is a linked worktree beside it | exit 0, no word | refuses | guards; exit 0 | the guard is off; exit 1 |
+| a repository the project is nested in, a repository of its own, whose brief protects `packages/project/src/db/**` | refuses, as `packages/project/src/db/schema.ts`, by that repository's brief | refuses | guards; exit 0 | guards, and says whose briefs; exit 0 |
+| the same, whose brief protects `src/db/**` alone | exit 0, no word; after a write outside its scope, a warning that names the file by its path there | refuses | guards; exit 0 | guards, and says whose briefs; exit 0 |
+| the main work tree, where the project is a linked worktree inside it | as the row above | refuses | guards; exit 0 | guards, and says whose briefs; exit 0 |
+| a bare repository, or the project's own `.git` | exit 0, no word | exit 0, no word | the guard is off; exit 1 | the same |
+
+So the claim holds, and more widely than the case it was made for. The hook
+opens the work tree its root is in and reads every path from that work
+tree's top: a file under it is checked by its briefs, read from its own
+branch and configuration, and a file outside it is to the hook a file
+outside the repository, which it lets pass with no word.
+
+- **Whether the root's work tree holds the project decides what is said.**
+  `doctor` asks git for the top of the root's work tree, as it did for a
+  root outside any, and reads where the project's top is from there, links
+  and case resolved as the hook resolves a path. The same work tree: the
+  line is read as it was. A work tree that does not hold the project,
+  beside it or inside it: no write to a file of the project is checked, and
+  the line is a guard that is off, said with that work tree and with what
+  the hook does there, and `doctor` exits 1, as for a root outside any work
+  tree. It is a fault the hook says nothing of, so `onFailure` holds no
+  write for it, and where Claude Code waits on the line before no write it
+  is said as that and fails nothing. A work tree that holds the project: a
+  write here is checked, by that work tree's briefs and its branch, under
+  the path the file has there. The line guards, `doctor` says whose briefs
+  they are and the path the project has in that work tree, and it fails
+  nothing.
+- **A work tree of the project's own repository is named as that, and read
+  by the same rule.** The decision handed over had a linked worktree of
+  this repository be this repository. git says which a work tree is, by the
+  git directory it shares, and the sentence follows it: `another work tree
+  of this repository`, where any other is `the work tree of another
+  repository`. What the hook checks does not turn on whose the work tree
+  is, and the exit code follows what the hook checks. Measured, under a
+  root in a linked worktree, beside the project or inside it, a write to the
+  project's protected file passes with no word, as under another
+  repository's: a linked worktree holds no file of the work tree it is
+  linked from. And under the main work tree around a linked one, the write
+  is checked as under any work tree that holds the project.
+- **A brief on the line is asked of the work tree the hook opens, as it
+  was**, and a name that is none there holds every write, which is said as
+  that wherever the root is: a line that stops all work is the larger
+  fault.
+- **The hook is not touched**, and no line a release wrote carries a root
+  (`tests/integration/released-lines.test.ts`). The layouts above were run
+  through both builds, and the hook's exit code and both its streams
+  compared for each. A test builds four of them, and holds `doctor` to the
+  hook: a write to the project's file refused where it says the line
+  guards, and passed with no word where it says no write here is checked.
+- **`--format json`** gains no field: such a line has the `state` `off`,
+  or `guards` with what is said of it as `detail`.
+
+An exit code that can change for a tree that passed is a minor release
+(spec-core's ADR-0009). What was measured for this and left as it was:
+
+- **What else of the other work tree the hook reads.** Under such a root
+  the hook loads that work tree's configuration, takes the brief its branch
+  names, and runs the siblings installed there. A configuration there that
+  does not load, a branch that names a brief which is not one, or a
+  spec-brief that is not installed there, each holds every write of the
+  session, exit 2. `doctor` asks that work tree about the brief the line
+  names and about nothing else, so a line it says guards, by a holder's
+  briefs, may hold every write for the holder's branch.
+- **Which of the project's files a holder's briefs reach.** A work tree
+  that holds the project reads its own patterns from its own top: a brief
+  there that protects `src/db/**` protects nothing under
+  `packages/project/`. `doctor` says the path the project has there, and
+  reads no brief's patterns.
+- **A line meant for the other work tree.** A person may write a second
+  line with a root in a submodule, or in a repository beside the project,
+  so that a session's writes there are checked by that work tree's briefs.
+  Such a line is said as a guard that is off for the project, and fails
+  `doctor`, though it does what was meant: the sentence says what the hook
+  checks under it.
+
 ## Consequences
 
 An agent that writes through a shell passes the guard and is caught at the

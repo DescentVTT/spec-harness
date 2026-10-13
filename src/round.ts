@@ -43,7 +43,7 @@ import {
 import { readRules, renderContext, type CitedDocument, type ContextPacket, type Rules } from './context.js';
 import type { DocumentReader } from './document.js';
 import { isDirectory, readJsonObject, readText, repositoryPath, stateDirectory, writeAtomic } from './fs.js';
-import { blameLine, changes, isUncommitted, mergeBase, remoteDefault, revision, show, verifyCommit, workTreeRoot } from './git.js';
+import { blameLine, changes, commonDirectory, isUncommitted, mergeBase, remoteDefault, revision, show, verifyCommit, workTreeRoot } from './git.js';
 import { decide, type Decision, type VerifiedRuling } from './guard.js';
 import { claudeVersion } from './host.js';
 import { diffManifest, ecosystemOf, readManifestNames, type DependencyChange, type InstallScriptChange } from './manifests.js';
@@ -61,7 +61,7 @@ import type { BriefRow, Finding } from './types.js';
 import { compileGlob, type LiteralReading } from './vendor/spec-core/pattern/index.js';
 import { dirname, isRelativeReference, resolveInside, splitReference } from './vendor/spec-core/path/index.js';
 import { SiblingError } from './siblings.js';
-import { claudeHookLine, emptyValue, heldHookLine, isBlank, outsideHookLine, type HookLine } from './usage.js';
+import { claudeHookLine, elsewhereHookLine, emptyValue, heldHookLine, holderHookLine, isBlank, outsideHookLine, type HookLine } from './usage.js';
 import { checkClaudeCode, type ClaudeCodeCheck } from './versions.js';
 import { activeBrief, describeActive, namedId, openWorkspace, parseOptions, UsageError, type CliIO, type Options, type Workspace } from './workspace.js';
 
@@ -509,27 +509,48 @@ export async function claudeCodeWiring(root: string, io: CliIO, pattern: Pattern
 
 /**
  * What the hook does with the words a session started at `root` hands it:
- * its own reading of the line (usage.ts), and two steps past it, where the
- * line guards. The hook opens the work tree its root is in. Where the root
- * is a directory in none, it reads a session outside a work tree, checks no
- * write and says nothing (ADR-0005): git is asked here as the hook asks it,
- * and the line is one under which the guard is off. Where the line names a
- * brief, the hook asks spec-brief in that work tree which brief the name
- * is, and holds every write under a name that is none (ADR-0004). So this
- * asks the same, of the same work tree.
+ * its own reading of the line (usage.ts), and what follows from where its
+ * root is, where the line guards. The hook opens the work tree its root is
+ * in. Where the root is a directory in none, it reads a session outside a
+ * work tree, checks no write and says nothing (ADR-0005): git is asked here
+ * as the hook asks it, and the line is one under which the guard is off.
+ * Where the root is in another work tree than the project's, the hook
+ * decides by that work tree's briefs, and a file outside it is none of its
+ * repository's: so a work tree that does not hold the project leaves every
+ * write to a file of the project unchecked, and one that holds it checks
+ * them, by its own briefs. Where the line names a brief, the hook asks
+ * spec-brief in the work tree it opened which brief the name is, and holds
+ * every write under a name that is none (ADR-0004). So this asks the same,
+ * of the same work tree, and a line that holds every write is said as that
+ * wherever its root is.
  */
 async function hookLineHere(words: readonly string[], root: string, io: CliIO): Promise<HookLine | null> {
   const line = claudeHookLine(words, parseOptions, root, (path) => isDirectory(resolve(root, path)));
   // Only a line that guards gives a root to open or names a brief, so the
   // check of its state is the compiler's, and its mutant is equivalent.
   if (line === null || line.state !== 'guards') return line;
+  let told: HookLine = line;
   // With no root on its line the hook opens the project, which is the work
   // tree this runs in: git is asked only about a root the line gives.
-  if (line.root !== undefined && (await workTreeRoot(resolve(root, line.root))) === null) return outsideHookLine(line.root);
-  if (line.brief === undefined) return line;
+  if (line.root !== undefined) {
+    const top = await workTreeRoot(resolve(root, line.root));
+    if (top === null) return outsideHookLine(line.root);
+    // The project's top as the root's work tree names it: nothing where the
+    // two are one work tree, which is every root in the project, and
+    // `null` where the project is not in it.
+    const path = repositoryPath(root, top, root);
+    if (path !== '') {
+      // One repository's work trees share a git directory, and no two
+      // repositories do.
+      const [theirs, ours] = await Promise.all([commonDirectory(top), commonDirectory(root)]);
+      const tree = { top, ours: theirs === ours };
+      told = path === null ? elsewhereHookLine(line.root, tree) : holderHookLine(line, tree, path);
+    }
+  }
+  if (line.brief === undefined) return told;
   const workspace = await openWorkspace({ root: line.root === undefined ? root : resolve(root, line.root) }, io);
   const { problem } = await diagnoseBrief(workspace, { brief: line.brief }, io.env);
-  return problem === null ? line : heldHookLine(problem);
+  return problem === null ? told : heldHookLine(problem);
 }
 
 /**

@@ -14,7 +14,9 @@ cannot turn a run red. The family's policy is
 `doctor` and `init` read a matcher as the Claude Code on this machine reads
 it: names with a comma, under which a release older than 2.1.191 starts no
 hook, and an array, under which Claude Code loads none of a settings file's
-hooks.
+hooks. And they say a root on the hook's line that is in another work tree
+by what the hook checks under it: no write to the project, or the project's
+writes by another work tree's briefs.
 
 ### Changed
 
@@ -59,6 +61,29 @@ hooks.
   and a line of the hook, where it exited 0, or 1 under `--strict` alone,
   while Claude Code ran no hook of the file: write the matcher as one
   string, its names between `|`.
+- **`doctor` fails for a hook's line whose root is in a work tree that does
+  not hold the project.** `hook claude --root <a directory in another work
+  tree>` opens that work tree and decides by its briefs. A file outside it
+  is none of its repository's, and the hook passes the write with no word,
+  exit 0, as in every release; `doctor` said of such a line that it guards,
+  by its root. It now asks git where the root's work tree is. Where that
+  does not hold the project - another repository beside it, or inside it a
+  repository of its own, a submodule or a linked worktree - no write to a
+  file of the project is checked, and the line is a guard that is off:
+  `"hook claude --root ../other" in .claude/settings.json: --root is
+  "../other", a directory in /work/other, the work tree of another
+  repository, which does not hold this project: the hook checks a write to a
+  file of that work tree, by its briefs, and passes any other with no word,
+  exit 0, so the guard is off and no write to a file of this project is
+  checked`. `init` says the same of the file (`advise`) and writes nothing
+  into it. Where the work tree holds the project, a write here is checked,
+  by that work tree's briefs: `doctor` says whose they are, with the path
+  the project has there, and fails nothing. A work tree of the project's own
+  repository is named as that. The hook answers as it did.
+  Upgrading: `doctor` exits 1 for such a line, where it exited 0 while no
+  write to the project was checked: give the line a directory in the
+  project's work tree, or take `--root` off it for the project Claude Code
+  names.
 
 ## 0.17.0
 

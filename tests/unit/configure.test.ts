@@ -58,7 +58,7 @@ import {
   type Commas,
   type PatternReader,
 } from '../../src/configure.js';
-import { claudeHookLine, heldHookLine, outsideHookLine } from '../../src/usage.js';
+import { claudeHookLine, elsewhereHookLine, heldHookLine, holderHookLine, outsideHookLine, type HookLine } from '../../src/usage.js';
 import { parseOptions } from '../../src/workspace.js';
 
 const SCRIPT = '${CLAUDE_PROJECT_DIR}/node_modules/@descent-vtt/spec-harness/bin/spec-harness.js';
@@ -796,6 +796,52 @@ describe('a root on the line that is a directory outside any work tree (ADR-0005
   it('is not said of a line Claude Code waits on before no write, which leaves none unchecked', () => {
     expect(reported(under('Bash', entry()))[0]).toMatchObject({ state: 'unstarted', detail: null, before: [], after: [] });
     expect(reported({ hooks: { PostToolUse: [{ hooks: [entry()] }] } })[0]).toMatchObject({ state: 'unstarted', detail: null, before: [] });
+  });
+});
+
+describe('a root on the line that is in another work tree than the project\'s (ADR-0005)', () => {
+  const FILE = '.claude/settings.json';
+  const TOOLS = ['Edit', 'Write', 'NotebookEdit'];
+  const entry = (more: Record<string, unknown> = {}) => ({ type: 'command', command: 'node', args: [SCRIPT, 'hook', 'claude', '--root', '../other'], ...more });
+  const under = (matcher: string, hook: unknown) => ({ hooks: { PreToolUse: [{ matcher, hooks: [hook] }], PostToolUse: [{ matcher, hooks: [hook] }] } });
+  const reported = (settings: unknown, line: HookLine) => reportHooks([{ file: FILE, settings }], '/work/app', () => line);
+  const W = '"hook claude --root ../other" in .claude/settings.json';
+  const THEIRS = { top: '/work/other', ours: false };
+  const OURS = { top: '/work/other', ours: true };
+  const off = (whose: string): string =>
+    `${W}: --root is "../other", a directory in /work/other, ${whose}, which does not hold this project: the hook checks a write to a file of that work tree, by its briefs, and passes any other with no word, exit 0, so the guard is off and no write to a file of this project is checked; give the hook's line a directory in this work tree, or leave --root out for the project Claude Code names`;
+
+  it('is a guard that is off where that work tree does not hold the project, said with whose work tree it is and what the hook checks there', () => {
+    expect(reported(under(GUARD.matcher, entry()), elsewhereHookLine('../other', THEIRS))).toEqual([
+      { file: FILE, events: ['PreToolUse', 'PostToolUse'], line: ['hook', 'claude', '--root', '../other'], state: 'off', onFailure: null, detail: off('the work tree of another repository'), before: TOOLS, after: TOOLS, cover: null, note: null },
+    ]);
+    // A linked worktree of the project's own repository is named as that, and checks no more of the project.
+    expect(reported(under(GUARD.matcher, entry()), elsewhereHookLine('../other', OURS))[0]).toMatchObject({ state: 'off', detail: off('another work tree of this repository') });
+    // The hook exits 0 under such a root, so no run of it fails: onFailure holds no write for it.
+    expect(reported(under(GUARD.matcher, entry({ onFailure: 'block' })), elsewhereHookLine('../other', THEIRS))[0]).toMatchObject({
+      state: 'off',
+      note: expect.stringContaining('where it lets the write go ahead without it: by its exit 1 for a question it cannot read'),
+    });
+    // Waited on before no write, it leaves none unchecked that it was asked about: said as that, and no fault.
+    expect(reported(under('Bash', entry()), elsewhereHookLine('../other', THEIRS))[0]).toMatchObject({ state: 'unstarted', detail: null });
+    // A fault the hook says nothing of, as a root outside any work tree is, and what goes unchecked under it is the project's writes alone.
+    expect(elsewhereHookLine('../other', THEIRS)).toMatchObject({ state: 'off', silent: true, unchecked: 'no write to a file of this project is checked' });
+    expect(outsideHookLine('/elsewhere')).not.toHaveProperty('unchecked');
+  });
+
+  it('guards where that work tree holds the project, and says whose briefs a write here is checked by', () => {
+    const line = holderHookLine({ state: 'guards', root: '/work' }, { top: '/work', ours: false }, 'app');
+    const guards = (whose: string, path: string): string =>
+      `${W} is more than init writes, and guards: the hook reads the line, and its root, /work, is a directory in /work, ${whose}, which holds this project: the hook checks a write here by that work tree's briefs and its branch, as a file under ${path}/ there`;
+    expect(reported(under(GUARD.matcher, entry()), line)).toEqual([
+      { file: FILE, events: ['PreToolUse', 'PostToolUse'], line: ['hook', 'claude', '--root', '../other'], state: 'guards', onFailure: null, detail: guards('the work tree of another repository', 'app'), before: TOOLS, after: TOOLS, cover: null, note: null },
+    ]);
+    // The main work tree around a linked one is the project's own repository.
+    const main = holderHookLine({ state: 'guards', root: '/work', brief: '001' }, { top: '/work', ours: true }, '.claude/worktrees/x');
+    expect(main).toEqual({ state: 'guards', root: '/work', brief: '001', holder: { top: '/work', ours: true, path: '.claude/worktrees/x' } });
+    expect(reported(under(GUARD.matcher, entry()), main)[0]).toMatchObject({ state: 'guards', detail: guards('another work tree of this repository', '.claude/worktrees/x') });
+    // A root in the project's own work tree has no other work tree to name, as before.
+    expect(reported(under(GUARD.matcher, entry()), { state: 'guards', root: '/work/app/src' })[0]?.detail).toBe(`${W} is more than init writes, and guards: the hook reads the line, and its root, /work/app/src, is a directory`);
   });
 });
 

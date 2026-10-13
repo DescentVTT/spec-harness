@@ -14,7 +14,7 @@ import { runInNewContext } from 'node:vm';
 import { CALLABLE_TOOLS } from './hooks.js';
 import { literal } from './literal.js';
 import type { AllowedSigner } from './signers.js';
-import type { HookLine } from './usage.js';
+import { namedTree, type HookLine } from './usage.js';
 import { parseGlobList } from './vendor/spec-core/pattern/index.js';
 import { CLAUDE_CODE_MINIMUM, meets, parseVersion, type ClaudeCodeCheck } from './versions.js';
 
@@ -657,7 +657,8 @@ export function handedLines(sources: readonly ClaudeSettings[], project: string)
  * A line that guards and holds no more than a release wrote is reported
  * with nothing to say, as it always was. One with more on it is said as it
  * is, and fails nothing. One the hook cannot read, or whose root is no
- * directory, is a guard that is off, and one that names a brief which is not
+ * directory, or is in no work tree that holds the project, is a guard that
+ * is off, and one that names a brief which is not
  * one holds every write: each a problem, and doctor exits 1 for it. A line
  * Claude Code waits on before no write is not the guard, whatever the hook
  * would do with it.
@@ -723,14 +724,14 @@ export function reportHooks(
       const unstarted: HookReport = { ...written, state: 'unstarted', detail: null, note };
       const waited = before === null || before.length > 0;
       if (handed.state === 'off') {
-        const detail = `${where}: ${handed.fault.wrong}, so the guard is off and no write is checked; ${handed.fault.mend}`;
+        const detail = `${where}: ${handed.fault.wrong}, so the guard is off and ${handed.unchecked ?? 'no write is checked'}; ${handed.fault.mend}`;
         // A fault the hook says, it says with exit 1 after every write it is
         // started for as well, so it is said wherever the line stands.
         if (handed.silent !== true) return [{ ...written, state: 'off', detail, note: describeOnFailure(where, hook.blocks, true) }];
-        // A root outside any work tree, of which the hook says nothing: no
-        // run of it fails there, so onFailure holds no write for it, and
-        // where the line is waited on before no write there is none it
-        // leaves unchecked.
+        // A root outside any work tree, or in one that does not hold the
+        // project, of which the hook says nothing: no run of it fails
+        // there, so onFailure holds no write for it, and where the line is
+        // waited on before no write there is none it leaves unchecked.
         return [waited ? { ...written, state: 'off', detail, note } : unstarted];
       }
       if (!waited) return [unstarted];
@@ -742,7 +743,9 @@ export function reportHooks(
       // What a release wrote: its hook, and nothing after it.
       if (sameStrings(hook.words, ['hook', 'claude'])) return [{ ...written, state: 'guards', detail: null, note }];
       const root = handed.root === undefined ? '' : `, and its root, ${handed.root}, is a directory`;
-      return [{ ...written, state: 'guards', detail: `${where} is more than init writes, and guards: the hook reads the line${root}`, note }];
+      // Whose briefs a write is checked by, where they are not the project's own.
+      const holder = handed.holder === undefined ? '' : ` in ${namedTree(handed.holder)}, which holds this project: the hook checks a write here by that work tree's briefs and its branch, as a file under ${handed.holder.path}/ there`;
+      return [{ ...written, state: 'guards', detail: `${where} is more than init writes, and guards: the hook reads the line${root}${holder}`, note }];
     });
   });
 }
