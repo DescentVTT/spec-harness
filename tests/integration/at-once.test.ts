@@ -296,7 +296,7 @@ describe('a work tree', () => {
   });
 
   it.each([
-    ['a git older than 2.31, which hands the option back as a line and answers what follows relative', (real: string): string => `${real.split('\n')[0]!}\n--path-format=absolute\n.git\n`],
+    ['three lines, the option handed back as one of them, as the manual has a rev-parse do that does not know it', (real: string): string => `${real.split('\n')[0]!}\n--path-format=absolute\n.git\n`],
     ['a top whose name holds a line break', (real: string): string => real.split('\n').slice(0, 2).map((path) => `${path.slice(0, 3)}\n${path.slice(3)}`).join('\n').concat('\n')],
     ['a top whose name ends in a space', (real: string): string => real.split('\n').slice(0, 2).map((path) => `${path} `).join('\n').concat('\n')],
     ['a top alone that trimming would change', (real: string): string => ` ${real}`],
@@ -347,7 +347,8 @@ describe('the hook', () => {
     expect(atOnce(TREE, BRANCH)).toBe(true);
     // spec-brief is asked which brief the branch names, so only once the branch is known.
     expect(when('answered', BRANCH)).toBeLessThan(when('asked', BRIEFS));
-    // The write is to a protected file, and is refused for want of a ruling: three starts of git, and no more.
+    // The write is to a protected file, and is refused for want of a ruling:
+    // two of git's processes and spec-brief, and no more.
     expect(asked()).toHaveLength(3);
   });
 
