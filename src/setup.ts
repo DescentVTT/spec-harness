@@ -18,8 +18,11 @@ import { dirname, isAbsolute, join, relative, sep } from 'node:path';
 
 import { CONFIG_FILE } from './config.js';
 import {
+  arrayMatcher,
   chooseBase,
+  commasUnder,
   describeAbsent,
+  describeArrayMatcher,
   describeGitHook,
   describeGraph,
   describeHooksOff,
@@ -39,6 +42,7 @@ import {
   mergeSpecBrief,
   mergeSpecGraph,
   missingGitHook,
+  ONE_STRING,
   patternReader,
   PLUGIN,
   PRE_COMMIT,
@@ -125,11 +129,12 @@ export async function plan(workspace: Workspace, options: Options, io: CliIO): P
   // processes side by side where each waited on the one before. Each is
   // read below where it was asked before, so a plan that fails still fails
   // on the first of them in that order. The matchers in the settings are
-  // read with one reader, for the wiring and for what to write.
+  // read with one reader, for the wiring and for what to write. Claude
+  // Code's release is asked only where what is read of a line turns on it.
   const pattern = patternReader();
   const [factsAsked, wiringAsked, hookAsked] = await Promise.allSettled([
     namedBase === null ? Promise.all([remoteDefault(root), localBranches(root)]) : null,
-    claudeCodeWiring(root, io, pattern),
+    claudeCodeWiring(root, io, pattern, false),
     gitHook(root),
   ]);
   const facts = answerOf(factsAsked);
@@ -249,6 +254,8 @@ export async function plan(workspace: Workspace, options: Options, io: CliIO): P
   const absent = wiring.presence?.state === 'absent' ? wiring.presence.detail : null;
   const settingsFile = join(root, '.claude', 'settings.json');
   const settings = await readJson(settingsFile);
+  // An array for a matcher, under which Claude Code loads no hook of the file.
+  const array = arrayMatcher(settings);
   const lines = wiring.lines.filter((line) => line.file === SETTINGS);
   // What doctor says of a line this file holds is said here too, with why
   // init leaves the line: one a person changed is theirs, and a second line
@@ -271,10 +278,14 @@ export async function plan(workspace: Workspace, options: Options, io: CliIO): P
     }
   } else if (settings === 'unreadable') {
     steps.push({ file: SETTINGS, action: 'advise', detail: `cannot be read as JSON; add the guard as a PreToolUse and a PostToolUse hook by hand: ${JSON.stringify(GUARD_HOOK)}` });
+  } else if (array !== null) {
+    // A hook written into such a file would be one more that is not loaded:
+    // the matcher is the person's to mend, and init is run again after.
+    steps.push({ file: SETTINGS, action: 'advise', detail: `${describeArrayMatcher(SETTINGS, array)}, those init writes among them, so it writes none: ${ONE_STRING}, and run init again` });
   } else {
     // An entry is a line of the hook where doctor reports its words as one in this file.
     const reported = new Set(lines.map((line) => JSON.stringify(line.line)));
-    const merged = mergeClaudeSettings(settings ?? {}, (words) => reported.has(JSON.stringify(words)), pattern);
+    const merged = mergeClaudeSettings(settings ?? {}, (words) => reported.has(JSON.stringify(words)), pattern, commasUnder(wiring.release));
     // A line that turns the guard off or holds every write is one doctor
     // fails, and lines of which none is waited on before a write are no
     // guard between them: left as they are, they are for the person to mend.

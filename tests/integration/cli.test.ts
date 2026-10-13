@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { HELP, run } from '../../src/cli.js';
 import { mergeClaudeSettings, mergeMcp, reportHooks } from '../../src/configure.js';
-import { BIN, brief, BRIEF_FILE, cleanup, cli, installFake, installHarness, installPlugin, parsed, repository, ROOT, SPEC_BRIEF, spawnBin, temp, write, type Repository } from './helpers.js';
+import { BIN, brief, BRIEF_FILE, claudeOf, cleanup, cli, installFake, installHarness, installPlugin, parsed, repository, ROOT, SPEC_BRIEF, spawnBin, temp, write, type Repository } from './helpers.js';
 
 afterAll(cleanup);
 
@@ -810,6 +810,69 @@ describe("doctor on the line of Claude Code's hook in its settings (ADR-0005)", 
     expect(untold.code).toBe(0);
     expect(untold.stdout).toContain('\n        "hook claude" in .claude/settings.json: which writes Claude Code waits on it before cannot be told here (under PreToolUse it has the matcher "Edit|Write|MultiEdit|NotebookEdit" with "if" "Edit(*.ts)"); ');
     expect((await cli(['doctor', '--strict'], repo.root, { env })).code).toBe(1);
+  });
+
+  describe('a matcher the Claude Code on this machine reads otherwise (ADR-0005)', () => {
+    interface Read {
+      state: string;
+      hooks: string[];
+      lines: { state: string; before: string[] | null; after: string[] | null; detail: string | null; cover: string | null }[];
+      release: { state: string; version: string | null };
+    }
+    const read = async (repo: Repository, env: Record<string, string>, ...more: string[]) => {
+      const result = await cli(['doctor', ...more, '--format', 'json'], repo.root, { env });
+      return { code: result.code, ...parsed<{ claudeCode: Read }>(result).claudeCode };
+    };
+    const NONE = 'claude  neither the spec-harness plugin nor the hooks init writes, so Claude Code guards no write: run spec-harness init --write, or install the plugin';
+
+    it('reads names with a comma as the release on PATH reads them: no guard before 2.1.191, the guard from it on, and it cannot tell without a release', async () => {
+      const repo = repository({ '.claude/settings.json': settings([hook([])], 'Edit, Write') });
+      const aside = ', which Claude Code 2.1.190 reads as a pattern that matches no tool: a comma separates names from 2.1.191 on, where the matcher is Edit and Write';
+      // No guard is a choice, and fails nothing, --strict or not: the line is said with the release, which was asked and is reported.
+      const old = await read(repo, claudeOf('2.1.190'), '--strict');
+      expect(old).toMatchObject({ code: 0, state: 'none', hooks: [], lines: [{ state: 'unstarted', before: [], after: [], detail: null }], release: { state: 'ok', version: '2.1.190' } });
+      expect(old.lines[0]?.cover).toBe(
+        `"hook claude" in .claude/settings.json: Claude Code waits on it before no write, so it is not the guard and refuses none (under PreToolUse it has the matcher "Edit, Write"${aside}); it is started after no write, so it warns of none (under PostToolUse it has the matcher "Edit, Write"${aside})`,
+      );
+      // The release that mended it reads the matcher as it is written.
+      const told = await read(repo, claudeOf('2.1.191'), '--strict');
+      expect(told).toMatchObject({ code: 0, state: 'init', hooks: ['.claude/settings.json'], lines: [{ state: 'guards', before: ['Edit', 'Write'], after: ['Edit', 'Write'] }] });
+      expect(told.lines[0]?.cover).not.toContain('2.1.191');
+      // A release too old for the hooks fails as it did, and reads the comma as every release before 2.1.191.
+      expect(await read(repo, claudeOf('2.1.100'))).toMatchObject({ code: 1, state: 'none', lines: [{ state: 'unstarted' }], release: { state: 'outdated', version: '2.1.100' } });
+      // No release, no reading: which writes the line is started for cannot be told, which is never fine.
+      const untold = await read(repo, { PATH: temp() });
+      expect(untold).toMatchObject({ code: 0, state: 'init', lines: [{ state: 'unknown', before: null, after: null }], release: { state: 'unknown' } });
+      expect(untold.lines[0]?.cover).toContain('from Claude Code 2.1.191 on, where a comma separates names, and a pattern that matches no tool before it: the release here cannot be told');
+    });
+
+    it('asks no release where nothing is wired under any reading of a comma, as before', async () => {
+      // Names that are no tool that writes, with a comma between them: no release makes this line the guard.
+      const repo = repository({ '.claude/settings.json': settings([hook([])], 'Bash, Read') });
+      const result = await cli(['doctor', '--strict', '--format', 'json'], repo.root, { env: { PATH: temp() } });
+      expect(result.code).toBe(0);
+      expect(parsed<{ claudeCode: Read }>(result).claudeCode).toMatchObject({ state: 'none', lines: [{ state: 'unstarted', before: [], after: [] }], release: { state: 'unchecked' } });
+    });
+
+    it('fails for a guard that an array for a matcher keeps Claude Code from loading, says it of each line the array reaches, and passes once it is one string', async () => {
+      const env = newEnough();
+      const other = { type: 'command', command: '/usr/local/bin/lint-check.sh' };
+      const GUARD = 'Edit|Write|MultiEdit|NotebookEdit';
+      const held = (matcher: unknown): string =>
+        JSON.stringify({ hooks: { PreToolUse: [{ matcher: GUARD, hooks: [hook([]), hook(['--base', 'main'])] }, { matcher, hooks: [other] }], PostToolUse: [{ matcher: GUARD, hooks: [hook([])] }] } });
+      const repo = repository({ '.claude/settings.json': held(['Bash', 'PowerShell']) });
+      const array =
+        '.claude/settings.json has an array for a matcher under PreToolUse, ["Bash","PowerShell"], which Claude Code lists as an invalid setting, and beside one under PreToolUse or PermissionRequest it loads none of the file\'s other hooks, so the guard is off and no write is checked; write the matcher as one string, its names between "|"';
+      const pretty = await cli(['doctor'], repo.root, { env });
+      expect(pretty.code).toBe(1);
+      // Nothing of the file is loaded, so nothing wires Claude Code to the guard, and its release is not asked: git's hook is the next line.
+      expect(pretty.stdout).toContain([NONE, `        "hook claude" in .claude/settings.json: ${array}`, `        "hook claude --base main" in .claude/settings.json (under PreToolUse alone): ${array}`, 'git     '].join('\n'));
+      // The same names as one string, and an array in another settings file, which reaches no line of this one: every hook of this file is loaded.
+      repo.write('.claude/settings.json', held('Bash|PowerShell'));
+      const user = temp();
+      write(user, 'settings.json', JSON.stringify({ hooks: { PermissionRequest: [{ matcher: ['Bash'], hooks: [other] }] } }));
+      expect(await read(repo, { ...env, CLAUDE_CONFIG_DIR: user }, '--strict')).toMatchObject({ code: 0, state: 'init', lines: [{ state: 'guards' }, { state: 'guards' }], release: { state: 'ok' } });
+    });
   });
 
   describe('a guard that is set up and checks nothing (ADR-0005, ADR-0012)', () => {

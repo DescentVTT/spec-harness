@@ -16,6 +16,7 @@ import { audit, tally, type ArchiveReason, type AssertionOutcome, type AuditInpu
 import { SiblingOutputError } from './briefs.js';
 import { sameId } from './branch.js';
 import {
+  commasUnder,
   enabledPlugin,
   exportedFile,
   handedLines,
@@ -31,6 +32,7 @@ import {
   registersServer,
   reportHooks,
   SPEC_BRIEF_CONFIGS,
+  wiringState,
   type BaseSource,
   type ClaudeCodeWiring,
   type ClaudeSettings,
@@ -43,6 +45,7 @@ import type { DocumentReader } from './document.js';
 import { isDirectory, readJsonObject, readText, repositoryPath, stateDirectory, writeAtomic } from './fs.js';
 import { blameLine, changes, isUncommitted, mergeBase, remoteDefault, revision, show, verifyCommit, workTreeRoot } from './git.js';
 import { decide, type Decision, type VerifiedRuling } from './guard.js';
+import { claudeVersion } from './host.js';
 import { diffManifest, ecosystemOf, readManifestNames, type DependencyChange, type InstallScriptChange } from './manifests.js';
 import {
   addRulingRow,
@@ -59,6 +62,7 @@ import { compileGlob, type LiteralReading } from './vendor/spec-core/pattern/ind
 import { dirname, isRelativeReference, resolveInside, splitReference } from './vendor/spec-core/path/index.js';
 import { SiblingError } from './siblings.js';
 import { claudeHookLine, emptyValue, heldHookLine, isBlank, outsideHookLine, type HookLine } from './usage.js';
+import { checkClaudeCode, type ClaudeCodeCheck } from './versions.js';
 import { activeBrief, describeActive, namedId, openWorkspace, parseOptions, UsageError, type CliIO, type Options, type Workspace } from './workspace.js';
 
 /* -------------------------------------------------------------------- base */
@@ -462,14 +466,23 @@ export async function claudeSettings(root: string, env: CliIO['env']): Promise<C
  * `init` reads the wiring through this too, so that it and `doctor` say
  * the same of every tree, and hands it the reader it reads the matchers of
  * the same files with, so that the two read each pattern once between them.
+ *
+ * A matcher that lists names with a comma is read as the Claude Code on
+ * `PATH` reads it, which turns on its release (configure.ts). `doctor`
+ * reports the release, and asks it wherever something wires the guard,
+ * since one too old for the hooks lets every write through: the lines are
+ * first read as a release that cannot be told reads them, under which a
+ * line that may be started counts as wiring. `init` has no other use for
+ * the release, so it says that it does not report it, and it is asked only
+ * where a line turns on it: where what is read of the lines differs between
+ * a release that cannot be told and the newest.
  */
-export async function claudeCodeWiring(root: string, io: CliIO, pattern: PatternReader = patternReader()): Promise<ClaudeCodeWiring> {
+export async function claudeCodeWiring(root: string, io: CliIO, pattern: PatternReader = patternReader(), reported = true): Promise<ClaudeCodeWiring> {
   const sources = await claudeSettings(root, io.env);
   // Each line is read once, before any is reported: what the brief on one
   // names is spec-brief's to say, and the report itself asks nothing.
   const read = new Map<string, HookLine | null>();
   for (const words of handedLines(sources, root)) read.set(JSON.stringify(words), await hookLineHere(words, root, io));
-  const lines = reportHooks(sources, root, (words) => read.get(JSON.stringify(words))!, pattern);
   const plugin = enabledPlugin(sources);
   // An id that names no marketplace has no directory to look in, and is said
   // as one that cannot be told whatever is on disk: pluginPresence answers
@@ -477,16 +490,21 @@ export async function claudeCodeWiring(root: string, io: CliIO, pattern: Pattern
   // equivalent to its mutant.
   const marketplace = plugin === null ? null : pluginMarketplace(plugin.id);
   const roots = marketplace === null ? [] : await Promise.all(pluginDirectories(io.env).map((directory) => pluginsRoot(directory, marketplace)));
-  return {
-    plugin,
-    presence: plugin === null ? null : pluginPresence(plugin, sources, roots),
-    hooksOff: hooksDisabled(sources),
+  const presence = plugin === null ? null : pluginPresence(plugin, sources, roots);
+  const server = registersServer(await readJsonObject(join(root, '.mcp.json')));
+  const under = (release: ClaudeCodeCheck | null): ClaudeCodeWiring => {
+    const lines = reportHooks(sources, root, (words) => read.get(JSON.stringify(words))!, pattern, commasUnder(release));
     // A line Claude Code starts for no write, before one or after, is in no
     // one's way: it is said, and the file is not counted for it.
-    hooks: sources.map(({ file }) => file).filter((file) => lines.some((line) => line.file === file && (isStarted(line.before) || isStarted(line.after)))),
-    lines,
-    server: registersServer(await readJsonObject(join(root, '.mcp.json'))),
+    const hooks = sources.map(({ file }) => file).filter((file) => lines.some((line) => line.file === file && (isStarted(line.before) || isStarted(line.after))));
+    // In the order a document has them, which a script may compare by the byte.
+    return { plugin, presence, hooksOff: hooksDisabled(sources), hooks, lines, server, release };
   };
+  const untold = under(null);
+  const asked = reported ? wiringState(untold) !== 'none' : JSON.stringify(untold.lines) !== JSON.stringify(reportHooks(sources, root, (words) => read.get(JSON.stringify(words))!, pattern));
+  // Read again under the release, where it was asked: what is read without
+  // one is what is read under one that cannot be told.
+  return under(asked ? checkClaudeCode(await claudeVersion(io.env)) : null);
 }
 
 /**

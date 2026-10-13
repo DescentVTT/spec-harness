@@ -9,6 +9,57 @@ only fixes, reports less or documents, so `^0.7.0` takes only releases that
 cannot turn a run red. The family's policy is
 [spec-core's ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
+## Unreleased
+
+`doctor` and `init` read a matcher as the Claude Code on this machine reads
+it: names with a comma, under which a release older than 2.1.191 starts no
+hook, and an array, under which Claude Code loads none of a settings file's
+hooks.
+
+### Changed
+
+- **A matcher that lists names with a comma is read as the Claude Code on
+  `PATH` reads it.** Claude Code's page on debugging a configuration has a
+  comma separate the names of a matcher, as a `|` does, from 2.1.191 on;
+  before that the comma was read as part of a pattern, and the matcher
+  matched no tool. `doctor` read a comma as a separator under every
+  release, so under 2.1.139 to 2.1.190 it said that a line under
+  `Edit, Write` guards a write by Edit and Write, where Claude Code never
+  started it. It now reads the matcher as the release it already asks reads
+  it. Under an older one the line is waited on before no write and is not
+  the guard, said with the release and what the matcher is from 2.1.191 on,
+  and `init --write` writes its own hooks beside it. Where the release
+  cannot be told, which writes the line is started for is *cannot tell*, and
+  `--strict` fails it; so is a matcher with a comma and a `|` under an
+  older release where, read as a pattern, it would match a tool. `init`
+  asks Claude Code its release where what it reads of a line turns on it,
+  and nowhere else. The matcher every release wrote holds no comma, and is
+  read as it was
+  ([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
+  Upgrading: under a Claude Code older than 2.1.191, `doctor` reports no
+  guard for such a line where it reported one, and `init --write` adds its
+  hooks to the file; beside the plugin `doctor` then exits 0 where it
+  exited 1 for a double install. `doctor --strict` fails for a matcher with
+  a comma and a `|` there. Write the matcher with `|` alone, as
+  `Edit|Write`, which every release reads the same, or update Claude Code.
+- **`doctor` fails where an array for a matcher keeps Claude Code from
+  loading a settings file's hooks.** The same page has a `matcher` that is
+  an array, where it must be one string, as an entry Claude Code lists as an
+  invalid setting and starts no hook under; and where the array stands under
+  `PreToolUse` or `PermissionRequest`, none of that file's other hooks
+  load either. `doctor` said of the array's own entry that it could not
+  tell, and read the file's other lines as running. It now says of every
+  line of the hook in such a file that Claude Code does not start it, as a
+  guard that is off, exit 1, where the line stood to be started for a write.
+  `init` writes no hook into the file and says how the matcher is mended
+  (`advise`). An array under any other event starts no hook of its own and
+  unloads none beside it. No field of `--format json` is added: such a
+  line has the `state` `off`, and no tool under `before` and `after`.
+  Upgrading: `doctor` exits 1 for a settings file that holds such an array
+  and a line of the hook, where it exited 0, or 1 under `--strict` alone,
+  while Claude Code ran no hook of the file: write the matcher as one
+  string, its names between `|`.
+
 ## 0.17.0
 
 `doctor` and `init` see four more ways a guard is set up and checks

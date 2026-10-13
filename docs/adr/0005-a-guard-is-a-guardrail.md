@@ -994,6 +994,158 @@ An exit code that can change for a tree that passed is a minor release
 - **An entry of the harness's under another event than the two**, which the
   hook answers with nothing.
 
+*Amended 2026-10-14.* `doctor` and `init` read a matcher as the Claude
+Code on this machine reads it. The amendment that took the tools down to
+three measured two things about a matcher and left them: names with a comma
+before Claude Code 2.1.191, and a matcher that is an array. *Claimed* there,
+from a page that was not kept: before 2.1.191 a matcher that lists names
+with commas matched no tool, and an array for a matcher has Claude Code load
+none of the settings file's other hooks under the event. *Measured*, each
+page read again on 2026-10-14:
+
+- **The page on debugging a configuration**
+  (<https://code.claude.com/docs/en/debug-your-config>, *Check hooks* and
+  *Check common causes*). Of a hook that is listed and does not fire: a
+  `,` separates the names of a matcher as a `|` does, and "Before
+  v2.1.191, a comma fell through to regex evaluation and the matcher never
+  matched". Its table says the same of `"Edit,Write"`: read with the comma
+  as a literal character, it matches nothing. Of a hook that is not listed
+  at all: a `matcher` that is an array, where it must be one string, is an
+  entry Claude Code lists as an invalid setting, when an interactive session
+  starts and in `claude doctor`; and where the array is under `PreToolUse`
+  or `PermissionRequest`, none of that file's other hooks load either. The
+  page names no release for the array. So the first claim holds, and the
+  second holds more widely than it was made: the page has the whole file,
+  not the event, and two events an array does that under.
+- **The hooks reference** (<https://code.claude.com/docs/en/hooks>, *Matcher
+  patterns*) has a matcher made of letters, digits, `_`, `-`, spaces, `,`
+  and `|` alone as a name, or a list of names between `|` or `,`, as it
+  had on 2026-10-12, and names no release for the comma.
+- **The changelog** (<https://code.claude.com/docs/en/changelog>, 2.1.191,
+  of June 24, 2026) has, among its fixes, hooks with comma-separated
+  matchers that silently never fired, `"Bash,PowerShell"` its example.
+
+Measured through the launcher of 0.17.0 and of this change, in a repository
+with a brief that protects a file, the hook's line under both events with
+the matcher given unless the row says otherwise, and a `claude` on `PATH`
+of the release given, made up and never a Claude Code (Linux, Node 24.21,
+git 2.47, in a container; the rows were run again on Windows 11, Node
+24.18.1, git 2.55):
+
+| What the settings hold, and the release | `doctor` on 0.17.0 | `init --write` on 0.17.0 | `doctor` now | `init --write` now |
+| --- | --- | --- | --- | --- |
+| `Edit, Write`, under 2.1.191 or later | guards a write by Edit and Write; exit 0 | `keep` | the same | the same |
+| the same, under 2.1.139 to 2.1.190 | the same | `keep` | waited on before no write, so not the guard, with the release and what the matcher is from 2.1.191; exit 0 | writes its hooks beside the line |
+| the same, with no `claude` on `PATH` | the same; exit 0, and 1 under `--strict` for the release | `keep` | cannot tell which writes; the same exit codes | `keep`, saying the same |
+| the same under 2.1.190, the plugin on and installed | the double install; exit 1 | `advise` | the plugin alone is the guard; exit 0 | `skip` |
+| `Edit\|Write, NotebookEdit` under 2.1.190 | guards; exit 0 | `keep` | cannot tell; exit 0, and 1 under `--strict` | `keep` |
+| `Bash, Read`, under any release or none | not the guard; exit 0 | writes its hooks | the same | the same |
+| an array, `["Edit","Write"]`, over the hook's own entry under both events | cannot tell; exit 0, and 1 under `--strict` | `keep` | the guard is off; exit 1 | `advise`; writes nothing |
+| `init`'s line, and another program's entry under an array under `PreToolUse` or `PermissionRequest` | `init`'s entries; exit 0 | `keep` | the guard is off; exit 1 | `advise`; writes nothing |
+| the same array, and no line of the hook | no guard; exit 0 | writes its hooks into the file | the same | `advise`; writes nothing |
+| the same array, and the hook's line under `Bash` | not the guard; exit 0 | writes its hooks | not started, and no guard switched off; exit 0 | `advise`; writes nothing |
+| `init`'s line, and another program's array under `PostToolUse` or `SessionStart` | `init`'s entries; exit 0 | `keep` | the same | the same |
+| the hook under `init`'s matcher before a write, and under an array after one | guards, and cannot tell after which writes; exit 0 | `keep` | guards, and is started after no write; exit 0 | completes its line under `PostToolUse` |
+| an array under `PreToolUse` in the user's settings, `init`'s line in the project's | `init`'s entries; exit 0 | `keep` | the same | the same |
+
+- **A comma is read as the release on `PATH` reads it.** `doctor` asks
+  that release where something wires the guard (ADR-0012), and the reading
+  of a matcher of names that holds a comma now turns on it. From 2.1.191 on
+  the matcher is the names it lists, as it was read for every release. Under
+  an older release it is what the page has that release make of it, a
+  pattern with the comma in it: read as one within the budget every pattern
+  is read in, a matcher of names and commas matches none of the three
+  tools, since no tool's name holds a comma. An entry under it is started
+  for no write, and a line all of whose entries before a write are such is
+  one Claude Code waits on before no write: not the guard (`unstarted`),
+  said with the release and with what the matcher is from 2.1.191 on, and
+  no failure, as a line under `Bash` is none. `init` writes its own hooks
+  beside it, as beside any line that is started for no write.
+- **Where the release cannot be told, the line is *cannot tell*.** No
+  `claude` on `PATH`, or one whose release cannot be read, leaves both
+  readings open: which writes the line is started for is said as that, with
+  both readings, never fine, and a failure under `--strict` alone
+  (`unknown`). `init` takes the line as one that may be started and writes
+  none beside it.
+- **A comma beside a `|` under an older release is *cannot tell* as well**,
+  where the matcher read as a pattern matches a tool. `Edit|Write,
+  NotebookEdit` read as a JavaScript regular expression matches `Edit`, and
+  `NotebookEdit` by the same four letters. The page says of a comma both
+  that it was read as part of a pattern and that the matcher never matched,
+  and for such a matcher the two cannot both hold. That a pattern would
+  match follows from the hooks reference's reading of a pattern, and is not
+  the page's sentence; no Claude Code was run to see which it is.
+- **Where both readings come to no tool that writes, nothing turns on the
+  release**, and nothing is said of it: `Bash, Read` is no guard under any.
+  And a matcher with any other character in it is a pattern under every
+  release, a comma in it or not.
+- **The release is asked as before by `doctor`, and by `init` only where
+  it decides something.** `doctor` asks where something wires the guard,
+  and a line that may be started under either reading counts as wiring for
+  that question; a release that then reads the line as started for nothing
+  is still said, since it was asked, and a release too old for the hooks
+  still fails. `init` asked no release and now asks where what it reads of
+  a line differs between a release that cannot be told and the newest: one
+  more process, or one file read on Windows (ADR-0012), in a repository
+  that has such a matcher and in no other.
+- **An array for a matcher starts no hook, and under two events unloads the
+  file.** An entry under an array is started for no tool, where it was
+  *cannot tell*: after a write that is said of the entry, with what the
+  page has of it. And a settings file that holds an array for a matcher
+  under `PreToolUse` or `PermissionRequest`, in an entry of the hook's or of
+  any other program's, has none of its hooks loaded. Every line of the hook
+  in the file is said as one Claude Code does not start, with the array and
+  the event it stands under. A line that stood to be started for a write,
+  before one or after, or that stands under an array itself, is a guard
+  someone set up that checks nothing: off, and `doctor` exits 1, as it does
+  where `disableAllHooks` switches the guard off. A line that stood to be
+  started for no write, as one under `Bash`, is said and fails nothing: no
+  guard is switched off. Nothing of the file counts as wiring, so beside the
+  plugin there is no double install, and the release is not asked for the
+  file's sake.
+- **`init` writes no hook into a file that an array unloads.** A hook
+  written there would be one more that is not loaded. It says the array, the
+  event and how the matcher is mended, as one string with its names between
+  `|`, and is run again after (`advise`). An array under another event
+  unloads nothing beside it, and `init` completes its own line there as it
+  does under any event its line is not started under.
+- **`--format json`** gains no field. A line under names with a comma has
+  the `state`, `before` and `after` the release gives it, and a line in a
+  file an array unloads has the `state` `off`, or `unstarted`, with no tool
+  under either.
+- **The hook answers no line differently, and no line a release wrote is
+  read another way.** The hook reads nothing of a settings file. Every
+  release wrote the matcher `Edit|Write|MultiEdit|NotebookEdit`, one string
+  with no comma, read from the tags v0.1.0 to v0.17.0;
+  `tests/integration/released-lines.test.ts` holds what `doctor` says of it
+  under a release from before 2.1.191, under one from after it and under
+  none. The trees above, and those of the amendments before, were run
+  through both builds, and the hook's exit code and both its streams
+  compared for each line.
+
+A `state` and an exit code that can change for a tree are a minor release
+(spec-core's ADR-0009). What was measured for this and left as it was:
+
+- **A name with a hyphen, before Claude Code 2.1.195.** The changelog has,
+  under 2.1.195, hook matchers with hyphenated identifiers that matched as
+  substrings, and exact-match from there on. So under 2.1.139 to 2.1.194 a
+  matcher such as `Edit|Write|my-tool` may have been read as a pattern,
+  under which `Edit` is in `NotebookEdit` too, where `doctor` says that
+  `NotebookEdit` goes unchecked. No page says what else such a matcher was
+  read as, and it is read as the hooks reference has it today.
+- **A hook whose matching fails.** The changelog has, under 2.1.288, hooks
+  under `PreToolUse` and `PermissionRequest` that were skipped when
+  matching them failed, and the tool call blocked from there on. What makes
+  a matching fail is not said: whether a matcher that is no pattern, which
+  `doctor` says it cannot tell, is such a one, or an array, of which the
+  page on debugging says what is above.
+- **A matcher that is neither text nor an array**, a number, an object or
+  `null`: no page says what Claude Code does with one, and it stays
+  *cannot tell*.
+- **A file an array unloads that holds no line of the hook.** `doctor`
+  says a thing of a line, and has none there: it reports no guard and
+  advises `init`, which then says the array.
+
 ## Consequences
 
 An agent that writes through a shell passes the guard and is caught at the
