@@ -1287,6 +1287,13 @@ export function describeClaudeRelease(check: ClaudeCodeCheck): string {
 /** Where git's pre-commit hook stands: git's path for it, shown from the root, and what is there. */
 export type GitHookState =
   | { readonly state: 'runs' | 'absent' | 'other' | 'inert'; readonly file: string }
+  /**
+   * What stands at the path is no file, `what` it is instead. `stops`: git
+   * can execute it, tries to run it as the hook, fails, and stops every
+   * commit. `ignored`: git cannot execute it, and skips it as it skips a
+   * hook that is not executable.
+   */
+  | { readonly state: 'stops' | 'ignored'; readonly file: string; readonly what: string }
   | { readonly state: 'unknown'; readonly reason: string };
 
 /**
@@ -1361,6 +1368,10 @@ export function describeGitHook(hook: GitHookState): string {
       return `${hook.file} runs spec-harness, but is not executable, so git skips it: chmod +x ${hook.file}`;
     case 'other':
       return `${hook.file} does not run spec-harness: add the line "${GIT_HOOK_LINE}" to it`;
+    case 'stops':
+      return `${hook.file} is ${hook.what}, not a hook, and git stops every commit at it, since it cannot run it ("cannot spawn" on Windows, "cannot exec" elsewhere): nothing is checked there, and nothing is committed. Take it away, then run spec-harness init --git-hook --write`;
+    case 'ignored':
+      return `${hook.file} is ${hook.what}, not a hook, and is not executable, so git skips it and runs no hook: take it away, then run spec-harness init --git-hook --write`;
     case 'absent':
       return missingGitHook(hook.file);
     case 'unknown':

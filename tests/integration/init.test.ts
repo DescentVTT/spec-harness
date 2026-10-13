@@ -1,5 +1,5 @@
-import { execFileSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
 
 import { afterAll, describe, expect, it } from 'vitest';
@@ -391,6 +391,93 @@ describe('init', () => {
     expect((await cli(['init', '--git-hook', '--write'], other.root)).stdout).toContain(line);
     expect((await cli(['init', '--write'], other.root)).stdout).toContain(line);
     expect(other.read('.git/hooks/pre-commit')).toBe('#!/bin/sh\nnpm test\n');
+  });
+
+  describe("what stands at the path of git's pre-commit hook and is no file (ADR-0005)", () => {
+    const STOPS = (file: string, what = 'a directory'): string =>
+      `${file} is ${what}, not a hook, and git stops every commit at it, since it cannot run it ("cannot spawn" on Windows, "cannot exec" elsewhere): nothing is checked there, and nothing is committed. Take it away, then run spec-harness init --git-hook --write`;
+    /** Whether git makes a commit there, with what stands at the hook's path, and what it says where it does not. */
+    const commits = (repo: Repository): { made: boolean; said: string } => {
+      repo.write('work.txt', `${Math.random()}\n`);
+      repo.git('add', 'work.txt');
+      const result = spawnSync('git', ['commit', '-q', '-m', 'work'], { cwd: repo.root, encoding: 'utf8' });
+      return { made: result.status === 0, said: result.stderr };
+    };
+    /** What doctor says of git's hook, with its exit code and what it wrote on stderr. */
+    const doctor = async (repo: Repository): Promise<{ code: number; stderr: string; hook: { state: string; file: string; detail: string; note: string | null } }> => {
+      const result = await cli(['doctor', '--format', 'json'], repo.root);
+      return { code: result.code, stderr: result.stderr, hook: parsed<{ gitHook: { state: string; file: string; detail: string; note: string | null } }>(result).gitHook };
+    };
+
+    it('is said as a directory git stops every commit at, fails doctor as git fails the commit, and has init write nothing over it', async () => {
+      const repo = repository({});
+      const directory = join(repo.root, '.git', 'hooks', 'pre-commit');
+      mkdirSync(directory, { recursive: true });
+      const stops = STOPS('.git/hooks/pre-commit');
+      // No stack and nothing on stderr: a sentence in the report, and a failure, since nothing is committed while it stands.
+      expect(await doctor(repo)).toEqual({ code: 1, stderr: '', hook: { state: 'stops', file: '.git/hooks/pre-commit', detail: stops, note: null } });
+      expect(await gitHook(repo.root)).toEqual({ hook: { state: 'stops', file: '.git/hooks/pre-commit', what: 'a directory' }, path: repo.git('rev-parse', '--path-format=absolute', '--git-path', 'hooks/pre-commit'), note: null });
+      // What git does with it is what the exit code follows: it stops the commit, and names the path.
+      const commit = commits(repo);
+      expect(commit.made).toBe(false);
+      expect(commit.said).toContain('pre-commit');
+      // init says the same, asked for the hook or not, and leaves what is there.
+      for (const args of [['init', '--write'], ['init', '--git-hook', '--write']]) {
+        const result = await cli(args, repo.root);
+        expect({ code: result.code, stderr: result.stderr }, args.join(' ')).toEqual({ code: 0, stderr: '' });
+        expect(result.stdout, args.join(' ')).toContain(`advise  .git/hooks/pre-commit\n        ${stops}\n`);
+      }
+      expect(statSync(directory).isDirectory()).toBe(true);
+      expect(readdirSync(directory)).toEqual([]);
+      // Taken away, the hook is written as into any repository, and doctor fails nothing for it.
+      rmSync(directory, { recursive: true });
+      expect((await cli(['init', '--git-hook', '--write'], repo.root)).stdout).toContain('create  .git/hooks/pre-commit\n');
+      expect(await doctor(repo)).toMatchObject({ code: 0, hook: { state: 'runs' } });
+    });
+
+    it('is the same where the repository holds the directory, under a core.hooksPath in its work tree', async () => {
+      const repo = repository({ '.githooks/pre-commit/keep': 'x\n' });
+      repo.git('config', 'core.hooksPath', '.githooks');
+      expect(await doctor(repo)).toEqual({ code: 1, stderr: '', hook: { state: 'stops', file: '.githooks/pre-commit', detail: STOPS('.githooks/pre-commit'), note: null } });
+      expect(commits(repo).made).toBe(false);
+      const planned = await cli(['init', '--git-hook', '--write'], repo.root);
+      expect(planned.stdout).toContain(`advise  .githooks/pre-commit\n        ${STOPS('.githooks/pre-commit')}\n`);
+      expect(repo.read('.githooks/pre-commit/keep')).toBe('x\n');
+    });
+
+    // Windows has no executable bit, and git there runs whatever stands at the path. An account that may do anything is told it may execute a directory whatever its bits, by git as by this.
+    it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)('is one git skips where it may not execute it, which fails nothing: no hook runs, as where there is none', async () => {
+      const repo = repository({});
+      const directory = join(repo.root, '.git', 'hooks', 'pre-commit');
+      mkdirSync(directory, { recursive: true });
+      chmodSync(directory, 0o644);
+      const ignored = '.git/hooks/pre-commit is a directory, not a hook, and is not executable, so git skips it and runs no hook: take it away, then run spec-harness init --git-hook --write';
+      expect(await doctor(repo)).toEqual({ code: 0, stderr: '', hook: { state: 'ignored', file: '.git/hooks/pre-commit', detail: ignored, note: null } });
+      expect(commits(repo).made).toBe(true);
+      expect((await cli(['init', '--git-hook', '--write'], repo.root)).stdout).toContain(`advise  .git/hooks/pre-commit\n        ${ignored}\n`);
+      expect(statSync(directory).isDirectory()).toBe(true);
+    });
+
+    it.skipIf(process.platform === 'win32')('comes back from a named pipe there, which it does not open, and follows a link: to a directory, and to nothing', async () => {
+      const repo = repository({});
+      const hook = join(repo.root, '.git', 'hooks', 'pre-commit');
+      mkdirSync(join(repo.root, '.git', 'hooks'), { recursive: true });
+      execFileSync('mkfifo', [hook]);
+      chmodSync(hook, 0o755);
+      // Opened as a file, a pipe nothing writes to is read without end.
+      expect((await doctor(repo)).hook).toEqual({ state: 'stops', file: '.git/hooks/pre-commit', detail: STOPS('.git/hooks/pre-commit', 'neither a file nor a directory'), note: null });
+      expect(commits(repo).made).toBe(false);
+      rmSync(hook);
+      const elsewhere = temp();
+      symlinkSync(elsewhere, hook);
+      expect((await doctor(repo)).hook).toMatchObject({ state: 'stops', detail: expect.stringContaining(' is a directory, not a hook') });
+      expect(commits(repo).made).toBe(false);
+      // A link to nothing is no hook to git, which commits: there is none.
+      rmSync(hook);
+      symlinkSync(join(elsewhere, 'nowhere'), hook);
+      expect((await doctor(repo)).hook).toMatchObject({ state: 'absent' });
+      expect(commits(repo).made).toBe(true);
+    });
   });
 
   it('writes the hook where core.hooksPath points, relative to the work tree', async () => {

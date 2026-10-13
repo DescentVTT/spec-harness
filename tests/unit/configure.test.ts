@@ -548,6 +548,15 @@ describe("what doctor says of the keys, the Claude Code release and git's hook",
     expect(describeGitHook({ state: 'unknown', reason: 'r' })).toBe('where git runs its hooks cannot be told: r');
   });
 
+  it("says what stands at the hook's path that is no file, and what git does with it: stops every commit, or skips it", () => {
+    expect(describeGitHook({ state: 'stops', file: '.githooks/pre-commit', what: 'a directory' })).toBe(
+      '.githooks/pre-commit is a directory, not a hook, and git stops every commit at it, since it cannot run it ("cannot spawn" on Windows, "cannot exec" elsewhere): nothing is checked there, and nothing is committed. Take it away, then run spec-harness init --git-hook --write',
+    );
+    expect(describeGitHook({ state: 'ignored', file: '.git/hooks/pre-commit', what: 'neither a file nor a directory' })).toBe(
+      '.git/hooks/pre-commit is neither a file nor a directory, not a hook, and is not executable, so git skips it and runs no hook: take it away, then run spec-harness init --git-hook --write',
+    );
+  });
+
   it('runs git\'s hook with node and the script in the project\'s install, as it runs Claude Code\'s, read from the top of the work tree', () => {
     expect(GIT_HOOK_LINE).toBe('node node_modules/@descent-vtt/spec-harness/bin/spec-harness.js hook git');
     // The script the Claude Code hooks name under the project, here under the directory git starts the hook in.

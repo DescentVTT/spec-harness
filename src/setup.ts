@@ -12,7 +12,7 @@
  * repository already has is left alone, with the line to add printed instead.
  */
 
-import { existsSync, statSync } from 'node:fs';
+import { accessSync, constants, existsSync, statSync, type Stats } from 'node:fs';
 import { chmod, mkdir, readFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, sep } from 'node:path';
 
@@ -93,23 +93,57 @@ function shown(root: string, path: string): string {
 }
 
 /**
+ * Whether git takes what stands at a hook's path for a hook to run. git
+ * asks the system whether the path can be executed, and skips one that
+ * cannot, with no more than a hint: asked here the same way. On Windows the
+ * question is only whether the path is there (Node's fs page, File access
+ * constants, read 2026-10-14), and git there runs whatever is.
+ */
+function executable(path: string): boolean {
+  try {
+    accessSync(path, constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** What stands at a path, links followed, or `null` where nothing does: a link to nothing is nothing, to git as well. */
+function standing(path: string): Stats | null {
+  try {
+    return statSync(path);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * git's pre-commit hook, where git runs it from, and what is there: init and
  * doctor both read it. `path` is `null` when git cannot say where its hooks
  * are. `note` is what there is to say of how a hook that runs the harness
  * runs it, or `null`.
+ *
+ * Only a file is read. A directory under the hook's name, which a
+ * repository whose `core.hooksPath` is in its work tree can hold, is not a
+ * hook and is one to git all the same: it tries to run what it can execute
+ * there, fails, and stops the commit (ADR-0005 has what was measured). Read
+ * as a file, it ended this on Node's EISDIR and a stack, and a named pipe
+ * would have kept it from ever coming back.
  */
 export async function gitHook(root: string): Promise<{ readonly hook: GitHookState; readonly path: string | null; readonly note: string | null }> {
   const path = await hookPath('pre-commit', root);
   if (path === null) return { hook: { state: 'unknown', reason: 'git does not say where they are; spec-harness needs git 2.31 or later' }, path, note: null };
   const file = shown(root, path);
-  if (!existsSync(path)) return { hook: { state: 'absent', file }, path, note: null };
+  const there = standing(path);
+  if (there === null) return { hook: { state: 'absent', file }, path, note: null };
+  const runs = executable(path);
+  if (!there.isFile()) {
+    const what = there.isDirectory() ? 'a directory' : 'neither a file nor a directory';
+    return { hook: { state: runs ? 'stops' : 'ignored', file, what }, path, note: null };
+  }
   const text = await readFile(path, 'utf8');
   if (!text.includes('spec-harness')) return { hook: { state: 'other', file }, path, note: null };
-  // git skips a hook it cannot execute, and says so only in a hint; Windows
-  // has no executable bit, and runs it.
-  // The Windows job holds the platform check; the sweep runs on Linux, where it is always true.
-  const inert = process.platform !== 'win32' && (statSync(path).mode & 0o111) === 0;
-  return { hook: { state: inert ? 'inert' : 'runs', file }, path, note: gitHookNote(text) };
+  return { hook: { state: runs ? 'runs' : 'inert', file }, path, note: gitHookNote(text) };
 }
 
 export async function plan(workspace: Workspace, options: Options, io: CliIO): Promise<Step[]> {
@@ -337,7 +371,9 @@ export async function plan(workspace: Workspace, options: Options, io: CliIO): P
     // A hook that runs it through npx is kept, as any hook that exists is,
     // with the line that runs it as init writes the hook now.
     steps.push({ file: hook.file, action: 'keep', detail: hookNote === null ? 'already runs spec-harness' : `already runs spec-harness; ${hookNote}` });
-  } else if (hook.state === 'inert') {
+  } else if (hook.state === 'inert' || hook.state === 'stops' || hook.state === 'ignored') {
+    // What is there is the person's to mend or to take away: nothing is
+    // written over it, and what doctor says of it is said.
     steps.push({ file: hook.file, action: 'advise', detail: describeGitHook(hook) });
   } else if (hook.state === 'other') {
     steps.push({ file: hook.file, action: 'advise', detail: `a pre-commit hook exists; add the line "${GIT_HOOK_LINE}" to it` });

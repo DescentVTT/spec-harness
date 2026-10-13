@@ -16,7 +16,9 @@ it: names with a comma, under which a release older than 2.1.191 starts no
 hook, and an array, under which Claude Code loads none of a settings file's
 hooks. And they say a root on the hook's line that is in another work tree
 by what the hook checks under it: no write to the project, or the project's
-writes by another work tree's briefs.
+writes by another work tree's briefs. A directory where git looks for its
+pre-commit hook, and one where a probe's report should be, end in a sentence
+and no longer on a stack.
 
 ### Changed
 
@@ -84,6 +86,34 @@ writes by another work tree's briefs.
   write to the project was checked: give the line a directory in the
   project's work tree, or take `--root` off it for the project Claude Code
   names.
+- **`doctor` and `init` say a directory at the path of git's pre-commit
+  hook, where they ended on a stack.** With a directory under the hook's
+  name, as a repository whose `core.hooksPath` is in its work tree can
+  hold one, both read it as a file and ended on `unexpected error: Error:
+  EISDIR` and a stack, exit 2; a named pipe there kept them from coming
+  back at all. Only a file is read now. git takes whatever it may execute
+  at the path for the hook: it tries to run a directory, cannot, and stops
+  every commit (`cannot spawn` on Windows, `cannot exec` elsewhere,
+  measured with git 2.47 and 2.55). So `doctor` says the path, what it is
+  and what git does with it, and exits 1; where git may not execute it and
+  skips it, that is said and fails nothing. `init` says the same
+  (`advise`), with `--git-hook` or without, and writes nothing over it.
+  `--format json` has the two as the `gitHook.state` `stops` and
+  `ignored`. Whether git runs a hook that is a file is asked the same way,
+  with the answers it had
+  ([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
+  Upgrading: `doctor` exits 1 there, and `init` 0, where each exited 2;
+  a script that reads `gitHook.state` meets two more words. Take the
+  directory away, then run `spec-harness init --git-hook --write`.
+
+### Fixed
+
+- **`probe` says a report that is a directory, where it ended on a
+  stack.** A probe whose `junit` names a directory the repository holds
+  ended on `unexpected error: SystemError [ERR_FS_EISDIR]`, exit 2: the
+  report was taken away as a file before each run. It is now left and read
+  as a report that cannot be read: the run is `no-report`, `reports cannot
+  be read: it is a directory, not a report`, and the probe invalid, exit 1.
 
 ## 0.17.0
 

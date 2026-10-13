@@ -1247,6 +1247,105 @@ An exit code that can change for a tree that passed is a minor release
   `doctor`, though it does what was meant: the sentence says what the hook
   checks under it.
 
+*Amended a third time 2026-10-14.* What stands at the path of git's
+pre-commit hook and is no file is said, with what git does with it, and no
+command ends on a stack for something a repository can hold. The amendment
+of 2026-09-30 has `doctor` and `init` find the hook where git runs it from,
+and both then read what is there as a file. *Claimed:* where
+`.git/hooks/pre-commit` is a directory, both end on `unexpected error:
+EISDIR` and a stack, exit 2, in 0.16.0 as well. *Measured*, through the
+launcher of 0.17.0 and with git itself at a commit (git 2.47.3 on Linux as
+an ordinary account, Node 24.21, in a container; Git for Windows 2.55.0,
+Node 24.18.1):
+
+| What stands at git's path for the hook | git, at a commit | `doctor` and `init` on 0.17.0 | Now |
+| --- | --- | --- | --- |
+| a directory, as `mkdir` makes one; on Windows, any | stops the commit, exit 1: `cannot exec '.git/hooks/pre-commit': Permission denied`, and on Windows `cannot spawn .git/hooks/pre-commit: No such file or directory` | `unexpected error: Error: EISDIR` and a stack; exit 2 | `doctor` says it, exit 1; `init` advises, exit 0, and writes nothing |
+| the same under a `core.hooksPath` in the work tree, held by the repository | the same | the same | the same |
+| a link to a directory | the same | the same | the same |
+| a directory nobody may execute (not on Windows) | skips it, with the hint it has for a hook that is not executable, and commits | the same stack | said as skipped; exit 0 |
+| a named pipe that may be executed | stops the commit | neither comes back | said as neither a file nor a directory; exit 1 |
+| a link to nothing, or to itself | no hook: commits | no hook, as it is | the same |
+| a file nobody may execute (not on Windows) | skips it, with the hint | not executable, so git skips it | the same |
+
+So the claim holds, and what git does with such a path is not to pass it
+over: it takes whatever it may execute there for the hook, fails to start
+it, and stops the commit.
+
+- **Only a file is read.** What else stands at the path is said with what
+  it is, a directory or neither a file nor a directory, and what git does
+  with it. Nothing there is opened, so a named pipe is said like the rest.
+- **The exit code follows what git does.** Where git stops every commit at
+  it, nothing is checked and nothing is committed: `doctor` exits 1, with
+  git's own words for it, `cannot spawn` on Windows and `cannot exec`
+  elsewhere, so that the error a person met at a commit leads here. Where
+  git skips it, no hook runs, as where there is none, and that is said and
+  fails nothing: no hook at commit is a choice (ADR-0012).
+- **Whether git runs what is there is asked as git asks it**: whether the
+  account may execute the path. `doctor` read the mode's three executable
+  bits for a hook that is a file, outside Windows. A directory answers
+  another way for an account that may do anything, which may always enter
+  one, and git, run as such an account, stops the commit at a directory
+  with none of the bits (measured in a container as root). So both are
+  asked through Node's access check for execution, which on Windows is by
+  Node's fs page no more than whether the path is there
+  (<https://nodejs.org/docs/latest-v24.x/api/fs.html>, *File access
+  constants*, read 2026-10-14), as git on Windows runs whatever is. A hook
+  that is a file reads as it did.
+- **`init` advises, and writes nothing over it**, with `--git-hook` or
+  without, in `doctor`'s words: what is there is the person's to take
+  away, as a hook that exists is theirs to add the line to.
+- **`--format json`** has the two as the `gitHook.state` `stops` and
+  `ignored`, beside the five it had.
+
+Every other path the harness reads where it expects a file was made a
+directory, one at a time, and each command that reads it run (Linux, as
+above, and the same on Windows for the first rows):
+
+| The path | What reads it says |
+| --- | --- |
+| `.claude/settings.json`, `.claude/settings.local.json`, the user's `settings.json` | read as a file that cannot be read as JSON, which holds no hook and no plugin (ADR-0012); `init`: `cannot be read as JSON; add the guard ... by hand`, and writes nothing over it |
+| `.claude`, a file where the directory should be | `doctor` reads no settings there; `init --write`: `spec-harness: .claude/settings.json: EEXIST: file already exists, mkdir ...`, exit 2, in Node's words and with no stack |
+| `.mcp.json` | `init`: `cannot be read as JSON; add the spec-harness server by hand` |
+| `.spec-harness.json` | every command, the hook among them: `.spec-harness.json is a directory, not a configuration file`, exit 2 |
+| `.spec-brief.json` | `doctor` and `init`: `cannot be read as JSON`, so whether spec-brief loads the plugin is unknown; spec-brief's own sentence from every command that asks it, `is a directory, not a configuration file`, exit 2, and the hook holds the write |
+| `package.json` | spec-guard's own sentence from `audit`, exit 2; nothing else reads it where spec-graph is not installed |
+| the allowed-signers file, a directory on the base | `doctor`: `.github/allowed_signers is on main`, and its lines noted as no signers; a ruling is not verified |
+| a brief's file, or the briefs' directory a file | spec-brief lists no such brief, or says its own sentence: the brief is none, exit 2 from every command that needs it |
+| `known_marketplaces.json`, and the plugin's directory in a cache a file | *cannot tell*, and not on the machine, as for a record that cannot be read |
+| a sibling's `package.json` | `declares no version`, as for one that is not JSON |
+| a document a brief cites | `context`: cited and not found, as one that is not there |
+| the report a probe's `junit` names | `unexpected error: SystemError [ERR_FS_EISDIR]` and a stack; exit 2 |
+
+One more ended on a stack, then: `probe`, which took the report away as a
+file before each run. A directory under that name is the repository's, and
+is now left and read as a report that cannot be read: the run is
+`no-report`, in the probe's own words for one (ADR-0007), and the probe
+invalid.
+
+What was measured for this and left as it was:
+
+- **The allowed-signers file as a directory.** git shows a directory at a
+  commit as a list of its entries, which `doctor` reads as the file: it
+  says the file is on the base, and each line of the list as no signer. No
+  ruling verifies against it, so nothing is allowed that should not be;
+  the first sentence is wrong.
+- **A settings file that is a directory** says nothing to `doctor`, which
+  reports no guard and no more, as for any settings file that cannot be
+  read (ADR-0012, Consequences).
+- **A `core.hooksPath` that names a file.** git cannot name the hook's path
+  under it (`Invalid path ...: Not a directory`) and commits with no hook.
+  `doctor` says that where git runs its hooks cannot be told, and gives the
+  reason it has for a git older than 2.31, which is not this one.
+- **What stands under the git directory.** The harness's own state
+  directory as a file (`.git/spec-harness`) ends `escalate` on Node's
+  ENOTDIR and a stack, and a hook file the account may not read ends
+  `doctor` on EACCES and one. Neither is something a repository holds: git
+  keeps one bit of a file's mode, and nothing of its own directory.
+- **A named pipe where a settings file is expected** is read as a file, and
+  a pipe nothing writes to is read without end. A repository cannot hold
+  one.
+
 ## Consequences
 
 An agent that writes through a shell passes the guard and is caught at the

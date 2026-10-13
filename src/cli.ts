@@ -96,8 +96,8 @@ Commands:
                       installed twice, its hook's line turns it off or holds every
                       write, disableAllHooks or an array for a matcher switches it
                       off, the plugin that is turned on is not on this machine and
-                      nothing else guards, or Claude Code is too old to run its
-                      hooks.
+                      nothing else guards, Claude Code is too old to run its hooks,
+                      or git stops every commit at what stands for its hook.
 
 Options:
   --brief <id>        The brief the round works on. Otherwise SPEC_BRIEF, then the branch.
@@ -428,17 +428,19 @@ async function doctorCommand(options: Options, io: CliIO): Promise<number> {
   // and so are a hook whose own line turns the guard off or holds every
   // write, guard hooks that disableAllHooks switches off, a plugin that is
   // turned on and is not on this machine where no hook of init's stands in
-  // for it, and a Claude Code too old to run the hooks. A release that
-  // cannot be told is not fine either, nor a line whose reading cannot be,
-  // nor a plugin that cannot be told to be on this machine: --strict fails
-  // the three.
+  // for it, a Claude Code too old to run the hooks, and something at the
+  // path of git's pre-commit hook that git cannot run and stops every
+  // commit at. A release that cannot be told is not fine either, nor a
+  // line whose reading cannot be, nor a plugin that cannot be told to be on
+  // this machine: --strict fails the three.
   const outdated = rows.some((row) => row.state === 'outdated');
   const usable = rows.some((row) => row.state === 'found');
   const off = wiring.lines.some((line) => line.state === 'off' || line.state === 'held');
   const missing = wiring.presence?.state === 'absent' && wiring.hooks.length === 0;
   const tooOld = release?.state === 'outdated';
+  const stopped = hook.state === 'stops';
   const untold = options.strict && (release?.state === 'unknown' || wiring.lines.some((line) => line.state === 'unknown') || wiring.presence?.state === 'unknown');
-  return outdated || !usable || claude === 'both' || off || switchedOff || missing || tooOld || untold ? EXIT_FAILED : EXIT_OK;
+  return outdated || !usable || claude === 'both' || off || switchedOff || missing || tooOld || stopped || untold ? EXIT_FAILED : EXIT_OK;
 }
 
 /* ---------------------------------------------------------------- dispatch */
