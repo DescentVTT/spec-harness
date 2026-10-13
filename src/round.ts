@@ -184,9 +184,16 @@ export async function checkPaths(
   // them are equivalent; and with no brief nothing is protected, so the null
   // check is there for the type.
   if (brief === null || !first.some((decision) => decision.reason === 'protected')) return first;
-  const base = await resolveBase(workspace, baseFlag);
+  const text = await briefText(workspace, brief);
   const documents = typeof reader === 'function' ? await reader() : reader;
-  return decideAll((await checkRulings(workspace, brief, await briefText(workspace, brief), documents, base)).verified);
+  // The base is where the allowed signers are read, and only a row that
+  // allows something is checked against them: where none does, git is asked
+  // nothing of the base, three processes of a refusal, and what was decided
+  // without a ruling stands.
+  const { rulings } = readRulings(documents.sectionTables(text, workspace.config.rulings.section).tables);
+  if (!rulings.some((row) => row.decision === 'allow')) return first;
+  const base = await resolveBase(workspace, baseFlag);
+  return decideAll((await checkRulings(workspace, brief, text, documents, base)).verified);
 }
 
 /* ----------------------------------------------------------------- context */

@@ -337,8 +337,9 @@ describe('a work tree', () => {
 
 describe('the hook', () => {
   const question = (root: string): string => JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: join(root, 'src', 'db', 'schema.ts') }, cwd: root });
+  const ruled = (row: string): string => brief({ affected: ['src/**'], protected: ['src/db/**'], body: ['## Rulings', '', '| id | paths | decision | note |', '| --- | --- | --- | --- |', row, ''].join('\n') });
 
-  it('opens its work tree as every command does, the top with the common directory and the branch asked at once', async () => {
+  it('opens its work tree as every command does, and asks nothing of the base where no ruling of the brief allows anything', async () => {
     const repo = onBrief();
     const result = await cli(['hook', 'claude'], repo.root, { env: { CLAUDE_PROJECT_DIR: repo.root }, stdin: question(repo.root) });
     expect(result.code).toBe(0);
@@ -346,9 +347,26 @@ describe('the hook', () => {
     expect(atOnce(TREE, BRANCH)).toBe(true);
     // spec-brief is asked which brief the branch names, so only once the branch is known.
     expect(when('answered', BRANCH)).toBeLessThan(when('asked', BRIEFS));
-    // A write to a protected file asks for the base its rulings are checked on: both commits at once.
+    // The write is to a protected file, and is refused for want of a ruling: three starts of git, and no more.
+    expect(asked()).toHaveLength(3);
+  });
+
+  it('asks nothing of the base where the rulings of the brief only deny', async () => {
+    const repo = onBrief({ [BRIEF_FILE]: ruled('| R-001-1 | `src/db/**` | deny | the store stays as it is |') });
+    const result = await cli(['hook', 'claude'], repo.root, { env: { CLAUDE_PROJECT_DIR: repo.root }, stdin: question(repo.root) });
+    expect(parsed<{ hookSpecificOutput: { permissionDecision: string } }>(result).hookSpecificOutput.permissionDecision).toBe('deny');
+    expect(asked()).toHaveLength(3);
+  });
+
+  it('asks for the base a ruling is checked on where one allows something, both commits at once', async () => {
+    const repo = onBrief({ [BRIEF_FILE]: ruled('| R-001-1 | `src/db/schema.ts` | allow | the schema moves with the token |') });
+    const result = await cli(['hook', 'claude'], repo.root, { env: { CLAUDE_PROJECT_DIR: repo.root }, stdin: question(repo.root) });
+    // The row is committed unsigned, and the base has no signers: the ruling does not count.
+    expect(parsed<{ hookSpecificOutput: { permissionDecision: string } }>(result).hookSpecificOutput.permissionDecision).toBe('deny');
     expect(when('answered', BRIEFS)).toBeLessThan(Math.min(when('asked', BASE), when('asked', HEAD)));
     expect(atOnce(BASE, HEAD)).toBe(true);
+    expect(Math.max(when('answered', BASE), when('answered', HEAD))).toBeLessThan(when('asked', MERGE_BASE));
+    expect(when('answered', MERGE_BASE)).toBeLessThan(when('asked', SIGNERS));
   });
 
   it('starts three processes for a write no brief protects, and one in a directory that is in no work tree', async () => {
