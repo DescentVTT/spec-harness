@@ -788,3 +788,188 @@ of d8edba0, and main is at 2c652e7, the release of 0.16.0, which changed
 no source and added the two tests that kill the survivors in `setup.ts`.
 Until main has a sweep of its own head, a pull request's summary has those
 two as gone and nothing of main's as new.
+
+*Amended 2026-10-14.* **What the sweep still left: its tests and the
+vendored copy, a table that had drifted, and a count that was not
+Stryker's.** Each was measured again before anything changed, from the
+workflow, the runs and the reports.
+
+**The sweep runs for the integration suite and for the vendored spec-core.**
+Of the 90 pull requests merged from 2026-09-26 to 2026-10-12, 53 changed a
+path the sweep runs for. Of the other 37, six changed a file under
+`tests/integration`, seven a file under `src/vendor`, and nine one or the
+other. Each is what the verdicts are made of. In the report of main's
+newest sweep (run 38264176050, of 9fc6cc5) the fourteen modules only this
+sweep reaches have 3,518 mutants, and the test first recorded as the killer
+of one is in `tests/integration` for 3,139 of them and in `tests/unit` for
+192. The vendored spec-core is in no sweep's `mutate` here, and six of the
+modules that are import from it. So the paths of `mutation.yml` name
+`tests/integration/**` and `src/vendor/**`, under both events.
+`tests/mutation-shards.test.ts` holds every file of either directory to
+those two entries, holds that no file of the integration suite imports a
+helper from outside it but `tests/temporary.ts`, which reaches no source,
+and holds that the paths match none of what is left to the core sweep and
+the schedule: a module the core sweep mutates whole, a unit test, a test of
+the repository itself, a manifest, a document.
+
+What GitHub does with such an entry, from *Workflow syntax for GitHub
+Actions* as read on 2026-10-14, under *Filter pattern cheat sheet* and its
+*Patterns to match file paths*: a pattern is matched against the whole
+path, from the repository's root; `*` is any run of characters but a slash,
+and `**` any run at all; and its example of a directory followed by `/**`
+is every file in that directory and in its subdirectories.
+
+**What that costs.** The five newest full sweeps took 126.5 to 134.6
+minutes of runners over their nine jobs. CI ran for 12 heads of the nine
+pull requests, so with their nine pushes to main the two entries would have
+run at most 21 sweeps more in seventeen days, where the paths before them
+would have run at most 139: about 2,700 minutes of runners. *GitHub Actions
+billing*, under *How use of GitHub Actions is measured*, has the use of
+standard hosted runners by a public repository as free, so what a sweep
+costs here is the wait. *Actions limits*, under *Job concurrency limits for
+GitHub-hosted runners*, gives an account on the Free plan 20 jobs at once,
+and a sweep is nine. On 2026-10-12 nine sweeps ran between 09:07 and 15:00
+beside the CI of their pull requests: in four the shards started within a
+minute of being made, and in five they waited for a runner, the longest
+wait of each from 11 minutes to 61.
+
+**What still merges unswept.** A dependency's bump alone: 19 of the 37
+changed `package.json` or the lockfile and neither directory. Eleven of
+those changed the package's own version, a script or the list of files.
+Eight changed a dependency, five of them a sibling tool that the
+integration suite runs. A unit test alone: `tests/unit/git.test.ts` is the
+first recorded killer of 21 mutants of `git.ts`, three of which no
+integration test covers, and `tests/unit/workspace.test.ts` of 34 mutants
+of `workspace.ts` outside the function the core sweep mutates, each of
+which an integration test covers as well or is static. And what the suites
+read by its path that is no test: `bin/`, `hooks/hooks.json`, `skills/` and
+`package.json`. Monday's sweep reads all of these, and its summary names
+what they left.
+
+**The shards, levelled on five sweeps.** The five full sweeps that ran last
+on the table of 2026-10-09 were read shard by shard with
+`scripts/mutation-timeline.mjs`: runs 38249083949, 38252478668,
+38258557802, 38261238288 and 38264176050, all of 2026-10-12, the second of
+1016375 and the others of 0.17.0's source. The last shard's job passed 21
+minutes in three of them, and 22, the sign the amendment of 2026-10-09 set,
+in one.
+
+| Shard | Its files' minutes in the five sweeps, oldest first | Its job, the least and the most |
+| --- | --- | ---: |
+| `round.ts` | 15.4, 15.4, 14.7, 14.6, 11.2 | 13m47s to 18m21s |
+| `siblings.ts` | 10.3, 12.9, 12.8, 12.9, 11.4 | 12m34s to 15m55s |
+| `sandbox.ts` | 14.0, 13.6, 14.1, 14.2, 14.8 | 16m15s to 17m49s |
+| `git.ts`, `premises.ts`, `host.ts`, `briefs.ts`, `hooks.ts`, `guard.ts` | 14.2, 12.4, 15.0, 14.2, 14.5 | 15m10s to 17m59s |
+| `branch.ts`, `reader.ts` | 12.5, 13.2, 10.5, 12.6, 12.8 | 13m16s to 16m10s |
+| `rulings.ts`, `commands.ts` | 10.6, 9.6, 10.0, 10.9, 11.1 | 12m17s to 13m46s |
+| `cli.ts`, `signers.ts`, `workspace.ts`, `server.ts`, `probe.ts`, `config.ts` | 15.4, 11.4, 13.6, 12.9, 10.5 | 12m56s to 18m13s |
+| the rest | 14.4, 18.6, 13.4, 18.8, 19.8 | 15m41s to 22m49s |
+
+The files took 104 to 111 minutes in all, where the table was made on 95:
+the sources have 1,459 more mutants than they had then, 9,483, and the
+suite 187 more tests, 1,315. An initial run took 1m55s to 2m34s in the
+forty shards, and a job 2.3 to 3.1 minutes more than its files. Static
+mutants took 55 to 56 minutes in the hundred of each sweep. What grew is
+the last shard, where a file added to `src/` lands and where `configure.ts`
+gained 238 mutants for 0.17.0: `setup.ts` took 2.3 to 3.6 minutes there,
+`configure.ts` 2.2 to 3.3, `versions.ts` 2.0 to 2.8, `fs.ts` 1.1 to 3.3 and
+`usage.ts` 1.3 to 1.9. The comment above the table in
+`scripts/mutation-shards.mjs` has every file's.
+
+Two files move, both out of the last shard: `setup.ts` to the shard of
+`rulings.ts` and `commands.ts`, which the amendment of 2026-10-09 had as
+the one with room, and `usage.ts` to the shard of `siblings.ts`. By the
+same five sweeps, file by file:
+
+| Shard | Its files' minutes, oldest first | Mean |
+| --- | --- | ---: |
+| `siblings.ts`, `usage.ts` | 11.6, 14.6, 14.2, 14.8, 13.1 | 13.7 |
+| `rulings.ts`, `commands.ts`, `setup.ts` | 13.4, 13.2, 12.3, 14.3, 14.7 | 13.6 |
+| the rest | 10.3, 13.3, 9.7, 13.5, 14.5 | 12.3 |
+
+The other five are as they were, with means of 12.3 to 14.3 minutes, so
+the eight stand at 12.3 to 14.3 where they stood at 10.4 to 17.0, and the
+last shard is the shortest, since that is where the sources grow unasked.
+No test names a file's shard: `tests/mutation-shards.test.ts` holds the
+table to the configuration and to the workflow's matrix, and passes with it
+as it did. The sign to measure again stays a shard that keeps passing 22
+minutes, now five more than the table has its longest job. One thing the
+five sweeps say of any table: the last shard's files took 13.4 minutes in
+one and 19.8 in another of the same source, each file of it longer by
+about the same share. A runner is that much slower than another, and no
+table levels it.
+
+**How long a report is kept.** The comparison of 2026-10-12 reads main's
+newest report, and that amendment has it expiring fourteen days after its
+run. The workflow does not say so: the upload of the merged report names no
+`retention-days`, and the fourteen days are the repository's setting, read
+on 2026-10-14 from GitHub's API as 14 days, with 14 the most that may be set
+(`gh api repos/DescentVTT/spec-harness/actions/permissions/artifact-and-log-retention`).
+From GitHub's documentation as read the same day:
+
+- *Store and share data with workflow artifacts*, under *Configuring a
+  custom artifact retention period*: the `retention-days` of an upload
+  cannot exceed the limit set by the repository, its organisation or its
+  enterprise.
+- *Managing GitHub Actions settings for a repository*, under *Configuring
+  the retention period for checks, workflow runs, commit statuses,
+  artifacts, and logs in your repository*: the period is 90 days unless it
+  is set, a public repository may set 1 to 90, a repository cannot exceed
+  the limit of the organisation that manages it, and a change applies to
+  what is made after it. The same section has the period cover checks,
+  workflow runs and commit statuses as well from 2026-10-01.
+
+What follows, and is not the pages': no line of this workflow can keep the
+report a month. An owner raising the organisation's limit and then the
+repository's setting can, and the merged report then follows it with no
+change here, since its upload names no time of its own;
+`tests/mutation-compare.test.ts` holds that it names none. Until then a
+fortnight in which no sweep of main passes leaves a pull request's sweep
+nothing to compare with, and it says that nothing was compared. And a run
+made since 2026-10-01 is kept as long as its artifacts are: the runs this
+record cites by number will stop answering fourteen days after each, and
+the figures written here are then what is left of them.
+
+**The count of what stands under an `as` is held to the Stryker
+installed.** spec-core's test of the same count found three defects that
+its first writing let through. Each was put into this repository's script
+and its test run: a key written as a string counted as a place failed the
+test, and two passed it, a type inside the expression read as code and a
+mutant of a report beside an assertion on its own line read as under it.
+The count was then set beside the instrumenter itself, as spec-core's test
+does: over the eleven outermost assertions of spec-core's source and
+fourteen more written for this measurement, each read by the instrumenter
+with the assertion and with spaces where it was, the count differed from
+the places Stryker mutates at fourteen of the twenty-five. It read fewer at
+five and more at nine. At two it read none where Stryker mutates one place:
+`new Array<boolean>(3) as boolean[]` and `(~count) as number`. It read
+none for an enum's initialisers, which Stryker passes over as it does an
+`as`, since `TSEnumDeclaration` stands beside `TSAsExpression` in the
+instrumenter's list of types.
+
+The script now counts by the instrumenter's own mutators, as spec-core's
+does: a ternary that only chooses is no place, nor a `+` beside a text; a
+list made with `Array`, a `~`, an optional call of a method, a setter of a
+date, and a call or a `throw` that would be its statement's one mutant are;
+and an enum is read down to its initialisers. It reaches the parser from
+`@stryker-mutator/core` through the instrumenter and its `@babel/core`,
+and not by the bare name, which is whichever `@babel/parser` stands at the
+top of `node_modules`: Stryker's 8 in this tree today, and in spec-graph's
+the 7 that magicast asks for, with Stryker's nested under `@babel/core`.
+After the change the count is the places Stryker mutates at
+every one of the twenty-five but a pattern the Regex mutator makes nothing
+of, `/b/`, which it counts by intent. Both counts read none on 0.17.0's
+sources and on its merged report, over 66 assertions, so `LEFT` stays 0.
+
+`tests/mutation-unmeasured.test.ts` holds the count to the instrumenter
+installed, over one source of twenty-two assertions with each kind of place:
+no mutant is made under any while they stand, and with spaces where they
+were the places mutated under each are exactly the places counted. It has
+a case for each of the three defects, for an enum, and for a step of the
+way to the parser that is not installed. It has no hook that prepares
+anything, and had none. The note of a `beforeAll` that could run past its
+time is true of spec-core's test, whose suite sets a hook no time of its
+own and whose test gives that hook sixty seconds; this suite gives hooks
+and tests 300 (`vitest.config.ts`). On a workstation so loaded that
+`node -e 0` took five to nine seconds, its slowest test, seven runs of the
+script, took fifteen.
