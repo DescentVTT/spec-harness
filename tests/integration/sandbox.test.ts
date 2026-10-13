@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { runCommand } from '../../src/sandbox.js';
-import { BIN, brief, BRIEF_FILE, cleanup, cli, repository, ROOT, spawnBin, temp, withEnvironment, type Captured, type Repository } from './helpers.js';
+import { BIN, brief, BRIEF_FILE, cleanup, repository, ROOT, spawnBin, temp, withEnvironment, type Captured, type Repository } from './helpers.js';
 
 /**
  * What the sandbox promises beyond a job that ends on its own, which
@@ -191,6 +191,32 @@ async function watchedSandbox(taskkill: 'run' | 'noted' = 'run'): Promise<Watche
 /** The sandbox as a process loads it, for a test that does not look at its commands. */
 function freshSandbox(): Promise<Fresh> {
   return watchedSandbox();
+}
+
+/**
+ * The command line as a process loads it, for a probe run in this process.
+ * The command line loads a command's module where the command is typed, and
+ * the tests before this one each loaded a sandbox of their own: the command
+ * line this file loaded as it began would run the probe of the modules
+ * loaded last, on the sandbox of an earlier test, and judge what the probe
+ * throws by the classes of the modules loaded first. So it is loaded here
+ * with what it runs, and the handlers its sandbox installs go with the
+ * test, as those of a watched sandbox do.
+ */
+async function commandLine(argv: readonly string[], cwd: string): Promise<Captured> {
+  vi.resetModules();
+  snapshots.push(new Map(EVENTS.map((event) => [event, emitter.rawListeners(event)] as const)));
+  const { run } = await import('../../src/cli.js');
+  let stdout = '';
+  let stderr = '';
+  const code = await run(argv, {
+    stdout: { write: (said: string) => (stdout += said) },
+    stderr: { write: (said: string) => (stderr += said) },
+    cwd,
+    env: {},
+    stdin: async () => '',
+  });
+  return { code, stdout, stderr };
 }
 
 function only(handlers: Handler[], event: ProcessEvent): Handler {
@@ -1096,7 +1122,7 @@ describe('a command whose shell has ended while something it started still runs'
     const repo = repository({ [BRIEF_FILE]: brief({ affected: ['src/**'], body }) }, { probes: { runs: 1 } });
     repo.git('checkout', '-q', '-b', 'brief/001-fix');
     const waits = bounds();
-    const probed = cli(['probe', '--at', 'base'], repo.root);
+    const probed = commandLine(['probe', '--at', 'base'], repo.root);
     const holder = await stray(name);
     let over = false;
     void holder.ended.then(() => {
@@ -1233,7 +1259,7 @@ describe('a command stopped at its timeout while something the stop cannot reach
     const repo = repository({ [BRIEF_FILE]: brief({ affected: ['src/**'], body }) }, { probes: { runs: 1 } });
     repo.git('checkout', '-q', '-b', 'brief/001-fix');
     const timers = vi.spyOn(globalThis, 'setTimeout');
-    const probed = cli(['probe', '--at', 'base'], repo.root);
+    const probed = commandLine(['probe', '--at', 'base'], repo.root);
     const holder = await stray(name);
     await stray(running);
     let over = false;

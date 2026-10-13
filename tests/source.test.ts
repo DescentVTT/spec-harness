@@ -380,6 +380,19 @@ describe('a module that is loaded where it runs', () => {
       tests.filter((path) => [...text(path).matchAll(/^import (?!type )[^;]*? from '((?:\.\.\/)+src\/[a-z]+)\.js';$/gm)].some((match) => posix.join(posix.dirname(path), `${match[1] as string}.ts`) === module));
     for (const module of lazy) expect(loadedBy(module), `${module} is imported at the top of no test file`).not.toEqual([]);
   });
+
+  it('is run, by a test file that loads modules afresh, through a command line loaded afresh too', () => {
+    // After vi.resetModules() an import() gives a module anew. A command line
+    // loaded before it would run a command's module of the new ones, and
+    // judge what the command throws by the classes of the old: a refusal
+    // would end on a stack. So such a file loads the command line where it
+    // runs it, and takes no `cli` from the helpers, which hold the one they
+    // loaded as the file began.
+    const tests = [...walk('tests')].filter((path) => path.endsWith('.test.ts'));
+    const resetting = tests.filter((path) => text(path).includes('vi.resetModules('));
+    expect(resetting).toEqual(expect.arrayContaining(['tests/integration/loads.test.ts', 'tests/integration/sandbox.test.ts']));
+    expect(resetting.filter((path) => /^import \{[^}]*\bcli\b[^}]*\} from '\.\/helpers\.js';$/m.test(text(path)))).toEqual([]);
+  });
 });
 
 describe('the core mutation sweep', () => {

@@ -252,6 +252,11 @@ mutant that makes one of them throw as it loads, a file that imports it
 does not load, and a sweep counts a test that failed and not a file that
 did not load (ADR-0010): `tests/integration/loads.test.ts` imports none of
 them at its top, runs each command through the command line, and fails.
+And a test file that loads modules afresh, as each test of the sandbox
+does, loads the command line afresh where it runs it: one loaded before
+would run a command's module of the new ones and judge what it throws by
+the classes of the old, which no process does. Two tests of the sandbox
+ended on a stack that way until they did.
 
 What is asked of spec-brief is what was asked, as often: the list of
 briefs, once for a hook that names a brief. No answer is kept from one run

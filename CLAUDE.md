@@ -77,7 +77,10 @@ is run for that test alone. So each of them has such a test file, and
 `tests/source.test.ts` fails for one that has none.
 `tests/integration/loads.test.ts` reads what each command loads, and imports
 none of them at its top, so that a mutant under which one throws as it loads
-fails a test there
+fails a test there. A test file that loads modules afresh
+(`vi.resetModules`) loads the command line afresh where it runs it: one
+loaded before would run a command's module of the new ones and judge what
+it throws by the classes of the old
 ([ADR-0002](docs/adr/0002-siblings-through-their-command-lines.md),
 [ADR-0010](docs/adr/0010-toolchain-and-verification.md)).
 
