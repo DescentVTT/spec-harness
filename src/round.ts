@@ -178,11 +178,12 @@ export async function checkPaths(
   const decideAll = (rulings: readonly VerifiedRuling[]): Decision[] =>
     resolved.map(({ path, given: g }) => decide({ path, given: g, brief, noBrief, rulings, outOfScope: workspace.config.outOfScope }));
   const first = decideAll([]);
-  // Rulings cost a blame and a signature check each, so they are read only
-  // when a write reaches a protected file. Read anyway, they decide the same,
-  // since a ruling allows only a protected path, so mutants that always read
-  // them are equivalent; and with no brief nothing is protected, so the null
-  // check is there for the type.
+  // Rulings cost the reader of a brief, and a blame and a signature check
+  // each, so they are read only when a write reaches a protected file. Read
+  // anyway, they decide the same, since a ruling allows only a protected
+  // path: what a mutant that always reads them changes is what is loaded
+  // for a write no brief protects (loads.test.ts). With no brief nothing is
+  // protected, so the null check is there for the type.
   if (brief === null || !first.some((decision) => decision.reason === 'protected')) return first;
   const text = await briefText(workspace, brief);
   const documents = typeof reader === 'function' ? await reader() : reader;

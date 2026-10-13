@@ -200,8 +200,10 @@ export async function openWorkspace(options: Pick<Options, 'root'>, io: CliIO): 
   // configuration can fail, so what is thrown is what it threw.
   const here = tree !== 'unread' && isTop(cwd, root) ? tree : null;
   const [common, { config }, checkedOut] = await Promise.all([here === null ? commonDirectory(root) : here.commonDir, loadConfig(root), here === null || early === undefined ? currentBranch(root) : early]);
-  // Inside a work tree git always names the common directory; the fallback
-  // is there for the type.
+  // Asked from the top of its own work tree, git names the common
+  // directory. From a root that holds no repository, the work tree that
+  // `core.worktree` names away from its own, it names none, and the
+  // directory a repository would have there stands in, as it always has.
   const commonDir = common ?? `${root}/.git`;
   // A branch checked out is the branch; only a head on none, as CI checks
   // out, asks the forge which branch the run builds.
