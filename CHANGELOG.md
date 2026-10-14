@@ -9,7 +9,7 @@ only fixes, reports less or documents, so `^0.7.0` takes only releases that
 cannot turn a run red. The family's policy is
 [spec-core's ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
-## Unreleased
+## 0.18.0
 
 `doctor` and `init` say more of what looks like a guard and checks
 nothing: a matcher the Claude Code on this machine reads otherwise, and a
@@ -17,6 +17,11 @@ root on the hook's line that is in another work tree. And a directory where
 git looks for its hook, or a probe for its report, ends in a sentence where
 it ended on a stack
 ([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
+The hook loads only what it runs and opens its work tree in one start of
+git, so it answers a write sooner: on a Windows workstation 1.0 seconds
+where it took 1.4 with no brief named, and 1.9 where it took 3.6 before a
+write to a protected file. Nothing any command prints changes
+([ADR-0002](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0002-siblings-through-their-command-lines.md)).
 
 ### Changed
 
