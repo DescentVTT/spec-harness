@@ -161,12 +161,14 @@ either system (`node:crypto` 4.0 on Linux, the front matter of the vendored
 Markdown scanner 2.4, `node:util`, `cli.js` and `configure.js` 2.2 each),
 and half of them took under a millisecond: the cost is how many there are.
 
-On Windows 11 (Node 24.18.1, git 2.55.0) a hook is its processes. The
-workstation was shared by six agents while this was measured, and starting
-node to do nothing took 5.3 seconds beside these runs, where it takes 0.4
-on the same workstation idle: the hook that names no brief took 22.7
-seconds, 3.6 of them node reaching its first line, 0.07 the modules, and
-15.4 git's three processes, six seconds each.
+On Windows 11 (Node 24.18.1, git 2.55.0) a hook is its processes. With the
+workstation at rest, where starting node to do nothing took 0.3 seconds,
+the hook that names no brief took 1.4 seconds, through the build main had
+when this change met it: 0.18 of them node reaching its first line, 0.06
+the modules, and 0.97 git's three processes in their two waves. Shared by
+six agents with every processor held, where starting node took 5.3
+seconds, it took 22.7 through 0.17.0: 3.6 node, 0.07 the modules, and 15.4
+git's three processes, six seconds each.
 
 Three things were built, each for what was measured, the hook first:
 
@@ -175,13 +177,14 @@ Three things were built, each for what was measured, the hook first:
   siblings' edge and the hook's own language. A module that only some
   commands run is asked for where one of them is the command, with
   `import()`: the commands that read a round (`commands.ts`), `premises`,
-  `init` and the server, and for `doctor` the tables of `init`, the signers
-  and Claude Code's release. The hook, `guard` and git's hook ask for the
-  operations of a round (`round.ts`) where there is a write to decide, and
-  for the reader of a brief where a ruling is read; `round.ts` asks for the
-  audit's judgement where an audit runs, which is what brought the Markdown
-  scanner with it, and for the hash where a copy of the signers is named by
-  one. A hook that names no brief loads 26 modules where it loaded 52, 39
+  `init` and the server, and for `doctor` the tables of `init` and the
+  signers. The hook, `guard` and git's hook ask for the operations of a
+  round (`round.ts`) where there is a write to decide, and for the reader
+  of a brief where a ruling is read; `round.ts` asks for the audit's
+  judgement where an audit runs, which is what brought the Markdown scanner
+  with it, for the hash where a copy of the signers is named by one, and
+  for what asks Claude Code its release where the wiring of a guard has it
+  asked. A hook that names no brief loads 26 modules where it loaded 52, 39
   where it reads a brief's rulings, and 12 where it decides nothing: a
   session in no work tree, a tool that writes no file. `checkPaths` takes as
   its reader a reader or what makes one, so that a caller that decides
@@ -241,13 +244,18 @@ that cannot answer. This is the one thing a run can show of the change: in
 a build with one command's module missing, every command ended on the
 launcher's line, and now the commands that do not run the module answer.
 
-**A sweep still reads every module whole.** What a module does as it
-loads, its tables and constants, is run by every test only where a test
-file loads the module before any test, which the command line's own
-imports saw to. Left to an `import()`, the module loads inside the first
-test that needs it, and a mutant of a table is run for that test alone. So
-each module asked for with `import()` has a test file that imports it at
-its top, and `tests/source.test.ts` fails for one that has none. Under a
+**A sweep still reads every module whole.** Stryker 10.0.0 runs every
+test for a mutant that was reached outside any test, whether or not one
+reached it too, and only the tests that reached it for any other
+(`planMutant` in its `mutants/mutant-test-planner.js`, with `ignoreStatic`
+off, as it is here). What a module does as it loads, its tables and
+constants, was reached outside any test wherever a test file loaded the
+command line, which imported every module. Left to an `import()`, a module
+loads inside the first test that needs it, and a mutant of one of its
+tables would be run for that test alone. So each module asked for with
+`import()` has a test file that imports it at its top, which is one file
+that reaches it outside any test, and `tests/source.test.ts` fails for one
+that has none; `commands.ts` had none, and has one now. Under a
 mutant that makes one of them throw as it loads, a file that imports it
 does not load, and a sweep counts a test that failed and not a file that
 did not load (ADR-0010): `tests/integration/loads.test.ts` imports none of
@@ -262,76 +270,99 @@ What is asked of spec-brief is what was asked, as often: the list of
 briefs, once for a hook that names a brief. No answer is kept from one run
 to the next (ADR-0003).
 
-Nothing any command prints changed, nor an exit code. 125 trees on Linux,
-the 90 of the amendment of 2026-10-12 among them and 35 more, for where a
-work tree is opened from, what a repository is besides one checkout of one
-branch, what the rulings of a brief hold, and what stands outside its
-scope, were each run through the build of 0.17.0 and this one at one path:
-the hook handed the words of its line before and after a write to a
-protected file, to one in the scope and to one outside it, `doctor` in
-three ways, `init` in two, git's hook, `init --write` and `doctor` and
-`init` after it, and in 39 of them every other command and a session of
-the server, 2,850 steps. Stdout, stderr and the exit code of each were the
-same, but for the frames of a stack in the one tree that ends on one, where
-git's pre-commit hook is a directory. On Windows, where the workstation
-took minutes for a tree, this section's own trees were run first: the two
-that turn on how Windows spells a directory, the project reached through a
-junction and the project named in another case, said the same in their 32
-steps.
+Nothing any command prints changed, nor an exit code. Main moved while
+this was measured, to a `doctor` that says more of a hook's line
+(ADR-0005), so the comparison was made twice: against the build of 0.17.0,
+and, with main merged in, against main as it then stood. The second, on
+Linux: 139 trees, the 90 of the amendment of 2026-10-12 among them and 49
+more, for where a work tree is opened from, what a repository is besides
+one checkout of one branch, what the rulings of a brief hold, what stands
+outside its scope, and what that `doctor` newly reads, a root on the
+hook's line in another work tree among it, were each run through main's
+build and this one at one path: the hook handed the words of its line
+before and after a write to a protected file, to one in the scope and to
+one outside it, `doctor` in three ways, `init` in two, git's hook, `init
+--write` and `doctor` and `init` after it, and in 41 of them every other
+command and a session of the server, 3,114 steps. Stdout, stderr and the
+exit code of each were the same. The first, of 125 trees and 2,850 steps,
+differed in the frames of a stack alone, in the one tree that ended on
+one, where git's pre-commit hook is a directory, which main now says in a
+line. On Windows, where a tree takes minutes, those that turn on how
+Windows spells a directory were run first, the project reached through a
+junction and the project named in another case, then others of how a work
+tree is opened and those of what that `doctor` reads: 20 trees and 475
+steps against main as it stood, the same in every one, and 35 trees and
+665 steps against 0.17.0, the same but for the frames of that stack.
 
-With the two builds taking turns inside each of ten runs, at the median,
-and in how many of the ten this build was the quicker. On Linux:
+With the two builds taking turns inside each of ten runs, main as it stood
+and this one, at the median, and in how many of the ten this build was the
+quicker. On Linux:
 
 | | Before | After | Processes | Modules loaded | Quicker in |
 | --- | ---: | ---: | --- | --- | ---: |
-| `hook claude` before a write, no brief named | 96 ms | 72 ms | 3, then 2 | 52, then 26 | 10 of 10 |
-| `hook claude` after a write, no brief named | 99 ms | 74 ms | 3, then 2 | 52, then 26 | 10 of 10 |
-| `hook claude`, on a brief's branch, a write in its scope | 196 ms | 171 ms | 4, then 3 | 52, then 26 | 10 of 10 |
-| `hook claude`, on a brief's branch, a write to a protected file | 218 ms | 198 ms | 7, then 3 | 52, then 39 | 8 of 10 |
-| `hook claude`, in a directory that is in no work tree | 92 ms | 55 ms | 1 | 52, then 12 | 10 of 10 |
-| `hook claude`, a session started below the root, on a brief's branch | 200 ms | 178 ms | 4 | 52, then 26 | 10 of 10 |
-| `hook git`, on a brief's branch, a protected file staged | 214 ms | 191 ms | 8, then 4 | 52, then 39 | 10 of 10 |
-| `doctor`, no brief named | 114 ms | 97 ms | 9, then 8 | 52, then 29 | 10 of 10 |
-| `init`, before anything is written | 103 ms | 78 ms | 6, then 5 | 52, then 27 | 10 of 10 |
-| `--version` | 80 ms | 45 ms | none | 52, then 12 | 10 of 10 |
+| `hook claude` before a write, no brief named | 91 ms | 64 ms | 3, then 2 | 52, then 26 | 10 of 10 |
+| `hook claude` after a write, no brief named | 88 ms | 64 ms | 3, then 2 | 52, then 26 | 10 of 10 |
+| `hook claude`, on a brief's branch, a write in its scope | 176 ms | 155 ms | 4, then 3 | 52, then 26 | 10 of 10 |
+| `hook claude`, on a brief's branch, a write to a protected file | 182 ms | 164 ms | 7, then 3 | 52, then 39 | 10 of 10 |
+| `hook claude`, in a directory that is in no work tree | 75 ms | 47 ms | 1 | 52, then 12 | 10 of 10 |
+| `hook claude`, a session started below the root, on a brief's branch | 177 ms | 154 ms | 4 | 52, then 26 | 10 of 10 |
+| `hook claude`, under a line whose root is a repository beside the project | 82 ms | 60 ms | 3, then 2 | 52, then 26 | 10 of 10 |
+| `hook git`, on a brief's branch, a protected file staged | 185 ms | 160 ms | 8, then 4 | 52, then 39 | 10 of 10 |
+| `doctor`, no brief named | 99 ms | 81 ms | 9, then 8 | 52, then 29 | 10 of 10 |
+| `doctor`, a hook's line whose root is a repository beside the project | 174 ms | 157 ms | 13, then 12 | 52, then 29 | 10 of 10 |
+| `init`, before anything is written | 87 ms | 67 ms | 6, then 5 | 52, then 27 | 10 of 10 |
+| `--version` | 71 ms | 40 ms | none | 52, then 12 | 10 of 10 |
 
-On the Windows workstation, as busy as said above, with what starting node
-to do nothing took beside each:
+Against 0.17.0, before main moved, the same runs had the hook that names
+no brief at 96 ms and 72, `doctor` at 114 and 97, and `init` at 103 and
+78.
 
-| | Before | After | Quicker in | `node -e 0` beside it |
-| --- | ---: | ---: | ---: | ---: |
-| `hook claude` before a write, no brief named | 22.7 s | 13.7 s | 10 of 10 | 5.3 s |
-| `hook claude` after a write, no brief named | 18.7 s | 13.2 s | 10 of 10 | 5.2 s |
-| `hook claude`, on a brief's branch, a write in its scope | 24.2 s | 20.8 s | 9 of 10 | 3.6 s |
-| `hook claude`, on a brief's branch, a write to a protected file | 35.0 s | 20.9 s | 9 of 10 | 5.1 s |
+On the Windows workstation at rest, where starting node to do nothing took
+0.3 to 0.4 seconds beside these runs:
 
-Those seconds are a workstation with every processor held, and say what a
-process costs there, not what a hook takes on an idle one, where the
-amendment of 2026-10-12 has it at one second and two and a half.
+| | Before | After | Quicker in |
+| --- | ---: | ---: | ---: |
+| `hook claude` before a write, no brief named | 1.39 s | 1.01 s | 9 of 10 |
+| `hook claude` after a write, no brief named | 1.62 s | 1.01 s | 10 of 10 |
+| `hook claude`, on a brief's branch, a write in its scope | 2.31 s | 1.79 s | 8 of 10 |
+| `hook claude`, on a brief's branch, a write to a protected file | 3.59 s | 1.87 s | 10 of 10 |
+| `hook claude`, in a directory that is in no work tree | 0.75 s | 0.73 s | 8 of 10 |
+| `hook claude`, a session started below the root, on a brief's branch | 2.24 s | 2.22 s | 4 of 10 |
+| `hook git`, on a brief's branch, a protected file staged | 4.28 s | 2.40 s | 10 of 10 |
+| `doctor`, no brief named | 5.17 s | 4.80 s | 8 of 10 |
+| `doctor`, a hook's line whose root is a repository beside the project | 7.39 s | 6.75 s | 7 of 10 |
+| `init`, before anything is written | 2.83 s | 2.34 s | 8 of 10 |
 
-**What is left of a hook** is node itself, 28 ms on Linux and several
-tenths of a second on Windows before its first line; spec-brief on a
-brief's branch, 100 ms on Linux and the longest wait of a hook on Windows,
-for every write, which only an answer kept between runs would take away
-(ADR-0003); and one wave of git's. `round.ts` still loads the tables of
-`init` with it, and what renders a context and reads a manifest, 5 ms of a
-hook on Linux: two of the operations that read those tables answer at
-once, with no `import()` to wait on.
+Below the top of a work tree as many processes are started as before, in
+as many waves, and the modules not loaded are 0.04 of two seconds: the
+hook is no quicker there. With every processor of that workstation held,
+against 0.17.0, the hook that names no brief took 13.7 seconds where it
+took 22.7, in 10 of 10, and the refusal 20.9 where it took 35.0, in 9 of
+10: what a process costs there is what the workstation is doing.
+
+**What is left of a hook** is node itself, 28 ms on Linux and 0.2 seconds
+on Windows before its first line; spec-brief on a brief's branch, 100 ms
+on Linux and the longest wait of a hook on Windows, for every write, which
+only an answer kept between runs would take away (ADR-0003); and one wave
+of git's. `round.ts` still loads the tables of `init` with it, and what
+renders a context and reads a manifest, 5 ms of a hook on Linux: two of
+the operations that read those tables answer at once, with no `import()`
+to wait on.
 
 **Measured again and not built: Claude Code asked its release from a
 thread of its own.** A worker thread whose only work is to start `claude
 --version`, beside four of git's commands that wait on one another, as the
-base's do. With the workstation as busy as above, the two together took
-18.9 seconds from a thread of its own and 24.3 from the one thread, at the
-median of ten rounds, and the thread was the quicker in 7 of the 10; idle,
-the amendment of 2026-10-12 has them at 4.3 and 5.5. It is some thirty
-lines, of which the module that runs in the thread is one more for a sweep
-to read and one only a Windows job can test, with the three failures
-`claudeVersion` says in its own words carried across the thread. It would
-serve `doctor` alone, on Windows alone, a command a person runs now and
-then: on Linux a program that answers at once took 1.7 ms started from the
-one thread and 36 from a thread of its own, and the hook asks Claude Code
-nothing. So it is left.
+base's do. With every processor of the workstation held, the two together
+took 18.9 seconds from a thread of its own and 24.3 from the one thread,
+at the median of ten rounds, and the thread was the quicker in 7 of the
+10; idle, the amendment of 2026-10-12 has them at 4.3 and 5.5. It is some
+thirty lines, of which the module that runs in the thread is one more for
+a sweep to read and one only a Windows job can test, with the three
+failures `claudeVersion` says in its own words carried across the thread.
+It would serve `doctor` alone, on Windows alone, a command a person runs
+now and then: on Linux a program that answers at once took 1.7 ms started
+from the one thread and 36 from a thread of its own, and the hook asks
+Claude Code nothing. So it is left.
 
 ## Consequences
 
