@@ -135,6 +135,20 @@ this release the figure is recorded here alone: the comment in
 `stryker.config.mjs` that held it made a release's pull request, and its
 push, run the sweep for that one edit.
 
+For 0.18.0 the sweep of cf11ffb (run 38555334383) read 97.82% over 9,817
+mutants, 97.03% with every timeout lost, in shards of 12m22s to 17m24s, and
+the `break` stays 95. It has 334 mutants more than 0.17.0's sweep (run
+38258557802, of 262d53b), all in the nine modules the release changed,
+`configure.ts` with 151 of them, and 185 survivors and 29 without coverage
+to that sweep's 188 and 31. Not one undetected mutant is new. Five of
+0.17.0's are gone: two in `checkPaths`, killed now that reading the rulings
+for every write loads the reader, which `tests/integration/loads.test.ts`
+sees; two of the platform check that `gitHook` no longer makes; and
+`${root}/.git` in `workspace.ts`, covered now by a test of `core.worktree`.
+Each of the release's three pull requests, the two that changed a source
+and the one that changed the sweep, was swept before it merged, and each
+ended with no undetected mutant new against main's.
+
 One runner took 69 to 130 minutes for the full sweep. Before any sharded
 sweep ran, the report of eb39599 was cut into shards the way Stryker writes
 them and put back by the merge: all 7,507 verdicts came back with their

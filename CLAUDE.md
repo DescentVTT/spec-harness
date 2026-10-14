@@ -30,8 +30,10 @@ Breaking one is a decision that needs an ADR.
 npm run lint            # tsc --noEmit
 npm test                # vitest: unit and integration
 npm run build
-npm run test:mutation   # the core sweep: pure modules against tests/unit
 ```
+
+The two mutation sweeps are not in that list, and are not run on a
+workstation: they are checks of a pull request, as below.
 
 Both mutation sweeps run in GitHub Actions. The core sweep is a job in
 `ci.yml`, on every change, and its `break` is the gate. The full sweep,
@@ -48,13 +50,14 @@ a second for each of those in every sweep.
 
 A change to a module the core sweep does not mutate whole, the command line,
 `init`, the server, `round.ts` and the edges, or to what the full sweep is
-made of, is swept before it merges: `mutation.yml` runs for such a pull
-request and again for its push to main, and `tests/mutation-shards.test.ts`
-fails for a module of `src/` that is in neither the core sweep's `mutate`
-nor the workflow's paths. The job that merges the shards names, in its
-summary, the undetected mutants that main's newest full sweep did not
-have (`scripts/mutation-compare.mjs`), by file, mutator, mutated text and
-replacement, and fails for none of them. The pull request lists each one
+made of, is swept before it merges, and so is a change to the integration
+suite or to the vendored spec-core, which its verdicts are made of:
+`mutation.yml` runs for such a pull request and again for its push to main,
+and `tests/mutation-shards.test.ts` fails for a module of `src/` that is in
+neither the core sweep's `mutate` nor the workflow's paths. The job that
+merges the shards names, in its summary, the undetected mutants that main's
+newest full sweep did not have (`scripts/mutation-compare.mjs`), by file,
+mutator, mutated text and replacement, and fails for none of them. The pull request lists each one
 and what it is: killed, by a test it adds, or equivalent, said beside its
 code. A summary that says nothing was compared is not one that found none
 ([ADR-0010](docs/adr/0010-toolchain-and-verification.md)).
@@ -90,10 +93,10 @@ a value is hoisted and the assertion put on its name, `!` says an index or
 a match is there, a declaration takes the type where the value is `any`,
 `satisfies` holds a table to a type, and `literal()` (`src/literal.ts`)
 gives a table the types `as const` would.
-`scripts/mutation-unmeasured.mjs` counts the places a mutator applies
-under an `as`; `tests/mutation-unmeasured.test.ts` holds the sources to
-its count on every change, and the full sweep's score step holds the merged
-report to it ([ADR-0010](docs/adr/0010-toolchain-and-verification.md)).
+`scripts/mutation-unmeasured.mjs` counts, by Stryker's own instrumenter,
+the places a mutator applies under an `as`;
+`tests/mutation-unmeasured.test.ts` holds the sources to its count on every
+change, and the full sweep's score step holds the merged report to it ([ADR-0010](docs/adr/0010-toolchain-and-verification.md)).
 
 Vitest stays on 4 while Stryker's runner runs no test against a mutant on 5,
 where the core sweep read 3.83%: Dependabot proposes no major of it,
