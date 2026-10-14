@@ -364,6 +364,37 @@ describe('the suite', () => {
   });
 });
 
+describe('a module that is loaded where it runs', () => {
+  it('is imported at the top of a test file too, so that a sweep runs every test for what it does as it loads', () => {
+    // A command loads what it runs (cli.ts, round.ts). A sweep reads what a
+    // module does as it loads, its tables and its constants, as run by every
+    // test only where a test file loads the module before any test: left to
+    // the command line, the module loads inside the first test that needs
+    // it, and a mutant of its tables is run for that test alone. So each
+    // module asked for with import() has a test file that imports it at its
+    // top. This file is in no sweep, and is not counted.
+    const lazy = new Set(sources.flatMap((path) => [...text(path).matchAll(/(?<!typeof )\bimport\('\.\/([a-z]+)\.js'\)/g)].map((match) => `src/${match[1] as string}.ts`)));
+    expect([...lazy].sort()).toEqual(['src/audit.ts', 'src/commands.ts', 'src/configure.ts', 'src/host.ts', 'src/premises.ts', 'src/reader.ts', 'src/round.ts', 'src/server.ts', 'src/setup.ts', 'src/signers.ts']);
+    const tests = [...walk('tests')].filter((path) => path.endsWith('.test.ts') && path !== 'tests/source.test.ts');
+    const loadedBy = (module: string): string[] =>
+      tests.filter((path) => [...text(path).matchAll(/^import (?!type )[^;]*? from '((?:\.\.\/)+src\/[a-z]+)\.js';$/gm)].some((match) => posix.join(posix.dirname(path), `${match[1] as string}.ts`) === module));
+    for (const module of lazy) expect(loadedBy(module), `${module} is imported at the top of no test file`).not.toEqual([]);
+  });
+
+  it('is run, by a test file that loads modules afresh, through a command line loaded afresh too', () => {
+    // After vi.resetModules() an import() gives a module anew. A command line
+    // loaded before it would run a command's module of the new ones, and
+    // judge what the command throws by the classes of the old: a refusal
+    // would end on a stack. So such a file loads the command line where it
+    // runs it, and takes no `cli` from the helpers, which hold the one they
+    // loaded as the file began.
+    const tests = [...walk('tests')].filter((path) => path.endsWith('.test.ts'));
+    const resetting = tests.filter((path) => text(path).includes('vi.resetModules('));
+    expect(resetting).toEqual(expect.arrayContaining(['tests/integration/loads.test.ts', 'tests/integration/sandbox.test.ts']));
+    expect(resetting.filter((path) => /^import \{[^}]*\bcli\b[^}]*\} from '\.\/helpers\.js';$/m.test(text(path)))).toEqual([]);
+  });
+});
+
 describe('the core mutation sweep', () => {
   it('mutates exactly the pure functions of the edge modules it names', () => {
     // Read as text: the configuration is a module Stryker loads, not one this suite type-checks.

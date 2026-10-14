@@ -67,6 +67,23 @@ under which a module throws as it loads is killed only by a test whose file
 still loads, as `tests/unit/literal.test.ts` is for `literal()`
 ([ADR-0010](docs/adr/0010-toolchain-and-verification.md)).
 
+A command loads what it runs. The hook is started before and after every
+write, so `cli.ts` and `round.ts` import a module that only some commands
+run where one of them runs it, with `import()`. A sweep reads what such a
+module does as it loads, its tables and its constants, as run by every test
+only where a test file imports the module at its top: left to the command
+line, it loads inside the first test that needs it, and a mutant of a table
+is run for that test alone. So each of them has such a test file, and
+`tests/source.test.ts` fails for one that has none.
+`tests/integration/loads.test.ts` reads what each command loads, and imports
+none of them at its top, so that a mutant under which one throws as it loads
+fails a test there. A test file that loads modules afresh
+(`vi.resetModules`) loads the command line afresh where it runs it: one
+loaded before would run a command's module of the new ones and judge what
+it throws by the classes of the old
+([ADR-0002](docs/adr/0002-siblings-through-their-command-lines.md),
+[ADR-0010](docs/adr/0010-toolchain-and-verification.md)).
+
 Stryker makes no mutant of anything that stands under a TypeScript `as`, a
 const assertion with the rest, so nothing a mutator reads stands under one:
 a value is hoisted and the assertion put on its name, `!` says an index or

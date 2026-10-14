@@ -9,8 +9,8 @@ import { parseArgs, type ParseArgsOptionsConfig } from 'node:util';
 import { findActive, type ActiveBrief, type ActiveSource } from './briefs.js';
 import { briefIdFromBranch, ciBranch } from './branch.js';
 import type { HarnessConfig } from './config.js';
-import { loadConfig } from './fs.js';
-import { commonDirectory, currentBranch, workTreeRoot } from './git.js';
+import { holdsGit, isTop, loadConfig } from './fs.js';
+import { commonDirectory, currentBranch, workTree, workTreeRoot } from './git.js';
 import type { FindingFormat } from './formats.js';
 import { createSiblings, type Siblings } from './siblings.js';
 import type { BriefRow } from './types.js';
@@ -179,16 +179,31 @@ export interface Workspace {
 
 export async function openWorkspace(options: Pick<Options, 'root'>, io: CliIO): Promise<Workspace> {
   const cwd = options.root ?? io.cwd;
-  const root = await workTreeRoot(cwd);
+  // Each git command is a process, a few milliseconds on Linux and a few
+  // hundred on a Windows workstation, and every command opens a work tree,
+  // the hook before every write among them. So the top and the common
+  // directory are asked for in one start of git, and where a `.git` stands
+  // in the directory, as it does at the top of a work tree, the branch is
+  // asked for beside them and not after. Anywhere else the branch waits, as
+  // it did: below a top it would be asked twice, and in no work tree for
+  // nothing.
+  const [tree, early] = await Promise.all([workTree(cwd), holdsGit(cwd) ? currentBranch(cwd) : undefined]);
+  const root = tree === 'unread' ? await workTreeRoot(cwd) : (tree?.root ?? null);
   if (root === null) throw new UsageError(`${cwd} is not inside a git work tree; spec-harness measures rounds by their commits`);
-  // The three wait on the root and on nothing of one another, so they are
-  // asked at once: each git command is a process, a few milliseconds on
-  // Linux and a few hundred on a Windows workstation, and every command
-  // opens a work tree, the hook before every write among them. Only the
+  // The common directory and the branch are asked of the root. What git
+  // said from `cwd` is that answer where `cwd` is the root, the same
+  // directory asked the same thing, and nowhere else. Measured with git
+  // 2.43 and 2.55: started in a work tree that `core.worktree` names, away
+  // from its repository, git finds no repository, so asked of that root it
+  // names no branch, where from the repository it names one. So elsewhere
+  // the two are asked for from the root, as they were, at once. Only the
   // configuration can fail, so what is thrown is what it threw.
-  const [common, { config }, checkedOut] = await Promise.all([commonDirectory(root), loadConfig(root), currentBranch(root)]);
-  // Inside a work tree git always names the common directory; the fallback
-  // is there for the type.
+  const here = tree !== 'unread' && isTop(cwd, root) ? tree : null;
+  const [common, { config }, checkedOut] = await Promise.all([here === null ? commonDirectory(root) : here.commonDir, loadConfig(root), here === null || early === undefined ? currentBranch(root) : early]);
+  // Asked from the top of its own work tree, git names the common
+  // directory. From a root that holds no repository, the work tree that
+  // `core.worktree` names away from its own, it names none, and the
+  // directory a repository would have there stands in, as it always has.
   const commonDir = common ?? `${root}/.git`;
   // A branch checked out is the branch; only a head on none, as CI checks
   // out, asks the forge which branch the run builds.

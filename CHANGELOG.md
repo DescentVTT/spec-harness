@@ -71,6 +71,41 @@ it ended on a stack
   the run is `no-report`, `cannot be read: it is a directory, not a
   report`, and the probe invalid, exit 1, where it was `unexpected error`
   and exit 2.
+- **A command loads what it runs, and the hook no other command.** `hook
+  claude` is started before and after every write an agent makes, and the
+  command line loaded every command before it read which one was typed: 52
+  modules, 42 ms on Linux, close to half of a hook that names no brief. A
+  module that only some commands run is now loaded where one of them is
+  the command, and such a hook loads 26. Measured on Linux with the build
+  before this change and this one taking turns, at the median of ten runs,
+  the hook took 64 ms where it took 91, and 155 where it took 176 on a
+  brief's branch; `doctor` 81 where it took 99, and `--version` 40 where it
+  took 71. Nothing any command prints changes, nor an exit code, but in a
+  build with a file of `dist/` missing: a command that does not run that
+  module now answers, where every command ended on `build output is
+  missing`, and one that runs it ends on that line still, exit 2. In the
+  programmatic API, `checkPaths` takes as its reader a reader or a function
+  that makes one
+  ([ADR-0002](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0002-siblings-through-their-command-lines.md)).
+- **A work tree is opened in two starts of git, asked at once, where it
+  took three in two waves.** Git is asked for the top of the work tree and
+  its common directory in one start, and where the command runs at the top
+  of its work tree, for the branch beside them. A process is what a command
+  takes on Windows. Measured on a workstation at rest, where starting node
+  to do nothing took 0.3 seconds, with the two builds taking turns, at the
+  median of ten runs: a hook that names no brief took 1.0 second where it
+  took 1.4, with this and the change above, and with every processor held
+  by other work, 13.7 seconds where it took 22.7. On Linux, where git
+  answers in milliseconds, it is three of the 26 milliseconds the hook is
+  quicker by. Below the top of a work tree, and in a directory that is in
+  none, as many processes are started as before.
+- **A write the brief protects is refused without asking git for the
+  base.** The base is read for the allowed signers a ruling is checked
+  against, and it was resolved, three of git's processes, before the
+  brief's rulings were read. Where no ruling of the brief allows anything
+  the refusal now starts three processes where it started seven, and on
+  that workstation at rest took 1.9 seconds where it took 3.6; where one
+  does, the base is asked for as before.
 
 ## 0.17.0
 

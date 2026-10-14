@@ -54,6 +54,22 @@ export function realSpelling(path: string): string {
 }
 
 /**
+ * Whether `directory` is the one git names as the top of a work tree: the
+ * two spelled alike once the filesystem has spelled the directory, links
+ * and short names resolved, as git spells a top. A spelling that differs is
+ * read as another directory: what git said from the one is then not taken
+ * for what it would say from the other.
+ */
+export function isTop(directory: string, top: string): boolean {
+  return realSpelling(directory).split(sep).join('/') === top;
+}
+
+/** Whether a `.git` stands in `directory`, a repository's or the file that names one, as at the top of a work tree. */
+export function holdsGit(directory: string): boolean {
+  return existsSync(join(directory, '.git'));
+}
+
+/**
  * A path as the repository names it - relative to the root, POSIX-separated,
  * real spelling - or `null` when it lies outside the root.
  */
