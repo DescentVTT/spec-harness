@@ -55,6 +55,9 @@ export const SIBLINGS: readonly SiblingName[] = ['spec-brief', 'spec-graph', 'sp
 
 export const CONFIG_FILE = '.spec-harness.json';
 
+/** spec-brief's configuration files, in the order spec-brief looks for them in a directory. */
+export const SPEC_BRIEF_CONFIGS: readonly string[] = ['.spec-brief.json', 'spec-brief.json'];
+
 export const DEFAULT_MANIFESTS: readonly string[] = [
   'package.json',
   'Cargo.toml',

@@ -19,14 +19,17 @@
  */
 
 import { SiblingOutputError } from './briefs.js';
-import { ConfigError, SIBLINGS } from './config.js';
+import { CONFIG_FILE, ConfigError, SIBLINGS, SPEC_BRIEF_CONFIGS } from './config.js';
 import type { ClaudeCodeWiring } from './configure.js';
-import { isDirectory } from './fs.js';
+import { dirname, join } from 'node:path';
+
+import { gitDirectories, holdsGit, isDirectory, keepCall, loadConfig, repositoryPath, takeCall } from './fs.js';
 import { GitError, show, stagedChanges } from './git.js';
 import type { DocumentReader } from './document.js';
 import type { Decision } from './guard.js';
-import { claudeResponse, gitResponse, parseClaudeHook, type HookRequest } from './hooks.js';
+import { afterResponse, callFile, callRecord, claudeResponse, gitResponse, keptCall, parseClaudeHook, warningsKept, warningsOf, type CallRecord, type HookRequest, type HookResponse } from './hooks.js';
 import type { Base } from './round.js';
+import type { BriefRow } from './types.js';
 import { SiblingError } from './siblings.js';
 import { emptyValue, heldHookLine, isBlank, isClaudeHook, readHookLine, refusal, unreadHookLine, type Command, type LineFault } from './usage.js';
 import { CLAUDE_CODE_MINIMUM, MINIMUM_VERSIONS, type ClaudeCodeCheck } from './versions.js';
@@ -126,12 +129,25 @@ async function decisionsFor(
   io: CliIO,
   given: readonly string[],
   cwd: string,
-): Promise<{ readonly decisions: Decision[] } | { readonly problem: string }> {
+): Promise<{ readonly decisions: Decision[]; readonly brief: BriefRow | null } | { readonly problem: string }> {
   const active = await activeBrief(workspace, options, io.env);
   const { brief, note, problem } = describeActive(active);
   if (problem !== null) return { problem };
   const { checkPaths } = await import('./round.js');
-  return { decisions: await checkPaths(workspace, brief, note, given, cwd, reader, options.base) };
+  return { decisions: await checkPaths(workspace, brief, note, given, cwd, reader, options.base), brief };
+}
+
+/**
+ * Whether a decision is of a file the answer after the write is made from:
+ * the configuration, spec-brief's, the brief, or a file beside it in the
+ * briefs' directory, which spec-brief reads too. A call that writes one is
+ * decided again after the write, so that what the write changed is read
+ * (ADR-0002).
+ */
+function decidesAnswers(decision: Decision, brief: BriefRow | null): boolean {
+  if (decision.path === CONFIG_FILE || SPEC_BRIEF_CONFIGS.includes(decision.path)) return true;
+  if (brief === null) return false;
+  return decision.path === brief.file || decision.path.startsWith(`${dirname(brief.file)}/`);
 }
 
 const SYMBOL: Record<Decision['verdict'], string> = { allow: 'ok     ', warn: 'warning', ask: 'ask    ', deny: 'refused' };
@@ -220,6 +236,50 @@ async function unreadLine(said: string, io: CliIO): Promise<number> {
   return guardOff(io, unreadHookLine(said).fault);
 }
 
+/**
+ * Whether a work tree other than the one whose top is `top` may hold `cwd`:
+ * `cwd` is outside it, or a `.git` stands in a directory between the two,
+ * where a linked worktree, a submodule or a repository of its own starts.
+ * Answering that one may leaves the answer to be decided as before, so the
+ * mutant that always answers so is equivalent, at the cost of the saving.
+ */
+function mayBeElsewhere(cwd: string, top: string): boolean {
+  const path = repositoryPath(cwd, top, cwd);
+  if (path === null) return true;
+  const parts = path === '' ? [] : path.split('/');
+  return parts.some((_, index) => holdsGit(join(top, ...parts.slice(0, index + 1))));
+}
+
+/**
+ * The answer after a write, where it can be given with no process started,
+ * or `null` where it is to be decided as before (ADR-0002, ADR-0003).
+ *
+ * The git directory is the one the files at the hook's root name. What the
+ * run before the write kept for this call, if anything, is taken away as it
+ * is read, and answered from where it is this call's: the same release,
+ * session, call, tool, paths, directories, line and variables. And where
+ * nothing is kept, a run after a write says nothing but a warning outside
+ * the scope, which only `outOfScope: "warn"` decides: under `ask` or
+ * `deny` there is nothing to say, where the configuration read is the one
+ * git would have the hook read, of the work tree the session is in.
+ */
+async function answeredAfter(root: string, record: CallRecord | null, cwd: string | null, io: CliIO): Promise<HookResponse | null> {
+  const found = gitDirectories(root, io.env);
+  if (found === null) return null;
+  if (record !== null) {
+    const kept = await takeCall(found.common, callFile(record));
+    const warnings = kept === null ? null : warningsKept(kept, record);
+    if (warnings !== null) return afterResponse(warnings);
+  }
+  if (!found.exact || (cwd !== null && mayBeElsewhere(cwd, found.top))) return null;
+  try {
+    return (await loadConfig(found.top)).config.outOfScope === 'warn' ? null : afterResponse([]);
+  } catch {
+    // A configuration that does not load is said as it was, by the run.
+    return null;
+  }
+}
+
 async function hookCommand(options: Options, io: CliIO): Promise<number> {
   const kind = options.positionals[0];
   if (kind === 'claude') {
@@ -230,9 +290,18 @@ async function hookCommand(options: Options, io: CliIO): Promise<number> {
     const line = readHookLine(options.root, io.cwd, isDirectory);
     if (line.state === 'off') return guardOff(io, line.fault);
     const cwd = request.cwd ?? io.cwd;
+    const root = line.root ?? io.env['CLAUDE_PROJECT_DIR'] ?? cwd;
+    const record = callRecord(request, { root: line.root, brief: options.brief, base: options.base }, io.cwd, io.env, version());
+    if (request.event === 'PostToolUse') {
+      const answered = await answeredAfter(root, record, request.cwd, io);
+      if (answered !== null) {
+        io.stdout.write(answered.stdout);
+        return answered.exitCode;
+      }
+    }
     let workspace: Workspace;
     try {
-      workspace = await openWorkspace({ ...options, root: line.root ?? io.env['CLAUDE_PROJECT_DIR'] ?? cwd }, io);
+      workspace = await openWorkspace({ ...options, root }, io);
     } catch (error) {
       if (error instanceof UsageError) return EXIT_OK;
       throw error;
@@ -248,6 +317,12 @@ async function hookCommand(options: Options, io: CliIO): Promise<number> {
       }
       const response = claudeResponse(request.event, decided.decisions);
       io.stdout.write(response.stdout);
+      // What the run after the write will say, kept for it where the call
+      // goes ahead: a refused call has none. It changes nothing of the
+      // answer, which is made before it is kept.
+      if (request.event === 'PreToolUse' && record !== null && !decided.decisions.some((decision) => decision.verdict === 'deny' || decidesAnswers(decision, decided.brief))) {
+        await keepCall(workspace.commonDir, callFile(record), keptCall(record, warningsOf(decided.decisions)));
+      }
       return response.exitCode;
     } catch (error) {
       if (request.event !== 'PreToolUse') throw error;
