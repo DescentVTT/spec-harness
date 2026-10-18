@@ -72,6 +72,12 @@ where a repository or a settings file is read
   the `gitHook.state` `unreadable`.
   Upgrading: `doctor` exits 0, or 1 under `--strict`, and `init` 0, where
   each exited 2: make the file readable.
+- **A write in a worktree is decided by the worktree's brief.** In a worktree session started from the desktop app, and after Claude enters a worktree, Claude Code names the main checkout as the project and hands the hook the worktree as the question's `cwd`; the hook read the main checkout's branch, which named no brief, and a write the worktree's brief protects passed with no word. Where `cwd` is in another work tree of the same repository, that work tree's branch, briefs and configuration now decide the paths it holds, with its siblings looked for in its own install and then the project's; any other path, and a `cwd` in another repository or in none, is decided as before ([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
+  Upgrading: in a worktree session a write the worktree's brief protects is refused, and one outside its scope warned of by that brief; nothing on the hook's line changes.
+- **A branch beside a tag of its name names its brief.** The branch was read by git's short name, `heads/<name>` where a tag or a ref `refs/<name>` has the name, which no template reads: the hook passed a protected write, git's hook a protected commit, and `doctor` said `(none named)`. It is read as HEAD names it; a base `init` writes for such a branch is still the name git reads as the branch, `heads/main` beside a tag `main`.
+  Upgrading: on such a branch the guard refuses what its brief protects.
+- **git's hook in a linked worktree with no install runs the main work tree's.** The hook `init` writes refused the commit there; it now reads the script from the repository's main work tree after the worktree's own, and `hook git` and `doctor` find the siblings there too, `doctor` saying whose install each is (`elsewhere` in `--format json`).
+  Upgrading: `init` writes the hook once, so one an earlier release wrote still stops such a commit: take it away and run `spec-harness init --git-hook --write`.
 
 ### Fixed
 

@@ -14,6 +14,7 @@ import { runInNewContext } from 'node:vm';
 import { CALLABLE_TOOLS } from './hooks.js';
 import { literal } from './literal.js';
 import type { AllowedSigner } from './signers.js';
+import type { LocalBranch } from './types.js';
 import { namedTree, type HookLine } from './usage.js';
 import { parseGlobList } from './vendor/spec-core/pattern/index.js';
 import { CLAUDE_CODE_MINIMUM, meets, parseVersion, type ClaudeCodeCheck } from './versions.js';
@@ -1243,10 +1244,10 @@ export function describePlugin(state: PluginState): string {
 export interface BaseFacts {
   /** The remote's default branch as a local ref, such as `origin/main`, or `null`. */
   readonly remoteDefault: string | null;
-  /** The branch checked out, or `null` on a detached head. */
+  /** The name of the branch checked out, or `null` on a detached head. */
   readonly branch: string | null;
-  /** Every local branch. */
-  readonly branches: readonly string[];
+  /** Every local branch, by its name and the ref a base names it by. */
+  readonly branches: readonly LocalBranch[];
 }
 
 /** The base `init` names, and why; `base` is `null` when none can be told. */
@@ -1270,9 +1271,13 @@ export function chooseBase(facts: BaseFacts): BaseChoice {
   const unrecorded = 'no remote records a default branch (refs/remotes/origin/HEAD)';
   if (branch !== null) {
     const conventional = branch === 'main' || branch === 'master';
-    if (conventional || facts.branches.every((name) => name === branch)) {
+    if (conventional || facts.branches.every((local) => local.name === branch)) {
       const which = conventional ? 'the branch init runs on' : 'the only branch';
-      return { base: branch, detail: `rounds are measured from ${branch}, ${which}: ${unrecorded}; change "base" if rounds merge into another` };
+      // The base is a ref git and spec-brief read, so it is the name git
+      // reads as the branch and nothing else: `heads/main` beside a tag
+      // `main`. A branch with no commit yet is listed by no ref.
+      const base = facts.branches.find((local) => local.name === branch)?.ref ?? branch;
+      return { base, detail: `rounds are measured from ${base}, ${which}: ${unrecorded}; change "base" if rounds merge into another` };
     }
   }
   const where = branch === null ? 'HEAD is detached' : `${branch} is not main, master or the only branch`;
@@ -1387,20 +1392,30 @@ export const GIT_HOOK_LINE = `node ${BIN} hook git`;
 
 /**
  * The hook init writes. It is a POSIX sh script on every platform, since Git
- * for Windows runs a hook with the sh it ships. Where the project's install
- * is not in the work tree - a linked worktree nobody installed into, a
+ * for Windows runs a hook with the sh it ships. git starts it at the top of
+ * the work tree it commits in, so the project's install is read from there,
+ * and where a linked worktree has none, from the repository's main work
+ * tree: the work tree whose `.git` the common directory is, where `git
+ * worktree add` was run and the project installed (ADR-0005). Where neither
+ * has the install - a worktree of a repository nobody installed into, a
  * repository that shares its hooks with one that uses the harness - node
- * would end on a stack trace, so the hook says what is missing and where, and
- * the commit waits, as it did when npx found nothing to run.
+ * would end on a stack trace, so the hook says what is missing and where,
+ * and the commit waits, as it did when npx found nothing to run.
  */
 export const PRE_COMMIT = `#!/bin/sh
 # spec-harness: refuse a commit that changes what the active brief protects.
 # git runs this at the top of the work tree it commits in, a linked worktree's
-# own, wherever the hook is kept: the project's install is read from there.
+# own, wherever the hook is kept: the project's install is read from there,
+# or, where a linked worktree has none, from the repository's main work tree.
 bin=${BIN}
 if [ ! -f "$bin" ]; then
-  printf '%s\\n' "spec-harness: $bin is not in $PWD, the work tree git commits in: install the project's dependencies there, as with npm ci, and commit again" >&2
-  exit 2
+  common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)
+  if [ "\${common##*/}" = .git ] && [ -f "\${common%/.git}/$bin" ]; then
+    bin=\${common%/.git}/$bin
+  else
+    printf '%s\\n' "spec-harness: $bin is not in $PWD, the work tree git commits in, nor in its repository's main work tree: install the project's dependencies there, as with npm ci, and commit again" >&2
+    exit 2
+  fi
 fi
 exec node "$bin" hook git
 `;
