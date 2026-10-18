@@ -220,6 +220,33 @@ describe('the run after a write', () => {
   });
 });
 
+describe('the run after a write in a worktree of the project (ADR-0005)', () => {
+  it('is answered from what the work tree that decided it said, and is kept nothing where a work tree that decides one of its files refuses it', async () => {
+    const repo = project();
+    const tree = join(repo.root, '.claude', 'worktrees', 'w');
+    repo.git('worktree', 'add', '-q', '-b', 'brief/001-w', tree);
+    const ask = (event: string, id: string, input: Record<string, string>) =>
+      cli(['hook', 'claude'], repo.root, { stdin: JSON.stringify({ session_id: 'session-1', tool_use_id: id, cwd: tree, hook_event_name: event, tool_name: 'Edit', tool_input: input }), env: { CLAUDE_PROJECT_DIR: repo.root } });
+    // The worktree's README.md, outside its brief's scope, and the project's protected file, which the worktree does not hold.
+    const both = call();
+    const refused = await ask('PreToolUse', both, { file_path: join(tree, 'README.md'), path: join(repo.root, 'src', 'db', 'schema.ts') });
+    expect(JSON.parse(refused.stdout)).toMatchObject({ hookSpecificOutput: { permissionDecision: 'deny' } });
+    expect(kept(repo)).toEqual([]);
+    // And the worktree's protected file beside the project's README.md.
+    const other = await ask('PreToolUse', call(), { file_path: join(tree, 'src', 'db', 'schema.ts'), path: join(repo.root, 'README.md') });
+    expect(JSON.parse(other.stdout)).toMatchObject({ hookSpecificOutput: { permissionDecision: 'deny' } });
+    expect(kept(repo)).toEqual([]);
+    const one = call();
+    expect(await ask('PreToolUse', one, { file_path: join(tree, 'README.md') })).toEqual({ code: 0, stdout: '', stderr: '' });
+    expect(kept(repo)).toEqual([`session-1.${one}.json`]);
+    unInstall(repo);
+    const after = await withoutGit(() => ask('PostToolUse', one, { file_path: join(tree, 'README.md') }));
+    expect(after.code).toBe(0);
+    expect(after.stdout).toMatch(WARNING);
+    expect(kept(repo)).toEqual([]);
+  });
+});
+
 describe('the run after a write, where nothing was kept', () => {
   it('says nothing under outOfScope ask or deny, asking neither git nor spec-brief', async () => {
     for (const outOfScope of ['ask', 'deny']) {

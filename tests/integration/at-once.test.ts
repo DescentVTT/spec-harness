@@ -129,7 +129,7 @@ const TOP = 'rev-parse --show-toplevel';
 const COMMON = '--git-common-dir';
 /** The top and the common directory, asked in one start of git. */
 const TREE = `${TOP} --path-format=absolute ${COMMON}`;
-const BRANCH = 'symbolic-ref --quiet --short HEAD';
+const BRANCH = 'symbolic-ref --quiet HEAD';
 const BRIEFS = 'list --archived --format json';
 const BASE = 'rev-parse --verify --quiet main^{commit}';
 const HEAD = 'rev-parse --verify --quiet HEAD^{commit}';

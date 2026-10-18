@@ -438,7 +438,10 @@ the same call, was run through both builds (`h24-hook-compare.mjs`).
   is decided again after the write: `.spec-harness.json`, spec-brief's
   configuration (`.spec-brief.json`, `spec-brief.json`), the brief, and a
   file in the brief's directory, which spec-brief lists. So is a call that
-  is refused, which no run after it comes for.
+  is refused, which no run after it comes for. Where a call's paths are
+  decided in two work trees (ADR-0005, amended a third time 2026-10-18),
+  what is kept is every decision of the answer, and nothing is kept where
+  a decision of either refuses or is of what the answer is made from.
 - **Two sessions, two worktrees, parallel calls**: each entry is named by
   its session and its call, and answers only a run for which the whole call
   is the same. Claude Code starts PostToolUse once for each tool, at once
