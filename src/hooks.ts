@@ -54,6 +54,13 @@ function isObject(value: unknown): value is Json {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+/**
+ * The event Claude Code runs as a session starts, resumes, is cleared or
+ * compacted, or is forked: no tool is named, and the hook checks what every
+ * write of the session will need (ADR-0005).
+ */
+export const SESSION_START = 'SessionStart';
+
 /** Reads a Claude Code hook's stdin, or says why it cannot. */
 export function parseClaudeHook(raw: string): HookRequest | { readonly error: string } {
   let value: unknown;
@@ -65,17 +72,32 @@ export function parseClaudeHook(raw: string): HookRequest | { readonly error: st
   if (!isObject(value)) return { error: 'the hook input is not a JSON object' };
   const event = value['hook_event_name'];
   const tool = value['tool_name'];
-  if (typeof event !== 'string' || typeof tool !== 'string') return { error: 'the hook input names no event or tool' };
+  if (typeof event !== 'string' || (typeof tool !== 'string' && event !== SESSION_START)) return { error: 'the hook input names no event or tool' };
+  // A session's start names no tool, and is read as naming none.
+  const named = typeof tool === 'string' ? tool : '';
   const input = isObject(value['tool_input']) ? value['tool_input'] : {};
   const paths: string[] = [];
-  if (WRITING_TOOLS.includes(tool)) {
+  if (WRITING_TOOLS.includes(named)) {
     for (const field of PATH_FIELDS) {
       const path = input[field];
       if (typeof path === 'string' && path !== '' && !paths.includes(path)) paths.push(path);
     }
   }
   const cwd = value['cwd'];
-  return { event, tool, cwd: typeof cwd === 'string' ? cwd : null, paths };
+  return { event, tool: named, cwd: typeof cwd === 'string' ? cwd : null, paths };
+}
+
+/**
+ * The answer as a session starts: what would hold every write of it, in
+ * one line, for the person as `systemMessage` and for Claude as
+ * `additionalContext`; or nothing, where all is well. Always exit 0: the
+ * event cannot block, and a check that fails must not keep a session from
+ * starting.
+ */
+export function sessionResponse(problem: string | null): HookResponse {
+  if (problem === null) return NONE;
+  const said = `spec-harness: ${problem}`;
+  return { stdout: `${JSON.stringify({ systemMessage: said, hookSpecificOutput: { hookEventName: SESSION_START, additionalContext: said } })}\n`, exitCode: 0 };
 }
 
 export interface HookResponse {

@@ -63,6 +63,12 @@ const BEFORE = 'PreToolUse';
 /** The event after a call that succeeded, where a hook can only tell the model what it wrote. */
 const AFTER = 'PostToolUse';
 const GUARDED_EVENTS = [BEFORE, AFTER];
+/**
+ * The event Claude Code runs as a session starts, under which the hook says
+ * what would hold every write of it (ADR-0005). Its entry has no matcher:
+ * left out, it is every way a session starts.
+ */
+const AT_START = 'SessionStart';
 const GUARD_ARGS: readonly string[] = Object.freeze([`${PROJECT_DIR}/${BIN}`, 'hook', 'claude']);
 
 /**
@@ -317,6 +323,48 @@ export function mergeClaudeSettings(
   }
   return changed ? { ...current, hooks: next } : null;
 }
+
+/**
+ * Settings with init's entry under `SessionStart` added beside its two, or
+ * `null` where it is not to be: where init's own line does not stand
+ * under both `PreToolUse` and `PostToolUse`, a file init writes no hook
+ * into or one it has yet to complete; and where a line of the hook stands
+ * under `SessionStart` already, init's or one `isHook` knows, which would
+ * say the same twice (ADR-0012).
+ */
+export function withSessionStart(settings: Json, isHook: (words: readonly string[]) => boolean): Json | null {
+  const hooks = isObject(settings['hooks']) ? settings['hooks'] : {};
+  const own = GUARDED_EVENTS.every((event) => harnessEntries({ hooks: { [event]: hooks[event] } }).some((entry) => isGuard(entry.hook)));
+  if (!own || startsSessions(settings, isHook)) return null;
+  const listed = hooks[AT_START];
+  return { ...settings, hooks: { ...hooks, [AT_START]: [...(Array.isArray(listed) ? listed : []), { hooks: [{ ...GUARD_HOOK, args: [...GUARD_ARGS] }] }] } };
+}
+
+/**
+ * Whether settings have Claude Code start the hook as a session starts: an
+ * entry under `SessionStart` whose line is init's, or one `isHook` knows
+ * as the hook's. Its matcher is not read: one that names some of the ways a
+ * session starts has the check made for those.
+ */
+export function startsSessions(settings: unknown, isHook: (words: readonly string[]) => boolean): boolean {
+  const groups = field(field(settings, 'hooks'), AT_START);
+  if (!Array.isArray(groups)) return false;
+  return groups.some((group) => hooksOf(group).some((hook) => isObject(hook) && (isGuard(hook) || knownAs(hook, isHook))));
+}
+
+/** Whether `isHook` knows an entry's line as the hook's. */
+function knownAs(hook: Json, isHook: (words: readonly string[]) => boolean): boolean {
+  const written = writtenHook(hook);
+  return written !== null && isHook(written.words);
+}
+
+/**
+ * What doctor notes where settings hold the guard hooks and none under
+ * `SessionStart`: what would hold every write is said at the first write,
+ * which it holds, and not as the session starts.
+ */
+export const NO_SESSION_START =
+  'note: no settings file has Claude Code start the hook as a session starts, so a configuration that does not load, or a brief named that spec-brief does not list, is said only at the first write, which it holds: spec-harness init --write adds the entry beside the two it wrote';
 
 /** The server's entry, reading the project at `projectDir`: {@link PROJECT_DIR} for the plugin, {@link PROJECT_DIR_OR_HERE} for a project. */
 export function mcpServer(projectDir: string): Json {
@@ -994,6 +1042,8 @@ export interface ClaudeCodeWiring {
   readonly lines: readonly HookReport[];
   /** Whether `.mcp.json` registers the server. */
   readonly server: boolean;
+  /** Whether a settings file has Claude Code start the hook as a session starts (startsSessions). */
+  readonly sessionStart: boolean;
   /**
    * The release of the Claude Code on `PATH`, where it was asked: a matcher
    * that lists names with a comma is read as that release reads it

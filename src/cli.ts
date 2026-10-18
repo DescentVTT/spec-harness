@@ -25,7 +25,7 @@ import { isDirectory } from './fs.js';
 import { GitError, show, stagedChanges } from './git.js';
 import type { DocumentReader } from './document.js';
 import type { Decision } from './guard.js';
-import { claudeResponse, gitResponse, parseClaudeHook, type HookRequest } from './hooks.js';
+import { claudeResponse, gitResponse, parseClaudeHook, SESSION_START, sessionResponse, type HookRequest } from './hooks.js';
 import type { Base } from './round.js';
 import { SiblingError } from './siblings.js';
 import { emptyValue, heldHookLine, isBlank, isClaudeHook, readHookLine, refusal, unreadHookLine, type Command, type LineFault } from './usage.js';
@@ -59,7 +59,8 @@ Commands:
   context [brief]     What an agent needs to start a round: the brief, its scope,
                       rulings, dependencies, the rules in force, the cited documents.
   guard <path...>     May the round write these paths? Exit 1 if one is refused.
-  hook claude         Answer a Claude Code PreToolUse or PostToolUse hook (stdin).
+  hook claude         Answer a Claude Code PreToolUse, PostToolUse or SessionStart hook
+                      (stdin). At session start it says what would hold every write.
   hook git            Answer git's pre-commit hook for the staged files.
   escalate            Ask a person to rule: --path <file> (repeatable) --reason <why>
                       [--option "<label>: <cost>"]... [--recommend <text>].
@@ -171,10 +172,11 @@ async function readStdin(io: CliIO): Promise<string> {
 }
 
 /**
- * The write Claude Code asks the hook about, or the exit code that answers
- * already: 1 for a question that cannot be read, 0 for a tool that writes
- * no file. Asked before anything on the hook's own line is, so that a line
- * that is wrong is said where there is a write it leaves unchecked.
+ * The write Claude Code asks the hook about, or the session that starts, or
+ * the exit code that answers already: 1 for a question that cannot be read,
+ * 0 for a tool that writes no file. Asked before anything on the hook's own
+ * line is, so that a line that is wrong is said where there is a write it
+ * leaves unchecked, or a session whose every write it leaves so.
  */
 async function writeAsked(io: CliIO): Promise<HookRequest | number> {
   let question: string;
@@ -193,7 +195,7 @@ async function writeAsked(io: CliIO): Promise<HookRequest | number> {
     io.stderr.write(`spec-harness: ${request.error}\n`);
     return EXIT_FAILED;
   }
-  return request.paths.length === 0 ? EXIT_OK : request;
+  return request.paths.length === 0 && request.event !== SESSION_START ? EXIT_OK : request;
 }
 
 /**
@@ -202,9 +204,41 @@ async function writeAsked(io: CliIO): Promise<HookRequest | number> {
  * that exits 1 and goes on with the write, where exit 2 would hold every
  * write of the session, the one that mends the line among them (ADR-0005).
  */
-function guardOff(io: CliIO, { wrong, mend }: LineFault): number {
+function guardOff(io: CliIO, { wrong, mend }: LineFault, event: string): number {
+  if (event === SESSION_START) return answer(io, sessionResponse(`${wrong}, so the guard is off and no write of this session is checked; ${mend}`));
   io.stderr.write(`spec-harness: ${wrong}, so the guard is off and this write is not checked; ${mend}\n`);
   return EXIT_FAILED;
+}
+
+function answer(io: CliIO, response: { readonly stdout: string; readonly exitCode: number }): number {
+  io.stdout.write(response.stdout);
+  return response.exitCode;
+}
+
+/**
+ * What would hold every write of the session that starts, said once as it
+ * starts and no write waits on it (ADR-0005): a configuration that does not
+ * load, a brief named that spec-brief does not list or has archived, and
+ * spec-brief itself, where a brief is named, missing, too old or unable to
+ * list the briefs. Each in the words a write would be held with, and
+ * `doctor` says, and with what mends it. `null` where nothing does. The
+ * check never ends the session's start: whatever it meets is said.
+ */
+async function sessionProblem(options: Options, io: CliIO, root: string): Promise<string | null> {
+  const held = 'so every write of this session is held until it is mended';
+  try {
+    const workspace = await openWorkspace({ ...options, root }, io);
+    const { problem } = describeActive(await activeBrief(workspace, options, io.env));
+    return problem === null ? null : `${heldHookLine(problem).wrong}, ${held}: fix the brief or the branch before writing; spec-harness doctor says more`;
+  } catch (error) {
+    // A session in no work tree has nothing to guard, as a write there has
+    // not. Anything else that stops the check stops a write's as well, which
+    // is then held as one the hook cannot check: a configuration that does
+    // not load, a spec-brief that is missing, too old or cannot list the
+    // briefs, and whatever a defect throws.
+    if (error instanceof UsageError) return null;
+    return `${(error as Error).message}, ${held}; spec-harness doctor says more`;
+  }
 }
 
 /**
@@ -217,7 +251,7 @@ function guardOff(io: CliIO, { wrong, mend }: LineFault): number {
 async function unreadLine(said: string, io: CliIO): Promise<number> {
   const request = await writeAsked(io);
   if (typeof request === 'number') return request;
-  return guardOff(io, unreadHookLine(said).fault);
+  return guardOff(io, unreadHookLine(said).fault, request.event);
 }
 
 async function hookCommand(options: Options, io: CliIO): Promise<number> {
@@ -228,8 +262,9 @@ async function hookCommand(options: Options, io: CliIO): Promise<number> {
     // The root the line gives, or what is wrong with it: read as `doctor`
     // reads the line where it finds it in a settings file (usage.ts).
     const line = readHookLine(options.root, io.cwd, isDirectory);
-    if (line.state === 'off') return guardOff(io, line.fault);
+    if (line.state === 'off') return guardOff(io, line.fault, request.event);
     const cwd = request.cwd ?? io.cwd;
+    if (request.event === SESSION_START) return answer(io, sessionResponse(await sessionProblem(options, io, line.root ?? io.env['CLAUDE_PROJECT_DIR'] ?? cwd)));
     let workspace: Workspace;
     try {
       workspace = await openWorkspace({ ...options, root: line.root ?? io.env['CLAUDE_PROJECT_DIR'] ?? cwd }, io);
@@ -318,7 +353,7 @@ async function doctorCommand(options: Options, io: CliIO): Promise<number> {
   // What doctor alone runs of them, loaded before anything is asked: the
   // five things below are asked at once, and none waits on a module.
   const [configure, round, setup, signing] = await Promise.all([import('./configure.js'), import('./round.js'), import('./setup.js'), import('./signers.js')]);
-  const { describeBase, describeClaudeCode, describeClaudeRelease, describeGitHook, describeHooksOff, describePlugin, describePresence, describeSignerKeys, describeSignerProblem, describeSigners, guardSwitchedOff, wiringState } = configure;
+  const { describeBase, describeClaudeCode, describeClaudeRelease, describeGitHook, describeHooksOff, describePlugin, describePresence, describeSignerKeys, describeSignerProblem, describeSigners, guardSwitchedOff, NO_SESSION_START, wiringState } = configure;
   const { diagnoseBrief, specBriefPlugin } = round;
   const { gitHook } = setup;
   const { notFido2, readAllowedSigners } = signing;
@@ -373,6 +408,9 @@ async function doctorCommand(options: Options, io: CliIO): Promise<number> {
   // this machine, or cannot be told to be, and disableAllHooks, which
   // switches off whatever hooks there are.
   const switchedOff = guardSwitchedOff(wiring);
+  // And whether the hook is started as a session starts, where settings hold
+  // the guard: a note, failing nothing, and `sessionStart` in the document.
+  const atStart = wiring.hooks.length > 0 && !wiring.sessionStart ? NO_SESSION_START : null;
   const wiringNotes = [describePresence(wiring), wiring.hooksOff === null ? null : describeHooksOff(wiring.hooksOff, switchedOff)].filter((note): note is string => note !== null);
   // How the hook runs the harness is a note: one that goes through npx guards
   // as well as one that does not, and fails nothing, --strict or not.
@@ -424,6 +462,7 @@ async function doctorCommand(options: Options, io: CliIO): Promise<number> {
         ...more(wiringNotes),
         ...more(lineNotes),
         ...more(release === null ? [] : [describeClaudeRelease(release)]),
+        ...more(atStart === null ? [] : [atStart]),
         `git     ${describeGitHook(hook)}`,
         ...more(hookNote === null ? [] : [hookNote]),
         '',

@@ -37,6 +37,7 @@ import {
   registersServer,
   reportHooks,
   SPEC_BRIEF_CONFIGS,
+  startsSessions,
   wiringState,
   type BaseSource,
   type ClaudeCodeWiring,
@@ -511,13 +512,16 @@ export async function claudeCodeWiring(root: string, io: CliIO, pattern: Pattern
   const roots = marketplace === null ? [] : await Promise.all(pluginDirectories(io.env).map((directory) => pluginsRoot(directory, marketplace)));
   const presence = plugin === null ? null : pluginPresence(plugin, sources, roots);
   const server = registersServer(await readJsonObject(join(root, '.mcp.json')));
+  // A line under SessionStart is the hook's by the hook's own reading of it, as any line is.
+  const isHook = (words: readonly string[]): boolean => claudeHookLine(words, parseOptions, root, (path) => isDirectory(resolve(root, path))) !== null;
+  const sessionStart = sources.some(({ settings }) => startsSessions(settings, isHook));
   const under = (release: ClaudeCodeCheck | null): ClaudeCodeWiring => {
     const lines = reportHooks(sources, root, (words) => read.get(JSON.stringify(words))!, pattern, commasUnder(release));
     // A line Claude Code starts for no write, before one or after, is in no
     // one's way: it is said, and the file is not counted for it.
     const hooks = sources.map(({ file }) => file).filter((file) => lines.some((line) => line.file === file && (isStarted(line.before) || isStarted(line.after))));
     // In the order a document has them, which a script may compare by the byte.
-    return { plugin, presence, hooksOff: hooksDisabled(sources), hooks, lines, server, release };
+    return { plugin, presence, hooksOff: hooksDisabled(sources), hooks, lines, server, sessionStart, release };
   };
   const untold = under(null);
   const asked = reported ? wiringState(untold) !== 'none' : JSON.stringify(untold.lines) !== JSON.stringify(reportHooks(sources, root, (words) => read.get(JSON.stringify(words))!, pattern));

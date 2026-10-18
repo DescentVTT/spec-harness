@@ -641,7 +641,7 @@ describe('init', () => {
       expect(await step(local)).toEqual({
         file: '.claude/settings.json',
         action: 'create',
-        detail: "the guard hooks, run with node from the project's install: a PreToolUse hook refuses writes to protected files; a PostToolUse hook warns about writes outside the scope",
+        detail: "the guard hooks, run with node from the project's install: a PreToolUse hook refuses writes to protected files; a PostToolUse hook warns about writes outside the scope; a SessionStart hook says, as a session starts, what would hold every write of it",
       });
       // Beside the plugin the line is the double install doctor fails, where init said it wrote none.
       repo.write('.claude/settings.local.json', JSON.stringify({ enabledPlugins: { 'spec-harness@team': true } }));
@@ -768,7 +768,8 @@ describe('init', () => {
             `it is started after no write, so it warns of none (under PostToolUse it has the matcher "Edit, Write"${aside}); ${LEFT}`,
         });
         expect(JSON.parse(repo.read('.claude/settings.json'))).toEqual({ hooks: { PreToolUse: [comma, own], PostToolUse: [comma, own] } });
-        // A second run under that release finds its own line started for every write, and adds none.
+        // A second run under that release finds its own line started for every write, and adds none of the two: the one as a session starts, beside them.
+        expect(await stepUnder(repo, claudeOf('2.1.190'), '--write')).toEqual({ file: '.claude/settings.json', action: 'update', detail: 'beside the guard hooks, a SessionStart hook says, as a session starts, what would hold every write of it' });
         expect(await stepUnder(repo, claudeOf('2.1.190'), '--write')).toEqual({ file: '.claude/settings.json', action: 'keep', detail: 'the guard hooks are installed' });
       });
 
@@ -834,8 +835,8 @@ describe('init', () => {
         // Mended, the hooks are written as into any file.
         const mended = { matcher: 'Bash|PowerShell', hooks: other.hooks };
         const repo = repository({ '.claude/settings.json': JSON.stringify({ hooks: { PreToolUse: [mended] } }) });
-        expect(await stepUnder(repo, { PATH: temp() }, '--write')).toEqual({ file: '.claude/settings.json', action: 'update', detail: WRITES });
-        expect(JSON.parse(repo.read('.claude/settings.json'))).toEqual({ hooks: { PreToolUse: [mended, own], PostToolUse: [own] } });
+        expect(await stepUnder(repo, { PATH: temp() }, '--write')).toEqual({ file: '.claude/settings.json', action: 'update', detail: `${WRITES}; a SessionStart hook says, as a session starts, what would hold every write of it` });
+        expect(JSON.parse(repo.read('.claude/settings.json'))).toEqual({ hooks: { PreToolUse: [mended, own], PostToolUse: [own], SessionStart: [{ hooks: [GUARD_HOOK] }] } });
         // An array after a write unloads its own entry and no other: init completes its line under that event.
         const arrayed = { matcher: ['Edit', 'Write'], hooks: [GUARD_HOOK] };
         const after = repository({ '.claude/settings.json': JSON.stringify({ hooks: { PreToolUse: [own], PostToolUse: [arrayed] } }) });

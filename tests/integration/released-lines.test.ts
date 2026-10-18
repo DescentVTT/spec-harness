@@ -20,7 +20,7 @@ import { join } from 'node:path';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { arrayMatcher, commasUnder, GIT_HOOK_LINE, GUARD_HOOK, mcpServer, mergeClaudeSettings, PRE_COMMIT, PROJECT_DIR, PROJECT_DIR_OR_HERE, reportHooks } from '../../src/configure.js';
+import { arrayMatcher, commasUnder, GIT_HOOK_LINE, GUARD_HOOK, mcpServer, mergeClaudeSettings, PRE_COMMIT, PROJECT_DIR, PROJECT_DIR_OR_HERE, reportHooks, withSessionStart } from '../../src/configure.js';
 import { CALLABLE_TOOLS, WRITING_TOOLS } from '../../src/hooks.js';
 import { claudeHookLine, refusal } from '../../src/usage.js';
 import { parseOptions } from '../../src/workspace.js';
@@ -133,9 +133,10 @@ describe('the lines the releases wrote', () => {
     expect(lines).toContain(PRE_COMMIT.trimEnd().split('\n').at(-1)?.replace(/^exec /, ''));
     // And the plugin's own files hold lines that are listed.
     const hooks = JSON.parse(readFileSync(join(ROOT, 'hooks', 'hooks.json'), 'utf8')) as { hooks: Record<string, { hooks: { command: string; args: string[] }[] }[]> };
-    for (const event of ['PreToolUse', 'PostToolUse']) {
+    for (const event of ['PreToolUse', 'PostToolUse', 'SessionStart']) {
       for (const hook of hooks.hooks[event]?.flatMap((group) => group.hooks) ?? []) expect(lines, event).toContainEqual([hook.command, ...hook.args]);
     }
+    expect(hooks.hooks['SessionStart']).toHaveLength(1);
     const servers = JSON.parse(readFileSync(join(ROOT, '.mcp.json'), 'utf8')) as { mcpServers: Record<string, { command: string; args: string[] }> };
     const server = servers.mcpServers['spec-harness'] as { command: string; args: string[] };
     expect(lines).toContainEqual([server.command, ...server.args]);
@@ -432,10 +433,12 @@ describe("doctor, of the hook's line in Claude Code's settings", () => {
     // What init writes today, and the plugin's own file: each holds the
     // released matcher under both events, and is read as it stands.
     const plugin: unknown = JSON.parse(readFileSync(join(ROOT, 'hooks', 'hooks.json'), 'utf8'));
-    for (const settings of [mergeClaudeSettings({}), plugin]) {
+    for (const settings of [withSessionStart(mergeClaudeSettings({}) ?? {}, () => false), plugin]) {
       const groups = (settings as { hooks: Record<string, { matcher: string }[]> }).hooks;
-      expect(Object.keys(groups)).toEqual(['PreToolUse', 'PostToolUse']);
+      expect(Object.keys(groups)).toEqual(['PreToolUse', 'PostToolUse', 'SessionStart']);
       for (const event of ['PreToolUse', 'PostToolUse']) expect(groups[event]?.map((group) => group.matcher), event).toEqual([MATCHER]);
+      // The entry as a session starts names no matcher, and is read for no write.
+      expect(groups['SessionStart']?.map((group) => group.matcher)).toEqual([undefined]);
       expect(reportHooks([{ file: '.claude/settings.json', settings }], '/the/project', read)).toEqual([RELEASED]);
     }
     // The tools it names are the ones the hook reads a file from, and no other:
