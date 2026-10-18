@@ -364,6 +364,141 @@ now and then: on Linux a program that answers at once took 1.7 ms started
 from the one thread and 36 from a thread of its own, and the hook asks
 Claude Code nothing. So it is left.
 
+*Amended 2026-10-18.* **The answer after a write is the one decided before
+it, kept for that call.** *Claimed* by the evaluation of a consumer's
+request in round 24, measured at bd6a87c: a PostToolUse run reports only
+what is decided `warn`, and deciding it costs what a PreToolUse run costs,
+on a brief's branch about 1.7 to 1.9 seconds on a Windows workstation and
+about 330 ms on GitHub's Windows runner, of which spec-brief's `list` is
+about 0.9 seconds on the workstation and 180 ms on the runner.
+
+*Read from the source*: the only decision that warns is a write outside the
+scope under `outOfScope: "warn"` (`decide`, `src/guard.ts`: its verdict is
+the configuration's for that reason alone), and the only answer a run after
+a write gives from decisions is those that warn, as additional context
+(`claudeResponse`, `src/hooks.ts`). A run after a write says three other
+things, none of them from a decision: exit 1 and a line for a question or a
+line of its own it cannot read, exit 0 and nothing outside a work tree, and
+exit 2 and a line for what it cannot check, a configuration that does not
+load, a brief named that is none, a spec-brief that is missing or cannot
+list the briefs. Claude Code shows the stderr of a PostToolUse hook's exit
+2 to Claude, and the tool has run (the hooks reference,
+<https://code.claude.com/docs/en/hooks>, *Exit code 2 behavior per event*,
+read 2026-10-18).
+
+*Measured* through the launcher of main (fd76621, the `src/` of 7b28ca8)
+and of this change, Windows 11, Node 24.18.1, Git for Windows 2.55.0, in
+scratch projects with spec-brief 0.8.0 installed, each run after a write
+paired with the run before it by its `session_id` and `tool_use_id`, as
+Claude Code's hooks reference shows both events' input to carry them
+(`h24-measure-h2.mjs`, 44 cases): every answer the same in both builds, the
+call before the write and after it, under no brief, a brief's branch in its
+scope and out of it, a protected file, `outOfScope` `deny` and `ask`, a
+linked worktree the session started in, a run after a write with no run
+before it, two calls at once, another call's ids, no ids, and a write that
+changes the configuration, spec-brief's configuration or the brief. Two
+answers differ, each where something other than the write changed what
+decides between the two runs: the configuration made `outOfScope: "deny"`,
+after which the run warned of nothing and now warns as the run before
+decided; and spec-brief's configuration broken, after which the run ended
+in exit 2, `spec-brief could not list the briefs`, and now warns as decided,
+the exit 2 coming at the next run before a write, which it holds. Every line
+of the hook the amendments of ADR-0005 measured, before a write and after
+the same call, was run through both builds (`h24-hook-compare.mjs`).
+
+- **Where nothing can be said, nothing is started.** Under
+  `outOfScope: "ask"` or `"deny"` no decision warns, and the run after a
+  write says nothing without starting git or spec-brief. The configuration
+  is read where git would read it, found by the files git keeps: the
+  nearest directory at or above the hook's root that holds a `.git`, the
+  git directory it is or names, and the common directory that git
+  directory's `commondir` names (gitrepository-layout(5), as Git for
+  Windows 2.55.0 has it, read 2026-10-18). Where git could read another
+  work tree, it is decided as before: `GIT_DIR` or `GIT_WORK_TREE` set, a
+  `worktree` key in the repository's configuration, a `config.worktree` of
+  the git directory's own, a session whose `cwd` is outside that work tree
+  or in a repository inside it, or a configuration that does not load.
+- **Otherwise the run before a write keeps what the run after it would
+  say.** A run before a write that lets the call go ahead keeps the
+  warnings it decided, under the common directory (ADR-0003), named by the
+  question's `session_id` and `tool_use_id`, each made of letters, digits,
+  `_` and `-` alone and no longer than 256: a question that names neither,
+  or names one otherwise, keeps nothing. With them it keeps the call as
+  both runs see it: the release, the session and the call, the tool, its
+  paths, the session's directory, the root, brief and base on the hook's
+  line, the directory the hook was started in, and the variables it reads
+  (`CLAUDE_PROJECT_DIR`, `SPEC_BRIEF`, and the four a forge's CI names a
+  branch by, ADR-0004). The run after it, for the same session and call,
+  takes the entry away as it reads it, and answers from it where all of
+  that is the same; an entry that is missing, cannot be read, or is another
+  call's is decided as before, with git and spec-brief. Keeping it is
+  passed over where it fails, so that nothing kept can change the answer
+  before a write, and the answer before a write reads nothing kept.
+- **A call that writes what the answer is made from keeps nothing**, and
+  is decided again after the write: `.spec-harness.json`, spec-brief's
+  configuration (`.spec-brief.json`, `spec-brief.json`), the brief, and a
+  file in the brief's directory, which spec-brief lists. So is a call that
+  is refused, which no run after it comes for.
+- **Two sessions, two worktrees, parallel calls**: each entry is named by
+  its session and its call, and answers only a run for which the whole call
+  is the same. Claude Code starts PostToolUse once for each tool, at once
+  for parallel calls (the hooks reference, *PostToolBatch*, read
+  2026-10-18), and each takes its own entry.
+- **What a stale answer can cost.** A run after a write warns, or says
+  what it cannot check: it holds nothing, the tool having run. Answered
+  from the run before, it is the answer of the decision made a moment
+  before the write. A write to what the answer is made from keeps nothing,
+  so what can make the two differ is what another process changes between
+  them, as the two rows above did: at worst a warning about the scope is
+  given that the configuration as changed would not give, or one is
+  missed, and a configuration or a spec-brief the other process broke is
+  said at the next run before a write, which holds that write, instead of
+  after this one.
+- **The saving rests on Claude Code's ids, and nothing else does.** The
+  hooks reference lists `tool_use_id` among PreToolUse's input fields and
+  shows it in PostToolUse's input, `toolu_01ABC123...` in both examples
+  (*PreToolUse input*, *PostToolUse input*, read 2026-10-18), and does not
+  state that the two are equal for one call. Where they are not, no run
+  after a write finds an entry, and each is decided as before: no answer
+  depends on it, only the time. No Claude Code was started to see which.
+- **Entries no run after a write reads** - a call the person refused, one
+  that failed, one interrupted - are removed by the next run before a write
+  once a day old, with what an interrupted write left. A day, because a
+  call waits on a person's permission prompt for as long as the person is
+  away, and an entry removed too soon costs only that call's answer being
+  decided again; the entries a day leaves are a few hundred bytes each.
+
+What it saves, with the two builds and the next change's taking turns
+inside each round, each run after a write preceded by the run before it
+for the same call, at the median and with the 95th percentile between
+brackets (`h24-bench.mjs <work> <rounds> <out.json> main=<build>
+h2=<build> h3=<build>`). On GitHub's Windows runner (`windows-2025-vs2026`,
+Node 24.21.0, Git for Windows 2.56.0, four cores), thirty rounds, through a
+workflow of a draft pull request that measured and was closed
+(DescentVTT/spec-harness#111), where starting node to do nothing took 60
+ms; and on the Windows workstation (Node 24.18.1, Git for Windows 2.55.0,
+sixteen threads), ten rounds, where it took 693 ms, the machine shared:
+
+| The hook | Runner: main | This change | Workstation: main | This change |
+| --- | ---: | ---: | ---: | ---: |
+| after an Edit, no brief named | 154 ms (166) | 92 ms (98) | 784 ms (826) | 739 ms (792) |
+| after an Edit in the scope, on a brief's branch | 338 ms (350) | 89 ms (95) | 1,655 ms (1,799) | 706 ms (780) |
+| after an Edit outside the scope, which it warns of | 340 ms (354) | 91 ms (102) | 1,575 ms (1,673) | 709 ms (785) |
+| after an Edit, `outOfScope: "deny"` | 340 ms (366) | 90 ms (96) | 1,622 ms (1,729) | 704 ms (804) |
+| after an Edit, `outOfScope: "deny"`, nothing kept | 345 ms (393) | 91 ms (103) | 1,605 ms (1,778) | 726 ms (771) |
+| after an Edit outside the scope, nothing kept | 342 ms (371) | 346 ms (359) | 1,639 ms (1,790) | 1,631 ms (1,739) |
+| before an Edit in the scope, on a brief's branch | 342 ms (352) | 343 ms (356) | 1,596 ms (1,718) | 1,643 ms (1,769) |
+| before an Edit, no brief named | 156 ms (162) | 158 ms (173) | 792 ms (869) | 809 ms (873) |
+
+A run after a write answered from what was kept starts no process, and
+takes what node takes to start and load the hook's modules; one decided as
+before takes what it took. A run before a write keeps a file and reads the
+directory it keeps it in, within the spread of the rows above.
+
+No answer the hook gives to a call Claude Code makes changes but where
+another process changes what decides between its two runs: a minor
+release (spec-core's ADR-0009).
+
 ## Consequences
 
 Each tool is released, pinned and dropped on its own, and the harness adds no

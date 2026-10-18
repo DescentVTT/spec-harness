@@ -9,6 +9,13 @@ only fixes, reports less or documents, so `^0.7.0` takes only releases that
 cannot turn a run red. The family's policy is
 [spec-core's ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
+## Unreleased
+
+### Changed
+
+- **The hook answers after a write from what it decided before it.** Claude Code starts the hook before a write and after it, and the run after decided the write again, at what the run before costs: git, and spec-brief on a brief's branch. The run before now keeps what the run after would say under the git common directory, named by the question's `session_id` and `tool_use_id`, and the run after answers from it with no process started; one that finds nothing kept for its call, or another call's, decides as before. Under `outOfScope: "ask"` or `"deny"`, where nothing was kept, it says nothing with no process started ([ADR-0002](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0002-siblings-through-their-command-lines.md)).
+  Upgrading: nothing to change. What another process changes between the two runs of one write, the configuration or what spec-brief reads, is read at the next write rather than after this one.
+
 ## 0.18.0
 
 `doctor` and `init` say more of what looks like a guard and checks
