@@ -3,27 +3,53 @@
  * directory outside the work tree, and paths as the filesystem spells them.
  */
 
-import { existsSync, realpathSync, statSync } from 'node:fs';
+import { existsSync, realpathSync, statSync, type Stats } from 'node:fs';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 import { ConfigError, CONFIG_FILE, DEFAULT_CONFIG, parseConfig, type HarnessConfig } from './config.js';
 
-/** Reads `.spec-harness.json` at the root, or the defaults when there is none. */
+/** What stands at a path, links followed, or `null` where nothing does: a link to nothing is nothing. */
+function standing(path: string): Stats | null {
+  try {
+    return statSync(path);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Reads `.spec-harness.json` at the root, or the defaults when there is none.
+ *
+ * Only a file is read. A named pipe under the file's name was read without
+ * end, by every command and by the hook before every write; and Node's words
+ * for a directory, EISDIR, are not the harness's.
+ */
 export async function loadConfig(root: string): Promise<{ config: HarnessConfig; file: string | null }> {
   const file = join(root, CONFIG_FILE);
-  if (!existsSync(file)) return { config: DEFAULT_CONFIG, file: null };
+  const there = standing(file);
+  if (there === null) return { config: DEFAULT_CONFIG, file: null };
+  if (!there.isFile()) throw new ConfigError(`${CONFIG_FILE} is ${there.isDirectory() ? 'a directory' : 'neither a file nor a directory'}, not a configuration file`);
   let raw: unknown;
   try {
     // A Buffer parses as its text, so the encoding is equivalent to its mutant.
     raw = JSON.parse(await readFile(file, 'utf8'));
   } catch (error) {
-    // A directory under the file's name is not JSON that went wrong, and
-    // Node's words for it, EISDIR, are not the harness's.
-    if ((error as NodeJS.ErrnoException).code === 'EISDIR') throw new ConfigError(`${CONFIG_FILE} is a directory, not a configuration file`);
     throw new ConfigError(`${CONFIG_FILE} is not valid JSON: ${(error as Error).message}`);
   }
   return { config: parseConfig(raw), file };
+}
+
+/**
+ * A path where the harness keeps its state that holds something else: said
+ * in a line, exit 2, where Node's ENOTDIR and a stack sent a person looking
+ * for a defect (spec-core ADR-0005).
+ */
+export class StateError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'StateError';
+  }
 }
 
 /**
@@ -95,10 +121,25 @@ export function repositoryPath(given: string, root: string, cwd: string): string
   return rel.split(sep).join('/');
 }
 
-/** The harness's own directory under the git common directory, created on demand (ADR-0003). */
+/**
+ * The harness's own directory under the git common directory, created on
+ * demand (ADR-0003). Where something that is no directory stands at its path,
+ * or at one between it and git's, Node refuses to make it, with ENOTDIR or
+ * EEXIST, and the harness says which path holds what.
+ */
 export async function stateDirectory(commonDir: string, ...parts: string[]): Promise<string> {
   const directory = join(commonDir, 'spec-harness', ...parts);
-  await mkdir(directory, { recursive: true });
+  try {
+    await mkdir(directory, { recursive: true });
+  } catch (error) {
+    const { code } = error as NodeJS.ErrnoException;
+    if (code !== 'ENOTDIR' && code !== 'EEXIST') throw error;
+    // mkdir refuses for this alone, so one of the steps is there and is no
+    // directory, and every step before it is one.
+    const steps = ['spec-harness', ...parts].map((_, at, all) => join(commonDir, ...all.slice(0, at + 1)));
+    const there = steps.find((step) => !standing(step)!.isDirectory())!;
+    throw new StateError(`${there} is not a directory, where spec-harness keeps its state in one: move it away, and run the command again`);
+  }
   return directory;
 }
 
@@ -111,9 +152,17 @@ export async function writeAtomic(file: string, content: string): Promise<void> 
   await rename(temporary, file);
 }
 
-/** A JSON object from a file: `null` when there is no file, `'unreadable'` when it holds anything else. */
+/**
+ * A JSON object from a file: `null` when there is no file, `'unreadable'`
+ * when it holds anything else. Only a file is read: a named pipe where a
+ * settings file is expected was read without end, and neither doctor nor
+ * init came back. What is neither a file nor a directory holds no JSON
+ * object, as a directory holds none.
+ */
 export async function readJsonObject(file: string): Promise<Record<string, unknown> | null | 'unreadable'> {
-  if (!existsSync(file)) return null;
+  const there = standing(file);
+  if (there === null) return null;
+  if (!there.isFile()) return 'unreadable';
   try {
     // A Buffer parses as its text, so the encoding is equivalent to its mutant.
     const value: unknown = JSON.parse(await readFile(file, 'utf8'));

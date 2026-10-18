@@ -17,6 +17,11 @@ it from 2026-10-18 (spec-core's ADR-0005, and
 [ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)
 here).
 
+`doctor` reads a hyphen in a matcher as the Claude Code on `PATH` reads
+it, and no command ends on a stack or fails to come back for what stands
+where a repository or a settings file is read
+([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
+
 ### Changed
 
 - **Two values for an option that takes one are refused.** The parser kept
@@ -50,12 +55,46 @@ here).
   hook cannot read, exit 1. A line that is right answers as before, `guard
   --help` among them.
   Upgrading: ask for one of the two, on a line that is right.
+- **A matcher of names with a hyphen in one is read as the release on
+  `PATH` reads it.** By Claude Code's changelog such a matcher matched as a
+  substring before 2.1.195, and the changelog does not say how the rest of
+  it was read. Under an older release, or one that cannot be told, a line
+  under `Edit|Write|my-tool` is *cannot tell* where it said the line
+  guards a write by `Edit` and `Write`, and `init` writes no hook beside
+  it.
+  Upgrading: `doctor --strict` fails such a line under Claude Code 2.1.139
+  to 2.1.194 or with no `claude` on `PATH`: take the hyphenated name out of
+  the matcher, or update Claude Code.
+- **A hook file the account may not read is said, where `doctor` and `init`
+  ended on EACCES and a stack.** One git may not execute is skipped by git,
+  and is said and fails nothing; one it may is *cannot tell*, since git runs
+  it and a script it cannot read stops every commit. `--format json` has
+  the `gitHook.state` `unreadable`.
+  Upgrading: `doctor` exits 0, or 1 under `--strict`, and `init` 0, where
+  each exited 2: make the file readable.
 - **A write in a worktree is decided by the worktree's brief.** In a worktree session started from the desktop app, and after Claude enters a worktree, Claude Code names the main checkout as the project and hands the hook the worktree as the question's `cwd`; the hook read the main checkout's branch, which named no brief, and a write the worktree's brief protects passed with no word. Where `cwd` is in another work tree of the same repository, that work tree's branch, briefs and configuration now decide the paths it holds, with its siblings looked for in its own install and then the project's; any other path, and a `cwd` in another repository or in none, is decided as before ([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
   Upgrading: in a worktree session a write the worktree's brief protects is refused, and one outside its scope warned of by that brief; nothing on the hook's line changes.
 - **A branch beside a tag of its name names its brief.** The branch was read by git's short name, `heads/<name>` where a tag or a ref `refs/<name>` has the name, which no template reads: the hook passed a protected write, git's hook a protected commit, and `doctor` said `(none named)`. It is read as HEAD names it; a base `init` writes for such a branch is still the name git reads as the branch, `heads/main` beside a tag `main`.
   Upgrading: on such a branch the guard refuses what its brief protects.
 - **git's hook in a linked worktree with no install runs the main work tree's.** The hook `init` writes refused the commit there; it now reads the script from the repository's main work tree after the worktree's own, and `hook git` and `doctor` find the siblings there too, `doctor` saying whose install each is (`elsewhere` in `--format json`).
   Upgrading: `init` writes the hook once, so one an earlier release wrote still stops such a commit: take it away and run `spec-harness init --git-hook --write`.
+
+### Fixed
+
+- **A named pipe where a settings file, `.mcp.json` or `.spec-harness.json`
+  is read** no longer keeps `doctor`, `init` or every command from coming
+  back: the first two are read as files that cannot be read as JSON, and
+  `.spec-harness.json` is `neither a file nor a directory, not a
+  configuration file`, exit 2, as a directory there is.
+- **`escalate` and `rule` say a path under git's directory, where the
+  harness keeps its state, that is no directory**, exit 2, in a line, where
+  they ended on Node's ENOTDIR and a stack.
+- **A `core.hooksPath` that names a file is said in git's own words**, where
+  `doctor` and `init` gave the reason for a git older than 2.31.
+- **`doctor`'s first line advises an array that unloads the project's
+  settings** before `init --write`, which writes no hook while it stands
+  and only advised the array in turn. `--format json` gains
+  `claudeCode.unloaded`.
 
 ## 0.18.0
 

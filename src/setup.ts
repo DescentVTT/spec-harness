@@ -20,7 +20,6 @@ import { CONFIG_FILE } from './config.js';
 import {
   arrayMatcher,
   chooseBase,
-  commasUnder,
   describeAbsent,
   describeArrayMatcher,
   describeGitHook,
@@ -36,6 +35,7 @@ import {
   guardSwitchedOff,
   isStarted,
   loadsPlugin,
+  matchingUnder,
   measuresArchive,
   mergeClaudeSettings,
   mergeMcp,
@@ -121,19 +121,23 @@ function standing(path: string): Stats | null {
 /**
  * git's pre-commit hook, where git runs it from, and what is there: init and
  * doctor both read it. `path` is `null` when git cannot say where its hooks
- * are. `note` is what there is to say of how a hook that runs the harness
- * runs it, or `null`.
+ * are, which is said in git's own words: a `core.hooksPath` that names a
+ * file is refused by git as no directory, and git then commits with no hook
+ * (ADR-0005). `note` is what there is to say of how a hook that runs the
+ * harness runs it, or `null`.
  *
  * Only a file is read. A directory under the hook's name, which a
  * repository whose `core.hooksPath` is in its work tree can hold, is not a
  * hook and is one to git all the same: it tries to run what it can execute
  * there, fails, and stops the commit (ADR-0005 has what was measured). Read
  * as a file, it ended this on Node's EISDIR and a stack, and a named pipe
- * would have kept it from ever coming back.
+ * would have kept it from ever coming back. A file the account may not read
+ * ended it on EACCES and a stack: it is said with what git does with it.
  */
 export async function gitHook(root: string): Promise<{ readonly hook: GitHookState; readonly path: string | null; readonly note: string | null }> {
-  const path = await hookPath('pre-commit', root);
-  if (path === null) return { hook: { state: 'unknown', reason: 'git does not say where they are; spec-harness needs git 2.31 or later' }, path, note: null };
+  const where = await hookPath('pre-commit', root);
+  if ('refused' in where) return { hook: { state: 'unknown', reason: `git rev-parse --git-path hooks/pre-commit failed: ${where.refused}` }, path: null, note: null };
+  const { path } = where;
   const file = shown(root, path);
   const there = standing(path);
   if (there === null) return { hook: { state: 'absent', file }, path, note: null };
@@ -142,7 +146,12 @@ export async function gitHook(root: string): Promise<{ readonly hook: GitHookSta
     const what = there.isDirectory() ? 'a directory' : 'neither a file nor a directory';
     return { hook: { state: runs ? 'stops' : 'ignored', file, what }, path, note: null };
   }
-  const text = await readFile(path, 'utf8');
+  let text: string;
+  try {
+    text = await readFile(path, 'utf8');
+  } catch (error) {
+    return { hook: { state: 'unreadable', file, runs, reason: (error as Error).message }, path, note: null };
+  }
   if (!text.includes('spec-harness')) return { hook: { state: 'other', file }, path, note: null };
   return { hook: { state: runs ? 'runs' : 'inert', file }, path, note: gitHookNote(text) };
 }
@@ -320,7 +329,7 @@ export async function plan(workspace: Workspace, options: Options, io: CliIO): P
   } else {
     // An entry is a line of the hook where doctor reports its words as one in this file.
     const reported = new Set(lines.map((line) => JSON.stringify(line.line)));
-    const merged = mergeClaudeSettings(settings ?? {}, (words) => reported.has(JSON.stringify(words)), pattern, commasUnder(wiring.release));
+    const merged = mergeClaudeSettings(settings ?? {}, (words) => reported.has(JSON.stringify(words)), pattern, matchingUnder(wiring.release));
     // A line that turns the guard off or holds every write is one doctor
     // fails, and lines of which none is waited on before a write are no
     // guard between them: left as they are, they are for the person to mend.
@@ -363,30 +372,31 @@ export async function plan(workspace: Workspace, options: Options, io: CliIO): P
   // hooks never see, one through a shell, so it is advised when not asked
   // for; it is configuration outside the tree, so it is written only then.
   const { hook, path: hookFile, note: hookNote } = answerOf(hookAsked);
-  // Only a git older than 2.31, which the README states as the harness's
-  // floor, cannot name its hooks, and init runs only in a work tree, where
-  // any later git names them: no test reaches this advice, by that decision.
-  if (hook.state === 'unknown' || hookFile === null) {
+  // git cannot name its hook where core.hooksPath names a file, and says so,
+  // which is said here as doctor says it; git then commits with no hook.
+  if (hook.state === 'unknown') {
     steps.push({ file: 'pre-commit', action: 'advise', detail: describeGitHook(hook) });
   } else if (hook.state === 'runs') {
     // A hook that runs it through npx is kept, as any hook that exists is,
     // with the line that runs it as init writes the hook now.
     steps.push({ file: hook.file, action: 'keep', detail: hookNote === null ? 'already runs spec-harness' : `already runs spec-harness; ${hookNote}` });
-  } else if (hook.state === 'inert' || hook.state === 'stops' || hook.state === 'ignored') {
+  } else if (hook.state === 'inert' || hook.state === 'stops' || hook.state === 'ignored' || hook.state === 'unreadable') {
     // What is there is the person's to mend or to take away: nothing is
     // written over it, and what doctor says of it is said.
     steps.push({ file: hook.file, action: 'advise', detail: describeGitHook(hook) });
   } else if (hook.state === 'other') {
     steps.push({ file: hook.file, action: 'advise', detail: `a pre-commit hook exists; add the line "${GIT_HOOK_LINE}" to it` });
   } else if (options.gitHook) {
+    // A path is named for every state but the one asked about first.
+    const target = hookFile!;
     steps.push({
       file: hook.file,
       action: 'create',
       detail: 'refuse a commit that changes what the active brief protects',
       apply: async () => {
-        await mkdir(dirname(hookFile), { recursive: true });
-        await writeAtomic(hookFile, PRE_COMMIT);
-        await chmod(hookFile, 0o755);
+        await mkdir(dirname(target), { recursive: true });
+        await writeAtomic(target, PRE_COMMIT);
+        await chmod(target, 0o755);
       },
     });
   } else {

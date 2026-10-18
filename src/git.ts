@@ -98,10 +98,14 @@ export async function workTree(cwd: string): Promise<WorkTree | 'unread' | null>
 /**
  * Where git runs the hook `name` from, absolute: `core.hooksPath` read as git
  * reads it - relative to the work tree, absolute, or under `~` - and a linked
- * worktree's shared hooks. `null` when git cannot say, before 2.31.
+ * worktree's shared hooks. Where git cannot say, the first line of what it
+ * said instead: under a `core.hooksPath` that names a file it refuses the
+ * path as one that is not a directory (measured with git 2.47 and 2.55).
  */
-export async function hookPath(name: string, cwd: string): Promise<string | null> {
-  return value(['rev-parse', '--path-format=absolute', '--git-path', `hooks/${name}`], cwd);
+export async function hookPath(name: string, cwd: string): Promise<{ readonly path: string } | { readonly refused: string }> {
+  const run = await git(['rev-parse', '--path-format=absolute', '--git-path', `hooks/${name}`], cwd);
+  if (run.code === 0) return { path: run.stdout.trim() };
+  return { refused: run.stderr.split(/\r?\n/)[0]! };
 }
 
 const HEADS = 'refs/heads/';

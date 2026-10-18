@@ -23,7 +23,7 @@ import { ConfigError, SIBLINGS } from './config.js';
 import type { ClaudeCodeWiring } from './configure.js';
 import { join } from 'node:path';
 
-import { holdsGit, isDirectory, realSpelling, repositoryPath } from './fs.js';
+import { holdsGit, isDirectory, realSpelling, repositoryPath, StateError } from './fs.js';
 import { GitError, show, stagedChanges } from './git.js';
 import type { DocumentReader } from './document.js';
 import type { Decision } from './guard.js';
@@ -520,14 +520,18 @@ async function doctorCommand(options: Options, io: CliIO): Promise<number> {
   // path of git's pre-commit hook that git cannot run and stops every
   // commit at. A release that cannot be told is not fine either, nor a
   // line whose reading cannot be, nor a plugin that cannot be told to be on
-  // this machine: --strict fails the three.
+  // this machine, nor a hook git runs that cannot be read, which stops every
+  // commit as a script and runs as a program: --strict fails the four.
   const outdated = rows.some((row) => row.state === 'outdated');
   const usable = rows.some((row) => row.state === 'found');
   const off = wiring.lines.some((line) => line.state === 'off' || line.state === 'held');
   const missing = wiring.presence?.state === 'absent' && wiring.hooks.length === 0;
   const tooOld = release?.state === 'outdated';
   const stopped = hook.state === 'stops';
-  const untold = options.strict && (release?.state === 'unknown' || wiring.lines.some((line) => line.state === 'unknown') || wiring.presence?.state === 'unknown');
+  // Only an unreadable hook has `runs`, so the test of its state is the
+  // compiler's, and its mutant is equivalent.
+  const untold =
+    options.strict && (release?.state === 'unknown' || wiring.lines.some((line) => line.state === 'unknown') || wiring.presence?.state === 'unknown' || (hook.state === 'unreadable' && hook.runs));
   return outdated || !usable || claude === 'both' || off || switchedOff || missing || tooOld || stopped || untold ? EXIT_FAILED : EXIT_OK;
 }
 
@@ -637,13 +641,16 @@ export async function run(argv: readonly string[], io: CliIO): Promise<number> {
   } catch (error) {
     // A sibling's document of a shape the harness does not read is a sibling
     // that printed something it cannot read (answers.ts): exit 2. A git
-    // command that failed is what git said, and no line of the harness's.
+    // command that failed is what git said, and no line of the harness's;
+    // and a path under git's directory where the harness keeps its state,
+    // which holds something else, is said in a line of its own (fs.ts).
     if (
       error instanceof UsageError ||
       error instanceof ConfigError ||
       error instanceof SiblingError ||
       error instanceof SiblingOutputError ||
-      error instanceof GitError
+      error instanceof GitError ||
+      error instanceof StateError
     ) {
       io.stderr.write(`spec-harness: ${error.message}\n`);
       return EXIT_ERROR;
