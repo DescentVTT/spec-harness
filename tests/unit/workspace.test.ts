@@ -38,6 +38,7 @@ describe('options', () => {
       command: 'guard',
       positionals: ['a.ts', 'b.ts'],
       given: [],
+      written: {},
       brief: undefined,
       base: undefined,
       root: undefined,
@@ -91,6 +92,8 @@ describe('options', () => {
       positionals: [],
       // Each once, in the order given, by its long name.
       given: ['brief', 'base', 'root', 'format', 'strict', 'write', 'git-hook', 'path', 'reason', 'option', 'recommend', 'list', 'show', 'allow', 'deny', 'note', 'id', 'at'],
+      // Every value of each option that takes one; a list has its own, and an option that takes none has no value.
+      written: { brief: ['012'], base: ['origin/main'], root: ['/repo'], format: ['json'], reason: ['why'], recommend: ['Allow'], show: ['E-1'], note: ['n'], id: ['p'], at: ['head'] },
       brief: '012',
       base: 'origin/main',
       root: '/repo',
@@ -117,13 +120,35 @@ describe('options', () => {
   it('lists the options given by their long names, each once and in the order given', () => {
     expect(parseOptions(['guard', 'a.ts', '--strict', '--brief', '1']).given).toEqual(['strict', 'brief']);
     expect(parseOptions(['escalate', '--path', 'a', '--reason', 'r', '--path', 'b']).given).toEqual(['path', 'reason']);
-    expect(parseOptions(['-v', '-h']).given).toEqual(['version', 'help']);
+    expect(parseOptions(['-h', '--strict', '-h']).given).toEqual(['help', 'strict']);
+  });
+
+  it('keeps every value of an option that takes one, in the order given, where the field holds the last', () => {
+    const options = parseOptions(['doctor', '--root', 'a', '--brief', '1', '--root=b', '--root', 'a', '--strict', '--path', 'x', '--path', 'y']);
+    expect(options.written).toEqual({ root: ['a', 'b', 'a'], brief: ['1'] });
+    expect(options.root).toBe('a');
+    expect(options.paths).toEqual(['x', 'y']);
+    // An empty value is a value.
+    expect(parseOptions(['doctor', '--root', '', '--root', '.']).written).toEqual({ root: ['', '.'] });
   });
 
   it('reads the short forms of help and version', () => {
     expect(parseOptions(['-h'])).toMatchObject({ help: true, version: false });
     expect(parseOptions(['-v'])).toMatchObject({ help: false, version: true });
-    expect(parseOptions(['--help', '--version'])).toMatchObject({ help: true, version: true });
+    expect(parseOptions(['-h', '--help'])).toMatchObject({ help: true, version: false });
+    expect(parseOptions(['--version', '-v'])).toMatchObject({ help: false, version: true });
+  });
+
+  it('refuses help beside version, in either order, naming both as they were written (spec-core ADR-0005)', () => {
+    // The version was printed, and the help asked for went unread.
+    const both = (first: string, other: string): string => `${first} is given beside ${other}, and one of the two answers would go unread; give one of them`;
+    expect(usage(['--help', '--version'])).toBe(both('--help', '--version'));
+    expect(usage(['--version', '--help'])).toBe(both('--version', '--help'));
+    expect(usage(['-h', '-v'])).toBe(both('-h', '-v'));
+    expect(usage(['doctor', '-v', '--root', '.', '--help'])).toBe(both('-v', '--help'));
+    expect(usage(['-h', '-h', 'doctor', '--version'])).toBe(both('-h', '--version'));
+    // Whose line it was is kept, as for every line the parser refuses.
+    expect(words(['hook', 'claude', '--help', '--version'])).toEqual(['hook', 'claude']);
   });
 
   it('reads every probe position, and pretty as a format', () => {
