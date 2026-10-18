@@ -1347,6 +1347,92 @@ What was measured for this and left as it was:
   a pipe nothing writes to is read without end. A repository cannot hold
   one.
 
+*Amended a fourth time 2026-10-18.* **The hook says, as a session starts,
+what would hold every write of it.** *Claimed* by the evaluation of a
+consumer's request in round 24: nothing runs at session start, and a
+SessionStart entry aimed at the hook exits 1, `the hook input names no event
+or tool`; a configuration that does not load, or a brief the branch names
+that is none, is learned at the first write, which it holds. *Measured*
+through the launcher of main (fd76621) and of this change (Windows 11, Node
+24.18.1, Git for Windows 2.55.0), the hook handed a SessionStart question as
+Claude Code's hooks reference shows it (`h24-measure-h3.mjs`):
+
+| As the session starts | main | Now |
+| --- | --- | --- |
+| no brief named, or a brief's branch, however the session starts (`startup`, `resume`, `clear`, `compact`, `fork`) | exit 1, `the hook input names no event or tool` | exit 0, nothing |
+| a branch that names a brief spec-brief does not list | the same | exit 0: `the branch names brief 999, and spec-brief knows no such brief, so every write of this session is held until it is mended: fix the brief or the branch before writing; spec-harness doctor says more`, as `systemMessage` and as `additionalContext` |
+| `--brief 404` on the line, or `SPEC_BRIEF=404` | the same | exit 0, the same line by what names it |
+| a configuration that does not load | the same | exit 0, the configuration's own words, and that every write is held |
+| a brief's branch, spec-brief not installed, or too old | the same | exit 0, the words a write is held with |
+| no brief named, spec-brief not installed | the same | exit 0, nothing: no write runs it |
+| a `--root` on the line that is not there, a line the parser cannot read | exit 1, the guard is off | exit 0, the same words, of every write of the session |
+| a session in no work tree | exit 1 | exit 0, nothing |
+| a question that is not JSON, an event that names no tool and is not SessionStart | exit 1 | the same |
+| before and after a write, every case of the amendments above | | the same |
+
+What the hooks reference has of the event, read 2026-10-18
+(<https://code.claude.com/docs/en/hooks>, *SessionStart*, *SessionStart
+input*, *SessionStart decision control*, *JSON output* and *Exit code 2
+behavior per event*): it runs as a session starts or resumes, is cleared,
+compacted or forked, `source` saying which; it cannot block, and exit 2
+shows its stderr to the person alone; in an interactive session it runs
+in the background and Claude's first response waits for it; `systemMessage`
+is a warning shown to the person, and `additionalContext` is, in the
+page's words, a "String added to Claude's context at the start of the
+conversation, before the first prompt". The brief this follows named four
+sources; the page has a fifth, `fork`, from Claude Code 2.1.214, and the
+hook reads every source alike.
+
+- **It checks what a write of the session would need**: that the
+  configuration loads, that a brief named by the line, `SPEC_BRIEF` or the
+  branch is one spec-brief lists and has not archived, and, where one is
+  named, that spec-brief is there at its floor and can list the briefs.
+  spec-brief is the one sibling a write runs. Each is said in the words a
+  write would be held with, which are `doctor`'s: the brief by what names
+  it, the configuration and spec-brief in their own.
+- **One line, twice, and exit 0.** The person reads it as `systemMessage`
+  and Claude as `additionalContext`, so that neither starts the session's
+  work to meet it at the first write. Nothing is said where all is well,
+  and a check that cannot be made says what stopped it: the session's start
+  is never ended by it.
+- **The hook's own line is said there too.** A line the parser cannot read
+  and a root that is not a directory are said in the words a write is told
+  with, of every write of the session, exit 0 where a write's run exits 1.
+  A root outside any work tree is a session outside one, and says nothing,
+  as before.
+- **The work tree read is the one a write is decided in**: the root the
+  line gives, then `CLAUDE_PROJECT_DIR`, then the question's `cwd`.
+- **Every answer before and after a write is as it was.** Every line of the
+  hook the amendments above measured, before seven writes and after each,
+  and git's hook, was run through both builds (`h24-hook-compare.mjs`): of
+  552 runs, the 28 of `hook claude --help` and `-h` print the help with its
+  new words for the event, exit 0 as before, and the other 524 are the same.
+
+A SessionStart entry that ran the hook exited 1 and now exits 0, and `init`
+writes an entry it did not: a minor release (spec-core's ADR-0009).
+
+**What it costs a session's start**, the builds taking turns inside each
+round, at the median with the 95th percentile between brackets
+(`h24-bench.mjs <work> <rounds> <out.json> main=<build> h2=<build>
+h3=<build>`): on GitHub's Windows runner (`windows-2025-vs2026`, Node
+24.21.0, Git for Windows 2.56.0), thirty rounds, through a workflow of a
+draft pull request that measured and was closed
+(DescentVTT/spec-harness#111), where starting node to do nothing took 60
+ms; and on the Windows workstation (Node 24.18.1, Git for Windows 2.55.0),
+ten rounds, where it took 693 ms, the machine shared. main's hook answered
+the question with exit 1 and nothing else.
+
+| As the session starts | Runner: main | This change | Workstation: main | This change |
+| --- | ---: | ---: | ---: | ---: |
+| no brief named | 86 ms (92) | 140 ms (156) | 725 ms (771) | 774 ms (821) |
+| a brief's branch | 86 ms (92) | 325 ms (339) | 722 ms (756) | 1,615 ms (1,691) |
+| a branch that names a brief spec-brief does not list | 88 ms (96) | 324 ms (347) | 732 ms (764) | 1,652 ms (1,700) |
+
+That is a write's check, without the write: two of git's processes, and
+spec-brief where a brief is named. The hooks reference has an interactive
+session's SessionStart hooks run in the background, with Claude's first
+response waiting for them, once a session.
+
 ## Consequences
 
 An agent that writes through a shell passes the guard and is caught at the

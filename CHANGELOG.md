@@ -9,6 +9,13 @@ only fixes, reports less or documents, so `^0.7.0` takes only releases that
 cannot turn a run red. The family's policy is
 [spec-core's ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
+## Unreleased
+
+### Changed
+
+- **The hook says, as a session starts, what would hold every write of it.** A SessionStart entry aimed at `hook claude` exited 1, `the hook input names no event or tool`. It now reads the question, however the session starts, and says in one line, to the person and to Claude, a configuration that does not load, a brief named that spec-brief does not list, spec-brief missing or too old where a brief is named, or a hook's line it cannot read; nothing where all is well, and exit 0 whatever it finds. `init` writes the entry beside its two, the plugin's `hooks/hooks.json` carries it, and `doctor` notes a settings file that guards writes and has none ([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md), [ADR-0012](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0012-one-way-into-claude-code.md)).
+  Upgrading: `init` writes its lines once, so run `spec-harness init --write` again to add the entry to a `.claude/settings.json` an earlier release wrote; a plugin brings it with this release. A script reading `doctor --format json` finds `claudeCode.sessionStart`.
+
 ## 0.18.0
 
 `doctor` and `init` say more of what looks like a guard and checks
