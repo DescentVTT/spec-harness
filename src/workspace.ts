@@ -62,6 +62,12 @@ export interface Options {
   readonly positionals: readonly string[];
   /** The long name of every option given, in the order given: what tells an option left out from one a command does not read. */
   readonly given: readonly string[];
+  /**
+   * Every value given to each option that takes one value, by its long name,
+   * in the order given. The fields below hold the last of them, which is
+   * what the parser keeps.
+   */
+  readonly written: Readonly<Record<string, readonly string[]>>;
   readonly brief: string | undefined;
   readonly base: string | undefined;
   readonly root: string | undefined;
@@ -117,7 +123,7 @@ export function parseOptions(argv: readonly string[]): Options {
   } satisfies ParseArgsOptionsConfig;
   let parsed;
   try {
-    parsed = parseArgs({ args: [...argv], allowPositionals: true, strict: true, options });
+    parsed = parseArgs({ args: [...argv], allowPositionals: true, strict: true, options, tokens: true });
   } catch (error) {
     // Read again with nothing refused, for whose line it was and nothing
     // else: an option no command has is passed over, one left without its
@@ -125,7 +131,21 @@ export function parseOptions(argv: readonly string[]): Options {
     // so that a value is not taken for the command it stands before.
     throw new UnreadableLine((error as Error).message, parseArgs({ args: [...argv], strict: false, options }).positionals);
   }
-  const { values, positionals } = parsed;
+  const { values, positionals, tokens } = parsed;
+  // The parser keeps the last value of an option given twice, and the earlier
+  // went unread with no word of it: `--root nowhere --root .` ran in `.`. So
+  // every value is kept, for the refusal of two (usage.ts). A list keeps
+  // every value already.
+  const table: ParseArgsOptionsConfig = options;
+  const written: Record<string, string[]> = {};
+  for (const token of tokens) {
+    if (token.kind === 'option' && token.value !== undefined && table[token.name]!.multiple !== true) (written[token.name] ??= []).push(token.value);
+  }
+  // Two answers asked for at once: the version was printed, and the help went
+  // unread. A line that is wrong, whoever's it is (spec-core ADR-0005).
+  const answers = tokens.flatMap((token) => (token.kind === 'option' && (token.name === 'help' || token.name === 'version') ? [token] : []));
+  const other = answers.find((token) => token.name !== answers[0]!.name);
+  if (other !== undefined) throw new UnreadableLine(`${answers[0]!.rawName} is given beside ${other.rawName}, and one of the two answers would go unread; give one of them`, positionals);
   const asked = values.format ?? 'pretty';
   const format = asked as Options['format'];
   const formats: readonly Options['format'][] = ['pretty', 'json', 'gitlab', 'sarif', 'github'];
@@ -141,6 +161,7 @@ export function parseOptions(argv: readonly string[]): Options {
     command,
     positionals: positionals.slice(1),
     given: Object.keys(values),
+    written,
     brief: values.brief,
     base: values.base,
     root: values.root,

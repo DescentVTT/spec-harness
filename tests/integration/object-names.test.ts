@@ -28,8 +28,9 @@ describe('a command named as something every object answers to', () => {
     }
   });
 
-  it('is asked for help before it is looked up, as any word is', async () => {
-    expect(await cli(['constructor', '--help'], ROOT)).toEqual({ code: 0, stdout: HELP, stderr: '' });
+  it('is looked up before the help is asked for, as a line that is wrong is refused with --help on it', async () => {
+    expect(await cli(['constructor', '--help'], ROOT)).toEqual({ code: 2, stdout: '', stderr: 'spec-harness: unknown command "constructor"; see spec-harness --help\n' });
+    expect(await cli(['--help'], ROOT)).toEqual({ code: 0, stdout: HELP, stderr: '' });
   });
 
   it('exits 2 from the built command line, where it exited 1 on a stack trace', () => {
