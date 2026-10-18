@@ -11,8 +11,45 @@ cannot turn a run red. The family's policy is
 
 ## Unreleased
 
+An option that takes one value is given one, and a line that is wrong is
+refused with `--help` or `--version` on it, as the family's contract has
+it from 2026-10-18 (spec-core's ADR-0005, and
+[ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)
+here).
+
 ### Changed
 
+- **Two values for an option that takes one are refused.** The parser kept
+  the last and passed over the earlier with no word: `doctor --root nowhere
+  --root .` ran in `.`, `--brief 404 --brief 001` was brief 001, and
+  `probe --at sideways --at head` ran at the head. Every command but
+  Claude Code's hook now exits 2 with one line that names both, as
+  `--root is given twice, as "nowhere" and as ".", and one of the two would
+  go unread; give it one`. The two are compared as the option reads them,
+  so one directory spelt two ways, or `--brief 12` beside `--brief 012`,
+  is the option once. `--path` and `--option` are lists, as before.
+  Upgrading: give each such option once; a script that builds a line by
+  adding a second `--root` or `--format` to override the first exits 2.
+- **Claude Code's hook says two values for one option on its own line.**
+  `hook claude --root nowhere --root .` guarded in `.`, and `hook claude
+  --brief 001 --brief 404` held every write for 404. It is a line the hook
+  cannot read, said in one line on stderr with exit 1, before a write and
+  after one, and holds no write: the guard is off until the line is
+  mended. `doctor` says the line in the same words and exits 1. No line a
+  release wrote gives an option two values.
+  Upgrading: a hook's line with an option given twice, which only a person
+  writes, is said and checks no write; give the option once.
+- **A wrong line is refused beside `--help` or `--version`, and the two
+  beside each other.** `doctor --help --root a --root b`, `doctor --help
+  --note x`, `doctor --help extra`, `doctor --help --root nowhere` and
+  `bogus --help` printed the help, exit 0, and `--help --version` printed
+  the version. Each is now exit 2 and the line it is refused with without
+  either; `--help` beside `--version`, in either order, is
+  `--help is given beside --version, and one of the two answers would go
+  unread; give one of them`. On `hook claude`'s line it is a line the
+  hook cannot read, exit 1. A line that is right answers as before, `guard
+  --help` among them.
+  Upgrading: ask for one of the two, on a line that is right.
 - **A write in a worktree is decided by the worktree's brief.** In a worktree session started from the desktop app, and after Claude enters a worktree, Claude Code names the main checkout as the project and hands the hook the worktree as the question's `cwd`; the hook read the main checkout's branch, which named no brief, and a write the worktree's brief protects passed with no word. Where `cwd` is in another work tree of the same repository, that work tree's branch, briefs and configuration now decide the paths it holds, with its siblings looked for in its own install and then the project's; any other path, and a `cwd` in another repository or in none, is decided as before ([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
   Upgrading: in a worktree session a write the worktree's brief protects is refused, and one outside its scope warned of by that brief; nothing on the hook's line changes.
 - **A branch beside a tag of its name names its brief.** The branch was read by git's short name, `heads/<name>` where a tag or a ref `refs/<name>` has the name, which no template reads: the hook passed a protected write, git's hook a protected commit, and `doctor` said `(none named)`. It is read as HEAD names it; a base `init` writes for such a branch is still the name git reads as the branch, `heads/main` beside a tag `main`.
