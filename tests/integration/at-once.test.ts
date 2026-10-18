@@ -16,7 +16,7 @@
  * A file of its own, because a mock reaches everything the file imports.
  */
 
-import { chmodSync, copyFileSync, linkSync, symlinkSync } from 'node:fs';
+import { copyFileSync, linkSync, symlinkSync } from 'node:fs';
 import { basename, join } from 'node:path';
 
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -41,6 +41,8 @@ const seen = vi.hoisted(() => ({
   /** What git is to be heard saying on stdout, for the one line that holds `part`, in place of what it said. */
   said: null as { readonly part: string; readonly stdout: (real: string) => string } | null,
   kept: null as Kept | null,
+  /** A line that holds `part` is refused before it starts, as Node refuses one on Windows with spawn UNKNOWN: an error no command expects. */
+  thrown: null as { readonly part: string } | null,
   waiting: [] as (() => void)[],
   /** The source of every pattern read in a context of its own. */
   readings: [] as string[],
@@ -53,6 +55,7 @@ vi.mock('node:child_process', async (importOriginal) => {
   const asked = (part: string): number => seen.log.filter((entry) => entry.what === 'asked' && entry.line.includes(part)).length;
   const execFile = (file: string, args: readonly string[], options: { readonly cwd?: string }, done: Done): unknown => {
     const line = [basename(file).replace(/\.exe$/i, ''), ...args].join(' ');
+    if (seen.thrown !== null && line.includes(seen.thrown.part)) throw new Error(`cannot start ${line}`);
     seen.log.push({ what: 'asked', line, ...(options.cwd === undefined ? {} : { cwd: options.cwd }) });
     const { said } = seen;
     const { kept } = seen;
@@ -92,6 +95,7 @@ beforeEach(() => {
   seen.log.length = 0;
   seen.kept = null;
   seen.said = null;
+  seen.thrown = null;
   seen.waiting.length = 0;
   seen.readings.length = 0;
 });
@@ -190,31 +194,32 @@ describe('doctor', () => {
     when('answered', SIGNERS);
   });
 
-  // A directory for git's hook ended a run too, and is now a line of the
-  // report (ADR-0005). What is left at the hook's path that ends one is a file
-  // the account may not read, which only a system with such bits can hold,
-  // and which an account that may do anything reads all the same.
-  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)('ends on the first of them to fail in the order it read them in, whichever failed first', async () => {
+  // A directory for git's hook, and a file there the account may not read,
+  // ended a run too, and are lines of the report now (ADR-0005): nothing a
+  // repository holds at the hook's path ends one. A git that cannot be
+  // started to say where the hook is still does, as any error nothing
+  // expects does.
+  it('ends on the first of them to fail in the order it read them in, whichever failed first', async () => {
     // Two things fail. The root on the hook's line has a configuration that
-    // does not load, and git's pre-commit hook is a file nobody may read.
-    // The line was read before the hook was, so the run ends on the line's
-    // fault, said in a line. Here the hook's fault is known first: the
-    // root's work tree is not answered until git has been asked for the
-    // signers' file, two answers after it was asked where its hooks are.
+    // does not load, and git is refused when it is started to say where its
+    // hooks are. The line was read before the hook was, so the run ends on
+    // the line's fault, said in a line. Here the hook's fault is known first:
+    // the root's work tree is not answered until git has been asked for the
+    // signers' file, after it was refused.
     const broken = repository({ '.spec-harness.json': '{ not json' }, null);
-    const repo = repository({ '.claude/settings.json': JSON.stringify({ hooks: { PreToolUse: [{ hooks: [line('--root', broken.root, '--brief', '001')] }] } }), '.githooks/pre-commit': '#!/bin/sh\n' });
-    repo.git('config', 'core.hooksPath', '.githooks');
-    chmodSync(join(repo.root, '.githooks', 'pre-commit'), 0o000);
+    const repo = repository({ '.claude/settings.json': JSON.stringify({ hooks: { PreToolUse: [{ hooks: [line('--root', broken.root, '--brief', '001')] }] } }) });
+    seen.thrown = { part: HOOKS };
     seen.kept = { answer: TOP, nth: 2, until: SIGNERS };
     const result = await cli(['doctor'], repo.root, { env: { PATH: temp() } });
     expect(result).toMatchObject({ code: 2, stdout: '' });
     expect(result.stderr).toMatch(/^spec-harness: \.spec-harness\.json is not valid JSON: .*\n$/);
     // Alone, the hook's fault ends the run, so the run above had both to choose from.
+    await settled();
     repo.write('.claude/settings.json', '{}');
     seen.kept = null;
     const alone = await cli(['doctor'], repo.root, { env: { PATH: temp() } });
     expect(alone).toMatchObject({ code: 2, stdout: '' });
-    expect(alone.stderr).toContain('EACCES');
+    expect(alone.stderr).toMatch(/^spec-harness: unexpected error: Error: cannot start git rev-parse --path-format=absolute --git-path hooks\/pre-commit\n/);
     await settled();
   });
 

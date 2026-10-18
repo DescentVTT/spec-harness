@@ -1441,6 +1441,135 @@ was:
   is asked of a line with no command. Two roots on it are refused all the
   same.
 
+*Amended again 2026-10-18.* `doctor` reads a hyphen in a matcher as the
+Claude Code on this machine reads it, and no command ends on a stack or
+fails to come back for what stands where a file is read. The first and the
+third amendments of 2026-10-14 measured five things and left them.
+*Claimed* again from them (DescentVTT/spec-harness#101 and #102, "Found and
+not fixed"): a hyphenated name in a matcher before Claude Code 2.1.195 may
+be read otherwise than `doctor` reads it; a pre-commit hook the account may
+not read, and a state directory under the git directory that is a file,
+end `doctor` and `init` on a stack; a named pipe where a settings file is
+expected is read without end; a `core.hooksPath` that names a file is given
+the reason for a git older than 2.31; and where an array for a matcher
+unloads a settings file, `doctor`'s first line advises `init --write`,
+which then only advises. *Measured* through the launcher of 0.18.0 and of
+this change, taking turns, in scratch repositories with a brief that
+protects a file: on Windows 11 (Node 24.18.1, Git for Windows 2.55, a
+`claude` on `PATH` made up, a shim whose package declares the release,
+never run), and for what needs a mode or a named pipe in a container as an
+ordinary account (Linux, Node 24.21, git 2.47.3). Claude Code's changelog
+was read again on 2026-10-18 (<https://code.claude.com/docs/en/changelog>,
+2.1.195, and the same entry in the `CHANGELOG.md` of Claude Code's
+repository), and has among that release's fixes hook matchers with
+hyphenated identifiers "accidentally substring-matching", which now match
+exactly; its examples are `code-reviewer` and `mcp__brave-search`.
+
+| What stands, and the release on `PATH` | 0.18.0 | Now |
+| --- | --- | --- |
+| a line under `Edit\|Write\|my-tool`, `Edit\|my-tool`, `Write\|my-tool` or `Edit\|Write\|NotebookEdit\|my-tool`, under 2.1.190 or 2.1.194 | guards the names it lists; exit 0 | *cannot tell*, with the release and why; exit 0, and 1 under `--strict`; `init` keeps the line |
+| the same, with no `claude` on `PATH` | guards the names it lists; exit 0, and 1 under `--strict` for the release | *cannot tell*; the same exit codes |
+| the same, under 2.1.195 | guards the names it lists | the same |
+| `Edit, Write, my-tool` under 2.1.194 | guards `Edit` and `Write` | *cannot tell* |
+| `Edit, Write, my-tool` under 2.1.190, and with no `claude` | not the guard, and *cannot tell* | the same |
+| `Bash\|my-tool`, `mcp__brave-search`, under any release or none | not the guard; exit 0 | the same |
+| `init`'s matcher, under any release or none | guards | the same |
+| a pre-commit hook file of mode 000: git skips it with a hint and commits | `doctor` and `init`: `unexpected error: Error: EACCES` and a stack, exit 2 | `cannot be read (EACCES: ...), and is not executable, so git skips it`; `doctor` exit 0, `init` advises |
+| the same, of mode 111 or 333: git runs it, `/bin/sh: 0: cannot open .git/hooks/pre-commit: Permission denied`, and the commit stops | the same stack | *cannot tell* whether it runs spec-harness; `doctor` exit 0, and 1 under `--strict`; `init` advises |
+| `.git/spec-harness` a file | `escalate --list`, `--show`, a request, and `rule`: `unexpected error: Error: ENOTDIR` and a stack, exit 2; `doctor`, `init`, `context`, `guard`, `rulings`, `premises` and the hook as without it; the server's `request_escalation` a tool error in Node's words | `.git/spec-harness is not a directory, where spec-harness keeps its state in one: move it away, and run the command again`, exit 2; the server's tool error in the same words |
+| `.git/spec-harness/escalations` a file | the same, EEXIST on Windows | the same line, naming `escalations` |
+| a named pipe at `.claude/settings.json`, `.claude/settings.local.json`, the user's `settings.json`, `.mcp.json` or `known_marketplaces.json` | `doctor` and `init` do not come back in 20 s; the hook as without it | each comes back, the file read as one that cannot be read as JSON |
+| a named pipe at `.spec-harness.json` | no command comes back, the hook before a write among them | `.spec-harness.json is neither a file nor a directory, not a configuration file`, exit 2, from every command and the hook |
+| a named pipe at `.spec-brief.json` | `doctor`, `init` and the hook do not come back | `init` comes back; `doctor` and the hook wait on spec-brief, which does not |
+| a `core.hooksPath` that names a file: `rev-parse --git-path` exits 128, `fatal: Invalid path '.../hooksfile/pre-commit': Not a directory`, and a commit runs no hook | `where git runs its hooks cannot be told: git does not say where they are; spec-harness needs git 2.31 or later`, exit 0; `init` advises the same | `... cannot be told: git rev-parse --git-path hooks/pre-commit failed: fatal: Invalid path '...': Not a directory`, exit 0; `init` advises the same |
+| an array under `PreToolUse` in `.claude/settings.json`, and no line of the hook | `claude  neither ... guards no write: run spec-harness init --write, or install the plugin`; `init --write` then advises the array and writes no hook | the first line advises the array and its mend, then `init --write`; `init` as before |
+| the same array in the user's settings, or under `PostToolUse` | `run spec-harness init --write`, which writes the hooks | the same |
+
+So four claims hold, and one in part: a state directory that is a file
+ends no `doctor` and no `init`; it ends `escalate` and `rule`, as the
+amendment that left it had it. A named pipe holds more than a settings
+file: the servers' file, Claude Code's record of marketplaces, and
+`.spec-harness.json`, under which every command, the hook among them, did
+not come back.
+
+- **A hyphen in a matcher of names is read as the release on `PATH` reads
+  it, or cannot be told.** The changelog says that such a matcher matched
+  as a substring, and not how the rest of it was read: the names it lists
+  matched exactly but the hyphenated one, which is in no writing tool's
+  name; the matcher read as a pattern, which matches anywhere in a tool's
+  name, so that `Edit` matches `NotebookEdit` too; or its whole text found
+  in a tool's name, which no writing tool's holds, since none has a hyphen.
+  Which it was is not on the page, and no Claude Code was run. So from
+  2.1.195 on a matcher of names is the names it lists, as every release was
+  read before; under 2.1.139 to 2.1.194, and where the release cannot be
+  told, a matcher of names with a hyphen in one is read as the three agree,
+  and is *cannot tell* where they differ: said with the release and with
+  what it is from 2.1.195 on, never fine, a failure under `--strict`, and a
+  line `init` writes no hook beside. Where the three come to no tool that
+  writes, `Bash|my-tool`, nothing turns on the release and nothing is said.
+  A comma beside a hyphen under a release before 2.1.191 is read by the
+  comma, as the amendment of 2026-10-14 has it, and from 2.1.191 to 2.1.194
+  by the hyphen. `doctor` asks the release where something wires the guard,
+  as before, and `init` where what it reads of a line turns on it.
+- **Only a file is read where a file is expected.** A settings file of the
+  three, `.mcp.json` and the record of marketplaces that is neither a file
+  nor a directory is read as one that cannot be read as JSON, as a
+  directory is (ADR-0012, Consequences), and `.spec-harness.json` that is
+  neither is refused in a line, exit 2, as one that is a directory is, by
+  every command and by the hook, before a write as after one, which holds
+  the write as a configuration that does not load does.
+- **A hook file the account may not read is said by what git does with
+  it.** Where git may not execute it, it skips it with a hint and commits
+  (mode 000): said, and fails nothing. Where it may (111, 333), git runs it,
+  and the shell it starts a script with cannot read it either and stops the
+  commit; a program would run unread, and which it is cannot be read: *cannot
+  tell*, never fine, a failure under `--strict`. `init` advises in the same
+  words and writes nothing over it. `--format json` has the `gitHook.state`
+  `unreadable`.
+- **A path under the git directory where the harness keeps its state that
+  is no directory is named in a line** (ADR-0003): Node refuses the
+  directory with ENOTDIR where the path above is a file and EEXIST where the
+  path itself is, and the harness finds which step stands in the way and
+  says it, exit 2, where Node's words and a stack sent a person looking for
+  a defect. The server answers the tool call with the same words.
+- **git's own words where it names no hook.** Under a `core.hooksPath` that
+  names a file, `rev-parse --git-path hooks/pre-commit` exits 128 with
+  `fatal: Invalid path '.../hooksfile/pre-commit': Not a directory`, and a
+  commit runs no hook. `doctor` and `init` say that where git runs its hooks
+  cannot be told, with git's first line, and fail nothing for it, as
+  before.
+- **The advice is the one at the end.** Where an array unloads the
+  project's `.claude/settings.json`, the file `init` writes its hooks into,
+  and nothing wires the guard, `doctor`'s first line advises the array, its
+  mend and then `init --write`, where it advised `init --write`, which wrote
+  no hook there and advised the array. So does the line for a plugin that
+  is not on this machine. An array in a settings file of the person's own
+  unloads that file alone, and changes nothing here. `--format json` gains
+  `claudeCode.unloaded`, the event and the array, or `null`; no
+  `schemaVersion` moves.
+- **The hook answers no line differently but the configuration's pipe.**
+  The 52 lines of the amendment before this one were handed to the hook
+  through the launcher of 0.18.0 and of this change on Windows, 364 runs,
+  and the exit code and both streams were the same in every run. On Linux
+  a named pipe at `.spec-harness.json` is now a configuration that does not
+  load, exit 2, which holds the write, where the hook did not come back.
+
+An exit code that can change for a tree that passed is a minor release
+(spec-core's ADR-0009). What was measured for this and left as it was:
+
+- **A named pipe at `.spec-brief.json`.** The harness reads it as no file
+  now, and spec-brief, which every command that names a brief asks, reads
+  it as its configuration and does not come back; neither does the command
+  that waits on it, the hook among them. That is spec-brief's to read, and a
+  budget on a sibling's run is a change of its own (ADR-0002).
+- **`.spec-harness.json` the account may not read** is refused in a line,
+  exit 2, in words that call it JSON that is not valid.
+- **A brief's file or a document a brief cites that is a named pipe** is
+  read as it was: a repository holds no named pipe, and spec-brief reads a
+  brief's file first.
+- **On Windows** a hook file the account may not read was not measured:
+  that is an access list, which this was not run to change.
+
 *Amended a fourth time 2026-10-18.* **The hook says, as a session starts,
 what would hold every write of it.** *Claimed* by the evaluation of a
 consumer's request in round 24: nothing runs at session start, and a

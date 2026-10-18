@@ -21,7 +21,7 @@ import type { ArchiveReason, AssertionOutcome, AuditInput, AuditReport, Unreadab
 import { SiblingOutputError } from './briefs.js';
 import { sameId } from './branch.js';
 import {
-  commasUnder,
+  arrayMatcher,
   enabledPlugin,
   exportedFile,
   handedLines,
@@ -30,6 +30,7 @@ import {
   isStarted,
   loadsPlugin,
   MARKETPLACE_REGISTRY,
+  matchingUnder,
   patternReader,
   pluginMarketplace,
   pluginPresence,
@@ -515,13 +516,15 @@ export async function claudeCodeWiring(root: string, io: CliIO, pattern: Pattern
   // A line under SessionStart is the hook's by the hook's own reading of it, as any line is.
   const isHook = (words: readonly string[]): boolean => claudeHookLine(words, parseOptions, root, (path) => isDirectory(resolve(root, path))) !== null;
   const sessionStart = sources.some(({ settings }) => startsSessions(settings, isHook));
+  // init writes its hooks into the project's file alone, and none where an array unloads it.
+  const unloaded = arrayMatcher(sources.find(({ file }) => file === PROJECT_SETTINGS)!.settings);
   const under = (release: ClaudeCodeCheck | null): ClaudeCodeWiring => {
-    const lines = reportHooks(sources, root, (words) => read.get(JSON.stringify(words))!, pattern, commasUnder(release));
+    const lines = reportHooks(sources, root, (words) => read.get(JSON.stringify(words))!, pattern, matchingUnder(release));
     // A line Claude Code starts for no write, before one or after, is in no
     // one's way: it is said, and the file is not counted for it.
     const hooks = sources.map(({ file }) => file).filter((file) => lines.some((line) => line.file === file && (isStarted(line.before) || isStarted(line.after))));
     // In the order a document has them, which a script may compare by the byte.
-    return { plugin, presence, hooksOff: hooksDisabled(sources), hooks, lines, server, sessionStart, release };
+    return { plugin, presence, hooksOff: hooksDisabled(sources), hooks, lines, server, sessionStart, release, unloaded };
   };
   const untold = under(null);
   const asked = reported ? wiringState(untold) !== 'none' : JSON.stringify(untold.lines) !== JSON.stringify(reportHooks(sources, root, (words) => read.get(JSON.stringify(words))!, pattern));

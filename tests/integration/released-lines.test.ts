@@ -20,7 +20,7 @@ import { join } from 'node:path';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { arrayMatcher, commasUnder, GIT_HOOK_LINE, GUARD_HOOK, mcpServer, mergeClaudeSettings, PRE_COMMIT, PROJECT_DIR, PROJECT_DIR_OR_HERE, reportHooks, withSessionStart } from '../../src/configure.js';
+import { arrayMatcher, GIT_HOOK_LINE, GUARD_HOOK, matchingUnder, mcpServer, mergeClaudeSettings, PRE_COMMIT, PROJECT_DIR, PROJECT_DIR_OR_HERE, reportHooks, withSessionStart } from '../../src/configure.js';
 import { CALLABLE_TOOLS, WRITING_TOOLS } from '../../src/hooks.js';
 import { claudeHookLine, refusal, twoValues } from '../../src/usage.js';
 import { parseOptions } from '../../src/workspace.js';
@@ -488,16 +488,17 @@ describe("doctor, of the hook's line in Claude Code's settings", () => {
     for (const tool of CALLABLE_TOOLS) expect(MATCHER.split('|'), tool).toContain(tool);
   });
 
-  it('reads the matcher every release wrote the same under every release of Claude Code, and under none: one string, with no comma in it', () => {
-    // A comma separates names only from Claude Code 2.1.191 on, and an array for a matcher unloads a file's hooks (ADR-0005): neither is in a line a release wrote.
+  it('reads the matcher every release wrote the same under every release of Claude Code, and under none: one string, with no comma and no hyphen in it', () => {
+    // A comma separates names only from Claude Code 2.1.191 on, a hyphenated name is matched exactly only from 2.1.195 on, and an array for a matcher unloads a file's hooks (ADR-0005): none is in a line a release wrote.
     const plugin: unknown = JSON.parse(readFileSync(join(ROOT, 'hooks', 'hooks.json'), 'utf8'));
     for (const settings of [mergeClaudeSettings({}), plugin]) {
-      for (const release of [{ state: 'ok', version: '2.1.139' }, { state: 'ok', version: '2.1.190' }, { state: 'ok', version: '2.1.191' }, { state: 'outdated', version: '2.0.0' }, { state: 'unknown', reason: 'no claude is on PATH' }, null] as const) {
-        expect(reportHooks([{ file: '.claude/settings.json', settings }], '/the/project', read, undefined, commasUnder(release)), JSON.stringify(release)).toEqual([RELEASED]);
+      for (const release of [{ state: 'ok', version: '2.1.139' }, { state: 'ok', version: '2.1.190' }, { state: 'ok', version: '2.1.191' }, { state: 'ok', version: '2.1.194' }, { state: 'ok', version: '2.1.195' }, { state: 'outdated', version: '2.0.0' }, { state: 'unknown', reason: 'no claude is on PATH' }, null] as const) {
+        expect(reportHooks([{ file: '.claude/settings.json', settings }], '/the/project', read, undefined, matchingUnder(release)), JSON.stringify(release)).toEqual([RELEASED]);
       }
       expect(arrayMatcher(settings)).toBeNull();
     }
     expect(MATCHER).not.toContain(',');
+    expect(MATCHER).not.toContain('-');
   });
 
   it('says what the hook does: a write refused where it says the line guards, and the hook\'s own words where it says the guard is off', async () => {
