@@ -144,6 +144,20 @@ describe('the hook', () => {
     expect(ofThem(ruled)).toEqual(['round', 'reader', 'node:crypto']);
   });
 
+  it('loads nothing after a write it answers from what the run before kept, or where nothing can be said', async () => {
+    const repo = onBrief();
+    const ask = (event: string, path: string): string =>
+      JSON.stringify({ session_id: 'loads', tool_use_id: 'toolu_loads', hook_event_name: event, tool_name: 'Edit', tool_input: { file_path: join(repo.root, ...path.split('/')) }, cwd: repo.root });
+    const before = await fresh(['hook', 'claude'], repo.root, { env: { CLAUDE_PROJECT_DIR: repo.root }, stdin: ask('PreToolUse', 'README.md') });
+    expect(ofThem(before)).toEqual(['round']);
+    const after = await fresh(['hook', 'claude'], repo.root, { env: { CLAUDE_PROJECT_DIR: repo.root }, stdin: ask('PostToolUse', 'README.md') });
+    expect(after.stdout).toContain('README.md is outside brief 001');
+    expect(after.loaded).toEqual([]);
+    // Under outOfScope deny, with nothing kept.
+    repo.write('.spec-harness.json', JSON.stringify({ outOfScope: 'deny' }));
+    expect((await hook(repo, 'PostToolUse', 'README.md')).loaded).toEqual([]);
+  });
+
   it('loads nothing more than the command line where it decides nothing', async () => {
     const repo = repository({});
     const outside = temp();

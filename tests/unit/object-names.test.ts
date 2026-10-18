@@ -137,16 +137,16 @@ describe('the tool a Claude Code hook names', () => {
   it('writes no file when it is a name every object answers to, as any tool that is not a writing one', () => {
     for (const tool of [...NAMES, PLAIN]) {
       const request = parseClaudeHook(JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: tool, cwd: '/repo', tool_input: { file_path: '/repo/a.ts' } }));
-      expect(request, tool).toEqual({ event: 'PreToolUse', tool, cwd: '/repo', paths: [] });
+      expect(request, tool).toEqual({ event: 'PreToolUse', tool, cwd: '/repo', paths: [], session: null, call: null });
     }
   });
 
   it('reads no path from a field so named, and still reads the three it knows', () => {
     for (const field of [...NAMES, PLAIN]) {
       const input = `{ "hook_event_name": "PreToolUse", "tool_name": "Write", "cwd": "/repo", "tool_input": { "${field}": "/repo/secret.ts", "file_path": "/repo/a.ts" } }`;
-      expect(parseClaudeHook(input), field).toEqual({ event: 'PreToolUse', tool: 'Write', cwd: '/repo', paths: ['/repo/a.ts'] });
+      expect(parseClaudeHook(input), field).toEqual({ event: 'PreToolUse', tool: 'Write', cwd: '/repo', paths: ['/repo/a.ts'], session: null, call: null });
       const only = `{ "hook_event_name": "PreToolUse", "tool_name": "Write", "cwd": "/repo", "tool_input": { "${field}": { "file_path": "/repo/secret.ts" } } }`;
-      expect(parseClaudeHook(only), field).toEqual({ event: 'PreToolUse', tool: 'Write', cwd: '/repo', paths: [] });
+      expect(parseClaudeHook(only), field).toEqual({ event: 'PreToolUse', tool: 'Write', cwd: '/repo', paths: [], session: null, call: null });
     }
   });
 });

@@ -13,7 +13,7 @@ import { delimiter, dirname, join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { PRE_COMMIT } from '../../src/configure.js';
-import { brief, BRIEF_FILE, cleanup, cli, installHarness, parsed, repository, ROOT, temp, type Repository } from './helpers.js';
+import { brief, BRIEF_FILE, cleanup, cli, install, installFake, installHarness, parsed, repository, ROOT, temp, type Repository } from './helpers.js';
 
 afterAll(cleanup);
 
@@ -30,7 +30,7 @@ const REFUSED = [
 ].join('\n');
 /** What the hook says where the project's install is not in the work tree: the script, the work tree as sh spells it, and what to do. */
 const NOT_INSTALLED = new RegExp(
-  `^spec-harness: ${SCRIPT.replaceAll('.', '\\.')} is not in \\S.*, the work tree git commits in: install the project's dependencies there, as with npm ci, and commit again\\n$`,
+  `^spec-harness: ${SCRIPT.replaceAll('.', '\\.')} is not in \\S.*, the work tree git commits in, nor in its repository's main work tree: install the project's dependencies there, as with npm ci, and commit again\\n$`,
 );
 
 /** The hook's `node` is this Node, found first on PATH, as a person's is. */
@@ -103,7 +103,7 @@ describe('the pre-commit hook init writes, run by git', () => {
     expect(commit(join(repo.root, 'src', 'db'))).toEqual({ code: 1, stdout: '', stderr: REFUSED });
   });
 
-  it('runs the install of a linked worktree, where git runs the shared hook, and stops the commit where there is none', async () => {
+  it("runs the install of a linked worktree, where git runs the shared hook, and the main work tree's where it has none", async () => {
     const repo = await guarded();
     const linked = join(temp(), 'linked');
     repo.git('worktree', 'add', '-q', '-b', 'brief/001-linked', linked);
@@ -113,20 +113,71 @@ describe('the pre-commit hook init writes, run by git', () => {
       spawnSync('git', ['add', path], { cwd: linked });
     };
     const before = head(linked);
-    // The main work tree's install is not this work tree's: the hook says so, and the commit waits.
-    change('src/auth/a.ts', 'linked;\n');
-    const missing = commit(linked);
-    // git's own code for a commit its hook stopped, whatever the hook exited with.
-    expect(missing.code).toBe(1);
-    expect(missing.stdout).toBe('');
-    expect(missing.stderr).toMatch(NOT_INSTALLED);
-    expect(missing.stderr).toContain('linked, the work tree git commits in');
-    expect(head(linked)).toBe(before);
-    // Installed there, the same hook file guards that work tree.
-    installHarness(linked);
-    expect(commit(linked)).toEqual({ code: 0, stdout: '', stderr: '' });
+    // No install in this work tree: the main work tree's checks it, by this work tree's branch and brief.
     change('src/db/schema.ts', 'changed;\n');
-    expect(commit(join(linked, 'src'))).toEqual({ code: 1, stdout: '', stderr: REFUSED });
+    expect(commit(linked)).toEqual({ code: 1, stdout: '', stderr: REFUSED });
+    expect(head(linked)).toBe(before);
+    spawnSync('git', ['reset', '-q', '--hard'], { cwd: linked });
+    change('src/auth/a.ts', 'linked;\n');
+    expect(commit(linked)).toEqual({ code: 0, stdout: '', stderr: '' });
+    expect(head(linked)).not.toBe(before);
+    // An install of its own is the one run, whatever the main work tree has.
+    mkdirSync(join(linked, 'node_modules', '@descent-vtt', 'spec-harness', 'bin'), { recursive: true });
+    writeFileSync(join(linked, SCRIPT), "process.stderr.write('the linked install\\n');\nprocess.exit(2);\n");
+    change('src/auth/a.ts', 'linked again;\n');
+    expect(commit(join(linked, 'src'))).toEqual({ code: 1, stdout: '', stderr: 'the linked install\n' });
+  });
+
+  it('stops the commit in a linked worktree where neither it nor the main work tree has the install', async () => {
+    const repo = repository({ [BRIEF_FILE]: brief({ affected: ['src/auth/**'], protected: ['src/db/**'] }), 'src/auth/a.ts': 'a;\n' });
+    repo.write('.git/hooks/pre-commit', PRE_COMMIT);
+    chmodSync(join(repo.root, '.git', 'hooks', 'pre-commit'), 0o755);
+    const linked = join(temp(), 'linked');
+    repo.git('worktree', 'add', '-q', '-b', 'brief/001-linked', linked);
+    writeFileSync(join(linked, 'src', 'auth', 'a.ts'), 'linked;\n');
+    spawnSync('git', ['add', '-A'], { cwd: linked });
+    const before = head(linked);
+    const stopped = commit(linked);
+    // git's own code for a commit its hook stopped, whatever the hook exited with.
+    expect(stopped.code).toBe(1);
+    expect(stopped.stdout).toBe('');
+    expect(stopped.stderr).toMatch(NOT_INSTALLED);
+    expect(stopped.stderr).toContain('linked, the work tree git commits in');
+    expect(head(linked)).toBe(before);
+  });
+  it("checks a linked worktree with no install by the main work tree's siblings too, where no configuration names them", async () => {
+    const repo = repository({ [BRIEF_FILE]: brief({ affected: ['src/auth/**'], protected: ['src/db/**'] }), '.gitignore': 'node_modules/\n', 'src/db/schema.ts': 'table;\n' }, null);
+    installHarness(repo.root);
+    install(repo.root, 'spec-brief');
+    repo.write('.git/hooks/pre-commit', PRE_COMMIT);
+    chmodSync(join(repo.root, '.git', 'hooks', 'pre-commit'), 0o755);
+    const linked = join(temp(), 'linked');
+    repo.git('worktree', 'add', '-q', '-b', 'brief/001-linked', linked);
+    writeFileSync(join(linked, 'src', 'db', 'schema.ts'), 'changed;\n');
+    spawnSync('git', ['add', '-A'], { cwd: linked });
+    expect(commit(linked)).toEqual({ code: 1, stdout: '', stderr: REFUSED });
+    // doctor there says whose install it read: the main work tree's, as git names its top.
+    type Rows = { root: string; siblings: { tool: string; state: string; elsewhere: string | null; detail: string }[] };
+    const main = parsed<Rows>(await cli(['doctor', '--format', 'json'], repo.root));
+    expect(main.siblings.find((sibling) => sibling.tool === 'spec-brief')).toMatchObject({ state: 'found', elsewhere: null });
+    expect(main.siblings.find((sibling) => sibling.tool === 'spec-brief')?.detail).not.toContain('the install of');
+    const there = parsed<Rows>(await cli(['doctor', '--format', 'json'], linked));
+    const row = there.siblings.find((sibling) => sibling.tool === 'spec-brief');
+    expect(row).toMatchObject({ state: 'found', elsewhere: main.root });
+    expect(row?.detail.endsWith(`, the install of ${main.root}: this work tree has none of its own)`)).toBe(true);
+    expect(there.siblings.find((sibling) => sibling.tool === 'spec-guard')).toMatchObject({ state: 'absent', elsewhere: null });
+    // One too old there is said with whose install it is, and fails doctor, as it does in the main work tree.
+    installFake(repo.root, 'spec-guard', JSON.stringify({ version: '0.11.0' }));
+    const outdated = await cli(['doctor', '--format', 'json'], linked);
+    expect(outdated.code).toBe(1);
+    expect(parsed<Rows>(outdated).siblings.find((sibling) => sibling.tool === 'spec-guard')).toEqual({
+      tool: 'spec-guard',
+      state: 'outdated',
+      minimum: '0.12.0',
+      version: '0.11.0',
+      elsewhere: main.root,
+      detail: `spec-guard 0.11.0 is installed here; spec-harness needs 0.12.0 or later: npm install --save-dev @descent-vtt/spec-guard@latest, the install of ${main.root}: this work tree has none of its own`,
+    });
   });
 
   it('guards each repository that shares a hooks directory by its own install, and stops a commit in one that has none', async () => {

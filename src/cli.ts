@@ -19,14 +19,17 @@
  */
 
 import { SiblingOutputError } from './briefs.js';
-import { ConfigError, SIBLINGS } from './config.js';
+import { CONFIG_FILE, ConfigError, SIBLINGS, SPEC_BRIEF_CONFIGS } from './config.js';
 import type { ClaudeCodeWiring } from './configure.js';
-import { isDirectory, StateError } from './fs.js';
+import { dirname, join } from 'node:path';
+
+import { gitDirectories, holdsGit, isDirectory, keepCall, loadConfig, realSpelling, repositoryPath, StateError, takeCall } from './fs.js';
 import { GitError, show, stagedChanges } from './git.js';
 import type { DocumentReader } from './document.js';
 import type { Decision } from './guard.js';
-import { claudeResponse, gitResponse, parseClaudeHook, type HookRequest } from './hooks.js';
+import { afterResponse, callFile, callRecord, claudeResponse, gitResponse, keptCall, parseClaudeHook, warningsKept, warningsOf, type CallRecord, type HookRequest, type HookResponse } from './hooks.js';
 import type { Base } from './round.js';
+import type { BriefRow } from './types.js';
 import { SiblingError } from './siblings.js';
 import { emptyValue, heldHookLine, isBlank, isClaudeHook, readHookLine, refusal, twoValues, unreadHookLine, type Command, type LineFault } from './usage.js';
 import { CLAUDE_CODE_MINIMUM, MINIMUM_VERSIONS, type ClaudeCodeCheck } from './versions.js';
@@ -37,7 +40,11 @@ import {
   EXIT_ERROR,
   EXIT_FAILED,
   EXIT_OK,
+  findTree,
+  foundCommonDir,
   json,
+  MAIN_INSTALL,
+  openFound,
   openWorkspace,
   parseOptions,
   UsageError,
@@ -128,12 +135,25 @@ async function decisionsFor(
   io: CliIO,
   given: readonly string[],
   cwd: string,
-): Promise<{ readonly decisions: Decision[] } | { readonly problem: string }> {
+): Promise<{ readonly decisions: Decision[]; readonly brief: BriefRow | null } | { readonly problem: string }> {
   const active = await activeBrief(workspace, options, io.env);
   const { brief, note, problem } = describeActive(active);
   if (problem !== null) return { problem };
   const { checkPaths } = await import('./round.js');
-  return { decisions: await checkPaths(workspace, brief, note, given, cwd, reader, options.base) };
+  return { decisions: await checkPaths(workspace, brief, note, given, cwd, reader, options.base), brief };
+}
+
+/**
+ * Whether a decision is of a file the answer after the write is made from:
+ * the configuration, spec-brief's, the brief, or a file beside it in the
+ * briefs' directory, which spec-brief reads too. A call that writes one is
+ * decided again after the write, so that what the write changed is read
+ * (ADR-0002).
+ */
+function decidesAnswers(decision: Decision, brief: BriefRow | null): boolean {
+  if (decision.path === CONFIG_FILE || SPEC_BRIEF_CONFIGS.includes(decision.path)) return true;
+  if (brief === null) return false;
+  return decision.path === brief.file || decision.path.startsWith(`${dirname(brief.file)}/`);
 }
 
 const SYMBOL: Record<Decision['verdict'], string> = { allow: 'ok     ', warn: 'warning', ask: 'ask    ', deny: 'refused' };
@@ -222,6 +242,94 @@ async function unreadLine(said: string, io: CliIO): Promise<number> {
   return guardOff(io, unreadHookLine(said).fault);
 }
 
+/**
+ * Whether a work tree other than the one whose top is `top` may hold `cwd`:
+ * `cwd` is outside it, or a `.git` stands in a directory between the two,
+ * where a linked worktree, a submodule or a repository of its own starts.
+ * Where neither is so, `cwd` is in that work tree, and git is asked nothing
+ * more: a session works at its project's top, or below it, for nearly every
+ * write. Answering that one may is what git is then asked, so the mutant
+ * that always answers so is equivalent, at the cost of a process, and so
+ * is each that only answers so more often: a slice one short reaches the
+ * top itself, which holds a `.git`, and a part named in place of none is
+ * a directory no top holds.
+ */
+function mayBeElsewhere(cwd: string, top: string): boolean {
+  const path = repositoryPath(cwd, top, cwd);
+  if (path === null) return true;
+  const parts = path === '' ? [] : path.split('/');
+  return parts.some((_, index) => holdsGit(join(top, ...parts.slice(0, index + 1))));
+}
+
+/**
+ * The work trees a write is decided in, each with the paths it decides
+ * (ADR-0005). The repository is the one the hook's root names, as before,
+ * and so is the work tree, but where the question's `cwd` is in another
+ * work tree of that repository, linked or main, by the git directory the
+ * two share: there a session works in a worktree while Claude Code names
+ * the project it started in, and the hook decided by the project's branch,
+ * which named no brief, so a protected write passed with no word. That work
+ * tree decides the paths it holds, by its branch, its briefs and its
+ * configuration, with its siblings looked for in its install and then the
+ * project's. A path it does not hold is decided as before, by the work tree
+ * the root names: a write to the project's own file from a worktree is
+ * refused where it was. Where both hold a path, one is inside the other,
+ * and the inner one holds it as git reads it. A `cwd` in another
+ * repository, or in none, leaves every path where it was.
+ */
+async function writesBy(named: Workspace, cwd: string | null, paths: readonly string[], io: CliIO): Promise<{ readonly workspace: Workspace; readonly paths: readonly string[] }[]> {
+  const asBefore = [{ workspace: named, paths }];
+  if (cwd === null || !mayBeElsewhere(cwd, named.root)) return asBefore;
+  const found = await findTree(cwd);
+  // The project's own work tree, found again, would decide every path the
+  // same way once more: the check saves reading its configuration twice, and
+  // its mutant is equivalent.
+  if (found === null || found.root === named.root) return asBefore;
+  const common = await foundCommonDir(found);
+  // git names a common directory wherever it names a top, so `null` is
+  // there for the type.
+  if (common === null || realSpelling(common) !== realSpelling(named.commonDir)) return asBefore;
+  const inner = repositoryPath(found.root, named.root, cwd) !== null;
+  const holds = (path: string): boolean => repositoryPath(path, found.root, cwd) !== null && (inner || repositoryPath(path, named.root, cwd) === null);
+  const own = paths.filter(holds);
+  if (own.length === 0) return asBefore;
+  const workspace = await openFound(found, io, () => [named.root]);
+  const rest = paths.filter((path) => !holds(path));
+  return [{ workspace, paths: own }, ...(rest.length === 0 ? [] : [{ workspace: named, paths: rest }])];
+}
+
+/**
+ * The answer after a write, where it can be given with no process started,
+ * or `null` where it is to be decided as before (ADR-0002, ADR-0003).
+ *
+ * The git directory is the one the files at the hook's root name. What the
+ * run before the write kept for this call, if anything, is taken away as it
+ * is read, and answered from where it is this call's: the same release,
+ * session, call, tool, paths, directories, line and variables. And where
+ * nothing is kept, a run after a write says nothing but a warning outside
+ * the scope, which only `outOfScope: "warn"` decides: under `ask` or
+ * `deny` there is nothing to say, where the configuration read is the one
+ * git would have the hook read, of the work tree the session is in.
+ */
+async function answeredAfter(root: string, record: CallRecord | null, cwd: string | null, io: CliIO): Promise<HookResponse | null> {
+  const found = gitDirectories(root, io.env);
+  if (found === null) return null;
+  if (record !== null) {
+    const kept = await takeCall(found.common, callFile(record));
+    // warningsKept reads no text as no record as well: the test is there for
+    // the type, and its mutant is equivalent.
+    const warnings = kept === null ? null : warningsKept(kept, record);
+    if (warnings !== null) return afterResponse(warnings);
+  }
+  if (!found.exact || (cwd !== null && mayBeElsewhere(cwd, found.top))) return null;
+  try {
+    return (await loadConfig(found.top)).config.outOfScope === 'warn' ? null : afterResponse([]);
+  } catch {
+    // A configuration that does not load is said as it was, by the run.
+    return null;
+  }
+}
+
 async function hookCommand(options: Options, io: CliIO): Promise<number> {
   const kind = options.positionals[0];
   if (kind === 'claude') {
@@ -232,24 +340,51 @@ async function hookCommand(options: Options, io: CliIO): Promise<number> {
     const line = readHookLine(options.root, io.cwd, isDirectory);
     if (line.state === 'off') return guardOff(io, line.fault);
     const cwd = request.cwd ?? io.cwd;
+    const root = line.root ?? io.env['CLAUDE_PROJECT_DIR'] ?? cwd;
+    const record = callRecord(request, { root: line.root, brief: options.brief, base: options.base }, io.cwd, io.env, version());
+    if (request.event === 'PostToolUse') {
+      const answered = await answeredAfter(root, record, request.cwd, io);
+      if (answered !== null) {
+        io.stdout.write(answered.stdout);
+        return answered.exitCode;
+      }
+    }
     let workspace: Workspace;
     try {
-      workspace = await openWorkspace({ ...options, root: line.root ?? io.env['CLAUDE_PROJECT_DIR'] ?? cwd }, io);
+      workspace = await openWorkspace({ ...options, root }, io);
     } catch (error) {
       if (error instanceof UsageError) return EXIT_OK;
       throw error;
     }
     try {
-      const decided = await decisionsFor(workspace, options, io, request.paths, cwd);
-      if ('problem' in decided) {
-        // Exit 2 blocks the tool call, and its stderr reaches the model. Where
-        // the name stands on the hook's own line, what is wrong with it is
-        // `doctor`'s to say as well, in the same words (usage.ts).
-        io.stderr.write(`spec-harness: ${heldHookLine(decided.problem).wrong}. Fix the brief or the branch before writing.\n`);
-        return EXIT_ERROR;
+      // The answer reads a decision by its verdict, which a mutant's text
+      // put first on this list has none of: that mutant is equivalent.
+      const decisions: Decision[] = [];
+      // Whether the run after the write may answer from what this one keeps:
+      // not where a decision refuses, nor where the write is to what the
+      // answer is made from, in any work tree that decides it.
+      let keeps = true;
+      for (const part of await writesBy(workspace, request.cwd, request.paths, io)) {
+        const decided = await decisionsFor(part.workspace, options, io, part.paths, cwd);
+        if ('problem' in decided) {
+          // Exit 2 blocks the tool call, and its stderr reaches the model. Where
+          // the name stands on the hook's own line, what is wrong with it is
+          // `doctor`'s to say as well, in the same words (usage.ts).
+          io.stderr.write(`spec-harness: ${heldHookLine(decided.problem).wrong}. Fix the brief or the branch before writing.\n`);
+          return EXIT_ERROR;
+        }
+        // A line of the answer for each path, by the work tree that decided it.
+        decisions.push(...decided.decisions);
+        if (decided.decisions.some((decision) => decision.verdict === 'deny' || decidesAnswers(decision, decided.brief))) keeps = false;
       }
-      const response = claudeResponse(request.event, decided.decisions);
+      const response = claudeResponse(request.event, decisions);
       io.stdout.write(response.stdout);
+      // What the run after the write will say, kept for it where the call
+      // goes ahead: a refused call has none. It changes nothing of the
+      // answer, which is made before it is kept.
+      if (request.event === 'PreToolUse' && record !== null && keeps) {
+        await keepCall(workspace.commonDir, callFile(record), keptCall(record, warningsOf(decisions)));
+      }
       return response.exitCode;
     } catch (error) {
       if (request.event !== 'PreToolUse') throw error;
@@ -260,7 +395,10 @@ async function hookCommand(options: Options, io: CliIO): Promise<number> {
     }
   }
   if (kind === 'git') {
-    const workspace = await openWorkspace(options, io);
+    // git starts its hook at the top of the work tree it commits in, a
+    // linked worktree's own, whose install may be none: it is then checked
+    // with the main work tree's (ADR-0005).
+    const workspace = await openWorkspace(options, io, MAIN_INSTALL);
     const staged = await stagedChanges(workspace.root);
     const paths = staged.flatMap((change) => (change.from === undefined ? [change.path] : [change.from, change.path]));
     if (paths.length === 0) return EXIT_OK;
@@ -324,15 +462,19 @@ async function doctorCommand(options: Options, io: CliIO): Promise<number> {
   const { diagnoseBrief, specBriefPlugin } = round;
   const { gitHook } = setup;
   const { notFido2, readAllowedSigners } = signing;
-  const workspace = await openWorkspace(options, io);
+  // The siblings as git's hook finds them in this work tree: its own
+  // install, and in a linked worktree with none the main work tree's.
+  const workspace = await openWorkspace(options, io, MAIN_INSTALL);
   const rows = SIBLINGS.map((name) => {
     const sibling = workspace.siblings.locate(name);
     const row = { tool: name, state: sibling.kind, minimum: MINIMUM_VERSIONS[name] };
-    if (sibling.kind === 'absent') return { ...row, version: null, detail: sibling.reason };
-    if (sibling.kind === 'outdated') return { ...row, version: sibling.version, detail: sibling.reason };
+    if (sibling.kind === 'absent') return { ...row, version: null, elsewhere: null, detail: sibling.reason };
+    const elsewhere = sibling.elsewhere ?? null;
+    const whose = elsewhere === null ? '' : `, the install of ${elsewhere}: this work tree has none of its own`;
+    if (sibling.kind === 'outdated') return { ...row, version: sibling.version, elsewhere, detail: `${sibling.reason}${whose}` };
     const command = sibling.command.join(' ');
-    const detail = sibling.version === null ? `${command} (named in .spec-harness.json; its version is not checked)` : `${command} (${sibling.version})`;
-    return { ...row, version: sibling.version, detail };
+    const detail = sibling.version === null ? `${command} (named in .spec-harness.json; its version is not checked)` : `${command} (${sibling.version}${whose})`;
+    return { ...row, version: sibling.version, elsewhere, detail };
   });
   const signersFile = workspace.config.rulings.allowedSigners;
   // Five things that wait on the work tree and on nothing of one another,
