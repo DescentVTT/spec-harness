@@ -1,0 +1,263 @@
+# Temporary: measures `hook claude` and `node -e 0` on the CI's Windows image
+# for an evaluation (round 24, section G). The pull request that carries it
+# is a draft, is closed unmerged once its log is read, and its branch deleted.
+name: g24 measure hook latency (temporary)
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  measure:
+    if: github.head_ref == 'g24/measure-hook-latency-on-windows'
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+      - run: npm ci --ignore-scripts
+      - run: npm run build
+      - name: Write the measuring scripts
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/g24"
+          cat > "$RUNNER_TEMP/g24/g24-preload.mjs" <<'G24EOF'
+          // Loaded with `node --import`, before the harness. G24_MODE=record writes down
+          // every execFile the run makes, with what it answered, into G24_TABLE;
+          // G24_MODE=replay answers each one from that table without starting a
+          // process, so a run's time is the harness's own: node, its modules, its reads
+          // and its decision, and no process.
+          import cp from 'node:child_process';
+          import { EventEmitter } from 'node:events';
+          import { readFileSync, writeFileSync } from 'node:fs';
+          import { syncBuiltinESMExports } from 'node:module';
+          import { basename } from 'node:path';
+
+          const mode = process.env.G24_MODE;
+          const tableFile = process.env.G24_TABLE;
+          const real = cp.execFile;
+          const keyOf = (file, args) => [basename(String(file)).toLowerCase(), ...(args ?? [])].join('\u0001');
+
+          if (mode === 'record') {
+            const table = {};
+            cp.execFile = function (file, args, options, callback) {
+              const key = keyOf(file, args);
+              return real.call(this, file, args, options, (error, stdout, stderr) => {
+                const code = error === null ? 0 : typeof error.code === 'number' ? error.code : -1;
+                table[key] = { code, stdout, stderr };
+                writeFileSync(tableFile, JSON.stringify(table));
+                callback(error, stdout, stderr);
+              });
+            };
+            syncBuiltinESMExports();
+          } else if (mode === 'replay') {
+            const table = JSON.parse(readFileSync(tableFile, 'utf8'));
+            cp.execFile = function (file, args, options, callback) {
+              const hit = table[keyOf(file, args)];
+              if (hit === undefined) {
+                process.stderr.write(`g24-replay: not recorded: ${keyOf(file, args).split('\u0001').join(' ')}\n`);
+                return real.call(this, file, args, options, callback);
+              }
+              const child = new EventEmitter();
+              process.nextTick(() => {
+                const error = hit.code === 0 ? null : Object.assign(new Error('replayed failure'), { code: hit.code });
+                callback(error, hit.stdout, hit.stderr);
+              });
+              return child;
+            };
+            syncBuiltinESMExports();
+          }
+          G24EOF
+          cat > "$RUNNER_TEMP/g24/g24-bench.mjs" <<'G24EOF'
+          // Times `hook claude` of a built spec-harness in two scratch projects, beside
+          // `node -e 0`, a git start, a spec-brief start and `git status`, and the same
+          // hook cases with every process answered from a recording (g24-preload.mjs).
+          // usage: node g24-bench.mjs <harness dir> <work dir> <rounds> <out.json> [preload.mjs]
+          import { execFileSync, spawnSync } from 'node:child_process';
+          import { mkdirSync, rmSync, symlinkSync, writeFileSync, readFileSync } from 'node:fs';
+          import { join, resolve, dirname } from 'node:path';
+          import { fileURLToPath, pathToFileURL } from 'node:url';
+          import { cpus, totalmem } from 'node:os';
+
+          const [harnessArg, workArg, roundsArg, outArg, preloadArg] = process.argv.slice(2);
+          const harness = resolve(harnessArg);
+          const work = resolve(workArg);
+          const rounds = Number(roundsArg);
+          const preload = resolve(preloadArg ?? join(dirname(fileURLToPath(import.meta.url)), 'g24-preload.mjs'));
+          const node = process.execPath;
+          const bin = join(harness, 'bin', 'spec-harness.js');
+          const briefBin = join(harness, 'node_modules', '@descent-vtt', 'spec-brief', 'bin', 'spec-brief.js');
+
+          rmSync(work, { recursive: true, force: true });
+          mkdirSync(work, { recursive: true });
+
+          const BRIEF = [
+            '---',
+            'status: active',
+            'affectedFiles: [src/**]',
+            'protectedFiles: [src/db/schema.ts]',
+            '---',
+            '',
+            '# 042 - Bench',
+            '',
+            '## Intent',
+            '',
+            'Time the hook.',
+            '',
+          ].join('\n');
+
+          function project(name, branch) {
+            const dir = join(work, name);
+            mkdirSync(dir, { recursive: true });
+            const git = (...args) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' });
+            git('init', '-q', '-b', 'main');
+            git('config', 'user.name', 'g24');
+            git('config', 'user.email', 'g24@example.invalid');
+            git('config', 'commit.gpgsign', 'false');
+            mkdirSync(join(dir, 'node_modules', '@descent-vtt'), { recursive: true });
+            symlinkSync(harness, join(dir, 'node_modules', '@descent-vtt', 'spec-harness'), 'junction');
+            symlinkSync(join(harness, 'node_modules', '@descent-vtt', 'spec-brief'), join(dir, 'node_modules', '@descent-vtt', 'spec-brief'), 'junction');
+            writeFileSync(join(dir, '.gitignore'), 'node_modules/\n');
+            execFileSync(node, [briefBin, 'init'], { cwd: dir, encoding: 'utf8' });
+            mkdirSync(join(dir, 'src', 'db'), { recursive: true });
+            mkdirSync(join(dir, 'briefs'), { recursive: true });
+            writeFileSync(join(dir, 'src', 'a.ts'), 'export const a = 1;\n');
+            writeFileSync(join(dir, 'src', 'db', 'schema.ts'), 'export const s = 1;\n');
+            writeFileSync(join(dir, 'notes.md'), '# notes\n');
+            writeFileSync(join(dir, 'briefs', '042_bench.md'), BRIEF);
+            git('add', '-A');
+            git('commit', '-q', '-m', 'init');
+            if (branch !== 'main') git('checkout', '-q', '-b', branch);
+            return dir;
+          }
+
+          const none = project('none', 'main');
+          const named = project('named', 'claude/brief-042-bench');
+
+          const question = (event, tool, dir, file) =>
+            JSON.stringify({
+              session_id: 'g24',
+              transcript_path: join(work, 't.jsonl'),
+              cwd: dir,
+              permission_mode: 'default',
+              hook_event_name: event,
+              tool_name: tool,
+              tool_input: file === null ? { command: 'echo hi' } : { file_path: join(dir, ...file.split('/')), old_string: 'a', new_string: 'b' },
+              ...(event === 'PostToolUse' ? { tool_response: {} } : {}),
+              tool_use_id: 'toolu_g24',
+            });
+
+          const hookCases = {
+            'hook, no brief named, before an Edit': [none, question('PreToolUse', 'Edit', none, 'src/a.ts')],
+            'hook, no brief named, after an Edit': [none, question('PostToolUse', 'Edit', none, 'src/a.ts')],
+            "hook, on a brief's branch, before an Edit in its scope": [named, question('PreToolUse', 'Edit', named, 'src/a.ts')],
+            "hook, on a brief's branch, after an Edit in its scope": [named, question('PostToolUse', 'Edit', named, 'src/a.ts')],
+            "hook, on a brief's branch, before an Edit of a protected file": [named, question('PreToolUse', 'Edit', named, 'src/db/schema.ts')],
+            "hook, on a brief's branch, after an Edit outside its scope": [named, question('PostToolUse', 'Edit', named, 'notes.md')],
+            "hook, on a brief's branch, before a Bash call (no file)": [named, question('PreToolUse', 'Bash', named, null)],
+          };
+
+          const env = (dir, extra = {}) => ({ ...process.env, CLAUDE_PROJECT_DIR: dir, ...extra });
+
+          const cases = {};
+          for (const [label, [dir, input]] of Object.entries(hookCases)) {
+            cases[label] = { cmd: node, args: [bin, 'hook', 'claude'], cwd: dir, input, env: env(dir) };
+          }
+          // Each hook case once under the recording preload, then answered from it.
+          const tables = join(work, 'tables');
+          mkdirSync(tables, { recursive: true });
+          const replayed = {};
+          let n = 0;
+          for (const [label, [dir, input]] of Object.entries(hookCases)) {
+            n += 1;
+            const table = join(tables, `${n}.json`);
+            writeFileSync(table, '{}');
+            const rec = spawnSync(node, ['--import', pathToFileURL(preload).href, bin, 'hook', 'claude'], { cwd: dir, input, env: env(dir, { G24_MODE: 'record', G24_TABLE: table }), encoding: 'utf8' });
+            const real = spawnSync(node, [bin, 'hook', 'claude'], { cwd: dir, input, env: env(dir), encoding: 'utf8' });
+            const rep = spawnSync(node, ['--import', pathToFileURL(preload).href, bin, 'hook', 'claude'], { cwd: dir, input, env: env(dir, { G24_MODE: 'replay', G24_TABLE: table }), encoding: 'utf8' });
+            const processes = Object.keys(JSON.parse(readFileSync(table, 'utf8'))).map((key) => key.split('\u0001').slice(0, 4).join(' '));
+            replayed[label] = {
+              processes,
+              real: { status: real.status, stdout: real.stdout, stderr: real.stderr },
+              recorded: { status: rec.status, stdout: rec.stdout, stderr: rec.stderr },
+              replayed: { status: rep.status, stdout: rep.stdout, stderr: rep.stderr },
+              same: real.status === rep.status && real.stdout === rep.stdout && real.stderr === rep.stderr,
+            };
+            cases[`${label}, every process answered from a recording`] = {
+              cmd: node,
+              args: ['--import', pathToFileURL(preload).href, bin, 'hook', 'claude'],
+              cwd: dir,
+              input,
+              env: env(dir, { G24_MODE: 'replay', G24_TABLE: table }),
+            };
+          }
+          cases['node -e 0'] = { cmd: node, args: ['-e', '0'], cwd: work, env: process.env };
+          cases['spec-harness --version'] = { cmd: node, args: [bin, '--version'], cwd: work, env: process.env };
+          cases['git rev-parse --show-toplevel (one git process)'] = { cmd: 'git', args: ['rev-parse', '--show-toplevel'], cwd: named, env: process.env };
+          cases['spec-brief list --archived --format json (one spec-brief process)'] = { cmd: node, args: [briefBin, 'list', '--archived', '--format', 'json', '--no-color'], cwd: named, env: process.env };
+          cases['git status --porcelain=v2 -z (the shell hook git call B proposes)'] = { cmd: 'git', args: ['status', '--porcelain=v2', '-z'], cwd: named, env: process.env };
+
+          const labels = Object.keys(cases);
+          const times = Object.fromEntries(labels.map((label) => [label, []]));
+          for (let round = 0; round < rounds; round += 1) {
+            // The cases take turns, starting one further along each round.
+            for (let i = 0; i < labels.length; i += 1) {
+              const label = labels[(i + round) % labels.length];
+              const c = cases[label];
+              const start = process.hrtime.bigint();
+              const run = spawnSync(c.cmd, c.args, { cwd: c.cwd, input: c.input ?? '', env: c.env, encoding: 'utf8', windowsHide: true, timeout: 120_000 });
+              const ms = Number(process.hrtime.bigint() - start) / 1e6;
+              if (run.error) throw run.error;
+              times[label].push(ms);
+            }
+          }
+
+          const stats = (xs) => {
+            const s = [...xs].sort((a, b) => a - b);
+            const at = (q) => s[Math.min(s.length - 1, Math.max(0, Math.ceil(q * s.length) - 1))];
+            const median = s.length % 2 === 1 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2;
+            return { n: s.length, median, p95: at(0.95), min: s[0], max: s[s.length - 1] };
+          };
+          const summary = Object.fromEntries(labels.map((label) => [label, stats(times[label])]));
+          const result = {
+            node: process.version,
+            platform: process.platform,
+            git: execFileSync('git', ['--version'], { encoding: 'utf8' }).trim(),
+            harness: JSON.parse(readFileSync(join(harness, 'package.json'), 'utf8')).version,
+            cpu: `${cpus()[0].model}, ${cpus().length} logical`,
+            memoryGB: Math.round(totalmem() / 2 ** 30),
+            rounds,
+            summary,
+            times,
+            replayed,
+          };
+          writeFileSync(resolve(outArg), JSON.stringify(result, null, 2));
+          const pad = (x) => x.toFixed(0).padStart(6);
+          console.log(`node ${result.node}, ${result.git}, spec-harness ${result.harness}, ${result.cpu}, ${result.memoryGB} GB, ${rounds} rounds, ms`);
+          console.log('median    p95    min    max  case');
+          for (const label of labels) {
+            const s = summary[label];
+            console.log(`${pad(s.median)} ${pad(s.p95)} ${pad(s.min)} ${pad(s.max)}  ${label}`);
+          }
+          for (const [label, r] of Object.entries(replayed)) {
+            console.log(`replay ${r.same ? 'same' : 'DIFFERS'}: ${label}: exit ${r.real.status}; processes: ${r.processes.length === 0 ? 'none' : r.processes.join(' | ')}`);
+          }
+          G24EOF
+      - name: Machine
+        shell: bash
+        run: |
+          node --version; git --version
+          node -e "const o=require('os'); console.log(o.cpus()[0].model, o.cpus().length, Math.round(o.totalmem()/2**30)+' GB')"
+      - name: Measure, forty rounds
+        shell: bash
+        run: |
+          node "$RUNNER_TEMP/g24/g24-bench.mjs" "$GITHUB_WORKSPACE" "$RUNNER_TEMP/g24/work" 40 "$RUNNER_TEMP/g24/out.json" "$RUNNER_TEMP/g24/g24-preload.mjs"
+          echo "g24-json-begin"
+          cat "$RUNNER_TEMP/g24/out.json"
+          echo "g24-json-end"
