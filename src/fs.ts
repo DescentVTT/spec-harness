@@ -5,7 +5,7 @@
 
 import { existsSync, realpathSync, statSync } from 'node:fs';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 import { ConfigError, CONFIG_FILE, DEFAULT_CONFIG, parseConfig, type HarnessConfig } from './config.js';
 
@@ -62,6 +62,18 @@ export function realSpelling(path: string): string {
  */
 export function isTop(directory: string, top: string): boolean {
   return realSpelling(directory).split(sep).join('/') === top;
+}
+
+/**
+ * The repository's main work tree, where git keeps the repository as that
+ * work tree's `.git`, as `git init` and `git clone` do and every linked
+ * worktree's common directory then is: `null` for a common directory of any
+ * other name, a bare repository's, a submodule's under its superproject's
+ * `modules`, or one kept apart with `--separate-git-dir`. Read from the
+ * name, with no process: it says only where an install is looked for.
+ */
+export function mainWorkTree(commonDir: string): string | null {
+  return basename(commonDir) === '.git' ? dirname(commonDir) : null;
 }
 
 /** Whether a `.git` stands in `directory`, a repository's or the file that names one, as at the top of a work tree. */

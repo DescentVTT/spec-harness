@@ -29,29 +29,42 @@ export interface SiblingRun {
 }
 
 export type Sibling =
-  /** `version` is `null` for a command `.spec-harness.json` names, whose version is not checked. */
-  | { readonly kind: 'found'; readonly command: readonly string[]; readonly version: string | null }
+  /**
+   * `version` is `null` for a command `.spec-harness.json` names, whose
+   * version is not checked. `elsewhere` is the directory whose install it
+   * is, where that is not the work tree's own.
+   */
+  | { readonly kind: 'found'; readonly command: readonly string[]; readonly version: string | null; readonly elsewhere?: string }
   | { readonly kind: 'absent'; readonly reason: string }
   /** Installed, at a version below the minimum or one that cannot be read, which is `null`. */
-  | { readonly kind: 'outdated'; readonly reason: string; readonly version: string | null };
+  | { readonly kind: 'outdated'; readonly reason: string; readonly version: string | null; readonly elsewhere?: string };
 
-/** Where a sibling is, or why it cannot be run. */
-export function locate(name: SiblingName, root: string, config: HarnessConfig): Sibling {
+/**
+ * Where a sibling is, or why it cannot be run. It is looked for in `root`'s
+ * install, then in each of `installs` in turn, and the first that has it
+ * decides, at this release's floor: a work tree with an install of its own
+ * runs it, outdated or not, and one with none is checked with the
+ * project's, as git's hook and Claude Code's are where a linked worktree has
+ * none (ADR-0005).
+ */
+export function locate(name: SiblingName, root: string, config: HarnessConfig, installs: readonly string[] = []): Sibling {
   // A command the configuration names is run as named: which package it runs,
   // and so which version, is the configuration's to say.
   const configured = config.tools[name];
   if (configured !== null) return { kind: 'found', command: configured, version: null };
-  const directory = join(root, 'node_modules', '@descent-vtt', name);
-  const bin = join(directory, 'bin', `${name}.js`);
-  if (!existsSync(bin)) {
-    return {
-      kind: 'absent',
-      reason: `${name} is not installed here: npm install --save-dev @descent-vtt/${name}, or name its command under "tools" in .spec-harness.json`,
-    };
+  for (const place of [root, ...installs]) {
+    const directory = join(place, 'node_modules', '@descent-vtt', name);
+    const bin = join(directory, 'bin', `${name}.js`);
+    if (!existsSync(bin)) continue;
+    const check = checkVersion(name, declaredVersion(join(directory, 'package.json')));
+    const where = place === root ? {} : { elsewhere: place };
+    if (!check.ok) return { kind: 'outdated', reason: check.reason, version: check.version, ...where };
+    return { kind: 'found', command: [process.execPath, bin], version: check.version, ...where };
   }
-  const check = checkVersion(name, declaredVersion(join(directory, 'package.json')));
-  if (!check.ok) return { kind: 'outdated', reason: check.reason, version: check.version };
-  return { kind: 'found', command: [process.execPath, bin], version: check.version };
+  return {
+    kind: 'absent',
+    reason: `${name} is not installed here: npm install --save-dev @descent-vtt/${name}, or name its command under "tools" in .spec-harness.json`,
+  };
 }
 
 /** The `version` a package.json declares, or `undefined` when there is no such file or it is not JSON. */
@@ -137,15 +150,16 @@ export interface Siblings {
   json(name: SiblingName, args: readonly string[]): Promise<{ readonly code: number; readonly document: unknown; readonly stderr: string } | { readonly absent: string }>;
 }
 
-export function createSiblings(root: string, config: HarnessConfig): Siblings {
+/** The siblings of the work tree at `root`, looked for in its install and then in each of `installs` (locate). */
+export function createSiblings(root: string, config: HarnessConfig, installs: readonly string[] = []): Siblings {
   const found = (name: SiblingName): readonly string[] => {
-    const sibling = locate(name, root, config);
+    const sibling = locate(name, root, config, installs);
     if (sibling.kind !== 'found') throw new SiblingError(sibling.reason);
     return sibling.command;
   };
   return {
     root,
-    locate: (name) => locate(name, root, config),
+    locate: (name) => locate(name, root, config, installs),
     async briefs() {
       const run = await runSibling(found('spec-brief'), ['list', '--archived', '--format', 'json', '--no-color'], root);
       if (run.code === 2) {
@@ -162,7 +176,7 @@ export function createSiblings(root: string, config: HarnessConfig): Siblings {
       }
     },
     async json(name, args) {
-      const sibling = locate(name, root, config);
+      const sibling = locate(name, root, config, installs);
       if (sibling.kind !== 'found') return { absent: sibling.reason };
       const run = await runSibling(sibling.command, args, root);
       return { code: run.code, document: parseJson(name, run), stderr: run.stderr };

@@ -373,6 +373,23 @@ exit code that can change for a tree that passed is a minor release
   for an event. And a second enabled plugin of the same name, of which the
   loading reference has one alone register its hooks. Neither is read.
 
+*Amended 2026-10-18.* A linked worktree with no install of its own is
+checked with the main work tree's, where the amendment of 2026-10-07 had
+each work tree guarded by its own install alone (ADR-0005, amended again
+2026-10-18, has what was measured). git still starts the pre-commit hook at
+the top of the work tree it commits in, and the hook `init` writes reads
+the script from there first. Where it is not there, the hook asks git for
+the common directory, `rev-parse --path-format=absolute --git-common-dir`,
+and where that is a work tree's `.git`, reads the script from that work
+tree, the repository's main one, where `git worktree add` was run; `hook
+git` and `doctor` look for the siblings in the same two places. Where
+neither has it, the hook says so, and now names both, and the commit waits.
+The line it runs is the line it ran, `node "$bin" hook git`, so
+`tests/integration/released-lines.test.ts` holds it as before. `init`
+writes the hook once, so a repository keeps the one its release wrote,
+which refuses such a commit, until the hook is taken away and written
+again.
+
 ## Consequences
 
 - A plugin turned on by managed settings or `--settings` is invisible to

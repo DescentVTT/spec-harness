@@ -37,6 +37,12 @@ export interface BriefRow {
   readonly waitingOn: readonly string[];
 }
 
+/** A local branch: its name, and the short name git reads as it and nothing else, as a base is written. */
+export interface LocalBranch {
+  readonly name: string;
+  readonly ref: string;
+}
+
 /** A file a range of commits changed, as `git diff --name-status` reports it. */
 export interface FileChange {
   readonly status: 'A' | 'M' | 'D' | 'R' | 'C' | 'T';

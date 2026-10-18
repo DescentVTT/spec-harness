@@ -9,8 +9,8 @@ import { parseArgs, type ParseArgsOptionsConfig } from 'node:util';
 import { findActive, type ActiveBrief, type ActiveSource } from './briefs.js';
 import { briefIdFromBranch, ciBranch } from './branch.js';
 import type { HarnessConfig } from './config.js';
-import { holdsGit, isTop, loadConfig } from './fs.js';
-import { commonDirectory, currentBranch, workTree, workTreeRoot } from './git.js';
+import { holdsGit, isTop, loadConfig, mainWorkTree } from './fs.js';
+import { commonDirectory, currentBranch, workTree, workTreeRoot, type WorkTree } from './git.js';
 import type { FindingFormat } from './formats.js';
 import { createSiblings, type Siblings } from './siblings.js';
 import type { BriefRow } from './types.js';
@@ -177,8 +177,20 @@ export interface Workspace {
   readonly cwd: string;
 }
 
-export async function openWorkspace(options: Pick<Options, 'root'>, io: CliIO): Promise<Workspace> {
-  const cwd = options.root ?? io.cwd;
+/**
+ * A work tree as the first wave of opening it found it: the directory it
+ * was asked from, its top, what one start of git said from there, and the
+ * branch where it was asked beside them.
+ */
+export interface FoundTree {
+  readonly cwd: string;
+  readonly root: string;
+  readonly tree: WorkTree | 'unread';
+  readonly early: string | null | undefined;
+}
+
+/** The work tree that holds `cwd`, or `null` where none does. */
+export async function findTree(cwd: string): Promise<FoundTree | null> {
   // Each git command is a process, a few milliseconds on Linux and a few
   // hundred on a Windows workstation, and every command opens a work tree,
   // the hook before every write among them. So the top and the common
@@ -188,8 +200,56 @@ export async function openWorkspace(options: Pick<Options, 'root'>, io: CliIO): 
   // it did: below a top it would be asked twice, and in no work tree for
   // nothing.
   const [tree, early] = await Promise.all([workTree(cwd), holdsGit(cwd) ? currentBranch(cwd) : undefined]);
-  const root = tree === 'unread' ? await workTreeRoot(cwd) : (tree?.root ?? null);
-  if (root === null) throw new UsageError(`${cwd} is not inside a git work tree; spec-harness measures rounds by their commits`);
+  if (tree === null) return null;
+  const root = tree === 'unread' ? await workTreeRoot(cwd) : tree.root;
+  return root === null ? null : { cwd, root, tree, early };
+}
+
+/**
+ * The git directory a found work tree's repository keeps, as git names it
+ * from the directory it was found from: one repository's work trees, linked
+ * and main, share it, and no two repositories do. Asked again only where
+ * the one start of git could not be read.
+ */
+export async function foundCommonDir(found: FoundTree): Promise<string | null> {
+  // Asked again from the top, git names the directory the one start named:
+  // the mutant that always asks again is equivalent, at a process's cost.
+  return found.tree === 'unread' ? commonDirectory(found.root) : found.tree.commonDir;
+}
+
+export async function openWorkspace(options: Pick<Options, 'root'>, io: CliIO, installs: Installs = NO_INSTALLS): Promise<Workspace> {
+  const cwd = options.root ?? io.cwd;
+  const found = await findTree(cwd);
+  if (found === null) throw new UsageError(`${cwd} is not inside a git work tree; spec-harness measures rounds by their commits`);
+  return openFound(found, io, installs);
+}
+
+/** The installs a work tree's siblings are looked for in after its own, given its top and its common directory (siblings.ts). */
+export type Installs = (root: string, commonDir: string) => readonly string[];
+
+/**
+ * Every command but the hooks and doctor: a work tree is checked with its
+ * own install, as it was. A name put on the list is a directory relative to
+ * where the command runs, which holds no install, so that mutant is
+ * equivalent.
+ */
+const NO_INSTALLS: Installs = () => [];
+
+/**
+ * git's hook and doctor: a linked worktree with no install of its own is
+ * checked with the main work tree's, where `git worktree add` leaves the
+ * project's `node_modules` (ADR-0005).
+ */
+export const MAIN_INSTALL: Installs = (root, commonDir) => {
+  const main = mainWorkTree(commonDir);
+  // The main work tree's own install is the one looked in first: the mutant
+  // that keeps it here as well looks in it twice and finds what it found.
+  return main === null || main === root ? [] : [main];
+};
+
+/** The rest of opening a work tree, once it is found: its common directory, its configuration and its branch. */
+export async function openFound(found: FoundTree, io: CliIO, installs: Installs = NO_INSTALLS): Promise<Workspace> {
+  const { cwd, root, tree, early } = found;
   // The common directory and the branch are asked of the root. What git
   // said from `cwd` is that answer where `cwd` is the root, the same
   // directory asked the same thing, and nowhere else. Measured with git
@@ -209,7 +269,7 @@ export async function openWorkspace(options: Pick<Options, 'root'>, io: CliIO): 
   // out, asks the forge which branch the run builds.
   const ci = checkedOut === null ? ciBranch(io.env) : null;
   const named = ci === null ? { branch: checkedOut } : { branch: ci.branch, branchSource: ci.source };
-  return { root, commonDir, config, siblings: createSiblings(root, config), ...named, cwd: io.cwd };
+  return { root, commonDir, config, siblings: createSiblings(root, config, installs(root, commonDir)), ...named, cwd: io.cwd };
 }
 
 /**
