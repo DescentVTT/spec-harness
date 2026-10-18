@@ -28,7 +28,7 @@ import type { Decision } from './guard.js';
 import { claudeResponse, gitResponse, parseClaudeHook, SESSION_START, sessionResponse, type HookRequest } from './hooks.js';
 import type { Base } from './round.js';
 import { SiblingError } from './siblings.js';
-import { emptyValue, heldHookLine, isBlank, isClaudeHook, readHookLine, refusal, unreadHookLine, type Command, type LineFault } from './usage.js';
+import { emptyValue, heldHookLine, isBlank, isClaudeHook, readHookLine, refusal, twoValues, unreadHookLine, type Command, type LineFault } from './usage.js';
 import { CLAUDE_CODE_MINIMUM, MINIMUM_VERSIONS, type ClaudeCodeCheck } from './versions.js';
 import {
   activeBrief,
@@ -100,14 +100,16 @@ Options:
   --format <fmt>      pretty or json; audit and premises also gitlab, sarif or github.
                       For every command but hook and mcp.
   --strict            Warnings fail the run. For guard, audit, premises and doctor.
-  --help, --version
+  --help, --version   One of the two: both on one line are refused.
 
 An option a command does not read, an argument it does not take, an option or an
-argument given an empty value, and a brief given both as the argument and as --brief
-are refused, exit 2, not read as if they were not there. doctor says an empty --brief
-or --base in its report. hook claude reads its line as every release has, and says a
-line it cannot read, and a --root that is not a directory, with exit 1: it refuses
-nothing for either.
+argument given an empty value, a brief given both as the argument and as --brief,
+and an option that takes one value given two that name two things are refused, exit 2,
+not read as if they were not there, and so with --help or --version on the line. The
+same value twice, as --root . --root ./, is read once. doctor says an empty --brief or
+--base in its report. hook claude reads its line as every release has, and says a line
+it cannot read, two values for one option among them, and a --root that is not a
+directory, with exit 1: it refuses nothing for either.
 
 Exit codes: 0 clean, 1 refused or found something, 2 the answer cannot be trusted.
 `;
@@ -533,16 +535,19 @@ async function dispatch(argv: readonly string[], io: CliIO): Promise<number> {
     io.stderr.write(`spec-harness: ${refused.message}\n`);
     return EXIT_ERROR;
   }
-  if (options.version) {
-    io.stdout.write(`${version()}\n`);
-    return EXIT_OK;
+  // Two values for an option that takes one: the parser kept the last, and
+  // which was meant cannot be told from the line, so it is refused as a line
+  // the parser cannot read is, and Claude Code's hook says it of its own.
+  const twice = twoValues(options, io.cwd);
+  if (twice !== null) {
+    if (isClaudeHook(options.command, options.positionals[0])) return unreadLine(twice, io);
+    io.stderr.write(`spec-harness: ${twice}; give it one\n`);
+    return EXIT_ERROR;
   }
-  if (options.help || options.command === undefined) {
-    io.stdout.write(HELP);
-    return options.help ? EXIT_OK : EXIT_ERROR;
-  }
-  const command = COMMANDS.get(options.command);
-  if (command === undefined) {
+  // A line that is wrong is refused before --help or --version answers: an
+  // answer beside it said nothing of what was wrong, exit 0, as an option no
+  // command has never was (spec-core ADR-0005).
+  if (options.command !== undefined && !COMMANDS.has(options.command)) {
     io.stderr.write(`spec-harness: unknown command "${options.command}"; see spec-harness --help\n`);
     return EXIT_ERROR;
   }
@@ -552,7 +557,15 @@ async function dispatch(argv: readonly string[], io: CliIO): Promise<number> {
     io.stderr.write(`spec-harness: ${refused}\n`);
     return EXIT_ERROR;
   }
-  return command(options, io);
+  if (options.version) {
+    io.stdout.write(`${version()}\n`);
+    return EXIT_OK;
+  }
+  if (options.help || options.command === undefined) {
+    io.stdout.write(HELP);
+    return options.help ? EXIT_OK : EXIT_ERROR;
+  }
+  return COMMANDS.get(options.command)!(options, io);
 }
 
 /**

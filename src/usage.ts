@@ -14,6 +14,9 @@
  * directory, is asked of the caller.
  */
 
+import { resolve } from 'node:path';
+
+import { sameId } from './branch.js';
 import { literal } from './literal.js';
 
 /** A command line as the parser read it; what `parseOptions` returns is one. */
@@ -22,6 +25,8 @@ export interface CommandLine {
   readonly positionals: readonly string[];
   /** The long name of every option on it, in the order given. */
   readonly given: readonly string[];
+  /** Every value of each option that takes one, by its long name, in the order given; the fields below hold the last. */
+  readonly written: Readonly<Record<string, readonly string[]>>;
   readonly brief: string | undefined;
   readonly base: string | undefined;
   readonly root: string | undefined;
@@ -44,9 +49,16 @@ interface Valued {
   readonly says: string;
 }
 
-// An option left out has no value to refuse, and a value that names something
-// is passed over as none is: the empty list is equivalent to its mutant.
-const one = (value: string | undefined): readonly string[] => (value === undefined ? [] : [value]);
+// Every value an option that takes one was given, so that an empty one is
+// refused wherever it stands: `--root "" --root .` names one directory twice
+// as the root is read, and the empty value is still the unset variable it
+// most often is. An option left out has no value to refuse, and a value that
+// names something is passed over as none is: the empty list is equivalent
+// to its mutant.
+const every =
+  (option: string) =>
+  (line: CommandLine): readonly string[] =>
+    line.written[option] ?? [];
 
 /**
  * The options that take a value, and what an empty one fails to name.
@@ -55,16 +67,49 @@ const one = (value: string | undefined): readonly string[] => (value === undefin
  * `rule` refuses by name itself.
  */
 const VALUED = literal({
-  brief: { of: (line) => one(line.brief), says: "names no brief; give it a brief's id, or leave it out for the one SPEC_BRIEF or the branch names" },
-  base: { of: (line) => one(line.base), says: 'names no commit; give it a branch or a commit, or leave it out for the configured base' },
-  root: { of: (line) => one(line.root), says: 'names no directory; give it one, or leave it out to run in the current directory' },
+  brief: { of: every('brief'), says: "names no brief; give it a brief's id, or leave it out for the one SPEC_BRIEF or the branch names" },
+  base: { of: every('base'), says: 'names no commit; give it a branch or a commit, or leave it out for the configured base' },
+  root: { of: every('root'), says: 'names no directory; give it one, or leave it out to run in the current directory' },
   path: { of: (line) => line.paths, says: 'names no file; give it the path of a file' },
-  reason: { of: (line) => one(line.reason), says: 'gives no reason; say why the round cannot be done without the file' },
+  reason: { of: every('reason'), says: 'gives no reason; say why the round cannot be done without the file' },
   option: { of: (line) => line.options, says: 'names no choice; give it "<label>: <cost>", or leave it out' },
-  recommend: { of: (line) => one(line.recommend), says: 'recommends nothing; say which option and why, or leave it out' },
-  show: { of: (line) => one(line.show), says: 'names no escalation; give it an id, as spec-harness escalate --list prints them' },
-  id: { of: (line) => one(line.id), says: "names no probe; give it a probe's id, or leave it out to run every probe" },
+  recommend: { of: every('recommend'), says: 'recommends nothing; say which option and why, or leave it out' },
+  show: { of: every('show'), says: 'names no escalation; give it an id, as spec-harness escalate --list prints them' },
+  id: { of: every('id'), says: "names no probe; give it a probe's id, or leave it out to run every probe" },
 }) satisfies Record<string, Valued>;
+
+/**
+ * Whether two values of an option that takes one ask for one thing, as the
+ * option reads them: a brief by its id as spec-brief's names are matched,
+ * space around it dropped and `12` the brief `012` (ADR-0004); a root by the
+ * directory it names from `cwd`, the one an empty root names on the hook's
+ * line among them; any other as it is written, since each is read so, a
+ * format, a probe's position, an id or text.
+ */
+function asksOne(option: string, first: string, other: string, cwd: string): boolean {
+  if (option === 'brief') return sameId(first.trim(), other.trim());
+  if (option === 'root') return resolve(cwd, first) === resolve(cwd, other);
+  return first === other;
+}
+
+/**
+ * The first option that takes one value and was given two that read as two,
+ * named with both as they were written; `null` where none was. The parser
+ * keeps the last, and the earlier went unread with no word of it:
+ * `doctor --root nowhere --root .` ran in `.`, and `--brief 404 --brief 001`
+ * was brief 001 (spec-core ADR-0005). The same value given twice, however it
+ * is spelled, is the option once, and the last is the one read. `cwd` is
+ * where a relative root is read from. A list, `--path` and `--option`, has
+ * every value it is given.
+ */
+export function twoValues(line: Pick<CommandLine, 'written'>, cwd: string): string | null {
+  for (const [option, values] of Object.entries(line.written)) {
+    const first = values[0]!;
+    const other = values.find((value) => !asksOne(option, first, value, cwd));
+    if (other !== undefined) return `--${option} is given twice, as ${JSON.stringify(first)} and as ${JSON.stringify(other)}, and one of the two would go unread`;
+  }
+  return null;
+}
 
 export type ValuedOption = keyof typeof VALUED;
 
@@ -146,6 +191,9 @@ const SHAPE = literal({
   // doctor's report.
   doctor: { options: ['brief', 'base', 'root', 'format', 'strict'], ...NO_ARGUMENT, reports: ['brief', 'base'] },
 }) satisfies Record<string, Shape>;
+
+/** The options every command answers instead of running, which no shape lists. */
+const ANSWERS: readonly string[] = ['help', 'version'];
 
 /** Every command there is: the command line dispatches on these names and no other. */
 export type Command = keyof typeof SHAPE;
@@ -264,9 +312,11 @@ export function heldHookLine(wrong: string): WritesHeld {
 
 /**
  * A line the parser refused: an option no command has, an option left
- * without its value, a `--format` or an `--at` that is none. The parser's
- * words are kept, on one line: what node says of an option that may have
- * lost its value is three.
+ * without its value, a `--format` or an `--at` that is none, `--help` beside
+ * `--version`; or a line it read with two values for an option that takes
+ * one, of which it cannot tell the one meant ({@link twoValues}). The
+ * parser's words are kept, on one line: what node says of an option that may
+ * have lost its value is three.
  */
 export function unreadHookLine(said: string): GuardOff {
   return { state: 'off', fault: { wrong: `the hook's line cannot be read (${said.split('\n').join(' ')})`, mend: 'mend it in Claude Code\'s settings, where init writes "hook claude" and nothing after it' } };
@@ -351,6 +401,9 @@ export function holderHookLine(line: Guards, tree: OtherTree, path: string): Gua
  * A line that guards says which brief it names, where it names one: the hook
  * passes over a `--brief` that is empty, as every release has, and holds
  * every write under one that names no brief, which only spec-brief can tell.
+ * A line with two values for an option that takes one is a line the hook
+ * cannot read, whichever option it is, read from `cwd` as the hook reads it
+ * from where it is started (cli.ts).
  */
 export function claudeHookLine(
   words: readonly string[],
@@ -366,6 +419,8 @@ export function claudeHookLine(
     return isClaudeHook(refused.words[0], refused.words[1]) ? unreadHookLine(refused.message) : null;
   }
   if (!isClaudeHook(line.command, line.positionals[0])) return null;
+  const twice = twoValues(line, cwd);
+  if (twice !== null) return unreadHookLine(twice);
   const read = readHookLine(line.root, cwd, isDirectory);
   return read.state === 'guards' && line.brief !== undefined && !isBlank(line.brief) ? { ...read, brief: line.brief } : read;
 }
@@ -374,9 +429,10 @@ export function claudeHookLine(
  * Why the command line is refused, or `null` when the command can run:
  * an option it does not read, alone or beside another, an argument it does
  * not take, a brief named twice, a value or an argument that names nothing,
- * a `--root` that is no directory. Asked once a command is known and neither
- * `--help` nor `--version` answers instead; a command with no shape is none,
- * which its caller says.
+ * a `--root` that is no directory. Asked once a command is known, and before
+ * `--help` or `--version` answers: a line that is wrong is refused with
+ * either on it, as one the parser refuses always was (spec-core ADR-0005).
+ * A command with no shape is none, which its caller says.
  */
 export function refusal(line: CommandLine, isDirectory: (path: string) => boolean): string | null {
   const { command, positionals } = line;
@@ -385,14 +441,17 @@ export function refusal(line: CommandLine, isDirectory: (path: string) => boolea
   if (command === undefined) return null;
   const shape = SHAPES.get(command);
   if (shape === undefined || isClaudeHook(command, positionals[0])) return null;
-  const stray = line.given.find((option) => !shape.options.includes(option));
+  // What the line asks the command, beside the help or the version it may
+  // ask for instead, which every command answers.
+  const asked = line.given.filter((option) => !ANSWERS.includes(option));
+  const stray = asked.find((option) => !shape.options.includes(option));
   if (stray !== undefined) return `${command} does not take --${stray}; ${listed(shape.options)}`;
   // An option the command reads, beside one that leaves it unread:
   // `escalate --list --path src/a.ts` printed the list, exit 0, and the
   // request it also spelled out was never raised.
-  const mode = shape.modes?.find((candidate) => line.given.includes(candidate.option));
+  const mode = shape.modes?.find((candidate) => asked.includes(candidate.option));
   if (mode !== undefined) {
-    const unread = line.given.find((option) => option !== mode.option && !mode.beside.includes(option));
+    const unread = asked.find((option) => option !== mode.option && !mode.beside.includes(option));
     if (unread !== undefined) return `${command} --${mode.option} does not take --${unread}; beside --${mode.option} ${listed(mode.beside)}`;
   }
   if (shape.limit !== null && positionals.length > shape.limit.most) {
