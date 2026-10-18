@@ -36,6 +36,9 @@ import {
   matchingUnder,
   mcpServer,
   mergeClaudeSettings,
+  NO_SESSION_START,
+  startsSessions,
+  withSessionStart,
   mergeMcp,
   measuresArchive,
   mergeSpecBrief,
@@ -1963,5 +1966,55 @@ describe("the lines of Claude Code's hook in its settings, and what doctor says 
       after: TOOLS,
       cover: `${W}: which writes Claude Code waits on it before cannot be told here (under PreToolUse it has the matcher ${JSON.stringify(slow)})`,
     });
+  });
+});
+
+describe('the entry as a session starts (ADR-0012)', () => {
+  const START = { hooks: [HOOK] };
+  const isHook = (words: readonly string[]): boolean => claudeHookLine(words, parseOptions, '/p', () => true) !== null;
+  const two = mergeClaudeSettings({}) as Record<string, unknown> & { hooks: Record<string, unknown> };
+
+  it('is added beside init\'s two lines, after what stands under the event, and to nothing else', () => {
+    expect(withSessionStart(two, isHook)).toEqual({ hooks: { ...two.hooks, SessionStart: [START] } });
+    const other = { hooks: [{ type: 'command', command: 'echo started' }] };
+    expect(withSessionStart({ model: 'x', hooks: { ...two.hooks, SessionStart: [other] } }, isHook)).toEqual({ model: 'x', hooks: { ...two.hooks, SessionStart: [other, START] } });
+    expect(withSessionStart({ hooks: { ...two.hooks, SessionStart: 'x' } }, isHook)).toEqual({ hooks: { ...two.hooks, SessionStart: [START] } });
+    // Where init's line does not stand under both events, init has a file to complete first, or one it writes no hook into.
+    expect(withSessionStart({}, isHook)).toBeNull();
+    expect(withSessionStart({ hooks: null }, isHook)).toBeNull();
+    expect(withSessionStart({ hooks: { PreToolUse: two.hooks['PreToolUse'] } }, isHook)).toBeNull();
+    expect(withSessionStart({ hooks: { PostToolUse: two.hooks['PostToolUse'] } }, isHook)).toBeNull();
+    const theirs = { matcher: 'Edit|Write|MultiEdit|NotebookEdit', hooks: [{ ...HOOK, args: [...HOOK.args, '--root', PROJECT_DIR] }] };
+    expect(withSessionStart({ hooks: { PreToolUse: [theirs], PostToolUse: [theirs] } }, isHook)).toBeNull();
+    // And it is a copy: the line written is not init's own to change.
+    const added = withSessionStart(two, isHook) as { hooks: { SessionStart: { hooks: { args: string[] }[] }[] } };
+    added.hooks.SessionStart[0]?.hooks[0]?.args.push('--x');
+    expect(withSessionStart(two, isHook)).toEqual({ hooks: { ...two.hooks, SessionStart: [START] } });
+  });
+
+  it('is not added where a line of the hook stands under the event already, init\'s or a person\'s', () => {
+    expect(withSessionStart({ hooks: { ...two.hooks, SessionStart: [START] } }, isHook)).toBeNull();
+    const theirs = { matcher: 'startup', hooks: [{ ...HOOK, args: [...HOOK.args, '--root', PROJECT_DIR] }] };
+    expect(withSessionStart({ hooks: { ...two.hooks, SessionStart: [theirs] } }, isHook)).toBeNull();
+    // Known only by what the caller knows of a line: without it, a person's line is not the hook's.
+    expect(withSessionStart({ hooks: { ...two.hooks, SessionStart: [theirs] } }, () => false)).toEqual({ hooks: { ...two.hooks, SessionStart: [theirs, START] } });
+  });
+
+  it('is found in settings by an entry under SessionStart that runs the hook, and in no other', () => {
+    expect(startsSessions({ hooks: { SessionStart: [START] } }, () => false)).toBe(true);
+    expect(startsSessions({ hooks: { SessionStart: [{ hooks: [{ type: 'command', command: 'echo', args: ['x'] }] }, START] } }, () => false)).toBe(true);
+    expect(startsSessions({ hooks: { SessionStart: [{ matcher: 'resume', hooks: [{ type: 'command', command: 'echo', args: ['x'] }, HOOK] }] } }, () => false)).toBe(true);
+    const words = { hooks: [{ type: 'command', command: `node ${SCRIPT} hook claude` }] };
+    expect(startsSessions({ hooks: { SessionStart: [words] } }, isHook)).toBe(true);
+    expect(startsSessions({ hooks: { SessionStart: [words] } }, () => false)).toBe(false);
+    for (const settings of [{}, { hooks: 'x' }, { hooks: { SessionStart: 'x' } }, { hooks: { SessionStart: [{ hooks: ['node', null] }, null, { hooks: 'x' }] } }, { hooks: { PreToolUse: [START] } }, { hooks: { SessionStart: [{ hooks: [{ type: 'command', command: 'node', args: [SCRIPT, 'hook', 'git'] }] }] } }]) {
+      expect(startsSessions(settings, isHook), JSON.stringify(settings)).toBe(false);
+    }
+  });
+
+  it('is noted where it is missing in the words doctor has', () => {
+    expect(NO_SESSION_START).toBe(
+      'note: no settings file has Claude Code start the hook as a session starts, so a configuration that does not load, or a brief named that spec-brief does not list, is said only at the first write, which it holds: spec-harness init --write adds the entry beside the two it wrote',
+    );
   });
 });

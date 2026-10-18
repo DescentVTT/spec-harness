@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest';
 import { minimumsOf } from '../scripts/minimum-siblings.js';
 import { pluginDrift, releaseOf } from '../scripts/release.js';
 import { ConfigError, parseConfig, SIBLINGS } from '../src/config.js';
-import { GUARD_HOOK, mcpServer, mergeClaudeSettings, mergeMcp, PROJECT_DIR, PROJECT_DIR_OR_HERE } from '../src/configure.js';
+import { GUARD_HOOK, mcpServer, mergeClaudeSettings, mergeMcp, PROJECT_DIR, PROJECT_DIR_OR_HERE, withSessionStart } from '../src/configure.js';
 import { refusal } from '../src/usage.js';
 import { scanMarkdown } from '../src/vendor/spec-core/markdown/index.js';
 import { CLAUDE_CODE_MINIMUM, MINIMUM_VERSIONS } from '../src/versions.js';
@@ -202,14 +202,15 @@ describe('the plugin', () => {
     expect(marketplace.plugins[0]).toMatchObject({ name: 'spec-harness', source: './', version });
   });
 
-  it('runs exactly the hooks init installs, before and after every writing tool', () => {
-    const hooks = json('hooks/hooks.json') as { hooks: Record<string, { matcher: string; hooks: Record<string, unknown>[] }[]> };
-    expect(hooks).toEqual(mergeClaudeSettings({}));
-    expect(Object.keys(hooks.hooks).sort()).toEqual(['PostToolUse', 'PreToolUse']);
-    for (const groups of Object.values(hooks.hooks)) {
-      expect(groups).toHaveLength(1);
-      expect(groups[0]?.matcher).toBe('Edit|Write|MultiEdit|NotebookEdit');
-      expect(groups[0]?.hooks).toEqual([GUARD_HOOK]);
+  it('runs exactly the hooks init installs, before and after every writing tool, and as every session starts', () => {
+    const hooks = json('hooks/hooks.json') as { hooks: Record<string, { matcher?: string; hooks: Record<string, unknown>[] }[]> };
+    expect(hooks).toEqual(withSessionStart(mergeClaudeSettings({}) ?? {}, () => false));
+    expect(Object.keys(hooks.hooks).sort()).toEqual(['PostToolUse', 'PreToolUse', 'SessionStart']);
+    for (const [event, groups] of Object.entries(hooks.hooks)) {
+      expect(groups, event).toHaveLength(1);
+      // Left out, the matcher of SessionStart is every way a session starts.
+      expect(groups[0]?.matcher, event).toBe(event === 'SessionStart' ? undefined : 'Edit|Write|MultiEdit|NotebookEdit');
+      expect(groups[0]?.hooks, event).toEqual([GUARD_HOOK]);
     }
   });
 

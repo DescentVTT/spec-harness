@@ -391,6 +391,35 @@ writes the hook once, so a repository keeps the one its release wrote,
 which refuses such a commit, until the hook is taken away and written
 again.
 
+*Amended again 2026-10-18.* **A third entry, as a session starts.** `init`
+writes, beside its two, an entry under `SessionStart` that runs the hook's
+own line, `node ${CLAUDE_PROJECT_DIR}/node_modules/@descent-vtt/spec-harness/bin/spec-harness.js hook claude`,
+with no matcher, which Claude Code reads as every way a session starts, and
+the plugin's `hooks/hooks.json` carries the same (ADR-0005, amended a fourth
+time the same day, has what the hook says there). The line is the one the
+two have run since 0.1.2, so `tests/integration/released-lines.test.ts`
+holds it as it holds theirs, and no line a release wrote is read another
+way.
+
+- **Beside init's two, where they stand as init writes them.** The entry
+  is written where init's own line stands under both `PreToolUse` and
+  `PostToolUse` and `doctor` has nothing more to say of a line in the file:
+  with the two, in a file init writes them into, and by itself, `update`,
+  in a file whose two an earlier release wrote, so that `init --write` run
+  once more completes it. A file that holds a line of the hook a person
+  wrote or changed, and one doctor fails, is theirs to complete, as before.
+  A line of the hook already under `SessionStart`, init's or a person's, is
+  the entry, and no second one is written beside it.
+- **`init` writes a line once, and this is a line it had not written.** A
+  repository keeps the two its release wrote, and gains the third only when
+  `init --write` is run again: the CHANGELOG says so. A plugin brings it
+  with the release that ships it.
+- **`doctor` notes a settings file that guards writes and holds no such
+  entry**, a note after what it says of the release, failing nothing, and
+  `--format json` has `claudeCode.sessionStart`, whether a settings file
+  holds one. The field is added, so no `schemaVersion` moves. Of the
+  plugin's own entries nothing is read, as before.
+
 ## Consequences
 
 - A plugin turned on by managed settings or `--settings` is invisible to

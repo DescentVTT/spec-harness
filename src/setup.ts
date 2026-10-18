@@ -38,6 +38,7 @@ import {
   matchingUnder,
   measuresArchive,
   mergeClaudeSettings,
+  withSessionStart,
   mergeMcp,
   mergeSpecBrief,
   mergeSpecGraph,
@@ -329,17 +330,28 @@ export async function plan(workspace: Workspace, options: Options, io: CliIO): P
   } else {
     // An entry is a line of the hook where doctor reports its words as one in this file.
     const reported = new Set(lines.map((line) => JSON.stringify(line.line)));
-    const merged = mergeClaudeSettings(settings ?? {}, (words) => reported.has(JSON.stringify(words)), pattern, matchingUnder(wiring.release));
+    const isHook = (words: readonly string[]): boolean => reported.has(JSON.stringify(words));
+    const guarded = mergeClaudeSettings(settings ?? {}, isHook, pattern, matchingUnder(wiring.release));
+    // The check as a session starts, beside init's two where they stand as
+    // init writes them and doctor has nothing more to say of a line: with
+    // them, or by itself in a file whose two an earlier release wrote. A file
+    // with a line of the person's is theirs to complete (ADR-0012).
+    const started = left === '' ? withSessionStart(guarded ?? settings ?? {}, isHook) : null;
+    const merged = started ?? guarded;
     // A line that turns the guard off or holds every write is one doctor
     // fails, and lines of which none is waited on before a write are no
     // guard between them: left as they are, they are for the person to mend.
     const broken = lines.some((line) => line.state === 'off' || line.state === 'held') || !lines.some((line) => isStarted(line.before));
+    const atStart = 'a SessionStart hook says, as a session starts, what would hold every write of it';
     if (merged === null) steps.push({ file: SETTINGS, action: broken ? 'advise' : 'keep', detail: left === '' ? 'the guard hooks are installed' : left });
     else
       steps.push({
         file: SETTINGS,
         action: settings === null ? 'create' : 'update',
-        detail: `the guard hooks, run with node from the project's install: a PreToolUse hook refuses writes to protected files; a PostToolUse hook warns about writes outside the scope${left === '' ? '' : `; ${left}`}`,
+        detail:
+          guarded === null
+            ? `beside the guard hooks, ${atStart}`
+            : `the guard hooks, run with node from the project's install: a PreToolUse hook refuses writes to protected files; a PostToolUse hook warns about writes outside the scope${started === null ? '' : `; ${atStart}`}${left === '' ? '' : `; ${left}`}`,
         apply: () => writeAtomic(settingsFile, stringify(merged)),
       });
   }

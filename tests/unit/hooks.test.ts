@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { Decision, Verdict } from '../../src/guard.js';
-import { afterResponse, CALL_VARIABLES, callFile, callRecord, CALLABLE_TOOLS, claudeResponse, gitResponse, keptCall, parseClaudeHook, warningsKept, warningsOf, WRITING_TOOLS, type HookRequest } from '../../src/hooks.js';
+import { afterResponse, CALL_VARIABLES, callFile, callRecord, CALLABLE_TOOLS, claudeResponse, gitResponse, keptCall, parseClaudeHook, SESSION_START, sessionResponse, warningsKept, warningsOf, WRITING_TOOLS, type HookRequest } from '../../src/hooks.js';
 
 function hook(fields: Record<string, unknown>): string {
   return JSON.stringify({ session_id: 's', hook_event_name: 'PreToolUse', tool_name: 'Write', cwd: '/repo', ...fields });
@@ -162,6 +162,26 @@ describe('answering git', () => {
   it('says nothing about a commit it allows', () => {
     expect(gitResponse([decision('allow'), decision('allow')])).toEqual({ text: '', exitCode: 0 });
     expect(gitResponse([])).toEqual({ text: '', exitCode: 0 });
+  });
+});
+
+describe('the hook as a session starts', () => {
+  it('reads a SessionStart question, which names no tool and no file, and no other event without a tool', () => {
+    expect(SESSION_START).toBe('SessionStart');
+    expect(parseClaudeHook(JSON.stringify({ hook_event_name: 'SessionStart', cwd: '/repo', source: 'resume' }))).toEqual({ event: 'SessionStart', tool: '', cwd: '/repo', paths: [], session: null, call: null });
+    // A tool named beside it is read as named, and a file only a writing tool's.
+    expect(parseClaudeHook(JSON.stringify({ hook_event_name: 'SessionStart', tool_name: 'Edit', tool_input: { file_path: '/repo/a.ts' } }))).toEqual({ event: 'SessionStart', tool: 'Edit', cwd: null, paths: ['/repo/a.ts'], session: null, call: null });
+    expect(parseClaudeHook(JSON.stringify({ hook_event_name: 'SessionStart', tool_name: 7, tool_input: { file_path: '/repo/a.ts' } }))).toEqual({ event: 'SessionStart', tool: '', cwd: null, paths: [], session: null, call: null });
+    for (const event of ['UserPromptSubmit', 'sessionstart', 'Stop']) expect(parseClaudeHook(JSON.stringify({ hook_event_name: event })), event).toEqual({ error: 'the hook input names no event or tool' });
+    expect(parseClaudeHook(JSON.stringify({ tool_name: 'Edit' }))).toEqual({ error: 'the hook input names no event or tool' });
+  });
+
+  it('says a problem once for the person and once for Claude, exit 0, and nothing where there is none', () => {
+    expect(sessionResponse(null)).toEqual({ stdout: '', exitCode: 0 });
+    const said = sessionResponse('every write is held');
+    expect(said.exitCode).toBe(0);
+    expect(said.stdout.endsWith('}\n')).toBe(true);
+    expect(JSON.parse(said.stdout)).toEqual({ systemMessage: 'spec-harness: every write is held', hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: 'spec-harness: every write is held' } });
   });
 });
 

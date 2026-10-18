@@ -38,6 +38,7 @@ import {
   registersServer,
   reportHooks,
   SPEC_BRIEF_CONFIGS,
+  startsSessions,
   wiringState,
   type BaseSource,
   type ClaudeCodeWiring,
@@ -512,6 +513,12 @@ export async function claudeCodeWiring(root: string, io: CliIO, pattern: Pattern
   const roots = marketplace === null ? [] : await Promise.all(pluginDirectories(io.env).map((directory) => pluginsRoot(directory, marketplace)));
   const presence = plugin === null ? null : pluginPresence(plugin, sources, roots);
   const server = registersServer(await readJsonObject(join(root, '.mcp.json')));
+  // A line under SessionStart is the hook's by the hook's own reading of it, as any line is.
+  // A root on it that is no directory is a line of the hook that is off, and
+  // one all the same, so the mutant of the test for a directory is
+  // equivalent.
+  const isHook = (words: readonly string[]): boolean => claudeHookLine(words, parseOptions, root, (path) => isDirectory(resolve(root, path))) !== null;
+  const sessionStart = sources.some(({ settings }) => startsSessions(settings, isHook));
   // init writes its hooks into the project's file alone, and none where an array unloads it.
   const unloaded = arrayMatcher(sources.find(({ file }) => file === PROJECT_SETTINGS)!.settings);
   const under = (release: ClaudeCodeCheck | null): ClaudeCodeWiring => {
@@ -520,7 +527,7 @@ export async function claudeCodeWiring(root: string, io: CliIO, pattern: Pattern
     // one's way: it is said, and the file is not counted for it.
     const hooks = sources.map(({ file }) => file).filter((file) => lines.some((line) => line.file === file && (isStarted(line.before) || isStarted(line.after))));
     // In the order a document has them, which a script may compare by the byte.
-    return { plugin, presence, hooksOff: hooksDisabled(sources), hooks, lines, server, release, unloaded };
+    return { plugin, presence, hooksOff: hooksDisabled(sources), hooks, lines, server, sessionStart, release, unloaded };
   };
   const untold = under(null);
   const asked = reported ? wiringState(untold) !== 'none' : JSON.stringify(untold.lines) !== JSON.stringify(reportHooks(sources, root, (words) => read.get(JSON.stringify(words))!, pattern));
