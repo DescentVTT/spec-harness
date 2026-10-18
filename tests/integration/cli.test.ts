@@ -947,6 +947,12 @@ describe("doctor on the line of Claude Code's hook in its settings (ADR-0005)", 
       const user = temp();
       write(user, 'settings.json', JSON.stringify({ hooks: { PermissionRequest: [{ matcher: ['Bash'], hooks: [other] }] } }));
       expect(await read(repo, { ...env, CLAUDE_CONFIG_DIR: user }, '--strict')).toMatchObject({ code: 0, state: 'init', lines: [{ state: 'guards' }, { state: 'guards' }], release: { state: 'ok' } });
+      // An array in the user's own settings unloads that file alone: init writes into the project's, and nothing is advised of it.
+      const theirs = await cli(['doctor', '--format', 'json'], repository({}).root, { env: { ...env, CLAUDE_CONFIG_DIR: user } });
+      expect(parsed<{ claudeCode: { unloaded: unknown; detail: string } }>(theirs).claudeCode).toMatchObject({
+        unloaded: null,
+        detail: 'neither the spec-harness plugin nor the hooks init writes, so Claude Code guards no write: run spec-harness init --write, or install the plugin',
+      });
     });
   });
 

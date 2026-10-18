@@ -105,7 +105,7 @@ export async function workTree(cwd: string): Promise<WorkTree | 'unread' | null>
 export async function hookPath(name: string, cwd: string): Promise<{ readonly path: string } | { readonly refused: string }> {
   const run = await git(['rev-parse', '--path-format=absolute', '--git-path', `hooks/${name}`], cwd);
   if (run.code === 0) return { path: run.stdout.trim() };
-  return { refused: run.stderr.trim().split(/\r?\n/)[0]! };
+  return { refused: run.stderr.split(/\r?\n/)[0]! };
 }
 
 /** The checked-out branch's short name, or `null` on a detached head. */

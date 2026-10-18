@@ -450,6 +450,8 @@ async function doctorCommand(options: Options, io: CliIO): Promise<number> {
   const missing = wiring.presence?.state === 'absent' && wiring.hooks.length === 0;
   const tooOld = release?.state === 'outdated';
   const stopped = hook.state === 'stops';
+  // Only an unreadable hook has `runs`, so the test of its state is the
+  // compiler's, and its mutant is equivalent.
   const untold =
     options.strict && (release?.state === 'unknown' || wiring.lines.some((line) => line.state === 'unknown') || wiring.presence?.state === 'unknown' || (hook.state === 'unreadable' && hook.runs));
   return outdated || !usable || claude === 'both' || off || switchedOff || missing || tooOld || stopped || untold ? EXIT_FAILED : EXIT_OK;

@@ -5,6 +5,7 @@ import { delimiter, join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 
 import { GUARD_HOOK, mcpServer, mergeMcp, PLUGIN, PRE_COMMIT, PROJECT_DIR_OR_HERE } from '../../src/configure.js';
+import { stateDirectory, StateError } from '../../src/fs.js';
 import { claudeCodeWiring, claudeSettingsFiles, pluginDirectories } from '../../src/round.js';
 import { gitHook } from '../../src/setup.js';
 import { brief, BRIEF_FILE, claudeOf, cleanup, cli, install, installFake, installHarness, installPlugin, parsed, repository, siblings, temp, write, type Repository } from './helpers.js';
@@ -1103,6 +1104,20 @@ describe("the harness's own state under git's directory, where something else st
     // Moved away, the command runs.
     rmSync(join(state, 'escalations'));
     expect(await cli(['escalate', '--list'], repo.root)).toMatchObject({ code: 0, stderr: '' });
+  });
+
+  it('is an error of its own, by its name, and any other refusal of the directory is thrown as Node threw it', async () => {
+    const repo = repository({});
+    const common = repo.git('rev-parse', '--path-format=absolute', '--git-common-dir');
+    writeFileSync(join(common, 'spec-harness'), 'a file\n');
+    await expect(stateDirectory(common, 'escalations')).rejects.toMatchObject({ name: 'StateError', message: expect.stringMatching(/ is not a directory, where spec-harness keeps its state in one: /) });
+    rmSync(join(common, 'spec-harness'));
+    // A name no filesystem takes is no path that holds something else.
+    const refused: unknown = await stateDirectory(common, 'x'.repeat(1000)).catch((error: unknown) => error);
+    expect(refused).toBeInstanceOf(Error);
+    expect(refused).not.toBeInstanceOf(StateError);
+    expect((refused as NodeJS.ErrnoException).code).toMatch(/^E[A-Z]+$/);
+    expect(['ENOTDIR', 'EEXIST']).not.toContain((refused as NodeJS.ErrnoException).code);
   });
 });
 
