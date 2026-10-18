@@ -7,7 +7,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { GUARD_HOOK, mcpServer, mergeMcp, PLUGIN, PRE_COMMIT, PROJECT_DIR_OR_HERE } from '../../src/configure.js';
 import { claudeCodeWiring, claudeSettingsFiles, pluginDirectories } from '../../src/round.js';
 import { gitHook } from '../../src/setup.js';
-import { claudeOf, cleanup, cli, install, installFake, installHarness, installPlugin, parsed, repository, siblings, temp, write, type Repository } from './helpers.js';
+import { brief, BRIEF_FILE, claudeOf, cleanup, cli, install, installFake, installHarness, installPlugin, parsed, repository, siblings, temp, write, type Repository } from './helpers.js';
 
 afterAll(cleanup);
 
@@ -355,8 +355,8 @@ describe('init', () => {
     expect((await cli(['init'], repo.root)).stdout).not.toContain('Nothing was changed');
   });
 
-  it('cannot say where git\'s hooks are outside a work tree', async () => {
-    expect(await gitHook(temp())).toEqual({ hook: { state: 'unknown', reason: 'git does not say where they are; spec-harness needs git 2.31 or later' }, path: null, note: null });
+  it('cannot say where git\'s hooks are outside a work tree, and says what git said instead', async () => {
+    expect(await gitHook(temp())).toEqual({ hook: { state: 'unknown', reason: expect.stringMatching(/^git rev-parse --git-path hooks\/pre-commit failed: fatal: not a git repository/) }, path: null, note: null });
   });
 
   it.skipIf(process.platform === 'win32')('advises making a hook that runs spec-harness executable, since git skips it, and writes nothing over it', async () => {
@@ -456,6 +456,35 @@ describe('init', () => {
       expect(commits(repo).made).toBe(true);
       expect((await cli(['init', '--git-hook', '--write'], repo.root)).stdout).toContain(`advise  .git/hooks/pre-commit\n        ${ignored}\n`);
       expect(statSync(directory).isDirectory()).toBe(true);
+    });
+
+    // An account that may do anything may read the file too.
+    it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)('says a hook file the account may not read, where it ended both on EACCES and a stack, by what git does with it', async () => {
+      const repo = repository({});
+      const hook = join(repo.root, '.git', 'hooks', 'pre-commit');
+      mkdirSync(join(repo.root, '.git', 'hooks'), { recursive: true });
+      writeFileSync(hook, `#!/bin/sh\nexec node ${'node_modules/@descent-vtt/spec-harness/bin/spec-harness.js'} hook git\n`);
+      const reason = `EACCES: permission denied, open '${hook}'`;
+      // Not executable: git skips it with a hint and commits, as it skips any hook it may not execute.
+      chmodSync(hook, 0o000);
+      const skipped = `.git/hooks/pre-commit cannot be read (${reason}), and is not executable, so git skips it and runs no hook: make it readable and executable, or take it away and run spec-harness init --git-hook --write`;
+      expect(await doctor(repo)).toEqual({ code: 0, stderr: '', hook: { state: 'unreadable', file: '.git/hooks/pre-commit', detail: skipped, note: null } });
+      expect((await cli(['doctor', '--strict'], repo.root)).code).toBe(0);
+      expect(commits(repo).made).toBe(true);
+      // Executable: git runs it, and the shell it runs a script with cannot read it either, and stops the commit. A program would run unread.
+      chmodSync(hook, 0o111);
+      const untold = `.git/hooks/pre-commit cannot be read (${reason}), so whether it runs spec-harness cannot be told: git runs it at a commit, and a script there that cannot be read stops every commit, where a program runs; make it readable`;
+      expect(await doctor(repo)).toEqual({ code: 0, stderr: '', hook: { state: 'unreadable', file: '.git/hooks/pre-commit', detail: untold, note: null } });
+      expect((await cli(['doctor', '--strict'], repo.root)).code).toBe(1);
+      expect(commits(repo).made).toBe(false);
+      // init says the same, and writes nothing over it.
+      for (const args of [['init', '--write'], ['init', '--git-hook', '--write']]) {
+        const result = await cli(args, repo.root);
+        expect({ code: result.code, stderr: result.stderr }, args.join(' ')).toEqual({ code: 0, stderr: '' });
+        expect(result.stdout, args.join(' ')).toContain(`advise  .git/hooks/pre-commit\n        ${untold}\n`);
+      }
+      chmodSync(hook, 0o755);
+      expect(await doctor(repo)).toMatchObject({ code: 0, hook: { state: 'runs' } });
     });
 
     it.skipIf(process.platform === 'win32')('comes back from a named pipe there, which it does not open, and follows a link: to a directory, and to nothing', async () => {
@@ -1035,3 +1064,75 @@ describe('the Claude Code settings init and doctor read', () => {
     expect(claudeSettingsFiles('r', {}, 'linux')).toEqual(project('r'));
   });
 });
+
+describe("a core.hooksPath that names a file (ADR-0005)", () => {
+  it("is said in git's own words, where it was said as a git older than 2.31, and git commits with no hook", async () => {
+    // Measured with git 2.47 and 2.55: rev-parse refuses the path as one that is not a directory, and a commit runs no hook.
+    const repo = repository({ hooksfile: 'not a directory\n' });
+    repo.git('config', 'core.hooksPath', 'hooksfile');
+    const result = await cli(['doctor', '--format', 'json'], repo.root);
+    expect({ code: result.code, stderr: result.stderr }).toEqual({ code: 0, stderr: '' });
+    const { gitHook } = parsed<{ gitHook: { state: string; detail: string } }>(result);
+    expect(gitHook.state).toBe('unknown');
+    expect(gitHook.detail).toMatch(/^where git runs its hooks cannot be told: git rev-parse --git-path hooks\/pre-commit failed: fatal: Invalid path '.*hooksfile[\\/]pre-commit': Not a directory$/);
+    expect(gitHook.detail).not.toContain('2.31');
+    expect((await cli(['init', '--git-hook', '--write'], repo.root)).stdout).toContain(`advise  pre-commit\n        ${gitHook.detail}\n`);
+    expect(existsSync(join(repo.root, 'hooksfile', 'pre-commit'))).toBe(false);
+    repo.write('work.txt', 'w\n');
+    repo.git('add', 'work.txt');
+    expect(spawnSync('git', ['commit', '-q', '-m', 'work'], { cwd: repo.root, encoding: 'utf8' }).status).toBe(0);
+  });
+});
+
+describe("the harness's own state under git's directory, where something else stands (ADR-0003)", () => {
+  // A file there ended escalate and rule on Node's ENOTDIR and a stack.
+  it('is said in a line that names the path, exit 2, by every command that keeps a request there', async () => {
+    const repo = repository({ [BRIEF_FILE]: brief({ affected: ['src/**'] }) });
+    repo.git('checkout', '-q', '-b', 'brief/001-rotate');
+    const state = join(repo.git('rev-parse', '--path-format=absolute', '--git-common-dir'), 'spec-harness');
+    writeFileSync(state, 'a file\n');
+    const said = (path: string): string => `spec-harness: ${path} is not a directory, where spec-harness keeps its state in one: move it away, and run the command again\n`;
+    for (const argv of [['escalate', '--list'], ['escalate', '--show', 'E-001-1'], ['escalate', '--path', 'src/a.ts', '--reason', 'why'], ['rule', 'E-001-1', '--allow', '--note', 'n']]) {
+      expect(await cli(argv, repo.root), argv.join(' ')).toEqual({ code: 2, stdout: '', stderr: said(join(state)) });
+    }
+    // A file a step further down is named itself.
+    rmSync(state);
+    mkdirSync(state);
+    writeFileSync(join(state, 'escalations'), 'a file\n');
+    expect(await cli(['escalate', '--list'], repo.root)).toEqual({ code: 2, stdout: '', stderr: said(join(state, 'escalations')) });
+    // Moved away, the command runs.
+    rmSync(join(state, 'escalations'));
+    expect(await cli(['escalate', '--list'], repo.root)).toMatchObject({ code: 0, stderr: '' });
+  });
+});
+
+describe('a named pipe where a file is read (ADR-0005)', () => {
+  // Read as a file, a pipe nothing writes to was read without end: neither doctor nor init came back.
+  it.skipIf(process.platform === 'win32')("has doctor and init come back from one where a settings file or the servers' file is expected", async () => {
+    for (const path of ['.claude/settings.json', '.claude/settings.local.json', '.mcp.json', '<user>/settings.json']) {
+      const repo = repository({});
+      const user = temp();
+      const full = path.startsWith('<user>/') ? join(user, path.slice('<user>/'.length)) : join(repo.root, ...path.split('/'));
+      mkdirSync(join(full, '..'), { recursive: true });
+      execFileSync('mkfifo', [full]);
+      const env = { CLAUDE_CONFIG_DIR: user, PATH: process.env['PATH'] ?? '' };
+      const doctor = await cli(['doctor'], repo.root, { env });
+      expect({ code: doctor.code, stderr: doctor.stderr }, path).toEqual({ code: 0, stderr: '' });
+      const init = await cli(['init'], repo.root, { env });
+      expect({ code: init.code, stderr: init.stderr }, path).toEqual({ code: 0, stderr: '' });
+      // Read as one that cannot be read as JSON, which holds no hook and no plugin.
+      if (path === '.claude/settings.json') expect(init.stdout).toContain('advise  .claude/settings.json\n        cannot be read as JSON');
+      if (path === '.mcp.json') expect(init.stdout).toContain('advise  .mcp.json\n        cannot be read as JSON; add the spec-harness server by hand');
+    }
+  });
+
+  it.skipIf(process.platform === 'win32')("has every command, the hook among them, say one under the configuration's name in a line, exit 2, as for a directory", async () => {
+    const repo = repository({}, null);
+    execFileSync('mkfifo', [join(repo.root, '.spec-harness.json')]);
+    const said = 'spec-harness: .spec-harness.json is neither a file nor a directory, not a configuration file\n';
+    expect(await cli(['doctor'], repo.root)).toEqual({ code: 2, stdout: '', stderr: said });
+    const question = JSON.stringify({ session_id: 's', cwd: repo.root, hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: join(repo.root, 'a.ts'), old_string: 'a', new_string: 'b' } });
+    expect(await cli(['hook', 'claude'], repo.root, { stdin: question })).toEqual({ code: 2, stdout: '', stderr: said });
+  });
+});
+
