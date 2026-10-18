@@ -1570,6 +1570,179 @@ An exit code that can change for a tree that passed is a minor release
 - **On Windows** a hook file the account may not read was not measured:
   that is an access list, which this was not run to change.
 
+*Amended a third time 2026-10-18.* **The work tree a hook decides for is the
+one Claude works in, and a branch is read as HEAD names it.** *Claimed* by
+the evaluation of a consumer's request in round 24, measured at bd6a87c: in
+a worktree session started from the desktop app the hook reads the main
+checkout's branch, and a write the worktree's brief protects passes with no
+word; and a branch beside a tag of its name names no brief.
+
+What Claude Code hands the hook, read from its documentation on 2026-10-18.
+In a worktree session started from the desktop app it reads the project's
+hooks from the main checkout's root, runs hook commands there and points
+`${CLAUDE_PROJECT_DIR}` at it, and the worktree's path is the input's `cwd`
+(<https://code.claude.com/docs/en/worktrees>, *What worktrees share with
+the main checkout*). After Claude enters a worktree mid-session,
+`${CLAUDE_PROJECT_DIR}` stays at the project where the session started, and
+`cwd` is the worktree's root, and moves again when Claude runs `cd`
+(<https://code.claude.com/docs/en/hooks>, *Reference scripts by path*).
+
+*Measured* again through the launcher of main as it stood, fd76621, and of
+this change (Windows 11, Node 24.18.1, Git for Windows 2.55.0), in scratch
+projects with spec-brief 0.8.0 and the harness installed in the main
+checkout and `node_modules` ignored, brief 042 protecting
+`src/db/schema.ts`: the hook started as its line starts it, from the project
+with `CLAUDE_PROJECT_DIR` naming it, and handed an Edit with the `cwd` the
+row gives. The middle column is the decision as it was handed over, read
+literally (every path of the write read against the work tree that holds
+`cwd`), built and run the same way.
+
+| The layout, and the write | fd76621 | Read literally | Now |
+| --- | --- | --- | --- |
+| the project on `main`; `cwd` a worktree inside it on `claude/brief-042-w`; an Edit of the worktree's protected file | exit 0, no word | refused | refused |
+| the same, `cwd` a directory below the worktree's top | exit 0, no word | refused | refused |
+| the same, the worktree beside the project | exit 0, no word | refused | refused |
+| the same, after an Edit outside the worktree's scope | nothing | a warning, by its brief | the same |
+| the same, an Edit in its scope, before it and after it | nothing | nothing | nothing |
+| the project on `brief/042-q`; `cwd` a worktree inside it, or beside it, on a branch that names no brief; an Edit of the project's protected file | refused | exit 0, no word | refused |
+| the same, after an Edit of the worktree's own file of that name | a warning by the project's brief, of `.claude/worktrees/m/src/db/schema.ts` | nothing | nothing |
+| the project a worktree on a brief's branch, inside a main checkout on `main`; `cwd` the main checkout; an Edit of the worktree's protected file | refused | exit 0, no word | refused |
+| `cwd` a repository of its own inside the project, or a submodule; an Edit of the project's protected file | refused | refused | refused |
+| the same, an Edit of a file the nested repository's own brief protects | nothing before it; after it, a warning by the project's brief | the same | the same |
+| `cwd` a directory in no work tree, or one that is not there | refused | refused | refused |
+| a branch beside a tag of its name; an Edit of its protected file | exit 0, no word | | refused |
+| the same, `doctor` | `branch heads/claude/brief-042-t`, `brief (none named)` | | `branch claude/brief-042-t`, `brief 042` |
+| the same, git's hook with the protected file staged | exit 0 | | exit 1, refused |
+| a branch beside a remote-tracking ref of its name, or a tag `heads/` and its name | refused | | refused |
+| a linked worktree with no install; git's hook as `init` writes it, the protected file staged | exit 2: the script `is not in` the work tree git commits in | | exit 1, refused by the worktree's brief |
+| the same, the line `init` advises for a hook of the repository's own | exit 1: node cannot find the script | | the same |
+| the same, `hook git` run from the main work tree's install | exit 2: spec-brief `is not installed here` | | exit 1, refused |
+| the same, `doctor` | every sibling `absent`, exit 1 | | found in the main work tree's install, said so, exit 0 |
+
+So the first claim holds in every layout where a worktree's brief protects
+the file, beside the project as inside it, and the second for a tag of the
+branch's name and for a ref `refs/<name>`, under which `git symbolic-ref
+--short HEAD` answered `heads/<name>`; a remote-tracking ref of the name and
+a tag `heads/<name>` leave the short name as it is.
+
+- **The repository is named as before**: `--root` on the line, then
+  `CLAUDE_PROJECT_DIR`, then the question's `cwd`. Where `cwd` is in another
+  work tree of that repository, linked or main, by the git directory the
+  two share as git names it (`rev-parse --path-format=absolute
+  --git-common-dir`, both spelled as the filesystem spells them), that work
+  tree decides the paths it holds: its branch names the brief (ADR-0004 is
+  unchanged), its briefs, its configuration and its rulings are read, and a
+  path is read from its top.
+- **A path that work tree does not hold is decided as before**, by the work
+  tree the root names. The decision handed over read every path of the
+  write against the work tree that holds `cwd`. Read so, the three rows the
+  table marks turn a refusal into a write passed with no word: a session
+  whose `cwd` is a worktree on a branch that names no brief, writing to the
+  project's protected file. Where both work trees hold a path, one is
+  inside the other, and the inner one holds it, as git reads a path under a
+  worktree in `.claude/worktrees/`. Claude Code blocks an Edit, a Write or a
+  NotebookEdit that targets the main checkout while a session is isolated
+  in a worktree (the worktrees page, *How Claude Code enforces isolation*);
+  a session that runs `cd` into another work tree is not isolated, and the
+  hook is what is left there.
+- **git is asked only where the work tree may be another.** A `cwd` at the
+  project's top or below it, with no `.git` in a directory between, is in
+  the project's work tree, and nothing more is asked: a session at its
+  project's root starts no process it did not. Elsewhere one start of git
+  names the top and the common directory, beside the branch where a `.git`
+  stands in `cwd`, and the work tree's configuration is read only where it
+  holds a path of the write. Measured with the two builds taking turns,
+  ten runs of each at the median, where starting node to do nothing took
+  676 ms beside them:
+
+  | The hook before an Edit | Processes | fd76621 | Now |
+  | --- | --- | ---: | ---: |
+  | `cwd` the project's top, on `main` | 2, then 2 | 780 ms | 786 ms |
+  | `cwd` a directory below it | 2, then 2 | 767 ms | 776 ms |
+  | `cwd` a worktree inside the project, of its protected file | 2, then 5 in three waves | 768 ms | 1,620 ms |
+  | the same, the worktree beside the project | 2, then 5 in three waves | 785 ms | 1,675 ms |
+  | `cwd` the project's top on a brief's branch, of its protected file | 3, then 3 | 1,606 ms | 1,599 ms |
+
+  In a worktree a write now costs what one on a brief's branch costs in the
+  project: two of git's processes at once for the worktree, and spec-brief,
+  which was not asked where no brief was named.
+- **A `cwd` in another repository, or in none, leaves every path where it
+  was.** A repository of its own inside the project, a submodule, a clone
+  beside it: the write is decided by the project's briefs, by the path the
+  file has in the project. What that lets through, as it did: a file the
+  nested repository's own brief protects is outside the project's scope,
+  warned of after the write and not refused, and a file of a repository
+  beside the project is outside the project and passes with no word. That
+  repository is guarded by its own hook, in its own sessions.
+- **A worktree with no install is checked with the project's.** The
+  siblings of the work tree that holds `cwd` are looked for in its own
+  `node_modules`, then in the project's, where Claude Code starts the hook's
+  script from. The first that has a sibling runs it, at its floor in
+  `src/versions.ts`, so a worktree's own install that is too old holds the
+  write, as the project's would; where neither has one, the write waits, as
+  it did. A command `tools` names is run as named.
+- **git's hook does the same.** git starts it at the top of the work tree
+  it commits in (ADR-0012), and in a linked worktree with no install the
+  hook `init` wrote refused the commit, its script not being there. The
+  hook `init` writes now looks for the script there and then in the
+  repository's main work tree, the one whose `.git` the common directory
+  is, where `git worktree add` was run; `hook git` and `doctor` look for the
+  siblings in the same two places, and `doctor` says, of a sibling found in
+  the main work tree's install, whose it is. A common directory of any other
+  name, a bare repository's, a submodule's or one kept apart, has no main
+  work tree to look in, and the commit waits as before. `init` writes a
+  hook once, so one an earlier release wrote refuses such a commit until it
+  is written again; a line a person wrote into a hook of their own is
+  theirs, and fails where its script is not.
+- **The branch is read as HEAD names it**: `git symbolic-ref --quiet HEAD`,
+  with `refs/heads/` taken off, and a HEAD that points elsewhere under
+  `refs/` named whole, as `git status` names it. Of `--short` the manual
+  says only that it tries to shorten the name (git-symbolic-ref(1),
+  *Options*, as Git for Windows 2.55.0 has it, read 2026-10-18). Measured,
+  it shortens to the name git reads as that ref and no other, which a tag
+  or a ref under `refs/` of the branch's name changes: gitrevisions(7)
+  (*Specifying revisions*) has `refs/<refname>` and `refs/tags/<refname>`
+  read before `refs/heads/<refname>`.
+- **Every other short name was read for the same.** The remote's default
+  branch, `symbolic-ref --short refs/remotes/origin/HEAD`, is a ref the
+  harness hands git and spec-brief as the base, so it stays the name git
+  reads as that ref and nothing else: beside a local branch `origin/main`
+  it is `remotes/origin/main`, where `origin/main` would be the branch. The
+  local branches, `for-each-ref --format=%(refname:short)`, were compared
+  with the branch's name for the base `init` chooses, so they are read as
+  both, the name (`%(refname:lstrip=2)`) and the ref, and where the base is
+  the branch it is written as the ref: `heads/main` beside a tag `main`, as
+  before, where `main` would be read as the tag. git-for-each-ref(1)
+  (*Field names*) has `:short` as the non-ambiguous short name, and
+  git-check-ref-format(1) no control character in a ref's name, so a tab
+  parts the two.
+
+Tests run the hook on the words its line hands it, in each layout of the
+table: a protected write in a linked worktree refused with the main
+checkout on `main`, with an install in the worktree and without one, beside
+the project and inside it; the project's own writes decided as before; a
+`cwd` in another repository and in none; the branch beside a tag, through
+the hook, git's hook and `doctor`; and git running the hook `init` writes
+in a linked worktree with no install, with the main work tree's and with
+neither. Every tree of the table was run through both builds, and
+`tests/integration/released-lines.test.ts` holds.
+
+A write that passed is refused, and a commit: a minor release (spec-core's
+ADR-0009). What was measured for this and left as it was:
+
+- **A session started in a worktree that has no install.** Claude Code
+  names that worktree as the project, and the hook's line names its script
+  by `${CLAUDE_PROJECT_DIR}`: node cannot find it and exits 1, which the
+  hooks reference (*Exit code output*) has as an error that does not block,
+  and the write goes ahead. The harness does not run, so it can say
+  nothing. Install the project there, or start the session in the main
+  checkout.
+- **A path in a third work tree**, neither the one that holds `cwd` nor the
+  one the root names, is decided by the root's, as before, and passes as a
+  file outside it.
+- **The other commands**, `guard`, `context`, `audit`, `probe` and the
+  rest, read a work tree's own install, as before.
+
 *Amended a fourth time 2026-10-18.* **The hook says, as a session starts,
 what would hold every write of it.** *Claimed* by the evaluation of a
 consumer's request in round 24: nothing runs at session start, and a
@@ -1623,8 +1796,14 @@ hook reads every source alike.
   with, of every write of the session, exit 0 where a write's run exits 1.
   A root outside any work tree is a session outside one, and says nothing,
   as before.
-- **The work tree read is the one a write is decided in**: the root the
-  line gives, then `CLAUDE_PROJECT_DIR`, then the question's `cwd`.
+- **The work tree read is the one a write is decided in**, as the third
+  amendment of the day has it: the repository the root on the line,
+  `CLAUDE_PROJECT_DIR` or the question's `cwd` names, and in it the work
+  tree that holds the question's `cwd` where that is another of its work
+  trees, with its siblings looked for in its install and then the
+  project's. A desktop session in a worktree on a branch naming a brief
+  spec-brief does not list is told so as it starts, though the main
+  checkout names none.
 - **Every answer before and after a write is as it was.** Every line of the
   hook the amendments above measured, before seven writes and after each,
   and git's hook, was run through both builds (`h24-hook-compare.mjs`): of

@@ -76,6 +76,30 @@ describe('the hook as a session starts', () => {
     });
   });
 
+  it('reads the work tree a write of the session is decided in, a worktree of the project where the session works in one (ADR-0005)', async () => {
+    const UNKNOWN = said(`the branch names brief 999, and spec-brief knows no such brief, ${HELD}: fix the brief or the branch before writing; spec-harness doctor says more`);
+    const repo = project();
+    const unknown = join(repo.root, '.claude', 'worktrees', 'u');
+    repo.git('worktree', 'add', '-q', '-b', 'brief/999-u', unknown);
+    const listed = join(repo.root, '.claude', 'worktrees', 'l');
+    repo.git('worktree', 'add', '-q', '-b', 'brief/001-l', listed);
+    // Started in the project, which Claude Code names, with the question's directory the worktree, as the desktop app has it.
+    const ask = (root: string, cwd?: string) =>
+      cli(['hook', 'claude'], root, { stdin: JSON.stringify({ session_id: 's', hook_event_name: 'SessionStart', source: 'startup', ...(cwd === undefined ? {} : { cwd }) }), env: { CLAUDE_PROJECT_DIR: root } });
+    expect(await ask(repo.root, unknown)).toEqual(UNKNOWN);
+    expect(await ask(repo.root, join(unknown, 'src'))).toEqual(UNKNOWN);
+    expect(await ask(repo.root, listed)).toEqual({ code: 0, stdout: '', stderr: '' });
+    // The project's own work tree, and a question that names no directory, are the project's.
+    expect(await ask(repo.root, repo.root)).toEqual({ code: 0, stdout: '', stderr: '' });
+    expect(await ask(repo.root)).toEqual({ code: 0, stdout: '', stderr: '' });
+    // And a project on a branch naming an unknown brief, whose session works in a worktree that names none.
+    const named = project('brief/999-nowhere');
+    const plain = join(named.root, '.claude', 'worktrees', 'p');
+    named.git('worktree', 'add', '-q', '-b', 'plain', plain);
+    expect(await ask(named.root, plain)).toEqual({ code: 0, stdout: '', stderr: '' });
+    expect(await ask(named.root, named.root)).toEqual(UNKNOWN);
+  });
+
   it('says a configuration that does not load, and spec-brief missing or too old where a brief is named', async () => {
     const broken = project();
     broken.write('.spec-harness.json', '{ "outOfScope": "sideways" }\n');

@@ -9,7 +9,7 @@
 
 import { execFile } from 'node:child_process';
 
-import type { FileChange } from './types.js';
+import type { FileChange, LocalBranch } from './types.js';
 
 export interface Run {
   readonly code: number;
@@ -108,22 +108,51 @@ export async function hookPath(name: string, cwd: string): Promise<{ readonly pa
   return { refused: run.stderr.split(/\r?\n/)[0]! };
 }
 
-/** The checked-out branch's short name, or `null` on a detached head. */
+const HEADS = 'refs/heads/';
+
+/**
+ * The checked-out branch's name, or `null` on a detached head: what HEAD
+ * points at, with `refs/heads/` taken off and nothing else. `--short` gives
+ * the shortest name git reads as that ref and no other, which is another
+ * name where a tag, or a ref under `refs/`, has the branch's: measured with
+ * git 2.55, on `claude/brief-042-x` beside the tag `claude/brief-042-x` it
+ * answers `heads/claude/brief-042-x`, which no template reads, and the
+ * brief went unnamed (ADR-0005). A HEAD that points outside `refs/heads/`,
+ * as `git symbolic-ref HEAD refs/tags/x` leaves it, is named as git status
+ * names it, the ref whole.
+ */
 export async function currentBranch(cwd: string): Promise<string | null> {
-  return value(['symbolic-ref', '--quiet', '--short', 'HEAD'], cwd);
+  const ref = await value(['symbolic-ref', '--quiet', 'HEAD'], cwd);
+  return ref !== null && ref.startsWith(HEADS) ? ref.slice(HEADS.length) : ref;
 }
 
-/** The remote's default branch as a local ref, such as `origin/main`, or `null`. */
+/**
+ * The remote's default branch as a local ref, such as `origin/main`, or
+ * `null`. This is a ref the harness hands git and spec-brief as the base, so
+ * it is the short name git reads as that ref and no other: beside a local
+ * branch or a tag named `origin/main`, measured with git 2.55, it is
+ * `remotes/origin/main`, where `origin/main` would be read as the branch or
+ * the tag (gitrevisions(7), the order a ref name is read in).
+ */
 export async function remoteDefault(cwd: string): Promise<string | null> {
   return value(['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD'], cwd);
 }
 
-/** Every local branch, by its short name. */
-export async function localBranches(cwd: string): Promise<string[]> {
-  const listed = await value(['for-each-ref', '--format=%(refname:short)', 'refs/heads/'], cwd);
+/**
+ * Every local branch. The two are one name but where a tag, or a ref under
+ * `refs/`, has the branch's: `main` beside the tag `main` is the ref
+ * `heads/main`. A ref name holds no control character
+ * (git-check-ref-format(1)), so a tab parts the two.
+ */
+export async function localBranches(cwd: string): Promise<LocalBranch[]> {
+  const listed = await value(['for-each-ref', '--format=%(refname:lstrip=2)%09%(refname:short)', HEADS], cwd);
   // for-each-ref fails only where git itself does, outside a repository,
   // where init never runs: the null check is there for the type.
-  return listed === null || listed === '' ? [] : listed.split('\n');
+  if (listed === null || listed === '') return [];
+  return listed.split('\n').map((line) => {
+    const parts = line.split('\t');
+    return { name: parts[0]!, ref: parts[1]! };
+  });
 }
 
 export async function revision(ref: string, cwd: string): Promise<string | null> {

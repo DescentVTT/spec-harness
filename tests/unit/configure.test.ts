@@ -483,9 +483,11 @@ describe('spec-brief\'s plugins', () => {
 
 describe('the base init names', () => {
   const unrecorded = 'no remote records a default branch (refs/remotes/origin/HEAD)';
+  /** Local branches as git lists them where no tag has a branch's name: the name is the ref. */
+  const named = (...names: string[]) => names.map((name) => ({ name, ref: name }));
 
   it('is the remote\'s default branch, wherever git recorded one', () => {
-    expect(chooseBase({ remoteDefault: 'origin/trunk', branch: 'brief/001-x', branches: ['brief/001-x', 'main'] })).toEqual({
+    expect(chooseBase({ remoteDefault: 'origin/trunk', branch: 'brief/001-x', branches: named('brief/001-x', 'main') })).toEqual({
       base: 'origin/trunk',
       detail: "rounds are measured from origin/trunk, the remote's default branch",
     });
@@ -493,7 +495,7 @@ describe('the base init names', () => {
 
   it('is main or master when init runs on it and no remote records a default', () => {
     for (const branch of ['main', 'master']) {
-      expect(chooseBase({ remoteDefault: null, branch, branches: [branch, 'brief/001-x'] })).toEqual({
+      expect(chooseBase({ remoteDefault: null, branch, branches: named(branch, 'brief/001-x') })).toEqual({
         base: branch,
         detail: `rounds are measured from ${branch}, the branch init runs on: ${unrecorded}; change "base" if rounds merge into another`,
       });
@@ -502,18 +504,31 @@ describe('the base init names', () => {
 
   it('is the only branch, born or not', () => {
     const only = (branch: string) => `rounds are measured from ${branch}, the only branch: ${unrecorded}; change "base" if rounds merge into another`;
-    expect(chooseBase({ remoteDefault: null, branch: 'trunk', branches: ['trunk'] })).toEqual({ base: 'trunk', detail: only('trunk') });
+    expect(chooseBase({ remoteDefault: null, branch: 'trunk', branches: named('trunk') })).toEqual({ base: 'trunk', detail: only('trunk') });
     expect(chooseBase({ remoteDefault: null, branch: 'trunk', branches: [] })).toEqual({ base: 'trunk', detail: only('trunk') });
+  });
+
+  it('is named by the ref git reads as the branch and nothing else, where a tag has its name', () => {
+    // `main` beside a tag `main` is read as the tag (gitrevisions(7)), so the base is the branch's ref.
+    const tagged = [...named('brief/001-x'), { name: 'main', ref: 'heads/main' }];
+    expect(chooseBase({ remoteDefault: null, branch: 'main', branches: tagged })).toEqual({
+      base: 'heads/main',
+      detail: `rounds are measured from heads/main, the branch init runs on: ${unrecorded}; change "base" if rounds merge into another`,
+    });
+    expect(chooseBase({ remoteDefault: null, branch: 'trunk', branches: [{ name: 'trunk', ref: 'heads/trunk' }] })).toEqual({
+      base: 'heads/trunk',
+      detail: `rounds are measured from heads/trunk, the only branch: ${unrecorded}; change "base" if rounds merge into another`,
+    });
   });
 
   it('is left to the person otherwise, with how to name it', () => {
     const advice = 'set "base" to the branch rounds merge into, or run git remote set-head origin --auto and init again';
-    expect(chooseBase({ remoteDefault: null, branch: 'brief/001-x', branches: ['brief/001-x', 'main'] })).toEqual({
+    expect(chooseBase({ remoteDefault: null, branch: 'brief/001-x', branches: named('brief/001-x', 'main') })).toEqual({
       base: null,
       detail: `no base can be told: ${unrecorded}, and brief/001-x is not main, master or the only branch; ${advice}`,
     });
     const detached = { base: null, detail: `no base can be told: ${unrecorded}, and HEAD is detached; ${advice}` };
-    expect(chooseBase({ remoteDefault: null, branch: null, branches: ['main'] })).toEqual(detached);
+    expect(chooseBase({ remoteDefault: null, branch: null, branches: named('main') })).toEqual(detached);
     expect(chooseBase({ remoteDefault: null, branch: null, branches: [] })).toEqual(detached);
   });
 });
@@ -598,11 +613,17 @@ describe("what doctor says of the keys, the Claude Code release and git's hook",
         '#!/bin/sh',
         '# spec-harness: refuse a commit that changes what the active brief protects.',
         "# git runs this at the top of the work tree it commits in, a linked worktree's",
-        "# own, wherever the hook is kept: the project's install is read from there.",
+        "# own, wherever the hook is kept: the project's install is read from there,",
+        "# or, where a linked worktree has none, from the repository's main work tree.",
         'bin=node_modules/@descent-vtt/spec-harness/bin/spec-harness.js',
         'if [ ! -f "$bin" ]; then',
-        `  printf '%s\\n' "spec-harness: $bin is not in $PWD, the work tree git commits in: install the project's dependencies there, as with npm ci, and commit again" >&2`,
-        '  exit 2',
+        '  common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)',
+        '  if [ "${common##*/}" = .git ] && [ -f "${common%/.git}/$bin" ]; then',
+        '    bin=${common%/.git}/$bin',
+        '  else',
+        `    printf '%s\\n' "spec-harness: $bin is not in $PWD, the work tree git commits in, nor in its repository's main work tree: install the project's dependencies there, as with npm ci, and commit again" >&2`,
+        '    exit 2',
+        '  fi',
         'fi',
         'exec node "$bin" hook git',
         '',

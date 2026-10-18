@@ -4,10 +4,11 @@ import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 
 import { ConfigError, DEFAULT_CONFIG } from '../../src/config.js';
-import { holdsGit, isTop, loadConfig, readJsonObject, readText, realSpelling, repositoryPath, stateDirectory, writeAtomic } from '../../src/fs.js';
-import { addWorktree, blameLine, changes, commonDirectory, currentBranch, GitError, mergeBase, revision, show, stagedChanges, workTree, workTreeRoot } from '../../src/git.js';
+import { holdsGit, isTop, loadConfig, mainWorkTree, readJsonObject, readText, realSpelling, repositoryPath, stateDirectory, writeAtomic } from '../../src/fs.js';
+import { addWorktree, blameLine, changes, commonDirectory, currentBranch, GitError, localBranches, mergeBase, remoteDefault, revision, show, stagedChanges, workTree, workTreeRoot } from '../../src/git.js';
 import { runCommand, withWorktree } from '../../src/sandbox.js';
 import { createSiblings, locate, runSibling, SiblingError } from '../../src/siblings.js';
+import { MAIN_INSTALL } from '../../src/workspace.js';
 import { brief, BRIEF_FILE, cleanup, cli, git, ignoresCase, install, installFake, parsed, repository, ROOT, temp } from './helpers.js';
 
 afterAll(cleanup);
@@ -162,6 +163,59 @@ describe('the top of a work tree', () => {
     expect(await currentBranch(repo.root)).toBeNull();
   });
 
+  it("reads the main work tree from a common directory that is a work tree's .git, and none from any other", () => {
+    expect(mainWorkTree('/work/app/.git')).toBe('/work/app');
+    expect(mainWorkTree('C:/work/app/.git')).toBe('C:/work/app');
+    for (const other of ['/work/app/.git/modules/lib', '/srv/app.git', '/srv/app']) expect(mainWorkTree(other), other).toBeNull();
+    // A linked worktree's siblings are looked for there after its own; the main work tree's, and any other's, nowhere else.
+    expect(MAIN_INSTALL('/work/linked', '/work/app/.git')).toEqual(['/work/app']);
+    expect(MAIN_INSTALL('/work/app', '/work/app/.git')).toEqual([]);
+    expect(MAIN_INSTALL('/work/app/lib', '/work/app/.git/modules/lib')).toEqual([]);
+  });
+
+  it('names the branch as HEAD points at it, beside a tag or a ref of its name, where git shortens it to another', async () => {
+    const repo = repository({ 'a.txt': 'a\n' });
+    repo.git('checkout', '-q', '-b', 'claude/brief-042-x');
+    expect(await currentBranch(repo.root)).toBe('claude/brief-042-x');
+    // git's short name is the one it reads as the branch and nothing else.
+    repo.git('tag', 'claude/brief-042-x');
+    expect(repo.git('symbolic-ref', '--quiet', '--short', 'HEAD')).toBe('heads/claude/brief-042-x');
+    expect(await currentBranch(repo.root)).toBe('claude/brief-042-x');
+    repo.git('checkout', '-q', '-b', 'brief/001-y');
+    repo.git('update-ref', 'refs/brief/001-y', 'HEAD');
+    expect(repo.git('symbolic-ref', '--quiet', '--short', 'HEAD')).toBe('heads/brief/001-y');
+    expect(await currentBranch(repo.root)).toBe('brief/001-y');
+    // A HEAD that points outside refs/heads/ is named as git status names it.
+    repo.git('symbolic-ref', 'HEAD', 'refs/tags/claude/brief-042-x');
+    expect(await currentBranch(repo.root)).toBe('refs/tags/claude/brief-042-x');
+  });
+
+  it('lists each local branch by its name and the ref git reads as it, and names the remote\'s default branch by such a ref', async () => {
+    const repo = repository({ 'a.txt': 'a\n' });
+    repo.git('branch', 'trunk');
+    expect(await localBranches(repo.root)).toEqual([
+      { name: 'main', ref: 'main' },
+      { name: 'trunk', ref: 'trunk' },
+    ]);
+    repo.git('tag', 'main');
+    expect(await localBranches(repo.root)).toEqual([
+      { name: 'main', ref: 'heads/main' },
+      { name: 'trunk', ref: 'trunk' },
+    ]);
+    expect(await localBranches(temp())).toEqual([]);
+    const unborn = temp();
+    git(unborn, 'init', '-q', '-b', 'main');
+    expect(await localBranches(unborn)).toEqual([]);
+    expect(await remoteDefault(repo.root)).toBeNull();
+    repo.git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+    repo.git('symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main');
+    expect(await remoteDefault(repo.root)).toBe('origin/main');
+    // Beside a local branch of that name, origin/main is the branch: the ref is the remote's.
+    repo.git('branch', 'origin/main', 'trunk');
+    expect(await remoteDefault(repo.root)).toBe('remotes/origin/main');
+    expect(repo.git('rev-parse', '--verify', '--quiet', 'remotes/origin/main')).toBe(repo.git('rev-parse', 'refs/remotes/origin/main'));
+  });
+
   it.skipIf(process.platform === 'win32')('is asked for one question at a time where its name holds a line break, or ends in a space', async () => {
     for (const name of ['two\nlines', 'ends in a space ']) {
       const root = join(temp(), name);
@@ -288,6 +342,31 @@ describe('finding the siblings', () => {
     installFake(root, 'spec-guard', JSON.stringify({ version: '0.11.0' }));
     const reason = 'spec-guard 0.11.0 is installed here; spec-harness needs 0.12.0 or later: npm install --save-dev @descent-vtt/spec-guard@latest';
     expect(locate('spec-guard', root, DEFAULT_CONFIG)).toEqual({ kind: 'outdated', version: '0.11.0', reason });
+  });
+
+  it("looks in the installs it is given after the work tree's own, and the first that has the sibling decides, at the floor", async () => {
+    const root = temp();
+    const project = temp();
+    const other = temp();
+    const bin = installFake(project, 'spec-guard', JSON.stringify({ version: '0.12.0' }));
+    // None here: the project's, named as another install's.
+    expect(locate('spec-guard', root, DEFAULT_CONFIG, [project])).toEqual({ kind: 'found', command: [process.execPath, bin], version: '0.12.0', elsewhere: project });
+    expect(locate('spec-guard', root, DEFAULT_CONFIG, [other, project])).toMatchObject({ kind: 'found', elsewhere: project });
+    expect(locate('spec-guard', root, DEFAULT_CONFIG)).toMatchObject({ kind: 'absent' });
+    expect(locate('spec-guard', root, DEFAULT_CONFIG, [other])).toEqual({
+      kind: 'absent',
+      reason: 'spec-guard is not installed here: npm install --save-dev @descent-vtt/spec-guard, or name its command under "tools" in .spec-harness.json',
+    });
+    // One there is the one run, and one too old there is not passed over for the project's.
+    installFake(root, 'spec-guard', JSON.stringify({ version: '0.11.0' }));
+    expect(locate('spec-guard', root, DEFAULT_CONFIG, [project])).toMatchObject({ kind: 'outdated', version: '0.11.0' });
+    expect(locate('spec-guard', root, DEFAULT_CONFIG, [project])).not.toHaveProperty('elsewhere');
+    installFake(other, 'spec-guard', JSON.stringify({ version: '0.11.0' }));
+    expect(locate('spec-guard', temp(), DEFAULT_CONFIG, [other, project])).toMatchObject({ kind: 'outdated', version: '0.11.0', elsewhere: other });
+    // And the siblings of a work tree look in the same places, for what they run as well.
+    expect(createSiblings(temp(), DEFAULT_CONFIG, [project]).locate('spec-guard')).toMatchObject({ kind: 'found', elsewhere: project });
+    await expect(createSiblings(temp(), DEFAULT_CONFIG, [project]).json('spec-guard', ['query'])).rejects.toThrow('spec-guard exited 0 without JSON');
+    expect(await createSiblings(temp(), DEFAULT_CONFIG).json('spec-guard', ['query'])).toMatchObject({ absent: expect.stringContaining('is not installed here') });
   });
 
   it('counts a version it cannot read as outdated: no package.json, not JSON, or no version in it', () => {

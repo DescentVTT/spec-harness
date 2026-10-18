@@ -59,6 +59,8 @@ The first of these names the round's brief; it is never guessed ([ADR-0004](http
 2. `SPEC_BRIEF`;
 3. the branch name: `brief/{id}`, `brief-{id}`, `*/brief/{id}`, `*/brief-{id}`.
 
+The branch is read as HEAD names it, `refs/heads/` taken off, so a tag of the same name does not hide it: `claude/brief-042-x` beside a tag `claude/brief-042-x` names brief 042, where git's short name for it, `heads/claude/brief-042-x`, named none.
+
 CI checks out a commit on no branch, so on a detached HEAD the branch is the one the forge's CI names, the first of:
 
 | Variable | Set by |
@@ -132,6 +134,7 @@ May the round write this?
 Paths are compared as the filesystem spells them, links resolved and case corrected, so `SRC/db/schema.ts` does not walk past a protection on `src/db/schema.ts` on Windows.
 
 - `spec-harness hook claude` answers Claude Code's PreToolUse and PostToolUse hooks: a refusal before the write, with the reason and the next step; a warning after a write outside the scope. It never answers `allow`, which would skip the person's own permission prompt. When it cannot answer - the configuration does not load, the briefs cannot be read, the harness meets an error it did not expect - it exits 2, and before a write Claude Code then holds the write.
+- In a worktree, a write is decided by the worktree's brief. Claude Code names the project a session started in, and hands the hook the directory Claude works in as the question's `cwd`: in a worktree session started from the desktop app, and after Claude enters a worktree, the first is the main checkout and the second the worktree. Where `cwd` is in another work tree of the same repository, that work tree's branch names the brief, its briefs and configuration are read, and its siblings are looked for in its own `node_modules` and then the project's, so a worktree with no install is checked with the project's. A path it does not hold, and every path where `cwd` is in another repository or in none, is decided by the project as before ([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
 - As a session starts, resumes, is cleared, compacted or forked, `hook claude` answers Claude Code's SessionStart with what would hold every write of the session, in one line, to the person as `systemMessage` and to Claude as `additionalContext`: a configuration that does not load, a brief the line, `SPEC_BRIEF` or the branch names that spec-brief does not list, spec-brief missing or too old where a brief is named, and what is wrong with the hook's own line. Nothing is said where all is well, and it exits 0 whatever it finds: the event cannot block, and the session's start is not to be stopped by it ([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
 - `spec-harness hook git` is a pre-commit hook for any agent or none. `init --git-hook` writes it; in a hook of your own it is the line `node node_modules/@descent-vtt/spec-harness/bin/spec-harness.js hook git`.
 - `hook claude` passes over whatever else is on its line that it does not read, as every release has, where every other command [refuses it](#an-input-that-names-nothing): its line is in settings a later release cannot rewrite, and exit 2 from it holds every write.
@@ -354,7 +357,7 @@ Configures the family to agree. It prints the plan, merges into files that exist
 - **git's pre-commit hook**, where git runs it from: `core.hooksPath`, relative, absolute or under `~`, and the shared hooks of a linked worktree.
   - It refuses a commit that changes what the active brief protects, for any agent or none, a shell's writes included.
   - With `--git-hook` it is written; without, the plan advises it (`advise`).
-  - It runs `node` and the script in the project's `node_modules`, as the Claude Code hooks do, and no `npx`. git starts a pre-commit hook at the top of the work tree it commits in, so the script is read from there: a linked worktree is guarded by its own install, and so is each repository that shares a hooks directory. Where the install is not there, the hook says so and the commit waits.
+  - It runs `node` and the script in the project's `node_modules`, as the Claude Code hooks do, and no `npx`. git starts a pre-commit hook at the top of the work tree it commits in, so the script is read from there: a linked worktree is guarded by its own install, or, where it has none, by the main work tree's, by its own branch and briefs; each repository that shares a hooks directory is guarded by its own. Where neither has the install, the hook says so and the commit waits. A hook an earlier release wrote reads the work tree's own install alone: take it away and run `init --git-hook --write` for this one.
   - It is a POSIX `sh` script on every platform: Git for Windows runs a hook with the `sh` it ships.
   - A hook that exists is never replaced: `init` says to add the line to it. One that runs spec-harness through `npx`, as `init` wrote it through 0.9.1, keeps working, and `init` names the line that runs it with `node`.
   - Nor is anything else that stands at the hook's path. A directory there is said as [`doctor`](#doctor) says it (`advise`), with `--git-hook` or without, and nothing is written over it.
@@ -371,6 +374,7 @@ The first thing to run when a hook refuses something unexpectedly. It reports:
 - **The siblings**: which are installed, at which versions, and how each is run.
   - A sibling older than this release needs is `outdated`, with the minimum and the command that installs a newer one, and exit 1.
   - A command named under `tools` is run as named, and its version is not checked.
+  - In a linked worktree with no install of its own, the siblings are the main work tree's, as git's hook runs them there, and each such row says whose install it is: `(0.8.0, the install of /work/app: this work tree has none of its own)`. `--format json` has it as `elsewhere`, `null` for a sibling of the work tree's own.
 - **The repository**: its root, the branch, and the brief the flag, `SPEC_BRIEF` or the branch names.
   - A brief no round can work under is said on that line, with why: `brief   none: the flag names brief 999, and spec-brief knows no such brief`. So is one spec-brief has archived, an empty `--brief`, and a spec-brief that could not list the briefs. The guard holds every write while it stands, which is often why `doctor` is being run.
   - It fails nothing, as a base that names no commit fails nothing: `doctor` exits as it would have. `--format json` has the id as `brief` and the reason as `briefProblem`, `null` where there is none.
