@@ -7,7 +7,6 @@ import {
   arrayMatcher,
   chooseBase,
   COMMA_SINCE,
-  commasUnder,
   describeArrayMatcher,
   describeBase,
   describeAbsent,
@@ -31,8 +30,10 @@ import {
   guardSwitchedOff,
   handedLines,
   hooksDisabled,
+  HYPHEN_SINCE,
   isStarted,
   loadsPlugin,
+  matchingUnder,
   mcpServer,
   mergeClaudeSettings,
   mergeMcp,
@@ -55,7 +56,7 @@ import {
   SPEC_GRAPH_CONFIGS,
   wiringState,
   writtenHooks,
-  type Commas,
+  type Matching,
   type PatternReader,
 } from '../../src/configure.js';
 import { claudeHookLine, elsewhereHookLine, heldHookLine, holderHookLine, outsideHookLine, type HookLine } from '../../src/usage.js';
@@ -368,9 +369,11 @@ describe('the Claude Code plugin beside init\'s entries (ADR-0012)', () => {
     const plugin = { id: 'spec-harness@spec-tools', file: USER };
     const off = 'turn the plugin off for this project with claude plugin disable spec-harness@spec-tools --scope local';
     const on = `the spec-harness plugin is on (spec-harness@spec-tools in ${USER})`;
-    expect(describeClaudeCode({ plugin: null, hooks: [], server: false })).toBe(
-      'neither the spec-harness plugin nor the hooks init writes, so Claude Code guards no write: run spec-harness init --write, or install the plugin',
-    );
+    for (const wiring of [{ plugin: null, hooks: [], server: false }, { plugin: null, hooks: [], server: false, unloaded: null }]) {
+      expect(describeClaudeCode(wiring)).toBe(
+        'neither the spec-harness plugin nor the hooks init writes, so Claude Code guards no write: run spec-harness init --write, or install the plugin',
+      );
+    }
     expect(describeClaudeCode({ plugin: null, hooks: ['.claude/settings.json'], server: true })).toBe("init's entries: the guard hooks in .claude/settings.json, the server in .mcp.json");
     expect(describeClaudeCode({ plugin: null, hooks: [], server: true })).toBe("init's entries: the server in .mcp.json");
     expect(describeClaudeCode({ plugin, hooks: [], server: false })).toBe(`${on} and brings the guard hooks and the server`);
@@ -383,6 +386,18 @@ describe('the Claude Code plugin beside init\'s entries (ADR-0012)', () => {
     expect(describeClaudeCode({ plugin, hooks: [], server: true })).toBe(
       `${on}, beside the server in .mcp.json: the server is registered twice. Keep one: take spec-harness's entries out of those files, or ${off}`,
     );
+  });
+
+  it("advises the array first where one unloads the project's settings, since init writes no hook there while it stands", () => {
+    // init --write, as advised, only advised the array in turn: the advice is the one at the end.
+    const unloaded = { event: 'PreToolUse', matcher: '["Bash"]' };
+    const mend = `${describeArrayMatcher('.claude/settings.json', unloaded)}, those init writes among them: ${ONE_STRING}, then run spec-harness init --write`;
+    expect(describeClaudeCode({ plugin: null, hooks: [], server: false, unloaded })).toBe(`neither the spec-harness plugin nor the hooks init writes, so Claude Code guards no write: ${mend}, or install the plugin`);
+    expect(mend).toBe(
+      '.claude/settings.json has an array for a matcher under PreToolUse, ["Bash"], which Claude Code lists as an invalid setting, and beside one under PreToolUse or PermissionRequest it loads none of the file\'s other hooks, those init writes among them: write the matcher as one string, its names between "|", then run spec-harness init --write',
+    );
+    // What is wired is said as it was.
+    expect(describeClaudeCode({ plugin: null, hooks: [], server: true, unloaded })).toBe("init's entries: the server in .mcp.json");
   });
 });
 
@@ -546,6 +561,17 @@ describe("what doctor says of the keys, the Claude Code release and git's hook",
       "no pre-commit hook runs spec-harness: one refuses a commit that changes what the active brief protects, for any agent or none, a shell's writes included; run spec-harness init --git-hook --write to add it",
     );
     expect(describeGitHook({ state: 'unknown', reason: 'r' })).toBe('where git runs its hooks cannot be told: r');
+  });
+
+  it('says a hook file that cannot be read, and what git does with it: skips it where it may not execute it, and cannot be told where it may', () => {
+    // Measured with git 2.47 as an ordinary account: mode 000 is skipped with a hint and the commit made; 111 and 333 run, and the shell cannot open the script.
+    const reason = "EACCES: permission denied, open '/r/.git/hooks/pre-commit'";
+    expect(describeGitHook({ state: 'unreadable', file: '.git/hooks/pre-commit', runs: false, reason })).toBe(
+      `.git/hooks/pre-commit cannot be read (${reason}), and is not executable, so git skips it and runs no hook: make it readable and executable, or take it away and run spec-harness init --git-hook --write`,
+    );
+    expect(describeGitHook({ state: 'unreadable', file: '.git/hooks/pre-commit', runs: true, reason })).toBe(
+      `.git/hooks/pre-commit cannot be read (${reason}), so whether it runs spec-harness cannot be told: git runs it at a commit, and a script there that cannot be read stops every commit, where a program runs; make it readable`,
+    );
   });
 
   it("says what stands at the hook's path that is no file, and what git does with it: stops every commit, or skips it", () => {
@@ -1025,6 +1051,13 @@ describe('the plugin that settings turn on, and whether it is on this machine (A
     expect(describeClaudeCode({ plugin, presence: gone, hooks: [], server: false })).toBe(
       `${ON} and is not on this machine, so it brings no hook here: why, and Claude Code guards no write. To have the guard, ${BRING}, or ${OFF} and run spec-harness init --write`,
     );
+    // Where an array unloads the project's settings, init writes no hook there either, which is said first.
+    const unloaded = { event: 'PermissionRequest', matcher: '["Read"]' };
+    const mend = `${describeArrayMatcher('.claude/settings.json', unloaded)}, those init writes among them: ${ONE_STRING}, then run spec-harness init --write`;
+    expect(describeClaudeCode({ plugin, presence: gone, hooks: [], server: false, unloaded })).toBe(
+      `${ON} and is not on this machine, so it brings no hook here: why, and Claude Code guards no write. To have the guard, ${BRING}, or ${OFF} and ${mend}`,
+    );
+    expect(describePresence({ plugin, presence: gone, hooks: [], server: true, unloaded })).toBe(describeClaudeCode({ plugin, presence: gone, hooks: [], server: false, unloaded }));
     expect(describePresence({ plugin, presence: gone, hooks: [], server: false })).toBeNull();
     // Beside init's entries those are the wiring, and the plugin is a note under them.
     expect(describeClaudeCode({ plugin, presence: gone, hooks: [PROJECT], server: true })).toBe("init's entries: the guard hooks in .claude/settings.json, the server in .mcp.json");
@@ -1494,29 +1527,83 @@ describe("the lines of Claude Code's hook in its settings, and what doctor says 
   });
 
   describe('a matcher the Claude Code on this machine reads otherwise (ADR-0005)', () => {
-    const OLD: Commas = { as: 'pattern', release: '2.1.190' };
-    const UNTOLD: Commas = { as: 'untold' };
-    const under = (hooks: unknown, commas: Commas, pattern?: PatternReader) => reportHooks([{ file: FILE, settings: hooks }], PROJECT, read, pattern, commas);
-    /** The writing tools the one line of `hooks` is waited on before a write by and started after one by, under a reading of the comma. */
-    const startedUnder = (hooks: unknown, commas: Commas): unknown => {
-      const [report] = under(hooks, commas);
+    const OLD: Matching = { as: 'older', release: '2.1.190' };
+    const UNTOLD: Matching = { as: 'untold' };
+    /** A release that reads a comma as the reference has it today, and a hyphen as one before 2.1.195 did. */
+    const R194: Matching = { as: 'older', release: '2.1.194' };
+    const under = (hooks: unknown, matching: Matching, pattern?: PatternReader) => reportHooks([{ file: FILE, settings: hooks }], PROJECT, read, pattern, matching);
+    /** The writing tools the one line of `hooks` is waited on before a write by and started after one by, under a reading of a matcher of names. */
+    const startedUnder = (hooks: unknown, matching: Matching): unknown => {
+      const [report] = under(hooks, matching);
       return [report?.before, report?.after];
     };
 
-    it('takes the reading of a comma from the release doctor asked: a separator from 2.1.191 on, part of a pattern before it, untold where the release is', () => {
+    it("takes the reading of a matcher of names from the release doctor asked: today's from 2.1.195 on, the release's own before it, untold where the release is", () => {
       expect(COMMA_SINCE).toBe('2.1.191');
-      const separator: Commas = { as: 'separator' };
-      expect(commasUnder({ state: 'ok', version: '2.1.191' })).toEqual(separator);
-      expect(commasUnder({ state: 'ok', version: '2.1.300' })).toEqual(separator);
-      expect(commasUnder({ state: 'ok', version: '2.2.0', file: '/p/package.json' })).toEqual(separator);
-      expect(commasUnder({ state: 'ok', version: '3.0.0' })).toEqual(separator);
-      expect(commasUnder({ state: 'ok', version: '2.1.190' })).toEqual(OLD);
-      expect(commasUnder({ state: 'ok', version: '2.1.139' })).toEqual({ as: 'pattern', release: '2.1.139' });
-      // A release too old for the hooks is older than this one too, and a prerelease of 2.1.191 comes before it.
-      expect(commasUnder({ state: 'outdated', version: '2.1.100' })).toEqual({ as: 'pattern', release: '2.1.100' });
-      expect(commasUnder({ state: 'ok', version: '2.1.191-beta.1' })).toEqual({ as: 'pattern', release: '2.1.191-beta.1' });
-      expect(commasUnder({ state: 'unknown', reason: 'no claude is on PATH' })).toEqual(UNTOLD);
-      expect(commasUnder(null)).toEqual(UNTOLD);
+      expect(HYPHEN_SINCE).toBe('2.1.195');
+      const today: Matching = { as: 'today' };
+      for (const version of ['2.1.195', '2.1.300', '2.2.0', '3.0.0']) expect(matchingUnder({ state: 'ok', version }), version).toEqual(today);
+      expect(matchingUnder({ state: 'ok', version: '2.2.0', file: '/p/package.json' })).toEqual(today);
+      for (const version of ['2.1.194', '2.1.191', '2.1.190', '2.1.139', '2.1.195-beta.1']) expect(matchingUnder({ state: 'ok', version }), version).toEqual({ as: 'older', release: version });
+      // A release too old for the hooks is older than this one too.
+      expect(matchingUnder({ state: 'outdated', version: '2.1.100' })).toEqual({ as: 'older', release: '2.1.100' });
+      expect(matchingUnder({ state: 'unknown', reason: 'no claude is on PATH' })).toEqual(UNTOLD);
+      expect(matchingUnder(null)).toEqual(UNTOLD);
+    });
+
+    it('reads a comma as a separator from 2.1.191 on, before 2.1.195 too, and as part of a pattern on a prerelease of 2.1.191', () => {
+      for (const matching of [R194, { as: 'older', release: '2.1.191' } satisfies Matching]) {
+        expect(under(both('Edit, Write'), matching), matching.release).toEqual(reported(both('Edit, Write')));
+      }
+      expect(startedUnder(both('Edit, Write'), { as: 'older', release: '2.1.191-beta.1' })).toEqual([[], []]);
+    });
+
+    it('cannot tell under names with a hyphen on a release older than 2.1.195, where the readings its changelog leaves open differ, and says why', () => {
+      // The changelog has a hyphenated name match as a substring before 2.1.195, and not how the rest of the matcher was read: the names exactly, a pattern, or its whole text, which is in no tool's name.
+      const hyphen = 'Edit|Write|my-tool';
+      const older = (release: string): string =>
+        `, which Claude Code ${release} may read otherwise: before 2.1.195 a matcher with a hyphenated name in it matched as a substring, and Claude Code's changelog does not say how the rest of it was read; from 2.1.195 on it is Edit and Write`;
+      for (const [matching, release] of [[R194, '2.1.194'], [OLD, '2.1.190']] as const) {
+        expect(under(both(hyphen), matching)[0], release).toMatchObject({
+          state: 'unknown',
+          before: null,
+          after: null,
+          cover: `${W}: which writes Claude Code waits on it before cannot be told here (under PreToolUse it has the matcher "${hyphen}"${older(release)}); which writes it is started after cannot be told here (under PostToolUse it has the matcher "${hyphen}"${older(release)})`,
+        });
+      }
+      // Every name that writes, beside a hyphenated one: the whole text is in no tool's name, so it is not told either.
+      for (const matcher of ['Edit|Write|NotebookEdit|my-tool', 'Notebook|my-tool']) expect(startedUnder(both(matcher), R194), matcher).toEqual([null, null]);
+      // From 2.1.195 on, and for a caller that asked none, the names as listed, with nothing said of the release.
+      for (const matching of [{ as: 'today' } satisfies Matching, undefined]) {
+        const [report] = reportHooks([{ file: FILE, settings: both(hyphen) }], PROJECT, read, undefined, matching);
+        expect(report).toMatchObject({ state: 'guards', before: ['Edit', 'Write'], after: ['Edit', 'Write'] });
+        expect(report?.cover).not.toContain('2.1.195');
+      }
+      expect(under(both(hyphen), UNTOLD)[0]).toMatchObject({ state: 'unknown', before: null, after: null });
+      expect(under(both(hyphen), UNTOLD)[0]?.cover).toContain(
+        ", which is Edit and Write from Claude Code 2.1.195 on, and may be read otherwise before it, where a matcher with a hyphenated name in it matched as a substring, and Claude Code's changelog does not say how the rest of it was read: the release here cannot be told)",
+      );
+      // No tool that writes under any reading: nothing turns on the release, and nothing is said.
+      for (const matching of [R194, OLD, UNTOLD]) {
+        for (const matcher of ['Bash|my-tool', 'mcp__brave-search', 'my-tool', 'code-reviewer|Bash', '-']) expect(under(both(matcher), matching), matcher).toEqual(reported(both(matcher)));
+      }
+      // A reading that runs out its budget is one that cannot be told, under a hyphen as under any pattern.
+      expect(under(both('Bash|my-tool'), R194, patternReader(() => null))[0]).toMatchObject({ state: 'unknown', before: null, after: null });
+    });
+
+    it('reads a comma beside a hyphen by the comma before 2.1.191, by the hyphen from it to 2.1.195, and says both where the release cannot be told', () => {
+      const mixed = 'Edit, Write, my-tool';
+      expect(under(both(mixed), OLD)[0]).toMatchObject({ state: 'unstarted', before: [], after: [] });
+      expect(under(both(mixed), OLD)[0]?.cover).toContain(', which Claude Code 2.1.190 reads as a pattern that matches no tool: a comma separates names from 2.1.191 on, where the matcher is Edit and Write)');
+      expect(under(both(mixed), R194)[0]).toMatchObject({ state: 'unknown', before: null, after: null });
+      expect(under(both(mixed), R194)[0]?.cover).toContain(", which Claude Code 2.1.194 may read otherwise: before 2.1.195 a matcher with a hyphenated name in it matched as a substring, and Claude Code's changelog does not say how the rest of it was read; from 2.1.195 on it is Edit and Write)");
+      expect(under(both(mixed), UNTOLD)[0]?.cover).toContain(
+        ", which is Edit and Write from Claude Code 2.1.195 on, and may be read otherwise before it, where a matcher with a hyphenated name in it matched as a substring, and Claude Code's changelog does not say how the rest of it was read, and before 2.1.191 a pattern that matches no tool, where a comma separated no names: the release here cannot be told)",
+      );
+      // And init writes no hook beside a line whose writes cannot be told, and its own beside one started for none.
+      expect(mergeClaudeSettings(both('Edit|Write|my-tool'), undefined, undefined, R194)).toBeNull();
+      expect(mergeClaudeSettings(both('Edit|Write|my-tool'), undefined, undefined, { as: 'today' })).toBeNull();
+      expect(mergeClaudeSettings(both(mixed), undefined, undefined, OLD)).not.toBeNull();
     });
 
     it('is waited on before no write under names with a comma on a release older than 2.1.191, said with the release and what the matcher is from 2.1.191', () => {
@@ -1552,19 +1639,19 @@ describe("the lines of Claude Code's hook in its settings, and what doctor says 
         [7, null],
         [null, null],
       ];
-      for (const commas of [OLD, UNTOLD]) {
+      for (const matching of [OLD, R194, UNTOLD]) {
         for (const [matcher, tools] of same) {
-          expect(startedUnder(both(matcher), commas), JSON.stringify(matcher)).toEqual([tools, tools]);
+          expect(startedUnder(both(matcher), matching), JSON.stringify(matcher)).toEqual([tools, tools]);
           // And nothing is said of it that is not said under the newest release: its state, and every word.
-          expect(under(both(matcher), commas), JSON.stringify(matcher)).toEqual(reported(both(matcher)));
+          expect(under(both(matcher), matching), JSON.stringify(matcher)).toEqual(reported(both(matcher)));
         }
       }
       // An entry beside it that names a tool without a comma still guards that tool.
       const two = { hooks: { PreToolUse: [group('Edit,Write', HOOK), group('NotebookEdit', HOOK)], PostToolUse: [GUARD] } };
       expect(under(two, OLD)[0]).toMatchObject({ state: 'guards', before: ['NotebookEdit'], after: TOOLS });
       // A release from 2.1.191 on, and a caller that asked none, read the comma as the reference has it today, with nothing more to say.
-      for (const commas of [{ as: 'separator' } satisfies Commas, undefined]) {
-        const [report] = reportHooks([{ file: FILE, settings: both('Edit, Write') }], PROJECT, read, undefined, commas);
+      for (const matching of [{ as: 'today' } satisfies Matching, R194, undefined]) {
+        const [report] = reportHooks([{ file: FILE, settings: both('Edit, Write') }], PROJECT, read, undefined, matching);
         expect(report).toMatchObject({ state: 'guards', before: ['Edit', 'Write'], after: ['Edit', 'Write'] });
         expect(report?.cover).toBe(reported(both('Edit, Write'))[0]?.cover);
         expect(report?.cover).not.toContain('2.1.191');
@@ -1581,9 +1668,9 @@ describe("the lines of Claude Code's hook in its settings, and what doctor says 
         cover: `${W}: which writes Claude Code waits on it before cannot be told here (under PreToolUse it has the matcher "Edit, Write"${aside}); which writes it is started after cannot be told here (under PostToolUse it has the matcher "Edit, Write"${aside})`,
       });
       // No tool that writes either way: no release makes it a guard, and none is named.
-      for (const commas of [OLD, UNTOLD]) {
+      for (const matching of [OLD, UNTOLD]) {
         for (const matcher of ['Bash,PowerShell', 'Bash, Read', ',', 'MultiEdit, Bash']) {
-          expect(under(both(matcher), commas)[0], matcher).toMatchObject({
+          expect(under(both(matcher), matching)[0], matcher).toMatchObject({
             state: 'unstarted',
             before: [],
             after: [],
@@ -1622,7 +1709,8 @@ describe("the lines of Claude Code's hook in its settings, and what doctor says 
       const own = both('Edit, Write');
       const added = { hooks: { PreToolUse: [group('Edit, Write', HOOK), GUARD], PostToolUse: [group('Edit, Write', HOOK), GUARD] } };
       expect(mergeClaudeSettings(own)).toBeNull();
-      expect(mergeClaudeSettings(own, undefined, undefined, { as: 'separator' })).toBeNull();
+      expect(mergeClaudeSettings(own, undefined, undefined, { as: 'today' })).toBeNull();
+      expect(mergeClaudeSettings(own, undefined, undefined, R194)).toBeNull();
       expect(mergeClaudeSettings(own, undefined, undefined, UNTOLD)).toBeNull();
       expect(mergeClaudeSettings(own, undefined, undefined, OLD)).toEqual(added);
       // A line a person wrote, known by the hook's own reading: the same.

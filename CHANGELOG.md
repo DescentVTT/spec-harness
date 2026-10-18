@@ -17,6 +17,11 @@ it from 2026-10-18 (spec-core's ADR-0005, and
 [ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)
 here).
 
+`doctor` reads a hyphen in a matcher as the Claude Code on `PATH` reads
+it, and no command ends on a stack or fails to come back for what stands
+where a repository or a settings file is read
+([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
+
 ### Changed
 
 - **Two values for an option that takes one are refused.** The parser kept
@@ -50,8 +55,42 @@ here).
   hook cannot read, exit 1. A line that is right answers as before, `guard
   --help` among them.
   Upgrading: ask for one of the two, on a line that is right.
+- **A matcher of names with a hyphen in one is read as the release on
+  `PATH` reads it.** By Claude Code's changelog such a matcher matched as a
+  substring before 2.1.195, and the changelog does not say how the rest of
+  it was read. Under an older release, or one that cannot be told, a line
+  under `Edit|Write|my-tool` is *cannot tell* where it said the line
+  guards a write by `Edit` and `Write`, and `init` writes no hook beside
+  it.
+  Upgrading: `doctor --strict` fails such a line under Claude Code 2.1.139
+  to 2.1.194 or with no `claude` on `PATH`: take the hyphenated name out of
+  the matcher, or update Claude Code.
+- **A hook file the account may not read is said, where `doctor` and `init`
+  ended on EACCES and a stack.** One git may not execute is skipped by git,
+  and is said and fails nothing; one it may is *cannot tell*, since git runs
+  it and a script it cannot read stops every commit. `--format json` has
+  the `gitHook.state` `unreadable`.
+  Upgrading: `doctor` exits 0, or 1 under `--strict`, and `init` 0, where
+  each exited 2: make the file readable.
 - **The hook answers after a write from what it decided before it.** Claude Code starts the hook before a write and after it, and the run after decided the write again, at what the run before costs: git, and spec-brief on a brief's branch. The run before now keeps what the run after would say under the git common directory, named by the question's `session_id` and `tool_use_id`, and the run after answers from it with no process started; one that finds nothing kept for its call, or another call's, decides as before. Under `outOfScope: "ask"` or `"deny"`, where nothing was kept, it says nothing with no process started ([ADR-0002](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0002-siblings-through-their-command-lines.md)).
   Upgrading: nothing to change. What another process changes between the two runs of one write, the configuration or what spec-brief reads, is read at the next write rather than after this one.
+
+### Fixed
+
+- **A named pipe where a settings file, `.mcp.json` or `.spec-harness.json`
+  is read** no longer keeps `doctor`, `init` or every command from coming
+  back: the first two are read as files that cannot be read as JSON, and
+  `.spec-harness.json` is `neither a file nor a directory, not a
+  configuration file`, exit 2, as a directory there is.
+- **`escalate` and `rule` say a path under git's directory, where the
+  harness keeps its state, that is no directory**, exit 2, in a line, where
+  they ended on Node's ENOTDIR and a stack.
+- **A `core.hooksPath` that names a file is said in git's own words**, where
+  `doctor` and `init` gave the reason for a git older than 2.31.
+- **`doctor`'s first line advises an array that unloads the project's
+  settings** before `init --write`, which writes no hook while it stands
+  and only advised the array in turn. `--format json` gains
+  `claudeCode.unloaded`.
 
 ## 0.18.0
 

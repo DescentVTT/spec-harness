@@ -968,7 +968,6 @@ describe("doctor on the line of Claude Code's hook in its settings (ADR-0005)", 
       const result = await cli(['doctor', ...more, '--format', 'json'], repo.root, { env });
       return { code: result.code, ...parsed<{ claudeCode: Read }>(result).claudeCode };
     };
-    const NONE = 'claude  neither the spec-harness plugin nor the hooks init writes, so Claude Code guards no write: run spec-harness init --write, or install the plugin';
 
     it('reads names with a comma as the release on PATH reads them: no guard before 2.1.191, the guard from it on, and it cannot tell without a release', async () => {
       const repo = repository({ '.claude/settings.json': settings([hook([])], 'Edit, Write') });
@@ -991,6 +990,26 @@ describe("doctor on the line of Claude Code's hook in its settings (ADR-0005)", 
       expect(untold.lines[0]?.cover).toContain('from Claude Code 2.1.191 on, where a comma separates names, and a pattern that matches no tool before it: the release here cannot be told');
     });
 
+    it('reads names with a hyphen as the release on PATH reads them: cannot tell before 2.1.195, the names from it on, and cannot tell without a release', async () => {
+      // Claude Code's changelog has a hyphenated name match as a substring before 2.1.195, and does not say how the rest of such a matcher was read.
+      const repo = repository({ '.claude/settings.json': settings([hook([])], 'Edit|Write|my-tool') });
+      const aside = ", which Claude Code 2.1.194 may read otherwise: before 2.1.195 a matcher with a hyphenated name in it matched as a substring, and Claude Code's changelog does not say how the rest of it was read; from 2.1.195 on it is Edit and Write";
+      const older = await read(repo, claudeOf('2.1.194'));
+      expect(older).toMatchObject({ code: 0, state: 'init', hooks: ['.claude/settings.json'], lines: [{ state: 'unknown', before: null, after: null, detail: null }], release: { state: 'ok', version: '2.1.194' } });
+      expect(older.lines[0]?.cover).toBe(
+        `"hook claude" in .claude/settings.json: which writes Claude Code waits on it before cannot be told here (under PreToolUse it has the matcher "Edit|Write|my-tool"${aside}); which writes it is started after cannot be told here (under PostToolUse it has the matcher "Edit|Write|my-tool"${aside})`,
+      );
+      // Cannot tell is never fine: --strict fails it.
+      expect((await read(repo, claudeOf('2.1.194'), '--strict')).code).toBe(1);
+      // The release that mended it reads the names exactly, as before.
+      const told = await read(repo, claudeOf('2.1.195'), '--strict');
+      expect(told).toMatchObject({ code: 0, state: 'init', lines: [{ state: 'guards', before: ['Edit', 'Write'], after: ['Edit', 'Write'] }] });
+      expect(told.lines[0]?.cover).not.toContain('2.1.195');
+      expect((await read(repo, { PATH: temp() })).lines[0]?.cover).toContain(', which is Edit and Write from Claude Code 2.1.195 on, and may be read otherwise before it, where a matcher with a hyphenated name in it matched as a substring');
+      // init writes no hook beside a line whose writes cannot be told.
+      expect((await cli(['init', '--write'], repo.root, { env: claudeOf('2.1.194') })).stdout).toContain('keep    .claude/settings.json\n');
+    });
+
     it('asks no release where nothing is wired under any reading of a comma, as before', async () => {
       // Names that are no tool that writes, with a comma between them: no release makes this line the guard.
       const repo = repository({ '.claude/settings.json': settings([hook([])], 'Bash, Read') });
@@ -1011,12 +1030,22 @@ describe("doctor on the line of Claude Code's hook in its settings (ADR-0005)", 
       const pretty = await cli(['doctor'], repo.root, { env });
       expect(pretty.code).toBe(1);
       // Nothing of the file is loaded, so nothing wires Claude Code to the guard, and its release is not asked: git's hook is the next line.
-      expect(pretty.stdout).toContain([NONE, `        "hook claude" in .claude/settings.json: ${array}`, `        "hook claude --base main" in .claude/settings.json (under PreToolUse alone): ${array}`, 'git     '].join('\n'));
+      // The first line advises the array, which init --write would only advise in turn.
+      const first =
+        'claude  neither the spec-harness plugin nor the hooks init writes, so Claude Code guards no write: .claude/settings.json has an array for a matcher under PreToolUse, ["Bash","PowerShell"], which Claude Code lists as an invalid setting, and beside one under PreToolUse or PermissionRequest it loads none of the file\'s other hooks, those init writes among them: write the matcher as one string, its names between "|", then run spec-harness init --write, or install the plugin';
+      expect(pretty.stdout).toContain([first, `        "hook claude" in .claude/settings.json: ${array}`, `        "hook claude --base main" in .claude/settings.json (under PreToolUse alone): ${array}`, 'git     '].join('\n'));
+      expect(parsed<{ claudeCode: { unloaded: unknown } }>(await cli(['doctor', '--format', 'json'], repo.root, { env })).claudeCode.unloaded).toEqual({ event: 'PreToolUse', matcher: '["Bash","PowerShell"]' });
       // The same names as one string, and an array in another settings file, which reaches no line of this one: every hook of this file is loaded.
       repo.write('.claude/settings.json', held('Bash|PowerShell'));
       const user = temp();
       write(user, 'settings.json', JSON.stringify({ hooks: { PermissionRequest: [{ matcher: ['Bash'], hooks: [other] }] } }));
       expect(await read(repo, { ...env, CLAUDE_CONFIG_DIR: user }, '--strict')).toMatchObject({ code: 0, state: 'init', lines: [{ state: 'guards' }, { state: 'guards' }], release: { state: 'ok' } });
+      // An array in the user's own settings unloads that file alone: init writes into the project's, and nothing is advised of it.
+      const theirs = await cli(['doctor', '--format', 'json'], repository({}).root, { env: { ...env, CLAUDE_CONFIG_DIR: user } });
+      expect(parsed<{ claudeCode: { unloaded: unknown; detail: string } }>(theirs).claudeCode).toMatchObject({
+        unloaded: null,
+        detail: 'neither the spec-harness plugin nor the hooks init writes, so Claude Code guards no write: run spec-harness init --write, or install the plugin',
+      });
     });
   });
 
