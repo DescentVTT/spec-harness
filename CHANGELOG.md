@@ -51,6 +51,25 @@ here).
   --help` among them.
   Upgrading: ask for one of the two, on a line that is right.
 
+### Documentation
+
+- **Worktrees, the branches an app makes, and sessions that write through a
+  shell.** Two sections of the README, under *A round*. One says which
+  branch names the default templates read (`claude/brief-042-rotate-tokens`
+  is brief 042; `*` does not cross `/`; `claude --worktree <name>` makes
+  `worktree-<name>`, which needs a template of its own), and how a worktree
+  is checked: by its own branch and briefs, with the project's install where
+  it has none, at the commit as before the write; and that where a session's
+  project is a worktree with no install, the hook cannot start and the write
+  goes ahead. The other has, layer by layer, what the guard, the check as a
+  session starts, git's pre-commit hook, the audit and spec-brief's archive
+  each catch and let through, each run, and what every layer lets through:
+  an edit of the brief, a shell's write until the commit, `git commit
+  --no-verify`, and a Claude Code mod that approves a call a hook blocked.
+  It says why a shell `PostToolUse` hook and `"protected": "ask"` were not
+  built (ADR-0005, ADR-0006).
+  Upgrading: nothing to change; it describes this release.
+
 ## 0.18.0
 
 `doctor` and `init` say more of what looks like a guard and checks
