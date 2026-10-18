@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { HELP } from '../../src/cli.js';
-import { claudeHookLine, emptyValue, heldHookLine, isBlank, isClaudeHook, readHookLine, refusal, unreadHookLine } from '../../src/usage.js';
+import { claudeHookLine, emptyValue, heldHookLine, isBlank, isClaudeHook, readHookLine, refusal, twoValues, unreadHookLine } from '../../src/usage.js';
 import { parseOptions, UsageError } from '../../src/workspace.js';
 
 /** Why a command line is refused, with every `--root` a directory unless the test names those that are. */
@@ -109,11 +109,13 @@ describe('the help', () => {
     expect(HELP).toContain(
       [
         'An option a command does not read, an argument it does not take, an option or an',
-        'argument given an empty value, and a brief given both as the argument and as --brief',
-        'are refused, exit 2, not read as if they were not there. doctor says an empty --brief',
-        'or --base in its report. hook claude reads its line as every release has, and says a',
-        'line it cannot read, and a --root that is not a directory, with exit 1: it refuses',
-        'nothing for either.',
+        'argument given an empty value, a brief given both as the argument and as --brief,',
+        'and an option that takes one value given two that name two things are refused, exit 2,',
+        'not read as if they were not there, and so with --help or --version on the line. The',
+        'same value twice, as --root . --root ./, is read once. doctor says an empty --brief or',
+        '--base in its report. hook claude reads its line as every release has, and says a line',
+        'it cannot read, two values for one option among them, and a --root that is not a',
+        'directory, with exit 1: it refuses nothing for either.',
         '',
       ].join('\n'),
     );
@@ -149,6 +151,16 @@ describe('an option a command does not read', () => {
         if (takes.includes(option)) expect(answer, `${command} --${option}`).toBeNull();
         else expect(answer, `${command} --${option}`).toMatch(new RegExp(`^${command} does not take --${option}; its (?:only option is|options are) `));
       }
+    }
+  });
+
+  it('is never --help or --version, which every command answers, and is named with either on the line', () => {
+    // The two are asked before the line is answered, so a line that is right is one beside either.
+    for (const answer of ['--help', '-h', '--version', '-v']) {
+      for (const command of Object.keys(TAKES)) expect(refused([...line(command), answer]), `${command} ${answer}`).toBeNull();
+      expect(refused(['doctor', answer, '--note', 'x'])).toBe('doctor does not take --note; its options are --brief, --base, --root, --format and --strict');
+      expect(refused(['escalate', '--list', answer, '--path', 'a.ts'])).toBe(`escalate --list does not take --path; beside --list its options are --root and --format`);
+      expect(refused(['escalate', '--list', answer])).toBeNull();
     }
   });
 
@@ -285,6 +297,17 @@ describe('a value that names nothing', () => {
   it('is any one of the values an option was given more than once', () => {
     expect(refused(['escalate', '--path', 'a.ts', '--path', ' ', '--reason', 'why'])).toMatch(/^--path is " ", which names no file; /);
     expect(refused(['escalate', '--path', 'a.ts', '--reason', 'why', '--option', 'Allow: one', '--option', ''])).toMatch(/^--option is "", which names no choice; /);
+    // An option that takes one value, beside a value that would read as the same: the empty one is still the unset variable it most often is.
+    expect(twoValues(parseOptions(['doctor', '--root', '', '--root', '.']), '/here')).toBeNull();
+    expect(refused(['doctor', '--root', '', '--root', '.'])).toMatch(/^--root is "", which names no directory; /);
+    expect(refused(['doctor', '--root', '.', '--root', ''])).toMatch(/^--root is "", which names no directory; /);
+    for (const option of ['reason', 'recommend']) {
+      expect(refused(['escalate', '--path', 'a.ts', '--reason', 'why', `--${option}`, ' ', `--${option}`, ' ']), option).toMatch(new RegExp(`^--${option} is " ", `));
+    }
+    expect(refused(['context', '--brief', ' ', '--brief', ' '])).toMatch(/^--brief is " ", which names no brief; /);
+    expect(refused(['probe', '--id', '', '--id', ''])).toMatch(/^--id is "", which names no probe; /);
+    expect(refused(['escalate', '--show', '', '--show', ''])).toMatch(/^--show is "", which names no escalation; /);
+    expect(refused(['audit', '--base', '', '--base', ''])).toMatch(/^--base is "", which names no commit; /);
   });
 
   it('is held to every option the help gives a value', () => {
@@ -314,6 +337,88 @@ describe('a value that names nothing', () => {
   it('is told from one that names something by what is left when the space around it is gone', () => {
     expect(['', ' ', '\t', '\n', ' \r\n '].map(isBlank)).toEqual([true, true, true, true, true]);
     expect(['a', ' a ', '0', '.'].map(isBlank)).toEqual([false, false, false, false]);
+  });
+});
+
+describe('an option that takes one value, given two', () => {
+  // The parser kept the last, and the earlier went unread with no word of it:
+  // `doctor --root nowhere --root .` ran in `.` (spec-core ADR-0005).
+  const TWO: Readonly<Record<string, readonly [string, string]>> = {
+    brief: ['404', '001'],
+    base: ['nowhere', 'main'],
+    root: ['nowhere', '.'],
+    format: ['json', 'pretty'],
+    reason: ['why', 'because'],
+    recommend: ['Allow.', 'Deny.'],
+    show: ['E-012-1', 'E-012-2'],
+    note: ['one', 'two'],
+    id: ['p', 'q'],
+    at: ['sideways', 'head'],
+  };
+  const twice = (option: string, first: string, other: string): string => `--${option} is given twice, as ${JSON.stringify(first)} and as ${JSON.stringify(other)}, and one of the two would go unread`;
+
+  it('is said with both values as they were written, for every option that takes one, the hook\'s line among them', () => {
+    for (const [option, [first, other]] of Object.entries(TWO)) {
+      for (const argv of [['doctor'], ['hook', 'claude']]) {
+        expect(twoValues(parseOptions([...argv, `--${option}`, first, `--${option}=${other}`]), '/here'), `${argv.join(' ')} --${option}`).toBe(twice(option, first, other));
+      }
+    }
+    // A value the parser would refuse, read last, refused nothing where it stood first.
+    expect(twoValues(parseOptions(['probe', '--at', 'sideways', '--at', 'head']), '/here')).toBe(twice('at', 'sideways', 'head'));
+  });
+
+  it('is the first option given two, with the first value it was given and the first that differs from it', () => {
+    expect(twoValues(parseOptions(['doctor', '--brief', '1', '--root', 'a', '--brief', '2', '--root', 'b']), '/here')).toBe(twice('brief', '1', '2'));
+    expect(twoValues(parseOptions(['doctor', '--root', 'a', '--root', 'a', '--root', 'b', '--root', 'c']), '/here')).toBe(twice('root', 'a', 'b'));
+    expect(twoValues(parseOptions(['doctor', '--root', 'a', '--root', 'b', '--root', 'a']), '/here')).toBe(twice('root', 'a', 'b'));
+  });
+
+  it('is not the same value twice, however it is spelt, as the option reads it', () => {
+    for (const argv of [
+      ['doctor', '--root', '.', '--root', '.'],
+      ['doctor', '--root', '.', '--root', './'],
+      ['doctor', '--root', 'sub/..', '--root', '.'],
+      ['doctor', '--root', '/here/sub', '--root', 'sub'],
+      // An empty root is the directory the hook was started in.
+      ['hook', 'claude', '--root', '', '--root', '/here'],
+      ['doctor', '--brief', '012', '--brief', '012'],
+      // A brief by its id, as spec-brief's names are matched: space around it dropped, and digits as a number.
+      ['doctor', '--brief', '12', '--brief', '012'],
+      ['doctor', '--brief', ' 012 ', '--brief', '012'],
+      ['doctor', '--brief', '012', '--brief', ' 12 '],
+      ['doctor', '--base', 'main', '--base', 'main'],
+      ['doctor', '--format', 'json', '--format', 'json'],
+      ['escalate', '--reason', 'why', '--reason', 'why'],
+      ['probe', '--at', 'head', '--at', 'head'],
+    ]) {
+      expect(twoValues(parseOptions(argv), '/here'), argv.join(' ')).toBeNull();
+    }
+  });
+
+  it('is two where the option reads two: a base by its name, text and ids as written, a brief that is not all digits as written', () => {
+    expect(twoValues(parseOptions(['doctor', '--base', 'main', '--base', 'origin/main']), '/here')).toBe(twice('base', 'main', 'origin/main'));
+    // Spelt as a path would name one directory: a base and an id are not paths.
+    expect(twoValues(parseOptions(['doctor', '--base', 'main', '--base', './main']), '/here')).toBe(twice('base', 'main', './main'));
+    expect(twoValues(parseOptions(['probe', '--id', 'p', '--id', './p']), '/here')).toBe(twice('id', 'p', './p'));
+    expect(twoValues(parseOptions(['escalate', '--reason', 'why', '--reason', 'why ']), '/here')).toBe(twice('reason', 'why', 'why '));
+    expect(twoValues(parseOptions(['doctor', '--brief', 'rt-7', '--brief', 'RT-7']), '/here')).toBe(twice('brief', 'rt-7', 'RT-7'));
+    expect(twoValues(parseOptions(['doctor', '--brief', '012', '--brief', '012a']), '/here')).toBe(twice('brief', '012', '012a'));
+    expect(twoValues(parseOptions(['doctor', '--brief', '', '--brief', '001']), '/here')).toBe(twice('brief', '', '001'));
+    expect(twoValues(parseOptions(['doctor', '--root', '', '--root', 'sub']), '/here')).toBe(twice('root', '', 'sub'));
+    // Read from where the line is read: the same two words name one directory or two.
+    expect(twoValues(parseOptions(['doctor', '--root', '/here/sub', '--root', 'sub']), '/there')).toBe(twice('root', '/here/sub', 'sub'));
+  });
+
+  it('is never a list, which takes every value it is given, nor an option that takes none', () => {
+    for (const argv of [
+      ['escalate', '--path', 'a.ts', '--path', 'b.ts', '--reason', 'why', '--option', 'Allow: one', '--option', 'Refuse'],
+      ['doctor', '--strict', '--strict'],
+      ['init', '--write', '--write', '--git-hook', '--git-hook'],
+      ['--help', '-h'],
+      ['doctor'],
+    ]) {
+      expect(twoValues(parseOptions(argv), '/here'), argv.join(' ')).toBeNull();
+    }
   });
 });
 
@@ -470,6 +575,21 @@ describe("what Claude Code's hook does with its own line", () => {
     expect(read(['hook', 'claude', '--root'])).toMatchObject({ state: 'off' });
     // A line that cannot be read is said before its root is asked about.
     expect(read(['hook', 'claude', '--root', '/nowhere', '--format', 'xml'])).toMatchObject({ state: 'off', fault: { wrong } });
+  });
+
+  it('is off for two values given to an option that takes one, as a line the hook cannot read, and guards where the two name one thing', () => {
+    const read = (words: readonly string[]) => claudeHookLine(words, parseOptions, '/here', only('/here', '/the/project'));
+    const wrong = (said: string): unknown => ({ state: 'off', fault: { wrong: `the hook's line cannot be read (${said})`, mend: MEND_LINE } });
+    expect(read(['hook', 'claude', '--root', '/the/project', '--root', '/here'])).toEqual(wrong('--root is given twice, as "/the/project" and as "/here", and one of the two would go unread'));
+    expect(read(['hook', 'claude', '--brief', '001', '--brief', '404'])).toEqual(wrong('--brief is given twice, as "001" and as "404", and one of the two would go unread'));
+    // An option the hook passes over is held to it as well: the line cannot be read either way.
+    expect(read(['hook', 'claude', '--format', 'json', '--format', 'pretty'])).toEqual(wrong('--format is given twice, as "json" and as "pretty", and one of the two would go unread'));
+    // Said before a root that is not there, as a line the parser refused is.
+    expect(read(['hook', 'claude', '--root', '/nowhere', '--note', 'a', '--note', 'b'])).toEqual(wrong('--note is given twice, as "a" and as "b", and one of the two would go unread'));
+    // Read from the root it is read in, an empty one the directory it is started in.
+    expect(read(['hook', 'claude', '--root', '/the/project/', '--root', '/the/project'])).toEqual({ state: 'guards', root: '/the/project' });
+    expect(read(['hook', 'claude', '--root', '', '--root', '/here'])).toEqual({ state: 'guards', root: '/here' });
+    expect(read(['hook', 'claude', '--brief', '1', '--brief', '001'])).toEqual({ state: 'guards', root: undefined, brief: '001' });
   });
 
   it('is nobody\'s where the words do not say hook claude, read or not', () => {

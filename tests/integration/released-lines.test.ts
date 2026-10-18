@@ -22,7 +22,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { arrayMatcher, GIT_HOOK_LINE, GUARD_HOOK, matchingUnder, mcpServer, mergeClaudeSettings, PRE_COMMIT, PROJECT_DIR, PROJECT_DIR_OR_HERE, reportHooks } from '../../src/configure.js';
 import { CALLABLE_TOOLS, WRITING_TOOLS } from '../../src/hooks.js';
-import { claudeHookLine, refusal } from '../../src/usage.js';
+import { claudeHookLine, refusal, twoValues } from '../../src/usage.js';
 import { parseOptions } from '../../src/workspace.js';
 import { brief, BRIEF_FILE, cleanup, cli, parsed, repository, ROOT, temp, type Repository } from './helpers.js';
 
@@ -155,7 +155,10 @@ describe('the lines the releases wrote', () => {
     for (const written of WRITTEN) {
       for (const project of ['/the/project', null]) {
         const argv = handed(written.line, project);
-        if (argv !== null) expect(refusal(parseOptions(argv), isDirectory), `${written.releases}: ${wordsOf(written.line).join(' ')}`).toBeNull();
+        if (argv === null) continue;
+        expect(refusal(parseOptions(argv), isDirectory), `${written.releases}: ${wordsOf(written.line).join(' ')}`).toBeNull();
+        // Nor read as a line with two values for one option, which every command refuses and the hook says of its own.
+        expect(twoValues(parseOptions(argv), '/the/project'), `${written.releases}: ${wordsOf(written.line).join(' ')}`).toBeNull();
       }
     }
   });
@@ -168,6 +171,9 @@ describe('the lines the releases wrote', () => {
     expect(read(['mcp'])).toEqual({ command: 'mcp', positionals: [], given: [], root: undefined });
     expect(read(['mcp', '--root', '.'])).toEqual({ command: 'mcp', positionals: [], given: ['root'], root: '.' });
     expect(read(['mcp', '--root', '/the/project'])).toEqual({ command: 'mcp', positionals: [], given: ['root'], root: '/the/project' });
+    // Each value once: no line a release wrote gives an option two.
+    for (const argv of [['hook', 'claude'], ['hook', 'git'], ['mcp']]) expect(parseOptions(argv).written, argv.join(' ')).toEqual({});
+    for (const root of ['.', '/the/project']) expect(parseOptions(['mcp', '--root', root]).written).toEqual({ root: [root] });
   });
 
   it('name the root of a server by the placeholder they find its script with, so a root filled with nothing never ran', () => {
@@ -353,12 +359,46 @@ describe("Claude Code's hook, on a line the parser cannot read", () => {
 
   it('is exit 1 whatever else stands on the line or names the brief, never the exit 2 that holds every write, and never an answer', async () => {
     // --brief 404 alone holds the write, exit 2, and so does SPEC_BRIEF: a line that cannot be read names no round.
-    for (const rest of [['--brief', '404', '--nope'], ['--nope', '--root', join(repo.root, 'nowhere')], ['--version', '--nope'], ['--help=1'], ['extra', '--list', '--nope']]) {
+    for (const rest of [
+      ['--brief', '404', '--nope'],
+      ['--nope', '--root', join(repo.root, 'nowhere')],
+      ['--version', '--nope'],
+      ['--help=1'],
+      ['extra', '--list', '--nope'],
+      // Two answers asked for, and two values for one option, are lines the parser cannot read, --help beside them or not.
+      ['--help', '--version'],
+      ['--help', '--brief', '404', '--brief', '001'],
+      ['--brief', '001', '--brief', '404'],
+    ]) {
       for (const event of ['PreToolUse', 'PostToolUse']) {
         const result = await cli(['hook', 'claude', ...rest], repo.root, { stdin: QUESTION(event), env: { SPEC_BRIEF: '404' } });
         expect({ code: result.code, stdout: result.stdout }, `${event}: ${rest.join(' ')}`).toEqual({ code: 1, stdout: '' });
         expect(result.stderr.endsWith(OFF), `${event}: ${rest.join(' ')}`).toBe(true);
       }
+    }
+  });
+
+  it('says two values for an option that takes one, naming both, and guards where the two name one thing as it reads them', async () => {
+    // --root nowhere --root . guarded in ., and --brief 001 --brief 404 held every write for 404.
+    const twice = (option: string, first: string, other: string): string =>
+      said(`--${option} is given twice, as ${JSON.stringify(first)} and as ${JSON.stringify(other)}, and one of the two would go unread`);
+    for (const event of ['PreToolUse', 'PostToolUse']) {
+      for (const [rest, option, first, other] of [
+        [['--root', 'nowhere', '--root', '.'], 'root', 'nowhere', '.'],
+        [['--brief', '001', '--brief', '404'], 'brief', '001', '404'],
+        [['--base', 'nowhere', '--base', 'main'], 'base', 'nowhere', 'main'],
+        // What the hook passes over, given two, cannot be read either.
+        [['--format', 'json', '--format', 'pretty'], 'format', 'json', 'pretty'],
+        [['--note', 'a', '--note', 'b'], 'note', 'a', 'b'],
+      ] as const) {
+        expect(await cli(['hook', 'claude', ...rest], repo.root, { stdin: QUESTION(event) }), `${event}: ${rest.join(' ')}`).toEqual({ code: 1, stdout: '', stderr: twice(option, first, other) });
+      }
+    }
+    // A relative root is read from where the hook is started, which is not the directory a test runs it for.
+    for (const rest of [['--root', repo.root, '--root', `${repo.root}/`], ['--root', '', '--root', repo.root], ['--brief', '1', '--brief', '001'], ['--format', 'json', '--format', 'json']]) {
+      const result = await cli(['hook', 'claude', ...rest], repo.root, { stdin: QUESTION() });
+      expect(result, rest.join(' ')).toMatchObject({ code: 0, stderr: '' });
+      expect(JSON.parse(result.stdout), rest.join(' ')).toMatchObject({ hookSpecificOutput: { permissionDecision: 'deny' } });
     }
   });
 
@@ -461,7 +501,15 @@ describe("doctor, of the hook's line in Claude Code's settings", () => {
   it('says what the hook does: a write refused where it says the line guards, and the hook\'s own words where it says the guard is off', async () => {
     // A directory that is there and is in no work tree: the hook reads a session outside one.
     const outside = temp();
-    const LINES: readonly (readonly string[])[] = [['--root', PROJECT_DIR, '--brief', '001'], ['--root', 'nowhere'], ['--format', 'xml'], ['--brief', '404'], ['--root', outside]];
+    const LINES: readonly (readonly string[])[] = [
+      ['--root', PROJECT_DIR, '--brief', '001'],
+      ['--root', 'nowhere'],
+      ['--format', 'xml'],
+      ['--brief', '404'],
+      ['--root', outside],
+      ['--brief', '001', '--brief', '404'],
+      ['--root', PROJECT_DIR, '--root', `${PROJECT_DIR}/`, '--brief', '1', '--brief', '001'],
+    ];
     repo.write('.claude/settings.json', JSON.stringify(held(...LINES.map((rest) => entry(['node', `${PROJECT_DIR}/${SCRIPT}`, 'hook', 'claude', ...rest])))));
     try {
       const doctor = parsed<{ root: string; claudeCode: { lines: { line: string[]; state: string; detail: string }[] } }>(await cli(['doctor', '--format', 'json'], repo.root));
@@ -471,6 +519,8 @@ describe("doctor, of the hook's line in Claude Code's settings", () => {
         [LINES[2], 'off'],
         [LINES[3], 'held'],
         [LINES[4], 'off'],
+        [LINES[5], 'off'],
+        [LINES[6], 'guards'],
       ]);
       for (const [index, rest] of LINES.entries()) {
         const said = doctor.claudeCode.lines[index] as { state: string; detail: string };
@@ -515,6 +565,8 @@ describe("Claude Code's hook, whatever is on its line", () => {
     ['--format', 'allow'],
     ['--at', 'allow'],
     ['--allow', '--root', 'nowhere'],
+    ['--allow', '--root', 'a', '--root', 'b'],
+    ['--help', '--version'],
   ];
 
   it('never answers allow, and never holds a write for its own line: one the round may make, one it may not, one outside its scope', async () => {

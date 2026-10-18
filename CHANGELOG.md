@@ -11,6 +11,12 @@ cannot turn a run red. The family's policy is
 
 ## Unreleased
 
+An option that takes one value is given one, and a line that is wrong is
+refused with `--help` or `--version` on it, as the family's contract has
+it from 2026-10-18 (spec-core's ADR-0005, and
+[ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)
+here).
+
 `doctor` reads a hyphen in a matcher as the Claude Code on `PATH` reads
 it, and no command ends on a stack or fails to come back for what stands
 where a repository or a settings file is read
@@ -18,6 +24,37 @@ where a repository or a settings file is read
 
 ### Changed
 
+- **Two values for an option that takes one are refused.** The parser kept
+  the last and passed over the earlier with no word: `doctor --root nowhere
+  --root .` ran in `.`, `--brief 404 --brief 001` was brief 001, and
+  `probe --at sideways --at head` ran at the head. Every command but
+  Claude Code's hook now exits 2 with one line that names both, as
+  `--root is given twice, as "nowhere" and as ".", and one of the two would
+  go unread; give it one`. The two are compared as the option reads them,
+  so one directory spelt two ways, or `--brief 12` beside `--brief 012`,
+  is the option once. `--path` and `--option` are lists, as before.
+  Upgrading: give each such option once; a script that builds a line by
+  adding a second `--root` or `--format` to override the first exits 2.
+- **Claude Code's hook says two values for one option on its own line.**
+  `hook claude --root nowhere --root .` guarded in `.`, and `hook claude
+  --brief 001 --brief 404` held every write for 404. It is a line the hook
+  cannot read, said in one line on stderr with exit 1, before a write and
+  after one, and holds no write: the guard is off until the line is
+  mended. `doctor` says the line in the same words and exits 1. No line a
+  release wrote gives an option two values.
+  Upgrading: a hook's line with an option given twice, which only a person
+  writes, is said and checks no write; give the option once.
+- **A wrong line is refused beside `--help` or `--version`, and the two
+  beside each other.** `doctor --help --root a --root b`, `doctor --help
+  --note x`, `doctor --help extra`, `doctor --help --root nowhere` and
+  `bogus --help` printed the help, exit 0, and `--help --version` printed
+  the version. Each is now exit 2 and the line it is refused with without
+  either; `--help` beside `--version`, in either order, is
+  `--help is given beside --version, and one of the two answers would go
+  unread; give one of them`. On `hook claude`'s line it is a line the
+  hook cannot read, exit 1. A line that is right answers as before, `guard
+  --help` among them.
+  Upgrading: ask for one of the two, on a line that is right.
 - **A matcher of names with a hyphen in one is read as the release on
   `PATH` reads it.** By Claude Code's changelog such a matcher matched as a
   substring before 2.1.195, and the changelog does not say how the rest of

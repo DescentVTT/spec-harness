@@ -11,5 +11,14 @@ export default defineConfig({
     include: ['tests/unit/**/*.test.ts'],
     environment: 'node',
     testTimeout: 30_000,
+    // Named, so that vitest adds none of its own. A suite that names none
+    // gets vitest's github-actions reporter beside the default one on a
+    // runner, and it appends a summary of each run to the step's: one a
+    // mutant, which came to 1,093k over this sweep's 6,279 runs on main's
+    // push of bd6a87c. GitHub uploads 1MiB of a step's summary, and the job
+    // ended on an error annotation that the upload was aborted. The default
+    // reporter writes to the worker's output, as it did, which Stryker shows
+    // only for a worker that exits unexpectedly.
+    reporters: ['default'],
   },
 });
