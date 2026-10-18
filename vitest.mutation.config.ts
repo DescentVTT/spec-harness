@@ -66,8 +66,8 @@ export class QuickestFirst extends BaseSequencer {
  * either.
  *
  * The rest is `vitest.config.ts`'s, for the same processes, less its v8
- * coverage, which Stryker replaces with its own per test, and with the order
- * above; a test holds the two files together.
+ * coverage, which Stryker replaces with its own per test, with the order
+ * above and with a reporter named; a test holds the two files together.
  */
 export default defineConfig({
   test: {
@@ -77,5 +77,9 @@ export default defineConfig({
     testTimeout: 300_000,
     hookTimeout: 300_000,
     sequence: { sequencer: QuickestFirst },
+    // Named, for the reason `vitest.core.config.ts` gives. Each shard is a
+    // step of its own, and none came to GitHub's 1MiB, but each added a
+    // summary a mutant all the same.
+    reporters: ['default'],
   },
 });
