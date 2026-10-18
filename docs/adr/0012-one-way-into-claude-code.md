@@ -375,8 +375,9 @@ exit code that can change for a tree that passed is a minor release
 
 *Amended 2026-10-18.* A linked worktree with no install of its own is
 checked with the main work tree's, where the amendment of 2026-10-07 had
-each work tree guarded by its own install alone (ADR-0005, amended again
-2026-10-18, has what was measured). git still starts the pre-commit hook at
+each work tree guarded by its own install alone (ADR-0005, amended a third
+time 2026-10-18, has what was measured). git still starts the pre-commit
+hook at
 the top of the work tree it commits in, and the hook `init` writes reads
 the script from there first. Where it is not there, the hook asks git for
 the common directory, `rev-parse --path-format=absolute --git-common-dir`,
