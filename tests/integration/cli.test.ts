@@ -88,11 +88,104 @@ describe('an input that is set and names nothing', () => {
     expect(there.stdout).toMatch(/^ok {7}no brief governs /);
   });
 
-  it('does not keep --help or --version from answering, nor a word that is no command from being said', async () => {
-    expect(await cli(['doctor', 'extra', '--note', 'x', '--help'], ROOT)).toEqual({ code: 0, stdout: HELP, stderr: '' });
-    expect(await cli(['-v', 'init', 'mydir', '--root', ''], ROOT)).toEqual({ code: 0, stdout: `${VERSION}\n`, stderr: '' });
+  it('is refused with --help or --version on the line, as an option no command has always was (spec-core ADR-0005)', async () => {
+    // Each printed the help or the version, exit 0, and said nothing of what was wrong.
+    const repo = repository({ 'notes.txt': 'a file\n' });
+    const nowhere = join(repo.root, 'nowhere');
+    for (const answer of ['--help', '-h', '--version', '-v']) {
+      for (const [argv, stderr] of [
+        [['doctor', 'extra', '--note', 'x', answer], 'doctor does not take --note; its options are --brief, --base, --root, --format and --strict'],
+        [['doctor', 'extra', answer], 'doctor takes no argument, not "extra"'],
+        [[answer, 'init', 'mydir', '--root', ''], 'init takes no argument, not "mydir"'],
+        [['doctor', answer, '--root', ''], '--root is "", which names no directory; give it one, or leave it out to run in the current directory'],
+        [['doctor', '--root', nowhere, answer], `--root is "${nowhere}", which is not a directory; give it one that exists, or leave it out to run in the current directory`],
+        [['audit', '1', '--brief', '1', answer], 'audit was given the brief twice, as its argument "1" and as --brief "1"; give one of them'],
+        [['escalate', '--list', '--path', 'src/a.ts', answer], 'escalate --list does not take --path; beside --list its options are --root and --format'],
+        [['guard', answer, ''], 'guard was given "" as a path, which names none; give it the paths the round would write'],
+        [['hook', 'git', answer, '--strict'], 'hook does not take --strict; its options are --brief, --base and --root'],
+        [['doctor', answer, '--root', 'a', '--root', 'b'], '--root is given twice, as "a" and as "b", and one of the two would go unread; give it one'],
+        [['archive', answer], 'unknown command "archive"; see spec-harness --help'],
+        [[answer, 'constructor'], 'unknown command "constructor"; see spec-harness --help'],
+      ] as const) {
+        expect(await cli(argv, repo.root), argv.join(' ')).toEqual({ code: 2, stdout: '', stderr: `spec-harness: ${stderr}\n` });
+      }
+    }
+  });
+
+  it('answers --help and --version on a line that is right, a command that needs more than the line gives it among them', async () => {
+    // guard needs a path, hook the word after it, rule --allow or --deny and escalate a request: each says so when it runs, which --help asks it not to.
+    for (const argv of [[], ['doctor'], ['guard'], ['hook'], ['hook', 'claude'], ['rule'], ['escalate'], ['doctor', '--root', '.', '--root', './'], ['context', '--brief', '1', '--brief', '001']]) {
+      expect(await cli([...argv, '--help'], ROOT), argv.join(' ')).toEqual({ code: 0, stdout: HELP, stderr: '' });
+      expect(await cli(['-v', ...argv], ROOT), argv.join(' ')).toEqual({ code: 0, stdout: `${VERSION}\n`, stderr: '' });
+    }
     expect(await cli(['archive', 'extra', '--note', 'x'], ROOT)).toEqual({ code: 2, stdout: '', stderr: 'spec-harness: unknown command "archive"; see spec-harness --help\n' });
     expect(await cli(['--root', ''], ROOT)).toEqual({ code: 2, stdout: HELP, stderr: '' });
+  });
+
+  it('refuses --help beside --version, in either order, in one line that names both', async () => {
+    // The version was printed, and the help went unread.
+    for (const [argv, first, other] of [
+      [['--help', '--version'], '--help', '--version'],
+      [['--version', '--help'], '--version', '--help'],
+      [['doctor', '-h', '-v'], '-h', '-v'],
+      [['hook', 'git', '-v', '--help'], '-v', '--help'],
+    ] as const) {
+      expect(await cli(argv, ROOT), argv.join(' ')).toEqual({ code: 2, stdout: '', stderr: `spec-harness: ${first} is given beside ${other}, and one of the two answers would go unread; give one of them\n` });
+    }
+  });
+});
+
+describe('an option that takes one value, given two', () => {
+  // The parser kept the last, and the earlier went unread with no word of it:
+  // `doctor --root nowhere --root .` ran in `.`, and `--brief 404 --brief 001`
+  // was brief 001 (spec-core ADR-0005).
+  it('is refused, exit 2, in one line that names both, before the command reads or writes anything', async () => {
+    const repo = repository({ [BRIEF_FILE]: brief({ affected: ['src/**'] }) });
+    const twice = (option: string, first: string, other: string): string =>
+      `spec-harness: --${option} is given twice, as ${JSON.stringify(first)} and as ${JSON.stringify(other)}, and one of the two would go unread; give it one\n`;
+    for (const [argv, option, first, other] of [
+      [['doctor', '--root', 'nowhere', '--root', '.'], 'root', 'nowhere', '.'],
+      [['context', '--brief', '404', '--brief', '001'], 'brief', '404', '001'],
+      [['audit', '--base', 'nowhere', '--base', 'main'], 'base', 'nowhere', 'main'],
+      [['guard', 'src/a.ts', '--format', 'pretty', '--format', 'json'], 'format', 'pretty', 'json'],
+      [['probe', '--at', 'sideways', '--at', 'head'], 'at', 'sideways', 'head'],
+      [['probe', '--id', 'p', '--id', 'q'], 'id', 'p', 'q'],
+      [['escalate', '--path', 'src/a.ts', '--reason', 'why', '--reason', 'because'], 'reason', 'why', 'because'],
+      [['escalate', '--path', 'src/a.ts', '--reason', 'why', '--recommend', 'Allow.', '--recommend', 'Deny.'], 'recommend', 'Allow.', 'Deny.'],
+      [['escalate', '--show', 'E-001-1', '--show', 'E-001-2'], 'show', 'E-001-1', 'E-001-2'],
+      [['rule', 'E-001-1', '--allow', '--note', 'one', '--note', 'two'], 'note', 'one', 'two'],
+      [['hook', 'git', '--root', 'src', '--root', '.'], 'root', 'src', '.'],
+      [['mcp', '--root', '.', '--root', 'src'], 'root', '.', 'src'],
+      [['init', '--write', '--format', 'json', '--format', 'pretty'], 'format', 'json', 'pretty'],
+      // Before an option the command does not read, and with no command at all.
+      [['doctor', '--note', 'x', '--root', 'a', '--root', 'b'], 'root', 'a', 'b'],
+      [['--root', 'a', '--root', 'b'], 'root', 'a', 'b'],
+    ] as const) {
+      expect(await cli(argv, repo.root), argv.join(' ')).toEqual({ code: 2, stdout: '', stderr: twice(option, first, other) });
+    }
+    // Nothing was raised, and init wrote nothing.
+    expect(existsSync(join(repo.root, '.git', 'spec-harness'))).toBe(false);
+    expect(existsSync(join(repo.root, '.claude'))).toBe(false);
+  });
+
+  it('is the option once where the two name one thing as it reads them, and runs with the last', async () => {
+    const repo = repository({ [BRIEF_FILE]: brief({ affected: ['src/**'] }), 'src/a.ts': 'a;\n' });
+    // A relative root is read from where the command is started, which is not the directory a test runs it for.
+    const here = await cli(['doctor', '--root', repo.root, '--root', `${repo.root}/`, '--format', 'json', '--format', 'json'], repo.root);
+    expect(here).toMatchObject({ code: 0, stderr: '' });
+    expect(parsed<{ root: string }>(here).root).toBe(parsed<{ root: string }>(await cli(['doctor', '--format', 'json'], repo.root)).root);
+    // A brief by its id, as spec-brief's names are matched.
+    const guarded = await cli(['guard', 'src/a.ts', '--brief', '1', '--brief', ' 001 '], repo.root);
+    expect(guarded).toMatchObject({ code: 0, stderr: '' });
+    expect(guarded.stdout).toMatch(/^ok {7}src\/a\.ts is in brief 001's scope/);
+  });
+
+  it('keeps a list a list: each --path and each --option is one more', async () => {
+    const repo = repository({ [BRIEF_FILE]: brief({ affected: ['src/**'] }) });
+    repo.git('checkout', '-q', '-b', 'brief/001-rotate');
+    const raised = await cli(['escalate', '--path', 'src/a.ts', '--path', 'src/b.ts', '--reason', 'why', '--option', 'Allow: one', '--option', 'Refuse'], repo.root);
+    expect(raised).toMatchObject({ code: 1, stderr: '' });
+    for (const said of ['src/a.ts', 'src/b.ts', 'Allow', 'Refuse']) expect(raised.stdout, said).toContain(said);
   });
 });
 

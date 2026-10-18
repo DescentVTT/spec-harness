@@ -1347,6 +1347,100 @@ What was measured for this and left as it was:
   a pipe nothing writes to is read without end. A repository cannot hold
   one.
 
+*Amended 2026-10-18.* An option that takes one value is given one, and a
+line that is wrong is refused with `--help` or `--version` on it (spec-core's
+ADR-0005, amended the same day). The amendment of 2026-10-11 measured an
+option given twice and left it: the parser's reading for every command, the
+last value read. *Measured* on 0.18.0 through the launcher (Windows 11,
+Node 24.18.1, git 2.55), in a repository with a brief that protects a file,
+on the brief's branch: every option that takes one value given twice to
+every command that reads it, once with one value and once with two, and
+each refusal `src/usage.ts` has beside `--help` and `--version`, 209 lines
+in all.
+
+| The line | 0.18.0 | Now |
+| --- | --- | --- |
+| `doctor --root nowhere --root .`, and `--root` so for every command | runs in `.`, exit 0 | exit 2: `--root is given twice, as "nowhere" and as ".", and one of the two would go unread; give it one` |
+| `context --brief 404 --brief 001`, `--base nowhere --base main`, `--format pretty --format json`, `probe --id p --id q`, `escalate --reason a --reason b`, `--recommend` and `--show` so, `rule --note a --note b` | the last is read, and the earlier passed over: brief 001, a JSON document, probe q, a memo that says b | exit 2, in the same words for the option |
+| `probe --at sideways --at head` | runs at the head: a position the parser refuses, read first, refused nothing | exit 2, the same |
+| `--root . --root ./`, `--brief 1 --brief 001`, the same value twice | the last | the same: the option once |
+| `escalate --path a --path b`, `--option` twice | a list | the same |
+| `hook claude --root nowhere --root .`, before a write to the protected file and after one | refuses the write, under `.` | exit 1, `the hook's line cannot be read (--root is given twice, ...)`, and the write goes on |
+| `hook claude --brief 001 --brief 404` | exit 2, every write held for 404 | exit 1, the same words for `--brief` |
+| `hook claude --root . --root ./`, `--brief 1 --brief 001` | refuses the write | the same |
+| `doctor --help --root a --root b`, `doctor --help --note x`, `doctor --help extra`, `doctor --help --root ""`, `doctor --help --root nowhere`, `audit 001 --brief 001 --help`, `escalate --list --path a --help`, `guard --help ""`, `hook git --help --strict`, `init --version --brief 001`, `bogus --help` | the help or the version, exit 0 | exit 2, the line each is refused with alone |
+| `--help --version`, `--version --help`, `-h -v`, `doctor --help --version` | the version, exit 0 | exit 2: `--help is given beside --version, and one of the two answers would go unread; give one of them` |
+| `hook claude --help --version`, `hook claude --help --root a --root b`, before a write | the version, or the help, exit 0, and no write checked | exit 1, the hook's line cannot be read |
+| `doctor --help --bogus` | exit 2 | the same |
+| `--help`, `guard --help`, `hook --help`, `rule --help`, `escalate --help`, `hook claude --help` | the help, exit 0 | the same |
+
+- **Two values are compared as the option reads them.** A root by the
+  directory it names from where the command is started, so `.`, `./` and
+  the directory's own path are one; on the hook's line an empty root is the
+  directory the hook is started in, as it reads one. A brief by its id as
+  spec-brief's names are matched (ADR-0004): space around it dropped, and
+  digits as a number, so `12` is `012`. Everything else as written: a base
+  is a name git is handed, and `main` beside `origin/main` asks for two
+  refs whatever commit each names today; a format, a probe's position and
+  an id are words read exactly; a reason, a recommendation and a note are
+  text. The first option given two is named, with the first value it was
+  given and the first that reads otherwise; the same value given again is
+  the option once, and the last is the one read. An empty value is refused
+  wherever it stands, beside one that reads as the same directory too: it
+  is the unset variable it most often is.
+- **A list is a list.** `--path` and `--option` take every value, as they
+  did.
+- **Claude Code's hook says it of its own line.** Two values on the hook's
+  line, for an option it reads or one it passes over, is a line it cannot
+  read: one line on stderr, exit 1, after the question is read, before a
+  write and after one, and no write held, as for an option no command has
+  (the amendment of 2026-10-11). Read as before, the hook guarded under the
+  last root, in a work tree the person may not have meant, and held every
+  write for the last brief. `doctor` reads the line through the same
+  function (`claudeHookLine`, `src/usage.ts`), with a relative root read
+  from the root it runs in as for one root, says it as a guard that is off
+  in the hook's words, and exits 1. A brief on such a line is asked of no
+  one. A test runs the hook on such a line and holds `doctor` to its words.
+- **A wrong line is refused before `--help` or `--version` answers.** Every
+  refusal of `src/usage.ts` is asked first, and so is a command that is
+  none: `spec-harness bogus --help` is `unknown command "bogus"`. What a
+  command says only as it runs is not asked, so `guard --help`, `hook
+  --help`, `rule --help` and `escalate --help` print the help, where each
+  without it says what it needs. The two of them beside each other is
+  refused by the parser, which names both as they were written, `-h` and
+  `-v` as `-h` and `-v`; on the hook's line that is a line it cannot read.
+- **No line a release wrote is read another way.** The five command lines
+  the releases hand the harness (ADR-0012) give no option twice, and
+  `tests/integration/released-lines.test.ts` holds each to that. The hook
+  was handed 52 lines through the launcher of 0.18.0 and of this change,
+  364 runs in all: each line before and after a write to a protected file,
+  to a file in the scope and to one outside it, by each tool it reads a
+  path from, and before a call of `Bash`, and git's hook with a protected
+  file staged. The exit code and both streams were the same in every run
+  but 58 of the lines above, two values and `--help` beside `--version`,
+  and 14 that print the help, whose words for these rules are new.
+
+Input refused that was accepted, and exit codes that changed, are a minor
+release (spec-core's ADR-0009). What was measured for this and left as it
+was:
+
+- **`--help` or `--version` on the hook's line beside a fault it says as it
+  runs**: `hook claude --help --root nowhere` prints the help, exit 0, as
+  before. The hook says such a fault only once it has read the question, and
+  `--help` is answered before. And `doctor` reads `hook claude --help` as a
+  line that guards, where the hook prints the help and checks no write. No
+  release wrote either word on the line.
+- **A word after `hook` that is neither `claude` nor `git`**, beside
+  `--help`: `hook claud --help` prints the help. `hook` refuses the word as
+  it runs.
+- **A root is compared as Node's `path.resolve` spells it.** On Windows
+  `C:\repo` beside `c:\repo`, and a link beside its target, are two values
+  though they name one directory.
+- **A line with no command reads no root.** `--root nowhere --version`
+  prints the version, as `--root nowhere --help` prints the help: no shape
+  is asked of a line with no command. Two roots on it are refused all the
+  same.
+
 ## Consequences
 
 An agent that writes through a shell passes the guard and is caught at the
