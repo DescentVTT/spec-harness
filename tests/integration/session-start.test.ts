@@ -65,6 +65,8 @@ describe('the hook as a session starts', () => {
     // A session whose directory is in no work tree is the project's, which Claude Code names.
     const elsewhere = temp();
     expect(await cli(['hook', 'claude'], unknown.root, { stdin: question(elsewhere), env: { CLAUDE_PROJECT_DIR: unknown.root } })).toEqual(said(`the branch names brief 999, and spec-brief knows no such brief, ${HELD}: fix the brief or the branch before writing; spec-harness doctor says more`));
+    // Started in another directory, the hook reads the project Claude Code names.
+    expect(await cli(['hook', 'claude'], temp(), { stdin: question(unknown.root), env: { CLAUDE_PROJECT_DIR: unknown.root } })).toEqual(said(`the branch names brief 999, and spec-brief knows no such brief, ${HELD}: fix the brief or the branch before writing; spec-harness doctor says more`));
     // And the write it would hold is held so.
     const write = JSON.stringify({ cwd: unknown.root, hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: join(unknown.root, 'src', 'a.ts') } });
     expect(await cli(['hook', 'claude'], unknown.root, { stdin: write, env: { CLAUDE_PROJECT_DIR: unknown.root } })).toEqual({
@@ -141,6 +143,9 @@ describe('doctor, of the hook as a session starts', () => {
     expect((await cli(['doctor'], theirs.root)).stdout).not.toContain(NOTE);
     const other = repository({ '.claude/settings.json': JSON.stringify({ hooks: { ...TWO, SessionStart: [{ hooks: [{ type: 'command', command: 'node', args: ['other.js'] }] }] } }) });
     expect((await cli(['doctor'], other.root)).stdout).toContain(NOTE);
+    // Nor is the harness's own script on a line that is not the hook's.
+    const git = repository({ '.claude/settings.json': JSON.stringify({ hooks: { ...TWO, SessionStart: [{ hooks: [{ ...LINE, args: [LINE.args[0], 'hook', 'git'] }] }] } }) });
+    expect((await cli(['doctor'], git.root)).stdout).toContain(NOTE);
     // Where nothing in the settings guards, there is no entry to note.
     expect((await cli(['doctor'], repository({}).root)).stdout).not.toContain(NOTE);
   });

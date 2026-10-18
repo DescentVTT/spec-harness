@@ -514,6 +514,9 @@ export async function claudeCodeWiring(root: string, io: CliIO, pattern: Pattern
   const presence = plugin === null ? null : pluginPresence(plugin, sources, roots);
   const server = registersServer(await readJsonObject(join(root, '.mcp.json')));
   // A line under SessionStart is the hook's by the hook's own reading of it, as any line is.
+  // A root on it that is no directory is a line of the hook that is off, and
+  // one all the same, so the mutant of the test for a directory is
+  // equivalent.
   const isHook = (words: readonly string[]): boolean => claudeHookLine(words, parseOptions, root, (path) => isDirectory(resolve(root, path))) !== null;
   const sessionStart = sources.some(({ settings }) => startsSessions(settings, isHook));
   // init writes its hooks into the project's file alone, and none where an array unloads it.

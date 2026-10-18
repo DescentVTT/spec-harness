@@ -1981,6 +1981,7 @@ describe('the entry as a session starts (ADR-0012)', () => {
 
   it('is found in settings by an entry under SessionStart that runs the hook, and in no other', () => {
     expect(startsSessions({ hooks: { SessionStart: [START] } }, () => false)).toBe(true);
+    expect(startsSessions({ hooks: { SessionStart: [{ hooks: [{ type: 'command', command: 'echo', args: ['x'] }] }, START] } }, () => false)).toBe(true);
     expect(startsSessions({ hooks: { SessionStart: [{ matcher: 'resume', hooks: [{ type: 'command', command: 'echo', args: ['x'] }, HOOK] }] } }, () => false)).toBe(true);
     const words = { hooks: [{ type: 'command', command: `node ${SCRIPT} hook claude` }] };
     expect(startsSessions({ hooks: { SessionStart: [words] } }, isHook)).toBe(true);
