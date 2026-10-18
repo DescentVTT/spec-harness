@@ -1,0 +1,196 @@
+# Temporary: times `hook claude` on the CI's Windows image for round 24,
+# section H (the answer after a write, and the check as a session starts).
+# The pull request that carries it is a draft, is closed unmerged once its
+# log is read, and its branch deleted.
+name: h24 measure the hook (temporary)
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  measure:
+    if: github.head_ref == 'h24/measure-the-hook-on-windows'
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+      - run: npm ci --ignore-scripts
+      - run: npm run build
+      - name: Build the branches measured
+        shell: bash
+        run: |
+          git worktree add "$RUNNER_TEMP/h24-h2" "origin/perf/the-answer-after-a-write"
+          (cd "$RUNNER_TEMP/h24-h2" && git log --oneline -1 && npm ci --ignore-scripts && npm run build)
+          git worktree add "$RUNNER_TEMP/h24-h3" "origin/feat/a-check-at-session-start"
+          (cd "$RUNNER_TEMP/h24-h3" && git log --oneline -1 && npm ci --ignore-scripts && npm run build)
+      - name: Write the bench
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/h24"
+          cat > "$RUNNER_TEMP/h24/h24-bench.mjs" <<'H24EOF'
+          // Times `hook claude` of built spec-harness copies, the builds taking turns
+          // inside each round: before a write and after it, the run after paired with
+          // the run before by its session and call as Claude Code's are; after a write
+          // with no run before it; at session start; beside `node -e 0`.
+          // usage: node h24-bench.mjs <work dir> <rounds> <out.json> <name>=<harness dir> ...
+          import { execFileSync, spawnSync } from 'node:child_process';
+          import { mkdirSync, rmSync, symlinkSync, writeFileSync, readFileSync } from 'node:fs';
+          import { join, resolve } from 'node:path';
+          import { cpus, totalmem } from 'node:os';
+
+          const [workArg, roundsArg, outArg, ...buildArgs] = process.argv.slice(2);
+          const work = resolve(workArg);
+          const rounds = Number(roundsArg);
+          const builds = Object.fromEntries(buildArgs.map((arg) => [arg.slice(0, arg.indexOf('=')), resolve(arg.slice(arg.indexOf('=') + 1))]));
+          const node = process.execPath;
+          rmSync(work, { recursive: true, force: true });
+          mkdirSync(work, { recursive: true });
+          writeFileSync(join(work, 'gitconfig'), '[user]\n  email = h24@example.invalid\n  name = h24\n[core]\n  autocrlf = false\n[commit]\n  gpgsign = false\n[init]\n  defaultBranch = main\n');
+          const baseEnv = { ...process.env, GIT_CONFIG_GLOBAL: join(work, 'gitconfig'), GIT_CONFIG_NOSYSTEM: '1' };
+          for (const name of ['SPEC_BRIEF', 'CLAUDE_PROJECT_DIR', 'GITHUB_HEAD_REF', 'GITHUB_REF_NAME', 'GITHUB_REF_TYPE', 'CI_MERGE_REQUEST_SOURCE_BRANCH_NAME', 'CI_COMMIT_BRANCH']) delete baseEnv[name];
+          const git = (cwd, ...args) => execFileSync('git', args, { cwd, encoding: 'utf8', env: baseEnv, stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+          const BRIEF = ['---', 'status: active', 'affectedFiles: [src/**]', 'protectedFiles: [src/db/schema.ts]', '---', '', '# 042 - Bench', '', '## Intent', '', 'Time the hook.', ''].join('\n');
+
+          function project(build, name, branch, config) {
+            const harness = builds[build];
+            const dir = join(work, build, name);
+            mkdirSync(dir, { recursive: true });
+            git(dir, 'init', '-q', '-b', 'main');
+            mkdirSync(join(dir, 'node_modules', '@descent-vtt'), { recursive: true });
+            symlinkSync(harness, join(dir, 'node_modules', '@descent-vtt', 'spec-harness'), 'junction');
+            symlinkSync(join(harness, 'node_modules', '@descent-vtt', 'spec-brief'), join(dir, 'node_modules', '@descent-vtt', 'spec-brief'), 'junction');
+            writeFileSync(join(dir, '.gitignore'), 'node_modules/\n');
+            execFileSync(node, [join(harness, 'node_modules', '@descent-vtt', 'spec-brief', 'bin', 'spec-brief.js'), 'init'], { cwd: dir, encoding: 'utf8', env: baseEnv });
+            mkdirSync(join(dir, 'src', 'db'), { recursive: true });
+            mkdirSync(join(dir, 'briefs'), { recursive: true });
+            writeFileSync(join(dir, 'src', 'a.ts'), 'export const a = 1;\n');
+            writeFileSync(join(dir, 'src', 'db', 'schema.ts'), 'export const s = 1;\n');
+            writeFileSync(join(dir, 'notes.md'), '# notes\n');
+            writeFileSync(join(dir, 'briefs', '042_bench.md'), BRIEF);
+            if (config !== undefined) writeFileSync(join(dir, '.spec-harness.json'), `${JSON.stringify(config)}\n`);
+            git(dir, 'add', '-A');
+            git(dir, 'commit', '-q', '-m', 'init');
+            if (branch !== 'main') git(dir, 'checkout', '-q', '-b', branch);
+            return dir;
+          }
+
+          const projects = Object.fromEntries(
+            Object.keys(builds).map((build) => [
+              build,
+              {
+                none: project(build, 'none', 'main'),
+                named: project(build, 'named', 'claude/brief-042-bench'),
+                deny: project(build, 'deny', 'claude/brief-042-deny', { outOfScope: 'deny' }),
+                unknown: project(build, 'unknown', 'claude/brief-999-unknown'),
+              },
+            ]),
+          );
+          let counter = 0;
+          const question = (event, dir, file, call) =>
+            JSON.stringify({
+              session_id: 'h24-bench',
+              transcript_path: join(work, 't.jsonl'),
+              cwd: dir,
+              permission_mode: 'default',
+              hook_event_name: event,
+              ...(event === 'SessionStart'
+                ? { source: 'startup', model: 'claude' }
+                : {
+                    tool_name: 'Edit',
+                    tool_input: { file_path: join(dir, ...file.split('/')), old_string: 'a', new_string: 'b' },
+                    tool_use_id: call,
+                    ...(event === 'PostToolUse' ? { tool_response: {} } : {}),
+                  }),
+            });
+          const run = (build, dir, input) => {
+            const start = process.hrtime.bigint();
+            const r = spawnSync(node, [join(dir, 'node_modules', '@descent-vtt', 'spec-harness', 'bin', 'spec-harness.js'), 'hook', 'claude'], { cwd: dir, input, env: { ...baseEnv, CLAUDE_PROJECT_DIR: dir }, encoding: 'utf8', windowsHide: true, timeout: 120_000 });
+            if (r.error) throw r.error;
+            return { ms: Number(process.hrtime.bigint() - start) / 1e6, exit: r.status, out: (r.stdout || r.stderr).slice(0, 120) };
+          };
+
+          // Each case: [label, project, file, what runs]. A pair runs before the write and after it, under one call.
+          const CASES = [
+            ['no brief named, an Edit', 'none', 'src/a.ts', 'pair'],
+            ["a brief's branch, an Edit in its scope", 'named', 'src/a.ts', 'pair'],
+            ["a brief's branch, an Edit outside its scope", 'named', 'notes.md', 'pair'],
+            ['outOfScope deny, an Edit in its scope', 'deny', 'src/a.ts', 'pair'],
+            ["a brief's branch, after an Edit outside its scope, with no run before it", 'named', 'notes.md', 'after'],
+            ['outOfScope deny, after an Edit in its scope, with no run before it', 'deny', 'src/a.ts', 'after'],
+            ['session start, no brief named', 'none', null, 'start'],
+            ["session start, a brief's branch", 'named', null, 'start'],
+            ['session start, a branch that names no brief spec-brief knows', 'unknown', null, 'start'],
+          ];
+          const times = {};
+          const said = {};
+          const note = (label, result) => {
+            (times[label] ??= []).push(result.ms);
+            said[label] ??= `exit ${result.exit}: ${result.out}`;
+          };
+          const names = Object.keys(builds);
+          for (let round = 0; round < rounds; round += 1) {
+            for (const [index, [label, which, file, kind]] of CASES.entries()) {
+              const order = (round + index) % 2 === 0 ? names : [...names].reverse();
+              for (const build of order) {
+                const dir = projects[build][which];
+                const call = `toolu_h24_${(counter += 1)}`;
+                if (kind === 'pair') {
+                  note(`${build}: ${label}: before the write`, run(build, dir, question('PreToolUse', dir, file, call)));
+                  note(`${build}: ${label}: after it`, run(build, dir, question('PostToolUse', dir, file, call)));
+                } else if (kind === 'after') {
+                  note(`${build}: ${label}`, run(build, dir, question('PostToolUse', dir, file, call)));
+                } else {
+                  note(`${build}: ${label}`, run(build, dir, question('SessionStart', dir, null, null)));
+                }
+              }
+              const start = process.hrtime.bigint();
+              spawnSync(node, ['-e', '0'], { windowsHide: true });
+              (times['node -e 0'] ??= []).push(Number(process.hrtime.bigint() - start) / 1e6);
+            }
+          }
+          const stats = (xs) => {
+            const s = [...xs].sort((a, b) => a - b);
+            const at = (q) => s[Math.min(s.length - 1, Math.max(0, Math.ceil(q * s.length) - 1))];
+            const median = s.length % 2 === 1 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2;
+            return { n: s.length, median, p95: at(0.95), min: s[0], max: s[s.length - 1] };
+          };
+          const summary = Object.fromEntries(Object.entries(times).map(([label, xs]) => [label, stats(xs)]));
+          const result = {
+            node: process.version,
+            platform: process.platform,
+            git: execFileSync('git', ['--version'], { encoding: 'utf8' }).trim(),
+            cpu: `${cpus()[0].model}, ${cpus().length} logical`,
+            memoryGB: Math.round(totalmem() / 2 ** 30),
+            rounds,
+            builds,
+            summary,
+            said,
+          };
+          writeFileSync(resolve(outArg), JSON.stringify(result, null, 2));
+          const pad = (x) => x.toFixed(0).padStart(6);
+          console.log(`node ${result.node}, ${result.git}, ${result.cpu}, ${result.memoryGB} GB, ${rounds} rounds, ms`);
+          console.log('median    p95    min    max  case');
+          for (const [label, s] of Object.entries(summary)) console.log(`${pad(s.median)} ${pad(s.p95)} ${pad(s.min)} ${pad(s.max)}  ${label}`);
+          for (const [label, text] of Object.entries(said)) console.log(`said: ${label}: ${text.replace(/\n/g, ' ')}`);
+          H24EOF
+      - name: Machine
+        shell: bash
+        run: |
+          node --version; git --version; git log --oneline -1
+          node -e "const o=require('os'); console.log(o.cpus()[0].model, o.cpus().length, Math.round(o.totalmem()/2**30)+' GB')"
+      - name: Measure, 30 rounds
+        shell: bash
+        run: |
+          node "$RUNNER_TEMP/h24/h24-bench.mjs" "$RUNNER_TEMP/h24/work" 30 "$RUNNER_TEMP/h24/out.json" main="$GITHUB_WORKSPACE" h2="$RUNNER_TEMP/h24-h2" h3="$RUNNER_TEMP/h24-h3"
+          echo "h24-json-begin"
+          cat "$RUNNER_TEMP/h24/out.json"
+          echo "h24-json-end"
