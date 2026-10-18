@@ -142,7 +142,9 @@ export function parseOptions(argv: readonly string[]): Options {
     if (token.kind === 'option' && token.value !== undefined && table[token.name]!.multiple !== true) (written[token.name] ??= []).push(token.value);
   }
   // Two answers asked for at once: the version was printed, and the help went
-  // unread. A line that is wrong, whoever's it is (spec-core ADR-0005).
+  // unread. A line that is wrong, whoever's it is (spec-core ADR-0005). Only
+  // an option's token has a name, so the test of its kind is the compiler's,
+  // and its mutant is equivalent.
   const answers = tokens.flatMap((token) => (token.kind === 'option' && (token.name === 'help' || token.name === 'version') ? [token] : []));
   const other = answers.find((token) => token.name !== answers[0]!.name);
   if (other !== undefined) throw new UnreadableLine(`${answers[0]!.rawName} is given beside ${other.rawName}, and one of the two answers would go unread; give one of them`, positionals);
