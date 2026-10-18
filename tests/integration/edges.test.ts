@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
 import { afterAll, describe, expect, it } from 'vitest';
@@ -129,6 +129,10 @@ describe('the git directories a work tree\'s files name', () => {
     const odd = temp();
     writeFileSync(join(odd, '.git'), 'not a pointer\n');
     expect(gitDirectories(odd, {})).toBeNull();
+    // The line opens with the key, or it is none.
+    const later = temp();
+    writeFileSync(join(later, '.git'), 'xgitdir: elsewhere\n');
+    expect(gitDirectories(later, {})).toBeNull();
   });
 
   it('are not the ones git would read where its environment or the configuration sends it to another work tree', () => {
@@ -143,6 +147,13 @@ describe('the git directories a work tree\'s files name', () => {
     writeFileSync(join(repo.root, '.git', 'config.worktree'), '[core]\n');
     expect(gitDirectories(repo.root, {})?.exact).toBe(false);
     rmSync(join(repo.root, '.git', 'config.worktree'));
+    // The key at the start of its line, and with no space before its value.
+    const config = readFileSync(join(repo.root, '.git', 'config'), 'utf8');
+    for (const line of ['worktree = /elsewhere', '\tworktree=/elsewhere']) {
+      writeFileSync(join(repo.root, '.git', 'config'), `${config}[core]\n${line}\n`);
+      expect(gitDirectories(repo.root, {})?.exact, line).toBe(false);
+    }
+    writeFileSync(join(repo.root, '.git', 'config'), config);
     // A value that holds the word is no worktree key.
     repo.git('config', 'remote.origin.url', 'https://example.com/a?worktree=1');
     expect(gitDirectories(repo.root, {})?.exact).toBe(true);
@@ -172,6 +183,10 @@ describe('what a run before a write keeps', () => {
     utimesSync(join(directory, 'kept.json'), almost, almost);
     await keepCall(common, 'new.json', '{}\n', now);
     expect(readdirSync(directory).sort()).toEqual(['kept.json', 'new.json']);
+    // A day to the millisecond is not older than a day.
+    const day = statSync(join(directory, 'new.json')).mtimeMs + CALL_LIFE_MS;
+    await keepCall(common, 'later.json', '{}\n', day);
+    expect(readdirSync(directory)).toContain('new.json');
     expect(CALL_LIFE_MS).toBe(24 * 60 * 60 * 1000);
     // A file where the directory would be: nothing kept, and nothing thrown.
     const blocked = temp();

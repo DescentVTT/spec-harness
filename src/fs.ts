@@ -158,13 +158,18 @@ export function gitDirectories(root: string, env: Readonly<Record<string, string
   const dotGit = join(top, '.git');
   let gitDir = dotGit;
   if (found.isFile()) {
+    // The path is the rest of the line: `.` stops at a line's end, a
+    // carriage return among them, so the mutant that drops `$` is
+    // equivalent; and a Buffer is read as its text, so is the encoding's.
     const named = /^gitdir: (.+)$/m.exec(readFileSync(dotGit, 'utf8'))?.[1];
     if (named === undefined) return null;
-    gitDir = resolve(top, named.trim());
+    gitDir = resolve(top, named);
   }
   const commondir = textOf(join(gitDir, 'commondir'));
   const common = commondir === null ? gitDir : resolve(gitDir, commondir.trim());
   const moved = env['GIT_DIR'] !== undefined || env['GIT_WORK_TREE'] !== undefined;
+  // No configuration holds no key, as a text without one does: the mutant
+  // of the empty text is equivalent.
   const elsewhere = /^\s*worktree\s*=/im.test(textOf(join(common, 'config')) ?? '') || existsSync(join(gitDir, 'config.worktree'));
   return { top, common, exact: !moved && !elsewhere };
 }
@@ -197,6 +202,10 @@ export async function keepCall(commonDir: string, name: string, text: string, no
   try {
     const directory = await stateDirectory(commonDir, 'calls');
     await writeAtomic(join(directory, name), text);
+    // A file another run takes away before it is removed here ends the
+    // pruning in the catch below, where `force` would pass over it, and what
+    // is left is pruned by a later run: the mutants of `force` are
+    // equivalent.
     for (const entry of await readdir(directory)) {
       const file = join(directory, entry);
       if (now - (await stat(file)).mtimeMs > CALL_LIFE_MS) await rm(file, { force: true });
@@ -211,6 +220,9 @@ export async function takeCall(commonDir: string, name: string): Promise<string 
   const file = join(commonDir, 'spec-harness', 'calls', name);
   try {
     const text = await readFile(file, 'utf8');
+    // Taken away by another run since it was read, the mutants of `force`
+    // decide the call again, which answers as the text read does: they are
+    // equivalent.
     await rm(file, { force: true });
     return text;
   } catch {

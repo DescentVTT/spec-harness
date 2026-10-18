@@ -243,7 +243,9 @@ async function unreadLine(said: string, io: CliIO): Promise<number> {
  * `cwd` is outside it, or a `.git` stands in a directory between the two,
  * where a linked worktree, a submodule or a repository of its own starts.
  * Answering that one may leaves the answer to be decided as before, so the
- * mutant that always answers so is equivalent, at the cost of the saving.
+ * mutant that always answers so is equivalent, at the cost of the saving,
+ * and so is one that names a part in place of none: a directory no top
+ * holds.
  */
 function mayBeElsewhere(cwd: string, top: string): boolean {
   const path = repositoryPath(cwd, top, cwd);
@@ -270,6 +272,8 @@ async function answeredAfter(root: string, record: CallRecord | null, cwd: strin
   if (found === null) return null;
   if (record !== null) {
     const kept = await takeCall(found.common, callFile(record));
+    // warningsKept reads no text as no record as well: the test is there for
+    // the type, and its mutant is equivalent.
     const warnings = kept === null ? null : warningsKept(kept, record);
     if (warnings !== null) return afterResponse(warnings);
   }

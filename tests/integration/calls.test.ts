@@ -143,6 +143,12 @@ describe('the run after a write', () => {
       await hook(repo, 'PreToolUse', path, call());
       expect(kept(repo), path).toEqual([]);
     }
+    // A call that names two files, one of them refused or of what decides, is kept nothing for either.
+    for (const second of ['src/db/schema.ts', '.spec-harness.json']) {
+      const tool_input = { file_path: join(repo.root, 'README.md'), path: join(repo.root, ...second.split('/')) };
+      await hook(repo, 'PreToolUse', 'README.md', call(), { extra: { tool_input } });
+      expect(kept(repo), second).toEqual([]);
+    }
     await hook(repo, 'PreToolUse', 'src/auth/a.ts', call(), { extra: { tool_use_id: undefined } });
     await hook(repo, 'PreToolUse', 'src/auth/a.ts', call(), { extra: { session_id: '../elsewhere' } });
     expect(kept(repo)).toEqual([]);
@@ -220,6 +226,8 @@ describe('the run after a write, where nothing was kept', () => {
       const repo = project({ outOfScope });
       unInstall(repo);
       expect(await withoutGit(() => hook(repo, 'PostToolUse', 'README.md', call())), outOfScope).toEqual({ code: 0, stdout: '', stderr: '' });
+      // And with git there: a run that decided would end on the missing spec-brief.
+      expect(await hook(repo, 'PostToolUse', 'README.md', call()), outOfScope).toEqual({ code: 0, stdout: '', stderr: '' });
       // A session below the root, with no work tree between, is the same work tree's.
       expect(await hook(repo, 'PostToolUse', 'README.md', call(), { extra: { cwd: join(repo.root, 'src', 'auth') } }), outOfScope).toEqual({ code: 0, stdout: '', stderr: '' });
     }
@@ -249,6 +257,9 @@ describe('the run after a write, where nothing was kept', () => {
     mkdirSync(nested, { recursive: true });
     git(nested, 'init', '-q', '-b', 'main');
     expect(await hook(deny, 'PostToolUse', 'README.md', call(), { extra: { cwd: nested } })).toEqual({ code: 2, stdout: '', stderr: NOT_INSTALLED });
+    // And below its top, where the directory between holds the .git.
+    mkdirSync(join(nested, 'deeper'));
+    expect(await hook(deny, 'PostToolUse', 'README.md', call(), { extra: { cwd: join(nested, 'deeper') } })).toEqual({ code: 2, stdout: '', stderr: NOT_INSTALLED });
     expect(await withoutGit(() => hook(deny, 'PostToolUse', 'README.md', call()))).toEqual({ code: 0, stdout: '', stderr: '' });
     // A session outside the work tree; and a question that names no directory, which is the project's.
     expect(await hook(deny, 'PostToolUse', 'README.md', call(), { extra: { cwd: temp() } })).toEqual({ code: 2, stdout: '', stderr: NOT_INSTALLED });
