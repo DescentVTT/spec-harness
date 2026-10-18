@@ -47,6 +47,8 @@ export type Sibling =
  * project's, as git's hook and Claude Code's are where a linked worktree has
  * none (ADR-0005).
  */
+// A name a mutant puts on the default list is a directory relative to where
+// the run is, which holds no install: equivalent, here and below.
 export function locate(name: SiblingName, root: string, config: HarnessConfig, installs: readonly string[] = []): Sibling {
   // A command the configuration names is run as named: which package it runs,
   // and so which version, is the configuration's to say.

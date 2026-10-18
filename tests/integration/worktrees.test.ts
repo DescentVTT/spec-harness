@@ -62,10 +62,13 @@ describe('a session in a linked worktree, with the project Claude Code names on 
     const repo = project();
     const inside = linked(repo, join(repo.root, '.claude', 'worktrees', 'w'), 'claude/brief-001-w');
     const beside = linked(repo, join(temp(), 'beside'), 'claude/brief-001-b');
+    // And one inside it in a directory of the project's own, where no name starts with a dot.
+    const nested = linked(repo, join(repo.root, 'trees', 'n'), 'claude/brief-001-n');
     for (const [tree, cwd] of [
       [inside, inside],
       [beside, beside],
       [inside, join(inside, 'src')],
+      [nested, nested],
     ] as const) {
       const result = await hook(repo.root, 'PreToolUse', cwd, { file_path: file(tree, 'src/db/schema.ts') });
       expect({ code: result.code, stderr: result.stderr, decision: decision(result.stdout) }, cwd).toEqual({ code: 0, stderr: '', decision: 'deny' });

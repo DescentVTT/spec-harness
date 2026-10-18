@@ -230,8 +230,8 @@ export type Installs = (root: string, commonDir: string) => readonly string[];
 /**
  * Every command but the hooks and doctor: a work tree is checked with its
  * own install, as it was. A name put on the list is a directory relative to
- * where the command runs, which holds no install, so that mutant is
- * equivalent.
+ * where the command runs, which holds no install, and no list at all is
+ * the siblings' own default of none, so those mutants are equivalent.
  */
 const NO_INSTALLS: Installs = () => [];
 

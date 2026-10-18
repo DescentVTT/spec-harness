@@ -233,7 +233,10 @@ async function unreadLine(said: string, io: CliIO): Promise<number> {
  * Where neither is so, `cwd` is in that work tree, and git is asked nothing
  * more: a session works at its project's top, or below it, for nearly every
  * write. Answering that one may is what git is then asked, so the mutant
- * that always answers so is equivalent, at the cost of a process.
+ * that always answers so is equivalent, at the cost of a process, and so
+ * is each that only answers so more often: a slice one short reaches the
+ * top itself, which holds a `.git`, and a part named in place of none is
+ * a directory no top holds.
  */
 function mayBeElsewhere(cwd: string, top: string): boolean {
   const path = repositoryPath(cwd, top, cwd);
@@ -297,6 +300,8 @@ async function hookCommand(options: Options, io: CliIO): Promise<number> {
       throw error;
     }
     try {
+      // The answer reads a decision by its verdict, which a mutant's text
+      // put first on this list has none of: that mutant is equivalent.
       const decisions: Decision[] = [];
       for (const part of await writesBy(workspace, request.cwd, request.paths, io)) {
         const decided = await decisionsFor(part.workspace, options, io, part.paths, cwd);
