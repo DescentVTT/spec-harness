@@ -149,6 +149,24 @@ Each of the release's three pull requests, the two that changed a source
 and the one that changed the sweep, was swept before it merged, and each
 ended with no undetected mutant new against main's.
 
+For 0.19.0 the sweep of 74dac98 (run 39160139131) read 97.89% over 10,480
+mutants, 97.08% with every timeout lost, in shards of 15m31s to 25m47s, and
+the `break` stays 95. It has 663 mutants more than 0.18.0's sweep (run
+38555334383, of cf11ffb), all in eleven of the twelve modules the release
+changed (`types.ts` holds none), `cli.ts` with 227 of them, and 195
+survivors and 26 without coverage to that sweep's 185 and 29. The 21
+undetected mutants new against it are each in code the release wrote and
+each said equivalent beside its code, as the sweep of the pull request that
+brought it had named it before the merge. Fourteen of 0.18.0's are gone:
+nine in `setup.ts`, where advice for a pre-commit hook it cannot tell is now
+held by tests of an unreadable hook file; three in `branch.ts`, which the
+release did not change, killed by its new tests of branch names; one in
+`git.ts`, whose list of branches is now read by name and by ref; and `'hex'`
+in `round.ts`, which its comment says is counted killed now and then. Each
+of the release's six pull requests that changed a source or the sweep was
+swept before it merged, and each ended with every undetected mutant new
+against main's killed or said equivalent.
+
 One runner took 69 to 130 minutes for the full sweep. Before any sharded
 sweep ran, the report of eb39599 was cut into shards the way Stryker writes
 them and put back by the merge: all 7,507 verdicts came back with their
