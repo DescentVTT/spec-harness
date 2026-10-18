@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { Decision, Verdict } from '../../src/guard.js';
-import { CALLABLE_TOOLS, claudeResponse, gitResponse, parseClaudeHook, SESSION_START, sessionResponse, WRITING_TOOLS } from '../../src/hooks.js';
+import { afterResponse, CALL_VARIABLES, callFile, callRecord, CALLABLE_TOOLS, claudeResponse, gitResponse, keptCall, parseClaudeHook, SESSION_START, sessionResponse, warningsKept, warningsOf, WRITING_TOOLS, type HookRequest } from '../../src/hooks.js';
 
 function hook(fields: Record<string, unknown>): string {
   return JSON.stringify({ session_id: 's', hook_event_name: 'PreToolUse', tool_name: 'Write', cwd: '/repo', ...fields });
@@ -25,6 +25,8 @@ describe('reading a Claude Code hook', () => {
       tool: 'Write',
       cwd: '/repo',
       paths: ['/repo/a.ts'],
+      session: 's',
+      call: null,
     });
     expect(parseClaudeHook(hook({ tool_name: 'Edit', tool_input: { path: 'b.ts' } }))).toMatchObject({ paths: ['b.ts'] });
     expect(parseClaudeHook(hook({ tool_name: 'NotebookEdit', tool_input: { notebook_path: '/repo/n.ipynb' } }))).toMatchObject({
@@ -70,7 +72,14 @@ describe('reading a Claude Code hook', () => {
       tool: 'Edit',
       cwd: null,
       paths: [],
+      session: null,
+      call: null,
     });
+  });
+
+  it('reads the session and the call it is about only where each is a string', () => {
+    expect(parseClaudeHook(hook({ tool_use_id: 'toolu_01', tool_input: { file_path: 'a' } }))).toMatchObject({ session: 's', call: 'toolu_01' });
+    expect(parseClaudeHook(hook({ session_id: 7, tool_use_id: ['toolu_01'], tool_input: { file_path: 'a' } }))).toMatchObject({ session: null, call: null });
   });
 
   it('says why it cannot read malformed input', () => {
@@ -159,10 +168,10 @@ describe('answering git', () => {
 describe('the hook as a session starts', () => {
   it('reads a SessionStart question, which names no tool and no file, and no other event without a tool', () => {
     expect(SESSION_START).toBe('SessionStart');
-    expect(parseClaudeHook(JSON.stringify({ hook_event_name: 'SessionStart', cwd: '/repo', source: 'resume' }))).toEqual({ event: 'SessionStart', tool: '', cwd: '/repo', paths: [] });
+    expect(parseClaudeHook(JSON.stringify({ hook_event_name: 'SessionStart', cwd: '/repo', source: 'resume' }))).toEqual({ event: 'SessionStart', tool: '', cwd: '/repo', paths: [], session: null, call: null });
     // A tool named beside it is read as named, and a file only a writing tool's.
-    expect(parseClaudeHook(JSON.stringify({ hook_event_name: 'SessionStart', tool_name: 'Edit', tool_input: { file_path: '/repo/a.ts' } }))).toEqual({ event: 'SessionStart', tool: 'Edit', cwd: null, paths: ['/repo/a.ts'] });
-    expect(parseClaudeHook(JSON.stringify({ hook_event_name: 'SessionStart', tool_name: 7, tool_input: { file_path: '/repo/a.ts' } }))).toEqual({ event: 'SessionStart', tool: '', cwd: null, paths: [] });
+    expect(parseClaudeHook(JSON.stringify({ hook_event_name: 'SessionStart', tool_name: 'Edit', tool_input: { file_path: '/repo/a.ts' } }))).toEqual({ event: 'SessionStart', tool: 'Edit', cwd: null, paths: ['/repo/a.ts'], session: null, call: null });
+    expect(parseClaudeHook(JSON.stringify({ hook_event_name: 'SessionStart', tool_name: 7, tool_input: { file_path: '/repo/a.ts' } }))).toEqual({ event: 'SessionStart', tool: '', cwd: null, paths: [], session: null, call: null });
     for (const event of ['UserPromptSubmit', 'sessionstart', 'Stop']) expect(parseClaudeHook(JSON.stringify({ hook_event_name: event })), event).toEqual({ error: 'the hook input names no event or tool' });
     expect(parseClaudeHook(JSON.stringify({ tool_name: 'Edit' }))).toEqual({ error: 'the hook input names no event or tool' });
   });
@@ -173,5 +182,92 @@ describe('the hook as a session starts', () => {
     expect(said.exitCode).toBe(0);
     expect(said.stdout.endsWith('}\n')).toBe(true);
     expect(JSON.parse(said.stdout)).toEqual({ systemMessage: 'spec-harness: every write is held', hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: 'spec-harness: every write is held' } });
+  });
+});
+
+describe('what the run before a write keeps for the run after it', () => {
+  const request: HookRequest = { event: 'PreToolUse', tool: 'Edit', cwd: '/repo', paths: ['/repo/a.ts'], session: 'abc-123', call: 'toolu_01ABC' };
+  const line = { root: undefined, brief: undefined, base: undefined };
+  const env = { CLAUDE_PROJECT_DIR: '/repo', HOME: '/home/a' };
+  const record = callRecord(request, line, '/repo', env, '0.19.0')!;
+
+  it('names the call by its session, its call, the tool, its paths, its directories, its line and the variables the hook reads', () => {
+    expect(record).toEqual({
+      release: '0.19.0',
+      session: 'abc-123',
+      call: 'toolu_01ABC',
+      tool: 'Edit',
+      paths: ['/repo/a.ts'],
+      cwd: '/repo',
+      line: [null, null, null],
+      started: '/repo',
+      env: ['/repo', null, null, null, null, null, null],
+    });
+    expect(CALL_VARIABLES).toEqual(['CLAUDE_PROJECT_DIR', 'SPEC_BRIEF', 'GITHUB_HEAD_REF', 'GITHUB_REF_TYPE', 'GITHUB_REF_NAME', 'CI_MERGE_REQUEST_SOURCE_BRANCH_NAME', 'CI_COMMIT_BRANCH']);
+    expect(callRecord(request, { root: '/r', brief: '001', base: 'main' }, '/repo', env, '0.19.0')?.line).toEqual(['/r', '001', 'main']);
+    expect(callFile(record)).toBe('abc-123.toolu_01ABC.json');
+  });
+
+  it('names no call where the question names no session or call, or one no file could be named by', () => {
+    for (const ids of [
+      { session: null, call: 'toolu_01' },
+      { session: 'abc', call: null },
+      { session: '', call: 'toolu_01' },
+      { session: 'abc', call: '../toolu_01' },
+      { session: 'a/b', call: 'toolu_01' },
+      { session: 'abc', call: 'toolu 01' },
+      { session: 'abc', call: `x${'1'.repeat(256)}` },
+    ]) {
+      expect(callRecord({ ...request, ...ids }, line, '/repo', env, '0.19.0'), JSON.stringify(ids)).toBeNull();
+    }
+    expect(callRecord({ ...request, call: '1'.repeat(256) }, line, '/repo', env, '0.19.0')).not.toBeNull();
+  });
+
+  it('answers the call it was kept for with the warnings it decided, and nothing for one that decided none', () => {
+    const warned = [decision('warn', 'notes.md'), decision('allow'), decision('ask', 'b.ts')];
+    expect(warningsOf(warned)).toEqual([{ message: 'notes.md is warn', hint: 'fix notes.md' }]);
+    const kept = keptCall(record, warningsOf(warned));
+    expect(kept.endsWith('}\n')).toBe(true);
+    expect(warningsKept(kept, record)).toEqual([{ message: 'notes.md is warn', hint: 'fix notes.md' }]);
+    expect(afterResponse(warningsKept(kept, record)!)).toEqual(claudeResponse('PostToolUse', warned));
+    expect(warningsKept(keptCall(record, []), record)).toEqual([]);
+    expect(afterResponse([])).toEqual({ stdout: '', exitCode: 0 });
+  });
+
+  it("answers no other call with them: any part of the call that differs is another call's", () => {
+    const kept = keptCall(record, [{ message: 'm', hint: 'h' }]);
+    const others: Partial<typeof record>[] = [
+      { release: '0.18.0' },
+      { session: 'abc-124' },
+      { call: 'toolu_01ABD' },
+      { tool: 'Write' },
+      { paths: ['/repo/b.ts'] },
+      { cwd: '/repo/src' },
+      { line: ['/r', null, null] },
+      { started: '/elsewhere' },
+      { env: ['/repo', '001', null, null, null, null, null] },
+    ];
+    for (const other of others) expect(warningsKept(kept, { ...record, ...other }), JSON.stringify(other)).toBeNull();
+  });
+
+  it('reads nothing kept that is not JSON, holds no record, or holds anything but warnings', () => {
+    for (const text of [
+      '',
+      '{ "record": ',
+      'null',
+      '[]',
+      JSON.stringify({ warnings: [] }),
+      JSON.stringify({ record, warnings: null }),
+      JSON.stringify({ record, warnings: {} }),
+      JSON.stringify({ record, warnings: [{ message: 'm' }] }),
+      JSON.stringify({ record, warnings: [{ hint: 'h' }] }),
+      JSON.stringify({ record, warnings: [{ message: 1, hint: 'h' }] }),
+      JSON.stringify({ record, warnings: [null] }),
+      JSON.stringify({ record, warnings: ['m'] }),
+    ]) {
+      expect(warningsKept(text, record), text).toBeNull();
+    }
+    // What a warning holds besides its message and its next step is not read.
+    expect(warningsKept(JSON.stringify({ record, warnings: [{ message: 'm', hint: 'h', verdict: 'deny' }] }), record)).toEqual([{ message: 'm', hint: 'h' }]);
   });
 });

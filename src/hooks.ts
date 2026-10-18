@@ -46,6 +46,9 @@ export interface HookRequest {
   readonly cwd: string | null;
   /** Files the tool writes, as the tool named them - absolute, usually. */
   readonly paths: readonly string[];
+  /** The session and the tool call the question is about, when it says: `session_id` and `tool_use_id`. */
+  readonly session: string | null;
+  readonly call: string | null;
 }
 
 type Json = Record<string, unknown>;
@@ -83,8 +86,11 @@ export function parseClaudeHook(raw: string): HookRequest | { readonly error: st
       if (typeof path === 'string' && path !== '' && !paths.includes(path)) paths.push(path);
     }
   }
-  const cwd = value['cwd'];
-  return { event, tool: named, cwd: typeof cwd === 'string' ? cwd : null, paths };
+  const text = (field: string): string | null => {
+    const found = value[field];
+    return typeof found === 'string' ? found : null;
+  };
+  return { event, tool: named, cwd: text('cwd'), paths, session: text('session_id'), call: text('tool_use_id') };
 }
 
 /**
@@ -108,8 +114,22 @@ export interface HookResponse {
 
 const NONE: HookResponse = { stdout: '', exitCode: 0 };
 
-function reasonOf(decisions: readonly Decision[]): string {
+function reasonOf(decisions: readonly Warning[]): string {
   return decisions.map((decision) => `spec-harness: ${decision.message}. Next: ${decision.hint}.`).join('\n');
+}
+
+/** What a warning after a write says: a decision's message and its next step. */
+export type Warning = Pick<Decision, 'message' | 'hint'>;
+
+/** The answer after a write: the warnings, as additional context for the model, or nothing. */
+export function afterResponse(warnings: readonly Warning[]): HookResponse {
+  if (warnings.length === 0) return NONE;
+  return {
+    stdout: `${JSON.stringify({
+      hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: reasonOf(warnings) },
+    })}\n`,
+    exitCode: 0,
+  };
 }
 
 /**
@@ -133,17 +153,109 @@ export function claudeResponse(event: string, decisions: readonly Decision[]): H
       exitCode: 0,
     };
   }
-  if (event === 'PostToolUse') {
-    const warned = decisions.filter((decision) => decision.verdict === 'warn');
-    if (warned.length === 0) return NONE;
-    return {
-      stdout: `${JSON.stringify({
-        hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: reasonOf(warned) },
-      })}\n`,
-      exitCode: 0,
-    };
-  }
+  if (event === 'PostToolUse') return afterResponse(warningsOf(decisions));
   return NONE;
+}
+
+/** The decisions a run after the write would say: those that warn, each by its message and next step. */
+export function warningsOf(decisions: readonly Decision[]): Warning[] {
+  return decisions.filter((decision) => decision.verdict === 'warn').map(({ message, hint }) => ({ message, hint }));
+}
+
+/**
+ * What the hook reads besides its question and its line, as it decides: the
+ * project Claude Code names, the brief the environment names, and the
+ * branch a forge's CI names on a detached head (ADR-0004).
+ */
+export const CALL_VARIABLES: readonly string[] = [
+  'CLAUDE_PROJECT_DIR',
+  'SPEC_BRIEF',
+  'GITHUB_HEAD_REF',
+  'GITHUB_REF_TYPE',
+  'GITHUB_REF_NAME',
+  'CI_MERGE_REQUEST_SOURCE_BRANCH_NAME',
+  'CI_COMMIT_BRANCH',
+];
+
+/**
+ * A tool call, as both of its hooks see it: the release, the session and
+ * the call, the tool and its paths, the session's directory, what the
+ * hook's line gives, the directory the hook was started in, and the
+ * variables it reads (ADR-0002). What a run before the write keeps is
+ * answered after it only to a run for which all of it is the same.
+ */
+export interface CallRecord {
+  readonly release: string;
+  readonly session: string;
+  readonly call: string;
+  readonly tool: string;
+  readonly paths: readonly string[];
+  readonly cwd: string | null;
+  readonly line: readonly (string | null)[];
+  readonly started: string;
+  readonly env: readonly (string | null)[];
+}
+
+/** An id the hook names a file by: what Claude Code's ids are made of, and nothing a path could climb out by. */
+const ID = /^[\w-]{1,256}$/;
+
+/**
+ * The call a question is about, or `null` where it does not say which
+ * session and call it is, or says it in a form no file is named by.
+ */
+export function callRecord(
+  request: HookRequest,
+  line: Readonly<{ root: string | undefined; brief: string | undefined; base: string | undefined }>,
+  started: string,
+  env: Readonly<Record<string, string | undefined>>,
+  release: string,
+): CallRecord | null {
+  const { session, call } = request;
+  if (session === null || call === null || !ID.test(session) || !ID.test(call)) return null;
+  return {
+    release,
+    session,
+    call,
+    tool: request.tool,
+    paths: request.paths,
+    cwd: request.cwd,
+    line: [line.root ?? null, line.brief ?? null, line.base ?? null],
+    started,
+    env: CALL_VARIABLES.map((name) => env[name] ?? null),
+  };
+}
+
+/** The name of the file a call's decisions are kept under. */
+export function callFile(record: CallRecord): string {
+  return `${record.session}.${record.call}.json`;
+}
+
+/** What a run before the write keeps for the run after it: the call, and the warnings it decided. */
+export function keptCall(record: CallRecord, warnings: readonly Warning[]): string {
+  return `${JSON.stringify({ record, warnings })}\n`;
+}
+
+function isWarning(value: unknown): value is Warning {
+  return isObject(value) && typeof value['message'] === 'string' && typeof value['hint'] === 'string';
+}
+
+/**
+ * The warnings kept for this call, or `null` where what was kept is not
+ * JSON, is another call's, or holds anything but warnings: such a call is
+ * decided as it was before anything was kept (ADR-0002).
+ */
+export function warningsKept(text: string, record: CallRecord): Warning[] | null {
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    // Read as an empty object, a text that is not JSON holds no record
+    // either: that mutant is equivalent.
+    return null;
+  }
+  if (!isObject(value) || JSON.stringify(value['record']) !== JSON.stringify(record)) return null;
+  const warnings = value['warnings'];
+  return Array.isArray(warnings) && warnings.every(isWarning) ? warnings.map(({ message, hint }) => ({ message, hint })) : null;
 }
 
 /**
