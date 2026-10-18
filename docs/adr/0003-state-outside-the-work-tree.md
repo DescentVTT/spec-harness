@@ -430,6 +430,30 @@ left the command's group. A process a command leaves in its group on Linux
 or macOS that was to outlive `probe` no longer does. macOS was measured in
 CI alone, as was `probe` on Linux: the container has no git.
 
+*Amended 2026-10-18.* **What a hook decided before a write is kept for the
+run after it.** In-flight state of a third kind, beside an escalation and
+a sandbox: Claude Code starts the hook before a write and after it, and
+the run before keeps what the run after would say, so that the run after
+starts no process (ADR-0002, amended the same day). It lives where every
+in-flight state of the harness does, `<git-common-dir>/spec-harness/calls/`,
+shared by every worktree of the repository, invisible to `git status`,
+never committed:
+
+- **One file a call**, `<session_id>.<tool_use_id>.json`, written whole or
+  not at all, by the run before a write that lets the call go ahead, and
+  taken away by the run after it as it is read. A file holds the call as
+  both runs see it and the warnings decided for it, and answers no other
+  call: another session's, another worktree's, a parallel call's.
+- **Nothing kept is read before a write.** The run before a write decides
+  as it did and keeps what it decided once the answer is made, passing over
+  a failure to keep it. A file another program writes there, an agent's
+  shell among them, can change no refusal: at worst the warning after one
+  write, for a call whose session and call ids it guessed.
+- **A day, and then removed.** A call refused by the person, one that
+  failed and one interrupted leave a file no run after a write reads. The
+  next run before a write removes any older than a day, with any temporary
+  file a write that was stopped left. ADR-0002 has why a day.
+
 ## Consequences
 
 `git worktree add` is the one git write in the family, bounded to a directory

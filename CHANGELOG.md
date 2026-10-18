@@ -78,6 +78,8 @@ where a repository or a settings file is read
   Upgrading: on such a branch the guard refuses what its brief protects.
 - **git's hook in a linked worktree with no install runs the main work tree's.** The hook `init` writes refused the commit there; it now reads the script from the repository's main work tree after the worktree's own, and `hook git` and `doctor` find the siblings there too, `doctor` saying whose install each is (`elsewhere` in `--format json`).
   Upgrading: `init` writes the hook once, so one an earlier release wrote still stops such a commit: take it away and run `spec-harness init --git-hook --write`.
+- **The hook answers after a write from what it decided before it.** Claude Code starts the hook before a write and after it, and the run after decided the write again, at what the run before costs: git, and spec-brief on a brief's branch. The run before now keeps what the run after would say under the git common directory, named by the question's `session_id` and `tool_use_id`, and the run after answers from it with no process started; one that finds nothing kept for its call, or another call's, decides as before. Under `outOfScope: "ask"` or `"deny"`, where nothing was kept, it says nothing with no process started ([ADR-0002](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0002-siblings-through-their-command-lines.md)).
+  Upgrading: nothing to change. What another process changes between the two runs of one write, the configuration or what spec-brief reads, is read at the next write rather than after this one.
 
 ### Fixed
 

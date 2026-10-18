@@ -1136,8 +1136,7 @@ export function describeClaudeCode(wiring: Wired): string {
 /** The spec-brief plugin this package ships, as spec-brief's `plugins` names it. */
 export const PLUGIN = '@descent-vtt/spec-harness/spec-brief-plugin';
 
-/** spec-brief's configuration files, in the order spec-brief looks for them in a directory. */
-export const SPEC_BRIEF_CONFIGS: readonly string[] = ['.spec-brief.json', 'spec-brief.json'];
+export { SPEC_BRIEF_CONFIGS } from './config.js';
 
 /** The conditions an import meets in Node, its `defaultConditions`, and `default`, which every one meets. */
 const IMPORT_CONDITIONS: readonly string[] = ['node', 'import', 'default'];

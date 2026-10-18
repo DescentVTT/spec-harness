@@ -1,10 +1,10 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import { join, relative } from 'node:path';
 
 import { afterAll, describe, expect, it } from 'vitest';
 
 import { ConfigError, DEFAULT_CONFIG } from '../../src/config.js';
-import { holdsGit, isTop, loadConfig, mainWorkTree, readJsonObject, readText, realSpelling, repositoryPath, stateDirectory, writeAtomic } from '../../src/fs.js';
+import { CALL_LIFE_MS, gitDirectories, holdsGit, isTop, keepCall, loadConfig, mainWorkTree, readJsonObject, readText, realSpelling, repositoryPath, stateDirectory, takeCall, writeAtomic } from '../../src/fs.js';
 import { addWorktree, blameLine, changes, commonDirectory, currentBranch, GitError, localBranches, mergeBase, remoteDefault, revision, show, stagedChanges, workTree, workTreeRoot } from '../../src/git.js';
 import { runCommand, withWorktree } from '../../src/sandbox.js';
 import { createSiblings, locate, runSibling, SiblingError } from '../../src/siblings.js';
@@ -98,6 +98,101 @@ describe('state and files', () => {
     expect(loaded.file).toBe(join(root, '.spec-harness.json'));
     writeFileSync(join(root, '.spec-harness.json'), '{');
     await expect(loadConfig(root)).rejects.toBeInstanceOf(ConfigError);
+  });
+});
+
+describe('the git directories a work tree\'s files name', () => {
+  it('are found from the top or below it, through a .git directory or the file a linked worktree has', () => {
+    const repo = repository({ 'src/a.ts': 'a;\n' });
+    const top = realSpelling(repo.root);
+    const common = join(top, '.git');
+    expect(gitDirectories(repo.root, {})).toEqual({ top, common, exact: true });
+    expect(gitDirectories(join(repo.root, 'src'), {})).toEqual({ top, common, exact: true });
+    expect(gitDirectories(join(repo.root, 'src', 'not-there-yet'), {})).toEqual({ top, common, exact: true });
+    const linked = join(temp(), 'linked');
+    repo.git('worktree', 'add', '-q', '--detach', linked);
+    expect(gitDirectories(linked, {})).toEqual({ top: realSpelling(linked), common, exact: true });
+  });
+
+  it('are found through a .git file that names its git directory relative to it', () => {
+    const repo = repository({ 'a.txt': 'a\n' });
+    const linked = join(temp(), 'linked');
+    repo.git('worktree', 'add', '-q', '--detach', linked);
+    const named = /^gitdir: (.+)$/m.exec(readFileSync(join(linked, '.git'), 'utf8'))?.[1]?.trim() ?? '';
+    // Git for Windows marks the file hidden, which a write over it is refused for: it is written anew.
+    rmSync(join(linked, '.git'));
+    writeFileSync(join(linked, '.git'), `gitdir: ${relative(linked, named).split('\\').join('/')}\n`);
+    expect(gitDirectories(linked, {})).toEqual({ top: realSpelling(linked), common: join(realSpelling(repo.root), '.git'), exact: true });
+  });
+
+  it('are none outside every work tree, or where a .git file names no git directory', () => {
+    expect(gitDirectories(temp(), {})).toBeNull();
+    const odd = temp();
+    writeFileSync(join(odd, '.git'), 'not a pointer\n');
+    expect(gitDirectories(odd, {})).toBeNull();
+    // The line opens with the key, or it is none.
+    const later = temp();
+    writeFileSync(join(later, '.git'), 'xgitdir: elsewhere\n');
+    expect(gitDirectories(later, {})).toBeNull();
+  });
+
+  it('are not the ones git would read where its environment or the configuration sends it to another work tree', () => {
+    const repo = repository({ 'a.txt': 'a\n' });
+    const top = realSpelling(repo.root);
+    for (const env of [{ GIT_DIR: join(repo.root, '.git') }, { GIT_WORK_TREE: repo.root }]) expect(gitDirectories(repo.root, env)?.exact, JSON.stringify(env)).toBe(false);
+    expect(gitDirectories(repo.root, { GIT_EDITOR: 'vi' })?.exact).toBe(true);
+    repo.git('config', 'core.worktree', top);
+    expect(gitDirectories(repo.root, {})).toEqual({ top, common: join(top, '.git'), exact: false });
+    repo.git('config', '--unset', 'core.worktree');
+    expect(gitDirectories(repo.root, {})?.exact).toBe(true);
+    writeFileSync(join(repo.root, '.git', 'config.worktree'), '[core]\n');
+    expect(gitDirectories(repo.root, {})?.exact).toBe(false);
+    rmSync(join(repo.root, '.git', 'config.worktree'));
+    // The key at the start of its line, and with no space before its value.
+    const config = readFileSync(join(repo.root, '.git', 'config'), 'utf8');
+    for (const line of ['worktree = /elsewhere', '\tworktree=/elsewhere']) {
+      writeFileSync(join(repo.root, '.git', 'config'), `${config}[core]\n${line}\n`);
+      expect(gitDirectories(repo.root, {})?.exact, line).toBe(false);
+    }
+    writeFileSync(join(repo.root, '.git', 'config'), config);
+    // A value that holds the word is no worktree key.
+    repo.git('config', 'remote.origin.url', 'https://example.com/a?worktree=1');
+    expect(gitDirectories(repo.root, {})?.exact).toBe(true);
+  });
+});
+
+describe('what a run before a write keeps', () => {
+  it('is kept under the common directory, and taken away as it is read', async () => {
+    const common = temp();
+    await keepCall(common, 's.c.json', 'kept\n');
+    expect(readdirSync(join(common, 'spec-harness', 'calls'))).toEqual(['s.c.json']);
+    expect(await takeCall(common, 's.c.json')).toBe('kept\n');
+    expect(readdirSync(join(common, 'spec-harness', 'calls'))).toEqual([]);
+    expect(await takeCall(common, 's.c.json')).toBeNull();
+    expect(await takeCall(temp(), 's.c.json')).toBeNull();
+  });
+
+  it('removes what is older than a day as it keeps another, and fails for nothing', async () => {
+    const common = temp();
+    const now = Date.now();
+    await keepCall(common, 'old.json', '{}\n', now - CALL_LIFE_MS - 60_000);
+    await keepCall(common, 'kept.json', '{}\n', now);
+    const directory = join(common, 'spec-harness', 'calls');
+    const then = new Date(now - CALL_LIFE_MS - 1000);
+    utimesSync(join(directory, 'old.json'), then, then);
+    const almost = new Date(now - CALL_LIFE_MS + 60_000);
+    utimesSync(join(directory, 'kept.json'), almost, almost);
+    await keepCall(common, 'new.json', '{}\n', now);
+    expect(readdirSync(directory).sort()).toEqual(['kept.json', 'new.json']);
+    // A day to the millisecond is not older than a day.
+    const day = statSync(join(directory, 'new.json')).mtimeMs + CALL_LIFE_MS;
+    await keepCall(common, 'later.json', '{}\n', day);
+    expect(readdirSync(directory)).toContain('new.json');
+    expect(CALL_LIFE_MS).toBe(24 * 60 * 60 * 1000);
+    // A file where the directory would be: nothing kept, and nothing thrown.
+    const blocked = temp();
+    writeFileSync(join(blocked, 'spec-harness'), 'a file\n');
+    await expect(keepCall(blocked, 'x.json', '{}\n')).resolves.toBeUndefined();
   });
 });
 

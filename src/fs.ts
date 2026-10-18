@@ -3,8 +3,8 @@
  * directory outside the work tree, and paths as the filesystem spells them.
  */
 
-import { existsSync, realpathSync, statSync, type Stats } from 'node:fs';
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { existsSync, readFileSync, realpathSync, statSync, type Stats } from 'node:fs';
+import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 import { ConfigError, CONFIG_FILE, DEFAULT_CONFIG, parseConfig, type HarnessConfig } from './config.js';
@@ -141,6 +141,105 @@ export async function stateDirectory(commonDir: string, ...parts: string[]): Pro
     throw new StateError(`${there} is not a directory, where spec-harness keeps its state in one: move it away, and run the command again`);
   }
   return directory;
+}
+
+/**
+ * A work tree and its git directories as the files git keeps name them, read
+ * with no process: the nearest directory at or above `root` that holds a
+ * `.git`; the git directory, that `.git` or the one a `.git` file names
+ * (`gitdir: <path>`, relative to the file's directory); and the common
+ * directory, the one that git directory's `commondir` file names, relative
+ * to it, or the git directory itself (gitrepository-layout(5)). `exact` is
+ * whether git, asked, would name the same work tree: not where
+ * `GIT_DIR` or `GIT_WORK_TREE` sends it elsewhere, and not where the
+ * repository's configuration names a `worktree`, which `core.worktree`
+ * moves it to (git-config(1)), or keeps one of its own for a worktree.
+ * `null` where no directory up to the top of the filesystem holds one, or
+ * a `.git` file names none.
+ */
+export function gitDirectories(root: string, env: Readonly<Record<string, string | undefined>>): { readonly top: string; readonly common: string; readonly exact: boolean } | null {
+  let top = realSpelling(root);
+  let found: Stats | null = null;
+  for (;;) {
+    found = standing(join(top, '.git'));
+    if (found !== null) break;
+    const parent = dirname(top);
+    if (parent === top) return null;
+    top = parent;
+  }
+  const dotGit = join(top, '.git');
+  let gitDir = dotGit;
+  if (found.isFile()) {
+    // The path is the rest of the line: `.` stops at a line's end, a
+    // carriage return among them, so the mutant that drops `$` is
+    // equivalent; and a Buffer is read as its text, so is the encoding's.
+    const named = /^gitdir: (.+)$/m.exec(readFileSync(dotGit, 'utf8'))?.[1];
+    if (named === undefined) return null;
+    gitDir = resolve(top, named);
+  }
+  const commondir = textOf(join(gitDir, 'commondir'));
+  const common = commondir === null ? gitDir : resolve(gitDir, commondir.trim());
+  const moved = env['GIT_DIR'] !== undefined || env['GIT_WORK_TREE'] !== undefined;
+  // No configuration holds no key, as a text without one does: the mutant
+  // of the empty text is equivalent.
+  const elsewhere = /^\s*worktree\s*=/im.test(textOf(join(common, 'config')) ?? '') || existsSync(join(gitDir, 'config.worktree'));
+  return { top, common, exact: !moved && !elsewhere };
+}
+
+/** A file's text, or `null` where it cannot be read. */
+function textOf(file: string): string | null {
+  try {
+    return readFileSync(file, 'utf8');
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * How long a call's decisions are kept for a run after the write that does
+ * not come: a call refused by the person, one that failed, one stopped
+ * (ADR-0002). A day, since a call waits on a person's prompt for as long as
+ * the person is away, and an entry removed too soon costs only that call's
+ * answer being decided again.
+ */
+export const CALL_LIFE_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Keeps what a run before a write decided, under the common directory, for
+ * the run after it, and removes what no run after a write read in a day.
+ * Nothing here may change the answer before the write: whatever fails is
+ * passed over, and the run after the write then decides as it did.
+ */
+export async function keepCall(commonDir: string, name: string, text: string, now: number = Date.now()): Promise<void> {
+  try {
+    const directory = await stateDirectory(commonDir, 'calls');
+    await writeAtomic(join(directory, name), text);
+    // A file another run takes away before it is removed here ends the
+    // pruning in the catch below, where `force` would pass over it, and what
+    // is left is pruned by a later run: the mutants of `force` are
+    // equivalent.
+    for (const entry of await readdir(directory)) {
+      const file = join(directory, entry);
+      if (now - (await stat(file)).mtimeMs > CALL_LIFE_MS) await rm(file, { force: true });
+    }
+  } catch {
+    // A full disk, a directory another run removed: the call is decided again after the write.
+  }
+}
+
+/** What was kept for a call, taken away as it is read; `null` where nothing was. */
+export async function takeCall(commonDir: string, name: string): Promise<string | null> {
+  const file = join(commonDir, 'spec-harness', 'calls', name);
+  try {
+    const text = await readFile(file, 'utf8');
+    // Taken away by another run since it was read, the mutants of `force`
+    // decide the call again, which answers as the text read does: they are
+    // equivalent.
+    await rm(file, { force: true });
+    return text;
+  } catch {
+    return null;
+  }
 }
 
 /** Writes a file whole or not at all: a temporary file renamed over the target. */
