@@ -167,6 +167,28 @@ of the release's six pull requests that changed a source or the sweep was
 swept before it merged, and each ended with every undetected mutant new
 against main's killed or said equivalent.
 
+For 0.20.0 the sweep of 3a1dad8 (run 39334835801) read 97.81% over 11,571
+mutants, 97.11% with every timeout lost, in shards of 17m52s to 37m09s, and
+the `break` stays 95. It has 1,091 mutants more than 0.19.0's sweep (run
+39160139131, of 74dac98), in the fourteen modules the release changed,
+`fs.ts` with 216 of them and `server.ts` with 183, and 227 survivors and 26
+without coverage to that sweep's 195 and 26. Of the 37 undetected mutants
+new against it, 34 are of this release's own lines, each said equivalent
+beside its code, as the sweep of the pull request that brought it had named
+it before the merge: the kept answers and their pruning in `fs.ts`,
+`siblings.ts` and `hooks.ts`, the walk of the work trees in `workspace.ts`
+and the server, the write outside every work tree in `fs.ts` and `cli.ts`,
+the turn's report in `setup.ts`, and `sandbox.ts`'s spawn, which gained its
+time limit. The other three are `branch.ts`'s, which the release did not
+change: 0.19.0's sweep counted them killed, and this record said a test of
+branch names had killed them, but they survive here and in every pull
+request's sweep of the release, so they are decided by the order tests run
+in, not by a test. Five of 0.19.0's are gone, three of them lines that moved
+from `cli.ts` and `sandbox.ts` and are counted again where they stand. Each
+of the release's seven pull requests that changed a source was swept before
+it merged, and each ended with every undetected mutant new against main's
+killed or said equivalent.
+
 One runner took 69 to 130 minutes for the full sweep. Before any sharded
 sweep ran, the report of eb39599 was cut into shards the way Stryker writes
 them and put back by the merge: all 7,507 verdicts came back with their

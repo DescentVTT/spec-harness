@@ -9,7 +9,20 @@ only fixes, reports less or documents, so `^0.7.0` takes only releases that
 cannot turn a run red. The family's policy is
 [spec-core's ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
-## Unreleased
+## 0.20.0
+
+The hook decides each path by the work tree that holds it, a third
+worktree's and the MCP server's included, and finds siblings in the main
+checkout's install wherever a work tree has none; every process it starts
+has a time limit, and it reads only a file where a file is expected, so a
+named pipe no longer holds it without end; it says a guard that is off with
+exit 0, and `init --block-on-failure` asks Claude Code to hold a write when
+the hook cannot start. It gives a session spec-brief's answer again where
+nothing that answer was read from has changed, and it can report, at the end
+of a turn and where the configuration asks for it, what the work tree holds
+that the brief protects or that is outside its scope
+([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md),
+[ADR-0002](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0002-siblings-through-their-command-lines.md)).
 
 A configuration that does not load lets a write to itself through, so
 that a session can mend it; a write outside every work tree of the
