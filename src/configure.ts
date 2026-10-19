@@ -459,6 +459,24 @@ function knownAs(hook: Json, isHook: (words: readonly string[]) => boolean): boo
 export const NO_SESSION_START =
   'note: no settings file has Claude Code start the hook as a session starts, so a configuration that does not load, or a brief named that spec-brief does not list, is said only at the first write, which it holds: spec-harness init --write adds the entry beside the two it wrote';
 
+/**
+ * What doctor notes, run in a linked worktree, of the spec-harness the
+ * hook's line runs: the one installed where `${CLAUDE_PROJECT_DIR}` points,
+ * which is this work tree in a session started in it, and the main
+ * checkout in a worktree session of the desktop app's, where Claude Code
+ * reads the hooks from the main checkout's root and points the placeholder
+ * at it (its worktrees page, What worktrees share with the main checkout,
+ * read 2026-10-19). Said where the two are not one release, `null` for
+ * none, and `null` where they are. A note: from 0.19.0 on either decides a
+ * write by the work tree that holds it, so it says which release answers,
+ * not where a write is decided.
+ */
+export function describeInstalls(main: string, there: string | null, here: string | null): string | null {
+  if (there === here) return null;
+  const release = (version: string | null): string => (version === null ? 'none' : version);
+  return `note: this is a linked worktree of ${main}, and the hook's line runs the spec-harness installed where \${CLAUDE_PROJECT_DIR} points: this work tree's, ${release(here)}, in a session started here, and ${main}'s, ${release(there)}, in one started there, as a worktree session of the desktop app is`;
+}
+
 /** The server's entry, reading the project at `projectDir`: {@link PROJECT_DIR} for the plugin, {@link PROJECT_DIR_OR_HERE} for a project. */
 export function mcpServer(projectDir: string): Json {
   return { command: 'node', args: [`${projectDir}/${BIN}`, 'mcp', '--root', projectDir] };
@@ -1226,7 +1244,12 @@ export function wiringState(wiring: Wired): WiringState {
  * checks no write.
  */
 export function guardSwitchedOff(wiring: Wired & Pick<ClaudeCodeWiring, 'hooksOff'>): boolean {
-  return wiring.hooksOff !== null && (wiring.hooks.length > 0 || (wiring.plugin !== null && absence(wiring) === null));
+  return wiring.hooksOff !== null && guardWired(wiring);
+}
+
+/** Whether something brings the guard hooks: a settings file that holds them, or a plugin settings turn on that may be on this machine. */
+export function guardWired(wiring: Wired): boolean {
+  return wiring.hooks.length > 0 || (wiring.plugin !== null && absence(wiring) === null);
 }
 
 /**

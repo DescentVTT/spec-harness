@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { HELP } from '../../src/cli.js';
-import { claudeHookLine, emptyValue, heldHookLine, isBlank, isClaudeHook, readHookLine, refusal, twoValues, unreadHookLine } from '../../src/usage.js';
+import { answerBeside, answeringHookLine, claudeHookLine, emptyValue, foldDrive, heldHookLine, isBlank, isClaudeHook, readHookLine, refusal, twoValues, unreadHookLine } from '../../src/usage.js';
 import { parseOptions, UsageError } from '../../src/workspace.js';
 
 /** Why a command line is refused, with every `--root` a directory unless the test names those that are. */
@@ -115,9 +115,10 @@ describe('the help', () => {
         'argument given an empty value, a brief given both as the argument and as --brief,',
         'and an option that takes one value given two that name two things are refused, exit 2,',
         'not read as if they were not there, and so with --help or --version on the line. The',
-        'same value twice, as --root . --root ./, is read once. doctor says an empty --brief or',
-        '--base in its report. hook claude reads its line as every release has, and says a line',
-        'it cannot read, two values for one option among them, a --root that is not a',
+        'same value twice, as --root . --root ./, is read once, and on Windows a drive letter in',
+        'either case. doctor says an empty --brief or --base in its report. hook claude reads its',
+        'line as every release has, and says a line it cannot read, two values for one option or',
+        '--help beside a --root that is not a directory among them, a --root that is not a',
         'directory, and a question it cannot read, as a warning to the person with exit 0: it',
         'refuses nothing for any of them.',
         '',
@@ -413,6 +414,29 @@ describe('an option that takes one value, given two', () => {
     expect(twoValues(parseOptions(['doctor', '--root', '/here/sub', '--root', 'sub']), '/there')).toBe(twice('root', '/here/sub', 'sub'));
   });
 
+  it('reads a drive letter in either case as one, where a path resolved on Windows starts with one, and nothing else of the path', () => {
+    // Microsoft's Naming Files, Paths, and Namespaces has D:\ and d:\ name one volume; NTFS can be made to tell the rest apart by case.
+    expect(foldDrive('c:\\repo')).toBe('C:\\repo');
+    expect(foldDrive('C:\\repo')).toBe('C:\\repo');
+    expect(foldDrive('c:\\Repo\\a')).toBe('C:\\Repo\\a');
+    expect(foldDrive('c:')).toBe('C:');
+    // A path resolved elsewhere starts with a slash, a UNC path with two backslashes, and neither holds a drive letter.
+    for (const path of ['/c:/repo', '/repo', '\\\\server\\share', 'repo', 'cd:\\repo', '1:\\repo', '']) expect(foldDrive(path), JSON.stringify(path)).toBe(path);
+  });
+
+  it.runIf(process.platform === 'win32')('is one root on Windows for a drive letter written in either case, and two for the rest of the path written in two', () => {
+    expect(twoValues(parseOptions(['doctor', '--root', 'C:\\repo', '--root', 'c:\\repo']), 'C:\\here')).toBeNull();
+    expect(twoValues(parseOptions(['hook', 'claude', '--root', 'c:\\repo', '--root', 'C:\\repo\\']), 'c:\\here')).toBeNull();
+    // Read from where the line is read, whose drive letter may be written in the other case.
+    expect(twoValues(parseOptions(['doctor', '--root', 'c:\\here\\sub', '--root', 'sub']), 'C:\\here')).toBeNull();
+    expect(twoValues(parseOptions(['doctor', '--root', 'C:\\repo', '--root', 'C:\\Repo']), 'C:\\here')).toBe(twice('root', 'C:\\repo', 'C:\\Repo'));
+    expect(twoValues(parseOptions(['doctor', '--root', 'C:\\repo', '--root', 'D:\\repo']), 'C:\\here')).toBe(twice('root', 'C:\\repo', 'D:\\repo'));
+  });
+
+  it.skipIf(process.platform === 'win32')('is two roots elsewhere for C:\\repo beside c:\\repo, two names in the directory they are read from', () => {
+    expect(twoValues(parseOptions(['doctor', '--root', 'C:\\repo', '--root', 'c:\\repo']), '/here')).toBe(twice('root', 'C:\\repo', 'c:\\repo'));
+  });
+
   it('is never a list, which takes every value it is given, nor an option that takes none', () => {
     for (const argv of [
       ['escalate', '--path', 'a.ts', '--path', 'b.ts', '--reason', 'why', '--option', 'Allow: one', '--option', 'Refuse'],
@@ -594,6 +618,39 @@ describe("what Claude Code's hook does with its own line", () => {
     expect(read(['hook', 'claude', '--root', '/the/project/', '--root', '/the/project'])).toEqual({ state: 'guards', root: '/the/project' });
     expect(read(['hook', 'claude', '--root', '', '--root', '/here'])).toEqual({ state: 'guards', root: '/here' });
     expect(read(['hook', 'claude', '--brief', '1', '--brief', '001'])).toEqual({ state: 'guards', root: undefined, brief: '001' });
+  });
+
+  it('checks no write where the line asks for the help or the version, which the hook prints, exit 0, and says nothing of', () => {
+    const read = (words: readonly string[]) => claudeHookLine(words, parseOptions, '/here', only('/here', '/the/project', '/outside'));
+    const asks = (asked: 'help' | 'version'): unknown => ({
+      state: 'off',
+      silent: true,
+      fault: { wrong: `the line asks for the ${asked}, which the hook prints, exit 0, in place of checking the write`, mend: 'take that option off the line, where init writes "hook claude" and nothing after it' },
+    });
+    expect(answeringHookLine('help')).toStrictEqual(asks('help'));
+    expect(read(['hook', 'claude', '--help'])).toStrictEqual(asks('help'));
+    expect(read(['hook', 'claude', '-h'])).toStrictEqual(asks('help'));
+    expect(read(['hook', 'claude', '--version'])).toStrictEqual(asks('version'));
+    expect(read(['--version', 'hook', 'claude'])).toStrictEqual(asks('version'));
+    // Whatever else the line holds that the hook would read as it runs: no brief is asked about, and no root opened.
+    expect(read(['hook', 'claude', '--help', '--brief', '404'])).toStrictEqual(asks('help'));
+    expect(read(['hook', 'claude', '-v', '--root', '/outside'])).toStrictEqual(asks('version'));
+    expect(read(['hook', 'claude', '--help', '--root', ''])).toStrictEqual(asks('help'));
+  });
+
+  it('cannot read a line with the help or the version beside a root that is not a directory, which the hook would say as it runs', () => {
+    const read = (words: readonly string[]) => claudeHookLine(words, parseOptions, '/here', only('/here'));
+    const beside = (asked: string, root: string): string => `--${asked} is given beside a fault, --root is "${root}", which is not a directory, and the ${asked} would be printed in its place`;
+    expect(read(['hook', 'claude', '--help', '--root', '/nowhere'])).toStrictEqual(unreadHookLine(beside('help', '/nowhere')));
+    expect(read(['hook', 'claude', '--root', 'nowhere', '-v'])).toStrictEqual(unreadHookLine(beside('version', 'nowhere')));
+    // An empty root where the directory the hook is started in is gone.
+    expect(claudeHookLine(['hook', 'claude', '-h', '--root', ''], parseOptions, '/gone', only('/here'))).toStrictEqual(unreadHookLine(beside('help', '/gone')));
+    expect(answerBeside(parseOptions(['hook', 'claude', '--help', '--root', 'a.ts']), '/here', only('/here'))).toBe(beside('help', 'a.ts'));
+    expect(answerBeside(parseOptions(['hook', 'claude', '--version', '--root', 'a.ts']), '/here', only('/here'))).toBe(beside('version', 'a.ts'));
+    // Neither asked for, or beside a root that is there or none: nothing to say before the answer.
+    expect(answerBeside(parseOptions(['hook', 'claude', '--root', '/nowhere']), '/here', only('/here'))).toBeNull();
+    expect(answerBeside(parseOptions(['hook', 'claude', '--help', '--root', '/here']), '/here', only('/here'))).toBeNull();
+    expect(answerBeside(parseOptions(['hook', 'claude', '--version']), '/here', only('/here'))).toBeNull();
   });
 
   it('is nobody\'s where the words do not say hook claude, read or not', () => {

@@ -180,6 +180,24 @@ describe('an option that takes one value, given two', () => {
     expect(guarded.stdout).toMatch(/^ok {7}src\/a\.ts is in brief 001's scope/);
   });
 
+  it.runIf(process.platform === 'win32')('is one root on Windows for a drive letter written in either case, on every command and on the hook\'s line', async () => {
+    // Refused as two roots in 0.19.0, where Windows names one volume by both (spec-core ADR-0005, amended 2026-10-19).
+    const repo = repository({ [BRIEF_FILE]: brief({ affected: ['src/**'], protected: ['src/db/**'] }), 'src/db/schema.ts': 'table;\n' });
+    repo.git('checkout', '-q', '-b', 'brief/001-rotate');
+    const upper = `${repo.root[0]!.toUpperCase()}${repo.root.slice(1)}`;
+    const lower = `${repo.root[0]!.toLowerCase()}${repo.root.slice(1)}`;
+    const guarded = await cli(['guard', 'src/db/schema.ts', '--root', upper, '--root', lower], repo.root);
+    expect({ code: guarded.code, stderr: guarded.stderr }).toEqual({ code: 1, stderr: '' });
+    expect(guarded.stdout).toMatch(/^refused  brief 001 does not empower this round to change src\/db\/schema\.ts/);
+    expect(await cli(['doctor', '--root', lower, '--root', upper], repo.root)).toMatchObject({ code: 0, stderr: '' });
+    const question = JSON.stringify({ session_id: 's', cwd: repo.root, hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: join(repo.root, 'src', 'db', 'schema.ts'), old_string: 'a', new_string: 'b' } });
+    const hooked = await cli(['hook', 'claude', '--root', upper, '--root', lower], repo.root, { stdin: question });
+    expect(JSON.parse(hooked.stdout)).toMatchObject({ hookSpecificOutput: { permissionDecision: 'deny' } });
+    // The rest of the path is the disk's to read, and written in two cases it is two values.
+    const other = upper.split('spec-harness-test-').join('Spec-harness-test-');
+    expect((await cli(['doctor', '--root', upper, '--root', other], repo.root)).code).toBe(2);
+  });
+
   it('keeps a list a list: each --path and each --option is one more', async () => {
     const repo = repository({ [BRIEF_FILE]: brief({ affected: ['src/**'] }) });
     repo.git('checkout', '-q', '-b', 'brief/001-rotate');
@@ -402,6 +420,27 @@ describe('the configuration', () => {
     const repo = repository({}, null);
     mkdirSync(join(repo.root, '.spec-harness.json'));
     expect(await cli(['guard', 'a.ts'], repo.root)).toEqual({ code: 2, stdout: '', stderr: 'spec-harness: .spec-harness.json is a directory, not a configuration file\n' });
+  });
+
+  // An account that may do anything may read the file too, and Windows keeps no such bit.
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)('says a file it may not read is one it cannot read, with the reason, never as JSON that is not valid, and lets a write to it through', async () => {
+    // It was `is not valid JSON: EACCES: permission denied, open ...`, which sent a person to the file's text.
+    const repo = repository({ [BRIEF_FILE]: brief() });
+    const file = join(repo.root, '.spec-harness.json');
+    chmodSync(file, 0o000);
+    try {
+      const said = `spec-harness: .spec-harness.json cannot be read: EACCES: permission denied, open '${file}'\n`;
+      for (const argv of [['guard', 'a.ts'], ['doctor']]) expect(await cli(argv, repo.root), argv.join(' ')).toEqual({ code: 2, stdout: '', stderr: said });
+      const input = JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: 'Write', cwd: repo.root, tool_input: { file_path: 'a.ts' } });
+      expect(await cli(['hook', 'claude'], repo.root, { stdin: input })).toEqual({ code: 2, stdout: '', stderr: said });
+      // A write to the file itself is let through, as to one that does not load: the person may mend what the account may not read.
+      const own = JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: 'Write', cwd: repo.root, tool_input: { file_path: file } });
+      const line = `${said.slice(0, -1)}, so every other write is held until it loads; this write, to ${file} itself, is not checked`;
+      expect(await cli(['hook', 'claude'], repo.root, { stdin: own })).toEqual({ code: 0, stderr: '', stdout: `${JSON.stringify({ systemMessage: line, hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: line } })}\n` });
+    } finally {
+      chmodSync(file, 0o644);
+    }
+    expect(await cli(['guard', 'a.ts'], repo.root)).toMatchObject({ code: 0, stderr: '' });
   });
 
   it('blocks the hook too, rather than guarding what the file did not say', async () => {
@@ -880,6 +919,77 @@ describe("doctor on the line of Claude Code's hook in its settings (ADR-0005)", 
       onFailure: 'block',
       note: '"hook claude" in .claude/settings.json sets onFailure to "block", so Claude Code 2.1.295 or later holds a write when the hook fails, where it lets the write go ahead without it: by not starting, as where the script on its line is not there, or by running past its timeout',
     });
+  });
+
+  it('fails for a line that asks for the help or the version, which the hook prints in place of checking the write, and says either beside a root that is not a directory as a line the hook cannot read', async () => {
+    const env = newEnough();
+    const repo = repository({ [BRIEF_FILE]: brief({ protected: ['src/db/**'] }), 'src/db/schema.ts': 'table;\n' });
+    repo.git('checkout', '-q', '-b', 'brief/001-rotate');
+    const question = JSON.stringify({ session_id: 's', cwd: repo.root, hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: join(repo.root, 'src', 'db', 'schema.ts'), old_string: 'a', new_string: 'b' } });
+    // It said of each that it guards, where the hook printed the help or the version, exit 0, and the write to the protected file went on.
+    for (const [rest, asked] of [[['--help'], 'help'], [['-v'], 'version'], [['--help', '--brief', '404'], 'help'], [['--version', '--root', '${CLAUDE_PROJECT_DIR}'], 'version']] as const) {
+      repo.write('.claude/settings.json', settings([hook(rest)]));
+      const result = await cli(['doctor'], repo.root, { env });
+      expect(result.code, rest.join(' ')).toBe(1);
+      expect(result.stdout, rest.join(' ')).toContain(
+        `\n        "hook claude ${rest.join(' ')}" in .claude/settings.json: the line asks for the ${asked}, which the hook prints, exit 0, in place of checking the write, so the guard is off and no write is checked; take that option off the line, where init writes "hook claude" and nothing after it\n`,
+      );
+      const hooked = await cli(['hook', 'claude', ...rest.map((word) => word.split('${CLAUDE_PROJECT_DIR}').join(repo.root))], repo.root, { stdin: question });
+      expect(hooked, rest.join(' ')).toEqual({ code: 0, stdout: asked === 'help' ? HELP : `${VERSION}\n`, stderr: '' });
+    }
+    // Beside a root that is not a directory, the hook says what it said without either, as a line it cannot read: to the person, exit 0, and nothing held.
+    const fault = `the hook's line cannot be read (--help is given beside a fault, --root is "nowhere", which is not a directory, and the help would be printed in its place), so the guard is off`;
+    repo.write('.claude/settings.json', settings([hook(['--help', '--root', 'nowhere'])]));
+    const beside = await cli(['doctor'], repo.root, { env });
+    expect(beside.code).toBe(1);
+    expect(beside.stdout).toContain(`\n        "hook claude --help --root nowhere" in .claude/settings.json: ${fault} and no write is checked; mend it in Claude Code's settings, where init writes "hook claude" and nothing after it\n`);
+    expect(await cli(['hook', 'claude', '--help', '--root', 'nowhere'], repo.root, { stdin: question })).toEqual({ code: 0, stdout: `${JSON.stringify({ systemMessage: `spec-harness: ${fault} and this write is not checked; mend it in Claude Code's settings, where init writes "hook claude" and nothing after it` })}\n`, stderr: '' });
+    // As a session starts, the same words, of every write of it.
+    const start = await cli(['hook', 'claude', '-h', '--root', 'nowhere'], repo.root, { stdin: JSON.stringify({ session_id: 's', cwd: repo.root, hook_event_name: 'SessionStart', source: 'startup' }) });
+    expect(start.code).toBe(0);
+    expect(JSON.parse(start.stdout)).toMatchObject({ systemMessage: `spec-harness: ${fault} and no write of this session is checked; mend it in Claude Code's settings, where init writes "hook claude" and nothing after it` });
+    // With a root that is there, or none, the help and the version answer as on every line.
+    expect(await cli(['hook', 'claude', '--help', '--root', repo.root], repo.root, { stdin: question })).toEqual({ code: 0, stdout: HELP, stderr: '' });
+    expect(await cli(['--root', 'nowhere', '--version'], repo.root, { stdin: question })).toEqual({ code: 0, stdout: `${VERSION}\n`, stderr: '' });
+  });
+
+  it('notes, run in a linked worktree, the release the hook\'s line runs where it is not this work tree\'s own, and fails nothing', async () => {
+    // A worktree session of the desktop app runs the main checkout's hooks, with the placeholder naming it (Claude Code's worktrees page).
+    const repo = repository({ '.claude/settings.json': settings([hook([])]) });
+    const tree = join(temp(), 'w');
+    repo.git('worktree', 'add', '-q', '-b', 'w', tree);
+    const release = (at: string, version: string): void => write(at, 'node_modules/@descent-vtt/spec-harness/package.json', JSON.stringify({ name: '@descent-vtt/spec-harness', version }));
+    release(repo.root, '0.18.0');
+    release(tree, '0.19.0');
+    const main = repo.git('rev-parse', '--show-toplevel');
+    const notes = async (at: string): Promise<{ code: number; notes: string[] }> => {
+      const result = await cli(['doctor', '--format', 'json'], at);
+      return { code: result.code, notes: parsed<{ claudeCode: { notes: string[] } }>(result).claudeCode.notes };
+    };
+    expect(await notes(tree)).toEqual({ code: 0, notes: [`note: this is a linked worktree of ${main}, and the hook's line runs the spec-harness installed where \${CLAUDE_PROJECT_DIR} points: this work tree's, 0.19.0, in a session started here, and ${main}'s, 0.18.0, in one started there, as a worktree session of the desktop app is`] });
+    // From the main checkout there is one install, and nothing to say.
+    expect(await notes(repo.root)).toEqual({ code: 0, notes: [] });
+    // One release in both, nothing; with none in the worktree, that it has none.
+    release(tree, '0.18.0');
+    expect(await notes(tree)).toEqual({ code: 0, notes: [] });
+    rmSync(join(tree, 'node_modules'), { recursive: true, force: true });
+    expect(await notes(tree)).toEqual({ code: 0, notes: [`note: this is a linked worktree of ${main}, and the hook's line runs the spec-harness installed where \${CLAUDE_PROJECT_DIR} points: this work tree's, none, in a session started here, and ${main}'s, 0.18.0, in one started there, as a worktree session of the desktop app is`] });
+    // With nothing wiring the guard, the hook's line runs nothing to say of.
+    rmSync(join(tree, '.claude'), { recursive: true, force: true });
+    expect(await notes(tree)).toEqual({ code: 0, notes: [] });
+    // The plugin brings the same line, under the same placeholder.
+    write(tree, '.claude/settings.json', JSON.stringify({ enabledPlugins: { 'spec-harness@spec-tools': true } }));
+    const plugin = await cli(['doctor', '--format', 'json'], tree, { env: { CLAUDE_CODE_PLUGIN_CACHE_DIR: installPlugin(temp()) } });
+    expect(parsed<{ claudeCode: { notes: string[] } }>(plugin).claudeCode.notes).toEqual([`note: this is a linked worktree of ${main}, and the hook's line runs the spec-harness installed where \${CLAUDE_PROJECT_DIR} points: this work tree's, none, in a session started here, and ${main}'s, 0.18.0, in one started there, as a worktree session of the desktop app is`]);
+    // A repository that keeps its git directory apart names no main work tree, and says nothing of one.
+    const apart = temp();
+    git(apart, 'init', '-q', '-b', 'main', `--separate-git-dir=${join(temp(), 'kept.git')}`);
+    write(apart, '.spec-harness.json', JSON.stringify({ base: 'main', tools: siblings() }));
+    write(apart, '.claude/settings.json', settings([hook([])]));
+    release(apart, '0.18.0');
+    git(apart, 'add', '-A');
+    git(apart, 'commit', '-q', '-m', 'base');
+    expect(await notes(apart)).toEqual({ code: 0, notes: [] });
   });
 
   it('cannot tell what a shell hands the hook: said, never fine, and a failure under --strict alone', async () => {

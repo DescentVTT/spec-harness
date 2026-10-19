@@ -34,19 +34,27 @@ export function isFile(path: string): boolean {
  *
  * Only a file is read. A named pipe under the file's name was read without
  * end, by every command and by the hook before every write; and Node's words
- * for a directory, EISDIR, are not the harness's. What does not load is
- * thrown with the path it stands at, which the hook lets a write reach
- * (ADR-0005).
+ * for a directory, EISDIR, are not the harness's. A file that cannot be read
+ * is said as that, with the reason: one the account may not read, or one
+ * another process holds open on Windows, was said to be JSON that is not
+ * valid, which sent a person to its text. What does not load is thrown with
+ * the path it stands at, which the hook lets a write reach (ADR-0005).
  */
 export async function loadConfig(root: string): Promise<{ config: HarnessConfig; file: string | null }> {
   const file = join(root, CONFIG_FILE);
   const there = standing(file);
   if (there === null) return { config: DEFAULT_CONFIG, file: null };
   if (!there.isFile()) throw new ConfigError(`${CONFIG_FILE} is ${there.isDirectory() ? 'a directory' : 'neither a file nor a directory'}, not a configuration file`, file);
-  let raw: unknown;
+  let text: string;
   try {
     // A Buffer parses as its text, so the encoding is equivalent to its mutant.
-    raw = JSON.parse(await readFile(file, 'utf8'));
+    text = await readFile(file, 'utf8');
+  } catch (error) {
+    throw new ConfigError(`${CONFIG_FILE} cannot be read: ${(error as Error).message}`, file);
+  }
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
   } catch (error) {
     throw new ConfigError(`${CONFIG_FILE} is not valid JSON: ${(error as Error).message}`, file);
   }

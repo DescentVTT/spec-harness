@@ -1122,6 +1122,8 @@ describe("a core.hooksPath that names a file (ADR-0005)", () => {
     expect(gitHook.state).toBe('unknown');
     expect(gitHook.detail).toMatch(/^where git runs its hooks cannot be told: git rev-parse --git-path hooks\/pre-commit failed: fatal: Invalid path '.*hooksfile[\\/]pre-commit': Not a directory$/);
     expect(gitHook.detail).not.toContain('2.31');
+    // Never fine: a failure under --strict, as every other thing doctor cannot tell is, where it failed nothing.
+    expect((await cli(['doctor', '--strict'], repo.root)).code).toBe(1);
     expect((await cli(['init', '--git-hook', '--write'], repo.root)).stdout).toContain(`advise  pre-commit\n        ${gitHook.detail}\n`);
     expect(existsSync(join(repo.root, 'hooksfile', 'pre-commit'))).toBe(false);
     repo.write('work.txt', 'w\n');

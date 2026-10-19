@@ -18,6 +18,13 @@ where the branch names a brief no round can work under
 ([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md),
 [ADR-0004](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0004-the-active-brief-is-named-not-guessed.md)).
 
+`doctor` says a line of Claude Code's hook that asks for the help or the
+version as a guard that is off, fails `--strict` where git cannot say
+where it runs its hooks, and notes in a linked worktree the release the
+hook's line runs; a `.spec-harness.json` that cannot be read is said as
+that; and on Windows a drive letter is one in either case
+([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
+
 ### Added
 
 - **A report at the end of a turn, where `.spec-harness.json` asks for
@@ -48,6 +55,11 @@ where the branch names a brief no round can work under
   ([ADR-0012](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0012-one-way-into-claude-code.md)).
   The entry at the end of a turn is left without it: it runs in the
   background, where the hooks reference gives the field no effect.
+- **`doctor`, run in a linked worktree, notes the release the hook's line
+  runs.** The line names its script under `${CLAUDE_PROJECT_DIR}`, which
+  in a worktree session of the desktop app is the main checkout. Where the
+  main checkout's install of spec-harness and the worktree's are not one
+  release, a note names both; it fails nothing.
 
 ### Changed
 
@@ -152,6 +164,29 @@ where the branch names a brief no round can work under
   with a `..` in it is held as before.
   Upgrading: `guard` of a path outside the repository exits 0 under such
   a brief, where it exited 2.
+- **A hook line that asks for the help or the version is a guard that is
+  off.** `hook claude --help`, `--version`, `-h` and `-v` print the help
+  or the version, exit 0, and check no write, which Claude Code takes for a
+  hook that succeeded; `doctor` said such a line guards, and said a
+  `--brief 404` beside it held every write. It says the line as one under
+  which no write is checked, whatever else is on it, and exits 1.
+  Upgrading: take the option off the hook's line; `doctor` exits 1 until
+  it is.
+- **`--help` or `--version` beside a `--root` that is not a directory is
+  a line the hook cannot read.** `hook claude --help --root nowhere`
+  printed the help, exit 0, where without `--help` the hook says the
+  root. It says `the hook's line cannot be read (--help is given beside a
+  fault, --root is "nowhere", which is not a directory, ...)` as it says
+  every line it cannot read, to the person with exit 0, before a write and
+  after one, and holds no write; as a session starts it says the same.
+  `doctor` says the line in the same words.
+  Upgrading: mend the line; no line a release wrote carries either.
+- **`doctor --strict` fails where git cannot say where it runs its
+  hooks.** Under a `core.hooksPath` that names a file, `where git runs its
+  hooks cannot be told` failed nothing, under `--strict` or not, where a
+  release, a hook's line, a plugin or a hook file that cannot be told
+  fails `--strict`.
+  Upgrading: point `core.hooksPath` at a directory, or leave it unset.
 
 ### Fixed
 
@@ -162,6 +197,16 @@ where the branch names a brief no round can work under
   for a ruling, a probe's report. Only a regular file is read, and what
   else stands there is read as a file that is not there
   ([ADR-0002](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0002-siblings-through-their-command-lines.md)).
+- **A `.spec-harness.json` that cannot be read is said as that.** One the
+  account may not read, or one another process holds open on Windows, was
+  `.spec-harness.json is not valid JSON: EACCES: ...`. It is
+  `.spec-harness.json cannot be read: EACCES: ...`, exit 2 as before, and
+  a write to the file itself goes on, as to one that does not load.
+- **On Windows `--root C:\work` beside `--root c:\work` is one root.**
+  Every command refused the two as two directories, exit 2, and the hook
+  read such a line as one it cannot read, under which it checked no write;
+  Windows names a volume by its letter in either case. The hook now guards
+  under that root, and the rest of the path is compared as before.
 
 ## 0.19.0
 

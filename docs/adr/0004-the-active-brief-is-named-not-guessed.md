@@ -171,10 +171,12 @@ setups that hold every write too, and fail nothing.
   holds this as well.
 - **A write outside every work tree of the repository** is not held by a
   name that is no brief's, whatever names it, nor by a configuration that
-  does not load: ADR-0005, as amended 2026-10-19, has such a write decided
-  as one outside the repository is, since no brief decides one. So every
-  write this ADR's decision has wait is every write inside the
-  repository's work trees, a linked worktree's among them.
+  does not load: ADR-0005's amendment of 2026-10-19 that lets a
+  configuration that does not load have a write to itself through, in its
+  part on a write outside every work tree, has such a write decided as one
+  outside the repository is, since no brief decides one. So every write
+  this ADR's decision has wait is every write inside the repository's work
+  trees, a linked worktree's among them.
 - **What the hook does is otherwise not touched**, and `--format json`
   gains no field: `briefProblem` says the name as before, and the exit code is the
   change. CI of the family's documents runs `premises`, not `doctor`

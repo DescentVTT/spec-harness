@@ -14,6 +14,7 @@ import {
   describeClaudeRelease,
   describeGitHook,
   describeHooksOff,
+  describeInstalls,
   describePresence,
   GIT_HOOK_LINE,
   gitHookNote,
@@ -2125,5 +2126,15 @@ describe('the entry as a turn ends (ADR-0012)', () => {
     expect(withTurnReport({ hooks: { Stop: [theirs] } }, () => false)).toEqual({ hooks: { Stop: [theirs, END] } });
     expect(reportsTurns({ hooks: { Stop: [theirs] } }, () => false)).toBe(false);
     for (const settings of [null, 'x', {}, { hooks: { Stop: {} } }, { hooks: { Stop: [{ hooks: 'x' }, { hooks: ['x'] }] } }, { hooks: { SessionStart: [END] } }]) expect(reportsTurns(settings, isHook), JSON.stringify(settings)).toBe(false);
+  });
+});
+
+describe('the install the hook\'s line runs, from a linked worktree', () => {
+  it('is a note where the main checkout\'s release and this work tree\'s differ, none among them, and nothing where they are one', () => {
+    expect(describeInstalls('/work/app', '0.19.0', '0.19.0')).toBeNull();
+    expect(describeInstalls('/work/app', null, null)).toBeNull();
+    expect(describeInstalls('/work/app', '0.18.0', '0.19.0')).toBe(`note: this is a linked worktree of /work/app, and the hook's line runs the spec-harness installed where \${CLAUDE_PROJECT_DIR} points: this work tree's, 0.19.0, in a session started here, and /work/app's, 0.18.0, in one started there, as a worktree session of the desktop app is`);
+    expect(describeInstalls('/work/app', null, '0.19.0')).toBe(`note: this is a linked worktree of /work/app, and the hook's line runs the spec-harness installed where \${CLAUDE_PROJECT_DIR} points: this work tree's, 0.19.0, in a session started here, and /work/app's, none, in one started there, as a worktree session of the desktop app is`);
+    expect(describeInstalls('/work/app', '0.19.0', null)).toBe(`note: this is a linked worktree of /work/app, and the hook's line runs the spec-harness installed where \${CLAUDE_PROJECT_DIR} points: this work tree's, none, in a session started here, and /work/app's, 0.19.0, in one started there, as a worktree session of the desktop app is`);
   });
 });
