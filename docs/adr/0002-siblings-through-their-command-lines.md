@@ -576,47 +576,53 @@ an absolute one as it stands.
   session lasts. Verified rulings are not kept by this change.
 
 *Measured* through the launchers of main and of this change, with
-DescentVTT/spec-brief#69 at 2524903 built and installed, and spec-brief 0.9.0
-beside them for the release, the three taking turns inside each round, ten
-rounds at the median, on the Windows workstation, where starting node to do
-nothing took 809 ms, the machine shared (`h25-bench.mjs <work> 10 <out.json>
-main-090=<main>,<0.9.0> main-a2=<main>,<#69> h1-a2=<this>,<#69>`); a session
-was started once in each project before the rounds, and each write is a call
-of it:
+spec-brief's main at 716da8d, where DescentVTT/spec-brief#69 merged, built
+and installed, and spec-brief 0.9.0 beside them for the release, the three
+taking turns inside each round, ten rounds at the median with the 95th
+percentile between brackets, on the Windows workstation, where starting node
+to do nothing took 650 ms, the machine shared (`h25-bench.mjs <work> 10
+<out.json> main-090=<main>,<0.9.0> main-010=<main>,<716da8d>
+h1-010=<this>,<716da8d>`); a session was started once in each project
+before the rounds, and each write is a call of it:
 
-| The hook | main, spec-brief 0.9.0 | main, #69 | This change, #69 |
+| The hook | main, spec-brief 0.9.0 | main, spec-brief 716da8d | This change, 716da8d |
 | --- | ---: | ---: | ---: |
-| before an Edit, no brief named | 956 ms (1,086) | 1,007 ms (1,133) | 956 ms (1,223) |
-| before an Edit in the scope, on a brief's branch | 1,910 ms (2,397) | 1,785 ms (2,237) | 944 ms (1,202) |
-| before an Edit of a protected file, which it refuses | 2,202 ms (2,909) | 1,985 ms (2,454) | 966 ms (1,187) |
-| before an Edit in the scope, sixty briefs | 2,004 ms (2,448) | 1,923 ms (2,318) | 984 ms (1,238) |
-| after an Edit outside the scope, with no run before it | 1,908 ms (2,513) | 1,798 ms (2,611) | 969 ms (1,503) |
-| as a session starts, on a brief's branch | 1,867 ms (2,313) | 1,730 ms (2,220) | 1,729 ms (2,353) |
-| before an Edit in the scope, the first of a new session | 1,865 ms (2,911) | 1,789 ms (2,326) | 1,845 ms (2,299) |
+| before an Edit, no brief named | 753 ms (823) | 742 ms (852) | 752 ms (830) |
+| before an Edit in the scope, on a brief's branch | 1,545 ms (1,643) | 1,480 ms (1,544) | 759 ms (791) |
+| before an Edit of a protected file, which it refuses | 1,553 ms (1,656) | 1,517 ms (1,586) | 794 ms (828) |
+| before an Edit in the scope, sixty briefs | 1,567 ms (1,612) | 1,554 ms (1,637) | 780 ms (840) |
+| after an Edit outside the scope, with no run before it | 1,530 ms (1,580) | 1,478 ms (1,519) | 770 ms (810) |
+| as a session starts, on a brief's branch | 1,501 ms (1,669) | 1,477 ms (1,569) | 1,455 ms (1,540) |
+| before an Edit in the scope, the first of a new session | 1,529 ms (1,662) | 1,485 ms (1,503) | 1,491 ms (1,563) |
 
-spec-brief's `list` alone took 1,020 ms (1,205) for 0.9.0, and 934 (1,133)
-and 922 (1,097) for #69, the same program twice.
+spec-brief's `list` alone took 760 ms (836) for 0.9.0, and 722 (785) and
+720 (1,100) for 716da8d, the same program twice.
 
 On GitHub's Windows runner (`windows-2025-vs2026`), thirty rounds, through a
 workflow of a draft pull request that measured and was closed
-(DescentVTT/spec-harness#116), where starting node to do nothing took 54 ms
+(DescentVTT/spec-harness#124), where starting node to do nothing took 59 ms
 (Node 24.21.0, Git for Windows 2.56.0, four cores):
 
-| The hook | main, spec-brief 0.9.0 | main, #69 | This change, #69 |
+| The hook | main, spec-brief 0.9.0 | main, spec-brief 716da8d | This change, 716da8d |
 | --- | ---: | ---: | ---: |
-| before an Edit, no brief named | 149 ms (160) | 152 ms (159) | 149 ms (158) |
-| before an Edit in the scope, on a brief's branch | 325 ms (338) | 285 ms (300) | 162 ms (176) |
-| before an Edit of a protected file, which it refuses | 333 ms (345) | 296 ms (306) | 175 ms (183) |
-| before an Edit in the scope, sixty briefs | 359 ms (367) | 320 ms (327) | 171 ms (178) |
-| after an Edit outside the scope, with no run before it | 322 ms (331) | 283 ms (294) | 157 ms (167) |
-| as a session starts, on a brief's branch | 302 ms (310) | 262 ms (271) | 274 ms (284) |
-| before an Edit in the scope, the first of a new session | 324 ms (335) | 285 ms (294) | 297 ms (308) |
+| before an Edit, no brief named | 156 ms (164) | 156 ms (162) | 157 ms (168) |
+| before an Edit in the scope, on a brief's branch | 337 ms (348) | 297 ms (306) | 171 ms (177) |
+| before an Edit of a protected file, which it refuses | 348 ms (358) | 308 ms (318) | 181 ms (188) |
+| before an Edit in the scope, sixty briefs | 367 ms (379) | 328 ms (337) | 175 ms (190) |
+| after an Edit outside the scope, with no run before it | 335 ms (339) | 295 ms (302) | 167 ms (171) |
+| as a session starts, on a brief's branch | 317 ms (324) | 276 ms (286) | 288 ms (297) |
+| before an Edit in the scope, the first of a new session | 338 ms (345) | 299 ms (304) | 309 ms (319) |
 
-spec-brief's `list` alone took 169 ms (175) for 0.9.0 and 129 (139) for
-#69.
+spec-brief's `list` alone took 173 ms (182) for 0.9.0 and 133 (139) for
+716da8d.
+
+Measured first against #69's head at 2524903, through the draft
+DescentVTT/spec-harness#116, this change took 162 ms before an Edit in the
+scope on the runner where main took 285 with that spec-brief and 325 with
+0.9.0, and 944 ms on the workstation where main took 1,785 and 1,910.
 
 Once the session has an answer kept, a write on a brief's branch costs what
-one where no brief is named costs, and on the runner 13 ms more, for reading
+one where no brief is named costs, and on the runner 14 ms more, for reading
 and hashing what the answer was read from: the two of git's processes, and
 no spec-brief. The run that keeps it, the session's start where its entry is
 written, costs a start of spec-brief and on the runner 12 ms more; a run that
@@ -634,10 +640,10 @@ its configuration taken away, a configuration of its other name
 after the changes, every one the same in its exit code, its standard output
 and its standard error, with #69 at 2524903, under which answers were kept
 and given again until the archive's directory was taken away and #69 said
-`keep: false`; and 913 the same again with #69 at 19df161, which names that
-directory with `entries: null`, and under which answers were kept and given
-again after each change. With spec-brief 0.9.0, which keeps nothing, 913
-runs, every one the same.
+`keep: false`; 913 the same again with #69 at 19df161, which names that
+directory with `entries: null`; and 913 the same with spec-brief's main at
+716da8d, under which answers were kept and given again after each change.
+With spec-brief 0.9.0, which keeps nothing, 913 runs, every one the same.
 
 No answer changes: a patch (spec-core's ADR-0009).
 
