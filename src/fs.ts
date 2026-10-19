@@ -3,7 +3,7 @@
  * directory outside the work tree, and paths as the filesystem spells them.
  */
 
-import { existsSync, readFileSync, realpathSync, statSync, type Stats } from 'node:fs';
+import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, statSync, type Stats } from 'node:fs';
 import { lstat, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
@@ -37,27 +37,70 @@ export function isFile(path: string): boolean {
  * for a directory, EISDIR, are not the harness's. A file that cannot be read
  * is said as that, with the reason: one the account may not read, or one
  * another process holds open on Windows, was said to be JSON that is not
- * valid, which sent a person to its text (ADR-0005).
+ * valid, which sent a person to its text. What does not load is thrown with
+ * the path it stands at, which the hook lets a write reach (ADR-0005).
  */
 export async function loadConfig(root: string): Promise<{ config: HarnessConfig; file: string | null }> {
   const file = join(root, CONFIG_FILE);
   const there = standing(file);
   if (there === null) return { config: DEFAULT_CONFIG, file: null };
-  if (!there.isFile()) throw new ConfigError(`${CONFIG_FILE} is ${there.isDirectory() ? 'a directory' : 'neither a file nor a directory'}, not a configuration file`);
+  if (!there.isFile()) throw new ConfigError(`${CONFIG_FILE} is ${there.isDirectory() ? 'a directory' : 'neither a file nor a directory'}, not a configuration file`, file);
   let text: string;
   try {
     // A Buffer parses as its text, so the encoding is equivalent to its mutant.
     text = await readFile(file, 'utf8');
   } catch (error) {
-    throw new ConfigError(`${CONFIG_FILE} cannot be read: ${(error as Error).message}`);
+    throw new ConfigError(`${CONFIG_FILE} cannot be read: ${(error as Error).message}`, file);
   }
   let raw: unknown;
   try {
     raw = JSON.parse(text);
   } catch (error) {
-    throw new ConfigError(`${CONFIG_FILE} is not valid JSON: ${(error as Error).message}`);
+    throw new ConfigError(`${CONFIG_FILE} is not valid JSON: ${(error as Error).message}`, file);
   }
-  return { config: parseConfig(raw), file };
+  try {
+    return { config: parseConfig(raw), file };
+  } catch (error) {
+    // parseConfig throws nothing but its own refusal, whose words are kept.
+    throw new ConfigError((error as Error).message, file);
+  }
+}
+
+/**
+ * The real path of a file that stands at `path` under that name alone: a
+ * file, not a link to one, and with no other name, since a write to a file
+ * with two names writes both. `null` for anything else, and for nothing.
+ */
+function soleFile(path: string): string | null {
+  try {
+    const entry = lstatSync(path);
+    return entry.isFile() && entry.nlink === 1 ? realpathSync.native(path) : null;
+  } catch {
+    // Nothing at the path, or nothing the account may look at. Its callers
+    // compare the answer with a real path, which neither `null` nor what an
+    // empty block answers is, so that mutant is equivalent.
+    return null;
+  }
+}
+
+/**
+ * Whether every path of a write names `file` and nothing else: a file that
+ * stands under that name alone, which the path names as the hook resolves a
+ * path to decide it ({@link realSpelling}), and as the filesystem resolves
+ * it to write, which on Linux and macOS follows a link before a `..` where
+ * the hook reads the `..` first. A path that only reads like it, a link to
+ * it, a second name of it, and a file of another work tree are none of
+ * these. `cwd` is what a relative path is read from, its words kept as
+ * written.
+ */
+export function writesOnly(paths: readonly string[], file: string, cwd: string): boolean {
+  // Where the file is none, no path's real spelling is `null`, so no path
+  // names it.
+  const own = soleFile(file);
+  return paths.every((given) => {
+    const path = isAbsolute(given) ? given : `${cwd}${sep}${given}`;
+    return soleFile(path) === own && realSpelling(path) === own;
+  });
 }
 
 /**
@@ -139,6 +182,59 @@ export function repositoryPath(given: string, root: string, cwd: string): string
   // `..env` at the root is inside it; only a `..` segment climbs out.
   if (rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) return null;
   return rel.split(sep).join('/');
+}
+
+/**
+ * The top of every work tree of the repository whose common directory is
+ * `common`, `top` among them, read with no process: the main work tree,
+ * whose `.git` the common directory is, and each linked worktree, by the
+ * `gitdir` file git keeps for it under the common directory's `worktrees`,
+ * which names the worktree's `.git` (gitrepository-layout(5)), absolute or
+ * from its own directory. `null` where they cannot all be named: a common
+ * directory of any other name, whose main work tree only its configuration
+ * names, and an entry under `worktrees` that cannot be read.
+ */
+export function workTrees(top: string, common: string): string[] | null {
+  const main = mainWorkTree(common);
+  if (main === null) return null;
+  const kept = join(common, 'worktrees');
+  let names: string[] = [];
+  try {
+    names = readdirSync(kept);
+  } catch (error) {
+    // No such directory is no linked worktree, and anything else there is
+    // one that cannot be read.
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') return null;
+  }
+  const linked = names.map((name) => textOf(join(kept, name, 'gitdir')));
+  if (linked.includes(null)) return null;
+  // The line's end stands in the last name, the worktree's `.git`, which
+  // dirname takes away with it.
+  return [top, main, ...names.map((name, at) => dirname(resolve(kept, name, linked[at]!)))];
+}
+
+/**
+ * Whether every path lies outside every work tree of the repository whose
+ * top and common directory are given: such a path is no file of the
+ * repository's, so no brief of its decides it, whatever is wrong with the
+ * brief or the configuration (ADR-0005). Where the work trees cannot all
+ * be named, a path is not known to be outside them, and this is `false`.
+ */
+export function outsideEvery(paths: readonly string[], top: string, common: string, cwd: string): boolean {
+  // A write that names no path is no write outside: no caller asks of
+  // one, and a test holds the answer.
+  if (paths.length === 0) return false;
+  // A path in the work tree that was opened, as nearly every write's is,
+  // is told with nothing of git's directory read; read anyway, `top` is
+  // among the work trees, so the mutant without this test is equivalent.
+  if (paths.some((path) => repositoryPath(path, top, cwd) !== null)) return false;
+  // A path is read here as the hook reads one, its `..` before its links,
+  // where Linux and macOS write it after: `/elsewhere/link/../a.ts`, the
+  // link to a directory of the work tree, reads as outside and is written
+  // inside. Such a path is not known to be outside.
+  if (paths.some((path) => path.split(/[\\/]/).includes('..'))) return false;
+  const trees = workTrees(top, common);
+  return trees !== null && paths.every((path) => trees.every((tree) => repositoryPath(path, tree, cwd) === null));
 }
 
 /**

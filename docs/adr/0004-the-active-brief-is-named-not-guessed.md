@@ -129,6 +129,73 @@ each measured on 0.12.0 through the launcher.
 that changed and the second input refused that was accepted: a minor release
 (spec-core's ADR-0009).
 
+*Amended 2026-10-19.* **A branch that names a brief no round can work
+under fails `doctor`.** The amendment of 2026-10-09 has `doctor` say a
+brief no round can work under on its `brief` line, and change nothing of
+its exit code for it. *Claimed* by round 24's evaluation of a consumer's
+request: a branch that names a brief spec-brief does not list holds every
+write, and `doctor` exits 0 for it, where it exits 1 for any other setup
+that holds every write. *Measured* through the launcher of 0.19.0
+(3c4112c) and of this change, taking turns (Windows 11, Node 24.18.1, Git
+for Windows 2.55.0), in a project with spec-brief 0.8.0 and spec-guard
+0.26.0 installed and brief 042 its only live brief, the hook handed an Edit
+of a file outside the brief's scope:
+
+| What names the brief | The hook, before the write | `doctor` on 0.19.0 | `doctor` now |
+| --- | --- | --- | --- |
+| the branch `brief/999-nowhere` | exit 2: `the branch names brief 999, and spec-brief knows no such brief. ...` | the same words on its `brief` line; exit 0 | the same; exit 1 |
+| the branch `brief/042-done`, brief 042 archived | exit 2: `... which is archived; a closed round writes nothing. ...` | the same; exit 0 | the same; exit 1 |
+| the branch `fix/brief-list-order`, which names `list` | exit 2 | the same; exit 0 | the same; exit 1 |
+| `SPEC_BRIEF=999` in `doctor`'s environment, on `main` | | the same; exit 0 | the same |
+| `doctor --brief 999` on `main`, and `doctor --brief 042` on `brief/999-nowhere` | | brief 999 none, and brief 042; exit 0 | the same |
+| a brief's branch, `.spec-brief.json` that is no JSON | exit 2: `cannot check this write: spec-brief could not list the briefs: ...` | `spec-brief could not say whether it knows brief 042: ...`; exit 0 | the same |
+| a brief's branch, spec-brief not installed, spec-guard installed | exit 2: `cannot check this write: spec-brief is not installed here: ...` | `brief   042`, and spec-brief `absent`; exit 0 | the same |
+
+So the claim holds, and its premise in part: `doctor` exits 1 for a
+hook's line that holds every write (ADR-0005), but the last two rows are
+setups that hold every write too, and fail nothing.
+
+- **The branch's name, where it names no brief a round can work under.** A
+  brief spec-brief does not know, and one it has archived, held every
+  write already, and `doctor` now exits 1 for either where the branch names
+  it: the hook reads the same branch, so the setup `doctor` reads is the
+  one that holds the session's writes. An archived brief is read with one
+  spec-brief does not know, as this ADR's decision reads the two: the
+  decision handed over named the first, and the hold is the same, which is
+  the branch of a round once its brief is archived.
+- **The flag and the variable fail nothing, as before.** The flag is the
+  question `doctor` was asked, and names the brief in the branch's place
+  for that run alone. `SPEC_BRIEF` is read from `doctor`'s own
+  environment, and a value there says nothing of the one a session's hook
+  is started with; the test that holds the line of the hook (ADR-0005)
+  holds this as well.
+- **A write outside every work tree of the repository** is not held by a
+  name that is no brief's, whatever names it, nor by a configuration that
+  does not load: ADR-0005, as amended 2026-10-19, has such a write decided
+  as one outside the repository is, since no brief decides one. So every
+  write this ADR's decision has wait is every write inside the
+  repository's work trees, a linked worktree's among them.
+- **What the hook does is otherwise not touched**, and `--format json`
+  gains no field: `briefProblem` says the name as before, and the exit code is the
+  change. CI of the family's documents runs `premises`, not `doctor`
+  (spec-core's `docs/adopting.md`), so no pull request turns red for its
+  branch's name by this.
+
+An exit code that can change for a tree that passed is a minor release
+(spec-core's ADR-0009). What was measured for this and left as it was:
+
+- **A spec-brief that cannot list the briefs, or is not installed, where
+  the branch names a brief.** The hook holds every write, `cannot check
+  this write`, and `doctor` says the first on its `brief` line and the
+  second on the sibling's row, and fails neither while another sibling is
+  found. Each is a sibling's state, which the rows of `doctor` judge, and
+  neither was decided here.
+- **A hook's line that names a brief of its own.** Its brief is the
+  line's, and the branch's is not read by the hook; `doctor` judges the
+  branch's all the same, so a line `hook claude --brief 042` on a branch
+  that names 999 fails `doctor` though no write is held (measured: the hook
+  refuses the protected file under 042).
+
 ## Consequences
 
 No file records the active brief, so no file can record it wrongly, and two
