@@ -214,6 +214,19 @@ describe('init, for the report at the end of a turn', () => {
     }
   });
 
+  it('leaves the entry without onFailure under --block-on-failure, which gives it to the other three (ADR-0012)', async () => {
+    // The hooks reference gives the field no effect on a Stop hook, nor on one in the background.
+    const repo = project();
+    const blocked = async (): Promise<Step | undefined> => parsed<{ steps: Step[] }>(await cli(['init', '--write', '--block-on-failure', '--format', 'json'], repo.root)).steps.find((step) => step.file === '.claude/settings.json');
+    expect((await blocked())?.detail).toMatch(/; onFailure "block" on init's PreToolUse, PostToolUse and SessionStart entries, so that /);
+    const hooks = (): Record<string, { hooks: Record<string, unknown>[] }[]> => (JSON.parse(repo.read('.claude/settings.json')) as { hooks: Record<string, { hooks: Record<string, unknown>[] }[]> }).hooks;
+    for (const event of ['PreToolUse', 'PostToolUse', 'SessionStart']) expect(hooks()[event]?.[0]?.hooks[0]?.['onFailure'], event).toBe('block');
+    expect(hooks()['Stop']).toEqual([AT_END]);
+    // Run again: the three keep it, and the entry at the end of a turn is still without it.
+    expect((await blocked())?.action).toBe('keep');
+    expect(hooks()['Stop']).toEqual([AT_END]);
+  });
+
   it('adds the entry beside the guard hooks an earlier release wrote, once turnReport is turned on', async () => {
     const repo = project({});
     await steps(repo);
