@@ -2101,6 +2101,7 @@ NotebookEdit before the write unless the row says otherwise.
 | the same: the worktree's own `.spec-harness.json`, from either | exit 2 | the same |
 | a linked worktree's configuration does not load: its file, from the worktree | exit 2, `cannot check this write: ...` | let through |
 | the same: the worktree's protected file | exit 2 | the same |
+| its file, from the project | a file of the project's before main decided a path by the work tree that holds it; on main of 6e605d5, exit 2, `cannot check this write: ...` | let through |
 | after a write to the configuration that leaves it as it was | exit 2, in its words, which reach Claude | the same |
 | after the write that mends it, and the write after that | decided under what it holds | the same |
 | as a session starts | `..., so every write of this session is held until it is mended; ...` | `..., but for a write to <the file> itself, which is not checked; ...` |
@@ -2127,11 +2128,15 @@ So the claim holds, and of a linked worktree's own configuration as well.
   the file in another case is the file, as it is to every decision of the
   hook's.
 - **Which configuration.** The one that did not load, of the work tree the
-  write is decided in: the project's, which the hook's root names, or a
-  linked worktree's where the question's `cwd` is in it and the path is one
-  it holds (the third amendment of 2026-10-18). A write to the project's
-  file from a worktree is the project's to decide, and is let through where
-  the project's does not load.
+  write is decided in: the project's, which the hook's root names, or that
+  of another work tree of the repository that holds the path, whichever
+  work tree the question's `cwd` is in (the amendment of 2026-10-19 that
+  has a path decided by the work tree of the repository that holds it;
+  measured again once it merged, through main's launcher and this one's).
+  A write to the project's file from a worktree is the project's to
+  decide, and is let through where the project's does not load; while the
+  project's does not load, a write to a worktree's is held, since the
+  project's work tree is opened first.
 - **What it is answered with.** No decision, exit 0: the hook never says
   `allow`, and here says neither `deny` nor `ask`, so the person's own
   permission prompt stands as for any write the guard passes. The line
@@ -2181,7 +2186,8 @@ not list, or with a configuration that does not load:
 | --- | --- | --- |
 | a file outside every work tree of the repository, there or not yet | exit 2, in the problem's words | exit 0, no word |
 | `guard` of it | exit 2, the same | `ok  <it> is outside the repository; no brief governs it`, exit 0 |
-| the protected file, `README.md`, a file of a linked worktree beside the project, and a call that names a file inside and one outside | exit 2 | the same |
+| the protected file, `README.md`, a file of a linked worktree beside the project on a branch that names the same brief, and a call that names a file inside and one outside | exit 2 | the same |
+| a file of a linked worktree on no branch, which names no brief | exit 2, decided by the project's branch | exit 0, no word, decided by that worktree, as on main of 6e605d5 |
 | `guard` of a path outside and one inside | exit 2 | the same |
 | nothing wrong: a file outside, a linked worktree's file | exit 0, no word | the same |
 
@@ -2204,7 +2210,10 @@ So the claim holds, for each of the three.
   worktree's `.git`; measured, git 2.55 writes it relative to its own
   directory under `worktree.useRelativePaths`, and it is read so. A path in
   a linked worktree is inside a work tree of the repository, beside the
-  project or inside it, and the problem holds it.
+  project or inside it, and is decided as before, by that worktree (the
+  amendment of 2026-10-19 that has a path decided by the work tree of the
+  repository that holds it): a problem holds it where the worktree has it
+  too, as on a branch that names the same brief.
 - **Where they cannot all be named, the write is held as before**: a
   common directory of another name, as a git directory kept apart has, an
   entry under `worktrees` that cannot be read, and, where the configuration
@@ -2220,12 +2229,6 @@ So the claim holds, for each of the three.
   link with no `..`, the configuration itself a link among them, is read
   where the link leads, as the hook reads every path: one to a file
   outside every work tree is outside, and one into the work tree inside.
-
-What was measured for this and left as it was: a file of a linked
-worktree that neither the question's `cwd` nor the root is in, where
-nothing is wrong, is decided by the root's work tree as before, a file
-outside it that passes with no word (the third amendment of 2026-10-18 left
-it); here it is a work tree of the repository, and a problem holds it.
 
 A write that was held goes on: a minor release (spec-core's ADR-0009), as
 an exit code that changes is. What was measured for this and left as it

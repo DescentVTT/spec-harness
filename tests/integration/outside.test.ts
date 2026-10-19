@@ -7,7 +7,9 @@
  * file outside the repository among them, where no brief decides one. Such
  * a file is decided as it is with no brief named: it passes with no word,
  * before the write and after it. The problem still holds every path inside
- * a work tree of the repository, a linked worktree's among them.
+ * a work tree of the repository that has it, a linked worktree's on a branch
+ * that names the same brief among them: a path in a linked worktree is
+ * decided by that worktree's own branch.
  */
 
 import { mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
@@ -27,6 +29,8 @@ interface Problem {
   readonly name: string;
   readonly make: (repo: Repository) => void;
   readonly said: string;
+  /** A branch for a linked worktree that names the same brief, so that the worktree has the problem too. */
+  readonly linked: string;
 }
 
 const PROBLEMS: readonly Problem[] = [
@@ -39,8 +43,9 @@ const PROBLEMS: readonly Problem[] = [
       repo.commit('archive');
     },
     said: 'spec-harness: the branch names brief 001, which is archived; a closed round writes nothing.',
+    linked: 'brief/001-w',
   },
-  { name: 'a brief the branch names that spec-brief does not list', make: (repo) => repo.git('checkout', '-q', '-b', 'brief/999-nowhere'), said: 'spec-harness: the branch names brief 999, and spec-brief knows no such brief.' },
+  { name: 'a brief the branch names that spec-brief does not list', make: (repo) => repo.git('checkout', '-q', '-b', 'brief/999-nowhere'), said: 'spec-harness: the branch names brief 999, and spec-brief knows no such brief.', linked: 'brief/999-w' },
   {
     name: 'a configuration that does not load',
     make: (repo) => {
@@ -48,6 +53,7 @@ const PROBLEMS: readonly Problem[] = [
       repo.write('.spec-harness.json', '{ "outofscope": "warn" }\n');
     },
     said: 'spec-harness: .spec-harness.json: unknown key "outofscope"',
+    linked: 'brief/001-w',
   },
 ];
 
@@ -81,7 +87,7 @@ describe('a write outside every work tree of the repository', () => {
       await held(ask(repo, 'PreToolUse', { file_path: join(outside, 'notes.md'), path: join(repo.root, 'README.md') }), problem.said, 'both');
       // A linked worktree of the repository is a work tree of it, beside the project or inside it.
       const beside = join(temp(), 'w');
-      repo.git('worktree', 'add', '-q', '--detach', beside);
+      repo.git('worktree', 'add', '-q', '-b', problem.linked, beside);
       await held(ask(repo, 'PreToolUse', { file_path: join(beside, 'README.md') }), problem.said, 'a linked worktree beside it');
       await held(ask(repo, 'PreToolUse', { file_path: join(beside, 'new.md') }), problem.said, 'a new file in it');
       await held(ask(repo, 'PreToolUse', { file_path: join(outside, 'notes.md'), path: join(beside, 'README.md') }), problem.said, 'outside, and in the linked worktree');
@@ -95,7 +101,7 @@ describe('a write outside every work tree of the repository', () => {
     const relative = repository(FILES);
     unknown.make(relative);
     const linked = join(temp(), 'r');
-    relative.git('-c', 'worktree.useRelativePaths=true', 'worktree', 'add', '-q', '--detach', linked);
+    relative.git('-c', 'worktree.useRelativePaths=true', 'worktree', 'add', '-q', '-b', unknown.linked, linked);
     await held(ask(relative, 'PreToolUse', { file_path: join(linked, 'README.md') }), unknown.said, 'a worktree linked by a relative path');
     expect(await ask(relative, 'PreToolUse', { file_path: outside })).toEqual(PASSED);
     // An entry git keeps for a worktree that cannot be read: no work tree is known to leave the path outside.

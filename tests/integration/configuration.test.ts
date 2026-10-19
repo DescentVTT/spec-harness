@@ -212,6 +212,10 @@ describe('a configuration that does not load', () => {
     writeFileSync(theirs, text);
     expect(await ask(repo, { file_path: theirs }, 'PreToolUse', 'Edit', tree)).toEqual(mended(said, theirs));
     await held(ask(repo, { file_path: join(tree, 'src', 'db', 'schema.ts') }, 'PreToolUse', 'Edit', tree), `cannot check this write: ${said}`, "the worktree's protected file");
+    // From the project as well, where the work tree that holds a path decides it.
+    expect(await ask(repo, { file_path: theirs })).toEqual(mended(said, theirs));
+    await held(ask(repo, { file_path: join(tree, 'src', 'db', 'schema.ts') }), `cannot check this write: ${said}`, "the worktree's protected file, from the project");
+    await held(ask(repo, { file_path: theirs, notebook_path: join(repo.root, 'src', 'app', 'a.ts') }), `cannot check this write: ${said}`, "the worktree's file and the project's, in one call");
     // The project's own files are decided by the project's configuration, which loads.
     expect(JSON.parse((await ask(repo, { file_path: join(repo.root, 'src', 'db', 'schema.ts') }, 'PreToolUse', 'Edit', tree)).stdout)).toMatchObject({ hookSpecificOutput: { permissionDecision: 'deny' } });
   });

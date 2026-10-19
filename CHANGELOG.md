@@ -125,7 +125,8 @@ where the branch names a brief no round can work under
   `guard` refused such a path, exit 2. Such a write passes as one outside
   the repository does, with no word, and spec-brief is not asked about it;
   one inside any work tree of the repository, a linked worktree's among
-  them, is held as before, and so is a path with a `..` in it.
+  them, is decided as before, by the work tree that holds it, and a path
+  with a `..` in it is held as before.
   Upgrading: `guard` of a path outside the repository exits 0 under such
   a brief, where it exited 2.
 
