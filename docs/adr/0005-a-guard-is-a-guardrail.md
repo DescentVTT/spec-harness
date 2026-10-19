@@ -1835,6 +1835,174 @@ spec-brief where a brief is named. The hooks reference has an interactive
 session's SessionStart hooks run in the background, with Claude's first
 response waiting for them, once a session.
 
+*Amended 2026-10-19.* **A configuration that does not load lets a write
+to itself through, and to nothing else.** The amendment of 2026-10-08 has a
+configuration that does not load end the hook with exit 2, which holds the
+write before it, and the fourth amendment of 2026-10-18 has the hook say so
+as a session starts. *Claimed* by round 24's evaluation of a consumer's
+request: every write is then held, the one that mends the file among them,
+so a session cannot mend a typo in `.spec-harness.json` with Edit or Write.
+*Measured* through the launcher of 0.19.0 (3c4112c) and of this change,
+taking turns, on Windows 11 (Node 24.18.1, Git for Windows 2.55.0, no
+`claude` on `PATH`) and, for links and second names, in a container as an
+ordinary account (Linux, Node 24.21.0, git 2.47.3): a project on its brief's
+branch, the brief protecting `src/db/**` (and `lib/**` in the container),
+`.spec-harness.json` holding an unknown key, a text that is no JSON, or an
+`outOfScope` it refuses, and the hook handed an Edit, a Write or a
+NotebookEdit before the write unless the row says otherwise.
+
+| The write | 0.19.0 | Now |
+| --- | --- | --- |
+| `.spec-harness.json` by Edit, Write or NotebookEdit: absolute, relative to the question's `cwd`, or through `src/..` | exit 2, in the configuration's words | exit 0, no decision, and the line to the person and to Claude |
+| the same in upper case | exit 2 | on Windows, the same file: let through; on Linux, another: exit 2 |
+| `src/.spec-harness.json`, `.spec-harness.json.bak`, the protected file, a file in the scope, a file outside the repository | exit 2 | the same |
+| a link to the configuration, absolute or relative (Linux) | exit 2 | the same |
+| `deep/../.spec-harness.json`, `deep` a link to `lib/x`: the configuration as the path is written, `lib/.spec-harness.json` on the disk (Linux) | exit 2 | the same |
+| `a/up/../.spec-harness.json`, `up` a link to `src`: `a/.spec-harness.json` as written, the configuration on the disk (Linux) | exit 2 | the same |
+| `src-link/../.spec-harness.json`, `src-link` a link to `src`: the configuration both ways (Linux) | exit 2 | let through |
+| the configuration with a second name, by either name | exit 2 | the same |
+| the configuration a link to the protected file or to a file outside, or a second name of the protected file | exit 2 | the same |
+| `.spec-harness.json` a directory: it, or a file in it; a named pipe (Linux) | exit 2 | the same |
+| the project's configuration does not load: its file, from the project or from a linked worktree | exit 2 | let through |
+| the same: the worktree's own `.spec-harness.json`, from either | exit 2 | the same |
+| a linked worktree's configuration does not load: its file, from the worktree | exit 2, `cannot check this write: ...` | let through |
+| the same: the worktree's protected file | exit 2 | the same |
+| after a write to the configuration that leaves it as it was | exit 2, in its words, which reach Claude | the same |
+| after the write that mends it, and the write after that | decided under what it holds | the same |
+| as a session starts | `..., so every write of this session is held until it is mended; ...` | `..., but for a write to <the file> itself, which is not checked; ...` |
+
+So the claim holds, and of a linked worktree's own configuration as well.
+
+- **The file itself, and nothing else.** A write is let through where the
+  configuration that did not load is a file that stands under its name
+  alone, neither a link nor a file with a second name, since a write to a
+  file with two names writes both; and where every path of the call names
+  that file. A call that names it and another file is a write to both, and
+  is held. Every other write is held as before, in the same words.
+- **As the hook reads a path, and as the disk does.** The hook decides a
+  path by its real spelling (`realSpelling`, `src/fs.ts`), which reads a
+  `..` as written and then resolves links; the disk resolves a link before
+  the `..` that follows it, on Linux and macOS, where Windows reads the
+  path as written first (measured: Node's write of `deep\..\written.txt`,
+  `deep` a junction to `lib\x`, made `written.txt` at the top, and
+  `realpathSync.native` named it there). The two can name two files, and a
+  write is let through only where both name the configuration and the name
+  the path ends in is no link. So a path that only reads like the file, a
+  link to it, and a path whose `..` leads elsewhere on the disk are held,
+  and so is a file of another work tree. On a filesystem that ignores case
+  the file in another case is the file, as it is to every decision of the
+  hook's.
+- **Which configuration.** The one that did not load, of the work tree the
+  write is decided in: the project's, which the hook's root names, or a
+  linked worktree's where the question's `cwd` is in it and the path is one
+  it holds (the third amendment of 2026-10-18). A write to the project's
+  file from a worktree is the project's to decide, and is let through where
+  the project's does not load.
+- **What it is answered with.** No decision, exit 0: the hook never says
+  `allow`, and here says neither `deny` nor `ask`, so the person's own
+  permission prompt stands as for any write the guard passes. The line
+  `<the configuration's words>, so every other write is held until it
+  loads; this write, to <the file> itself, is not checked` goes to the
+  person as `systemMessage` and to Claude as `additionalContext`. Claude
+  Code's hooks reference (<https://code.claude.com/docs/en/hooks>, *JSON
+  output* and *PreToolUse decision control*, read 2026-10-19) has the first
+  a warning shown to the user and the second a string added to Claude's
+  context beside the tool's result, and a hook that exits 0 with no
+  `permissionDecision` leaves the call to the normal permission flow, in
+  the words of its example, "No decision: the normal permission flow
+  applies".
+- **What it lets through.** While the file does not load nothing of it is
+  read: no branch template names the brief, and no brief is asked about. So
+  a brief that protects `.spec-harness.json`, or an `outOfScope` of `ask`
+  or `deny` the file sets, does not hold this write as it would hold it
+  once the file loads. The decision was a session that can mend the file
+  it is held by; what that write changes is in the round's diff, which the
+  audit and spec-brief's archive measure, and the person's permission
+  prompt stands.
+- **After the write** the hook loads the file again: where it still does
+  not load, it says so with exit 2, which shows Claude its words; where it
+  loads, the write is decided as any other after it, and every write after
+  that is checked under what the file now holds.
+- **As a session starts** the line says the same, where a write to the
+  file would be let through.
+- **The hook answers nothing else differently.** The lines of the hook the
+  amendments above measured, before nine writes and after each and as a
+  session starts, and git's hook, were run through both builds, in a
+  project whose configuration loads and in two whose configuration does
+  not (`f25-hook-compare.mjs`); the runs that differ are the writes to the
+  configuration itself and the session's start, above.
+  `tests/integration/released-lines.test.ts` holds.
+
+**A write outside every work tree of the repository is not held by what
+holds the writes inside.** Added to this change after it was handed over,
+as the user chose. *Measured by the parent session from the source*:
+`decisionsFor` (`src/cli.ts`) returned the active brief's problem before
+any path was read, so a brief no round can work under held every write, a
+file outside the repository among them, where the hook passes one with no
+word. *Measured again* through both launchers (Windows 11, as above), the
+project on a branch whose brief is archived, or names one spec-brief does
+not list, or with a configuration that does not load:
+
+| The write, before it and after it | 0.19.0 | Now |
+| --- | --- | --- |
+| a file outside every work tree of the repository, there or not yet | exit 2, in the problem's words | exit 0, no word |
+| `guard` of it | exit 2, the same | `ok  <it> is outside the repository; no brief governs it`, exit 0 |
+| the protected file, `README.md`, a file of a linked worktree beside the project, and a call that names a file inside and one outside | exit 2 | the same |
+| `guard` of a path outside and one inside | exit 2 | the same |
+| nothing wrong: a file outside, a linked worktree's file | exit 0, no word | the same |
+
+So the claim holds, for each of the three.
+
+- **Decided as a write outside the repository is**, whichever brief is
+  named and whatever is wrong with it: no brief decides a file outside the
+  repository, so its problem has nothing of such a write to hold. The
+  paths are read before any brief is asked about (`outsideEvery`,
+  `src/fs.ts`, in `decisionsFor`), so spec-brief is not run for such a
+  write, and one that cannot list the briefs holds none either; and before
+  a configuration that does not load is said, in the hook's answer to one.
+  A call that names a path inside a work tree and one outside is a write
+  inside, and is held.
+- **Every work tree of the repository**, as the files git keeps name them,
+  with no process: the main work tree, whose `.git` the common directory
+  is, and each linked worktree, by `worktrees/<id>/gitdir` under the
+  common directory, which gitrepository-layout(5) (as Git for Windows
+  2.55.0 ships it, read 2026-10-19) has hold the path back to the
+  worktree's `.git`; measured, git 2.55 writes it relative to its own
+  directory under `worktree.useRelativePaths`, and it is read so. A path in
+  a linked worktree is inside a work tree of the repository, beside the
+  project or inside it, and the problem holds it.
+- **Where they cannot all be named, the write is held as before**: a
+  common directory of another name, as a git directory kept apart has, an
+  entry under `worktrees` that cannot be read, and, where the configuration
+  does not load, a `core.worktree`, `GIT_DIR` or `GIT_WORK_TREE`, under
+  which git may name another work tree than its files do. No path is then
+  known to be outside.
+
+What was measured for this and left as it was: a file of a linked
+worktree that neither the question's `cwd` nor the root is in, where
+nothing is wrong, is decided by the root's work tree as before, a file
+outside it that passes with no word (the third amendment of 2026-10-18 left
+it); here it is a work tree of the repository, and a problem holds it.
+
+A write that was held goes on: a minor release (spec-core's ADR-0009), as
+an exit code that changes is. What was measured for this and left as it
+was:
+
+- **A path with a `..` after a link, where the configuration loads.** The
+  hook decides such a path as it is written. Measured in the container,
+  with `deep` a link to `lib/x` and `lib/**` protected: an Edit of
+  `deep/../schema.ts` is decided as `schema.ts`, outside the scope, with no
+  word before it, and `realpath` names `lib/schema.ts`. Whether Claude
+  Code's tools write a path as they are given it or as written after `..`
+  is read is on none of its pages read, and no Claude Code was run, so
+  whether such a write reaches the protected file cannot be told here. It
+  is not of this change, which reads both for the one write it lets
+  through.
+- **The words of a write that is held** are as they were: they do not say
+  that a write to the file goes on.
+- **`doctor`** with a configuration that does not load ends as before, exit
+  2 in the configuration's words.
+
 ## Consequences
 
 An agent that writes through a shell passes the guard and is caught at the

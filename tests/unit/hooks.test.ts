@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { Decision, Verdict } from '../../src/guard.js';
-import { afterResponse, CALL_VARIABLES, callFile, callRecord, CALLABLE_TOOLS, claudeResponse, gitResponse, keptCall, parseClaudeHook, SESSION_START, sessionResponse, warningsKept, warningsOf, WRITING_TOOLS, type HookRequest } from '../../src/hooks.js';
+import { afterResponse, CALL_VARIABLES, callFile, callRecord, CALLABLE_TOOLS, claudeResponse, gitResponse, keptCall, mendResponse, parseClaudeHook, SESSION_START, sessionResponse, warningsKept, warningsOf, WRITING_TOOLS, type HookRequest } from '../../src/hooks.js';
 
 function hook(fields: Record<string, unknown>): string {
   return JSON.stringify({ session_id: 's', hook_event_name: 'PreToolUse', tool_name: 'Write', cwd: '/repo', ...fields });
@@ -182,6 +182,15 @@ describe('the hook as a session starts', () => {
     expect(said.exitCode).toBe(0);
     expect(said.stdout.endsWith('}\n')).toBe(true);
     expect(JSON.parse(said.stdout)).toEqual({ systemMessage: 'spec-harness: every write is held', hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: 'spec-harness: every write is held' } });
+  });
+});
+
+describe('the write a configuration that does not load lets through', () => {
+  it("decides nothing, so the person's own prompt stands, and says the line once for the person and once for Claude, exit 0", () => {
+    const said = mendResponse('the file does not load');
+    expect(said.exitCode).toBe(0);
+    expect(said.stdout.endsWith('}\n')).toBe(true);
+    expect(JSON.parse(said.stdout)).toStrictEqual({ systemMessage: 'spec-harness: the file does not load', hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: 'spec-harness: the file does not load' } });
   });
 });
 

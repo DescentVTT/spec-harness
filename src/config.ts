@@ -84,9 +84,17 @@ export const DEFAULT_CONFIG: HarnessConfig = {
 };
 
 export class ConfigError extends Error {
-  constructor(message: string) {
+  /**
+   * The configuration file that did not load, where one stands at its path:
+   * the one file a write may still reach while it does not (ADR-0005).
+   * `null` for a configuration that was not read from a file.
+   */
+  readonly file: string | null;
+
+  constructor(message: string, file: string | null = null) {
     super(message);
     this.name = 'ConfigError';
+    this.file = file;
   }
 }
 
