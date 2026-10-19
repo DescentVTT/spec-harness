@@ -136,7 +136,22 @@ export interface HookResponse {
   readonly exitCode: number;
 }
 
-const NONE: HookResponse = { stdout: '', exitCode: 0 };
+/**
+ * The answer before the one write a configuration that does not load lets
+ * through, a write to the configuration file itself: no decision, so that
+ * the person's own permission prompt stands as for any write the guard
+ * passes, and the line that says why every other write is held, for the
+ * person as `systemMessage` and for Claude as `additionalContext`, which
+ * Claude Code's hooks reference has a PreToolUse hook's answer carry
+ * (ADR-0005). Exit 0.
+ */
+export function mendResponse(said: string): HookResponse {
+  const line = `spec-harness: ${said}`;
+  return { stdout: `${JSON.stringify({ systemMessage: line, hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: line } })}\n`, exitCode: 0 };
+}
+
+/** The answer that says nothing and decides nothing: the write goes on as the person's own permissions have it. */
+export const NONE: HookResponse = { stdout: '', exitCode: 0 };
 
 /**
  * The answer where the hook checks nothing and says so, a question it cannot

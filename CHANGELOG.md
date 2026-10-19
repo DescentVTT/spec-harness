@@ -11,6 +11,13 @@ cannot turn a run red. The family's policy is
 
 ## Unreleased
 
+A configuration that does not load lets a write to itself through, so
+that a session can mend it; a write outside every work tree of the
+repository is held by no brief and no configuration; and `doctor` fails
+where the branch names a brief no round can work under
+([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md),
+[ADR-0004](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0004-the-active-brief-is-named-not-guessed.md)).
+
 ### Added
 
 - **A report at the end of a turn, where `.spec-harness.json` asks for
@@ -29,7 +36,6 @@ cannot turn a run red. The family's policy is
   hook exited 1, `the hook input names no event or tool`, and now exits 0;
   a configuration's unknown key is refused with `turnReport` among the keys
   it names.
-
 - **`init --block-on-failure` writes `"onFailure": "block"` on its hook
   entries before and after a write and as a session starts**, and on those
   an earlier run wrote, so that Claude Code 2.1.295 or later holds a write
@@ -59,7 +65,6 @@ cannot turn a run red. The family's policy is
   Upgrading: nothing to change. A spec-brief whose `list` names no
   `inputs`, 0.9.0 and every release before it, is started before every
   write as it was.
-
 - **A process the harness asks a question of is stopped after 20 seconds,
   and the hook holds the write there.** git had no limit and spec-brief
   ten minutes, where Claude Code cancels the hook at the 60 seconds its
@@ -74,7 +79,6 @@ cannot turn a run red. The family's policy is
   Upgrading: where git or spec-brief takes longer than 20 seconds to
   answer, which none measured does, writes are held and commands exit 2
   with the line: find what it waits on.
-
 - **A path is decided by the work tree that holds it.** A path in a work
   tree of the repository that was neither the one the project names nor
   the one the question's `cwd` is in was read from the project's top, as a
@@ -105,7 +109,6 @@ cannot turn a run red. The family's policy is
   Upgrading: a client that declares roots naming a worktree has its calls
   answered for that worktree; a script reading the tools' structured
   answers finds `workTree`.
-
 - **The hook says the guard is off with exit 0, where it exited 1.** A
   question it cannot read and a line of its own that turns the guard off
   (one it cannot read, a `--root` that is no directory) were one line on
@@ -117,6 +120,38 @@ cannot turn a run red. The family's policy is
   ([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
   Upgrading: a script that read the hook's exit 1 or its stderr reads the
   line as `systemMessage` on stdout, with exit 0.
+- **A write to `.spec-harness.json` itself goes on while it does not
+  load.** Every write was held, exit 2, the one that mends the file among
+  them, so a session could not mend a typo in it. Before a write to that
+  file and to nothing else, the hook now decides nothing, exit 0, so the
+  person's own permission prompt stands, and says why every other write is
+  held, to the person and to Claude. A file of that name elsewhere, a link
+  to it, a second name of it and the configuration of another work tree
+  are held as before, and so is a configuration that is a directory, a
+  named pipe, or a link to a file of the repository. As a session starts
+  the hook says the same.
+  Upgrading: a brief that protects `.spec-harness.json` does not hold that
+  write while the file does not load, since none of it is read; the audit
+  and spec-brief's archive still measure the change.
+- **`doctor` exits 1 where the branch names a brief spec-brief does not
+  know, or has archived.** The hook holds every write on such a branch,
+  and `doctor` said so on its `brief` line and exited 0. One the flag or
+  `SPEC_BRIEF` names still fails nothing.
+  Upgrading: a branch whose name only reads as a brief's, as
+  `fix/brief-list-order` names `list` under the default `branches`, fails
+  `doctor` as it holds every write: rename the branch, or set `branches` in
+  `.spec-harness.json`.
+- **A write outside every work tree of the repository is not held by what
+  holds the writes inside.** A brief that is archived, or that spec-brief
+  does not list, whichever names it, and a configuration that does not
+  load held every write, a file outside the repository among them, and
+  `guard` refused such a path, exit 2. Such a write passes as one outside
+  the repository does, with no word, and spec-brief is not asked about it;
+  one inside any work tree of the repository, a linked worktree's among
+  them, is decided as before, by the work tree that holds it, and a path
+  with a `..` in it is held as before.
+  Upgrading: `guard` of a path outside the repository exits 0 under such
+  a brief, where it exited 2.
 
 ### Fixed
 

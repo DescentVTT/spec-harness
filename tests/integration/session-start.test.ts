@@ -103,7 +103,10 @@ describe('the hook as a session starts', () => {
   it('says a configuration that does not load, and spec-brief missing or too old where a brief is named', async () => {
     const broken = project();
     broken.write('.spec-harness.json', '{ "outOfScope": "sideways" }\n');
-    expect(await start(broken)).toEqual(said(`.spec-harness.json: "outOfScope" must be "warn", "ask" or "deny", ${HELD}; spec-harness doctor says more`));
+    // But for a write to the file itself, which may mend it (ADR-0005, amended 2026-10-19).
+    expect(await start(broken)).toEqual(
+      said(`.spec-harness.json: "outOfScope" must be "warn", "ask" or "deny", ${HELD}, but for a write to ${join(broken.root, '.spec-harness.json')} itself, which is not checked; spec-harness doctor says more`),
+    );
     const missing = project('brief/001-rotate', false);
     expect(await start(missing)).toEqual(
       said(`spec-brief is not installed here: npm install --save-dev @descent-vtt/spec-brief, or name its command under "tools" in .spec-harness.json, ${HELD}; spec-harness doctor says more`),

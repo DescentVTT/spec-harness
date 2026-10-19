@@ -650,6 +650,27 @@ describe('doctor on a brief or a base that names nothing', () => {
     expect(briefLine(archived.stdout)).toBe('none: the environment names brief 003, which is archived; a closed round writes nothing');
   });
 
+  it('fails for a branch that names a brief no round can work under, which holds every write, and says it in the words the hook holds a write with', async () => {
+    // It said the brief and exited as it would have, where the hook held every write (ADR-0004).
+    const named = repository({ [BRIEF_FILE]: brief(), 'briefs/archive/003_old.md': brief({ title: '003 - Old', status: 'archived' }) });
+    for (const [branch, line] of [
+      ['brief/999-nowhere', 'the branch names brief 999, and spec-brief knows no such brief'],
+      ['brief/003-old', 'the branch names brief 003, which is archived; a closed round writes nothing'],
+      ['fix/brief-list-order', 'the branch names brief list, and spec-brief knows no such brief'],
+    ] as const) {
+      named.git('checkout', '-q', '-B', branch, 'main');
+      const result = await cli(['doctor'], named.root);
+      expect(result.code, branch).toBe(1);
+      expect(briefLine(result.stdout), branch).toBe(`none: ${line}`);
+      const write = JSON.stringify({ cwd: named.root, hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: join(named.root, 'src', 'a.ts') } });
+      expect(await cli(['hook', 'claude'], named.root, { stdin: write, env: { CLAUDE_PROJECT_DIR: named.root } }), branch).toEqual({ code: 2, stdout: '', stderr: `spec-harness: ${line}. Fix the brief or the branch before writing.\n` });
+      // The flag is the question doctor was asked, and names the brief in the branch's place.
+      expect((await cli(['doctor', '--brief', '1'], named.root)).code, branch).toBe(0);
+    }
+    named.git('checkout', '-q', '-B', 'brief/001-rotate', 'main');
+    expect(await cli(['doctor'], named.root)).toMatchObject({ code: 0, stderr: '' });
+  });
+
   it('says nothing of a brief that is one, by the id it was named with', async () => {
     const known = await cli(['doctor', '--brief', '1', '--format', 'json'], repo.root);
     expect(parsed(known)).toMatchObject({ brief: '1', briefProblem: null });
@@ -659,13 +680,19 @@ describe('doctor on a brief or a base that names nothing', () => {
     const directory = temp();
     write(directory, 'sibling.js', "process.stderr.write('no briefs directory'); process.exit(2);");
     const failing = repository({}, { tools: { 'spec-brief': ['node', join(directory, 'sibling.js')] } });
-    expect(briefLine((await cli(['doctor', '--brief', '1'], failing.root)).stdout)).toBe(
+    const asked = await cli(['doctor', '--brief', '1'], failing.root);
+    expect(briefLine(asked.stdout)).toBe(
       'none: spec-brief could not say whether it knows brief 1: spec-brief could not list the briefs: no briefs directory',
     );
+    // The flag holds no write of anyone's, so it fails nothing.
+    expect(asked.code).toBe(0);
     const bare = repository({}, null);
     const absent = await cli(['doctor', '--brief', '7'], bare.root);
     expect(briefLine(absent.stdout)).toBe('7');
     expect(absent.stdout).toContain('absent    spec-brief  spec-brief is not installed here');
+    // With another sibling there, and nothing named, nothing is held, and nothing fails.
+    const guarded = repository({}, { tools: { 'spec-guard': siblings()['spec-guard'] } });
+    expect(await cli(['doctor'], guarded.root)).toMatchObject({ code: 0, stderr: '' });
   });
 });
 

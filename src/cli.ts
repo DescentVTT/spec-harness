@@ -23,11 +23,11 @@ import { CONFIG_FILE, ConfigError, SIBLINGS, SPEC_BRIEF_CONFIGS } from './config
 import type { ClaudeCodeWiring } from './configure.js';
 import { dirname, resolve } from 'node:path';
 
-import { gitDirectories, isDirectory, keepCall, loadConfig, StateError, takeCall } from './fs.js';
+import { gitDirectories, isDirectory, keepCall, loadConfig, outsideEvery, StateError, takeCall, writesOnly } from './fs.js';
 import { changedPaths, GitError, show, stagedChanges } from './git.js';
 import type { DocumentReader } from './document.js';
 import type { Decision } from './guard.js';
-import { afterResponse, callFile, callRecord, claudeResponse, gitResponse, keptCall, parseClaudeHook, SESSION_START, sessionOf, sessionResponse, TURN_END, turnResponse, warningResponse, warningsKept, warningsOf, type CallRecord, type HookRequest, type HookResponse } from './hooks.js';
+import { afterResponse, callFile, callRecord, claudeResponse, gitResponse, keptCall, mendResponse, NONE, parseClaudeHook, SESSION_START, sessionOf, sessionResponse, TURN_END, turnResponse, warningResponse, warningsKept, warningsOf, type CallRecord, type HookRequest, type HookResponse } from './hooks.js';
 import type { Base } from './round.js';
 import type { BriefRow } from './types.js';
 import { SiblingError } from './siblings.js';
@@ -96,10 +96,12 @@ Commands:
                       named, how Claude Code runs the guard, and git's hook. Exit 1
                       when a sibling is older than this release needs, the guard is
                       installed twice, its hook's line turns it off or holds every
-                      write, disableAllHooks or an array for a matcher switches it
-                      off, the plugin that is turned on is not on this machine and
-                      nothing else guards, Claude Code is too old to run its hooks,
-                      or git stops every commit at what stands for its hook.
+                      write, the branch names a brief spec-brief does not list or
+                      has archived, disableAllHooks or an array for a matcher
+                      switches it off, the plugin that is turned on is not on this
+                      machine and nothing else guards, Claude Code is too old to
+                      run its hooks, or git stops every commit at what stands for
+                      its hook.
 
 Options:
   --brief <id>        The brief the round works on. Otherwise SPEC_BRIEF, then the branch.
@@ -154,8 +156,14 @@ async function decisionsFor(
   cwd: string,
   session: string | null = null,
 ): Promise<{ readonly decisions: Decision[]; readonly brief: BriefRow | null } | { readonly problem: string }> {
-  const active = await activeBrief(keptFor(workspace, session), options, io.env);
-  const { brief, note, problem } = describeActive(active);
+  // A path outside every work tree of the repository is decided as one
+  // outside it, whichever brief is named and whatever is wrong with the
+  // name: the problem held every write, a file outside the repository
+  // among them, where no brief decides one (ADR-0005). So no brief is asked
+  // about for such a write, and spec-brief is not run for it.
+  const outside = outsideEvery(given, workspace.root, workspace.commonDir, cwd);
+  const active = outside ? null : await activeBrief(keptFor(workspace, session), options, io.env);
+  const { brief, note, problem } = active === null ? { brief: null, note: undefined, problem: null } : describeActive(active);
   if (problem !== null) return { problem };
   const { checkPaths } = await import('./round.js');
   return { decisions: await checkPaths(workspace, brief, note, given, cwd, reader, options.base), brief };
@@ -253,6 +261,32 @@ function answer(io: CliIO, response: { readonly stdout: string; readonly exitCod
 }
 
 /**
+ * The answer to a write a configuration that does not load holds no more,
+ * or `null` for every other write, which is held as before (ADR-0005). Every
+ * write was held. A write outside every work tree of the repository is
+ * decided as such a write is, after the write as before it: nothing of the
+ * repository's decides it. And before a write to the configuration file
+ * itself, and to nothing else, the line says why every other write is held,
+ * so that a session can mend a typo in it. `cwd` is what a relative path
+ * is read from.
+ */
+function mending(error: unknown, request: HookRequest, cwd: string, env: CliIO['env']): HookResponse | null {
+  // Every configuration the hook loads is read from a file, so `file` is
+  // never `null` here, and the test of it is the compiler's: its mutant is
+  // equivalent.
+  if (!(error instanceof ConfigError) || error.file === null) return null;
+  // The work trees are named by the files git keeps, where git would name
+  // the same ones; a repository whose configuration or environment moves a
+  // work tree elsewhere is not known to leave the path outside. The file
+  // was loaded from the top git named, where a `.git` stands, so the files
+  // name a work tree, and the test of `null` is the compiler's.
+  const found = gitDirectories(dirname(error.file), env);
+  if (found !== null && found.exact && outsideEvery(request.paths, found.top, found.common, cwd)) return NONE;
+  if (request.event !== 'PreToolUse' || !writesOnly(request.paths, error.file, cwd)) return null;
+  return mendResponse(`${error.message}, so every other write is held until it loads; this write, to ${error.file} itself, is not checked`);
+}
+
+/**
  * What would hold every write of the session that starts, said once as it
  * starts and no write waits on it (ADR-0005): a configuration that does not
  * load, a brief named that spec-brief does not list or has archived, and
@@ -278,7 +312,12 @@ async function sessionProblem(options: Options, io: CliIO, root: string, cwd: st
     // not load, a spec-brief that is missing, too old or cannot list the
     // briefs, and whatever a defect throws.
     if (error instanceof UsageError) return null;
-    return `${(error as Error).message}, ${held}; spec-harness doctor says more`;
+    // But a write to the configuration file itself, which mends it, where
+    // the file is one a write may reach under its name alone (ADR-0005). The
+    // configuration is read from a file here as before a write, so the test
+    // of `file` is the compiler's, and its mutant is equivalent.
+    const mendable = error instanceof ConfigError && error.file !== null && writesOnly([error.file], error.file, root);
+    return `${(error as Error).message}, ${held}${mendable ? `, but for a write to ${error.file} itself, which is not checked` : ''}; spec-harness doctor says more`;
   }
 }
 
@@ -404,6 +443,8 @@ async function hookCommand(options: Options, io: CliIO): Promise<number> {
       workspace = await openWorkspace({ ...options, root }, io);
     } catch (error) {
       if (error instanceof UsageError) return EXIT_OK;
+      const mended = mending(error, request, cwd, io.env);
+      if (mended !== null) return answer(io, mended);
       // git asked where the work tree is and did not answer within its time
       // limit: before a write that is a write the hook could not check, said
       // as one (ADR-0002).
@@ -442,6 +483,11 @@ async function hookCommand(options: Options, io: CliIO): Promise<number> {
       return response.exitCode;
     } catch (error) {
       if (request.event !== 'PreToolUse') throw error;
+      // The configuration of another work tree the write is decided in,
+      // which does not load, lets a write to itself through as the
+      // project's does.
+      const mended = mending(error, request, cwd, io.env);
+      if (mended !== null) return answer(io, mended);
       // A round is named and its briefs cannot be read: the guard cannot
       // tell a protected file from any other, so the write waits.
       return cannotCheck(io, error);
@@ -637,14 +683,16 @@ async function doctorCommand(options: Options, io: CliIO): Promise<number> {
   // a choice; with none installed, the harness can check nothing. A double
   // install is a problem too, where no Claude Code wiring at all is a choice,
   // and so are a hook whose own line turns the guard off or holds every
-  // write, guard hooks that disableAllHooks switches off, a plugin that is
-  // turned on and is not on this machine where no hook of init's stands in
-  // for it, a Claude Code too old to run the hooks, and something at the
-  // path of git's pre-commit hook that git cannot run and stops every
-  // commit at. A release that cannot be told is not fine either, nor a
-  // line whose reading cannot be, nor a plugin that cannot be told to be on
-  // this machine, nor a hook git runs that cannot be read, which stops every
-  // commit as a script and runs as a program: --strict fails the four.
+  // write, a branch that names a brief no round can work under, which holds
+  // every write as well (ADR-0004), guard hooks that disableAllHooks
+  // switches off, a plugin that is turned on and is not on this machine
+  // where no hook of init's stands in for it, a Claude Code too old to run
+  // the hooks, and something at the path of git's pre-commit hook that git
+  // cannot run and stops every commit at. A release that cannot be told is
+  // not fine either, nor a line whose reading cannot be, nor a plugin that
+  // cannot be told to be on this machine, nor a hook git runs that cannot be
+  // read, which stops every commit as a script and runs as a program:
+  // --strict fails the four.
   const outdated = rows.some((row) => row.state === 'outdated');
   const usable = rows.some((row) => row.state === 'found');
   const off = wiring.lines.some((line) => line.state === 'off' || line.state === 'held');
@@ -655,7 +703,7 @@ async function doctorCommand(options: Options, io: CliIO): Promise<number> {
   // compiler's, and its mutant is equivalent.
   const untold =
     options.strict && (release?.state === 'unknown' || wiring.lines.some((line) => line.state === 'unknown') || wiring.presence?.state === 'unknown' || (hook.state === 'unreadable' && hook.runs));
-  return outdated || !usable || claude === 'both' || off || switchedOff || missing || tooOld || stopped || untold ? EXIT_FAILED : EXIT_OK;
+  return outdated || !usable || claude === 'both' || off || named.branch || switchedOff || missing || tooOld || stopped || untold ? EXIT_FAILED : EXIT_OK;
 }
 
 /* ---------------------------------------------------------------- dispatch */
