@@ -17,8 +17,10 @@ import { execFile } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { parseBriefList, SiblingOutputError } from './briefs.js';
+import { inputsOf, parseBriefList, SiblingOutputError } from './briefs.js';
 import type { HarnessConfig, SiblingName } from './config.js';
+import { hasher, isFile, keepAnswer, keptAnswer, readsAsListed, type Hash } from './fs.js';
+import { ANSWER_MS, stoppedAtLimit, WORK_MS } from './git.js';
 import type { BriefRow } from './types.js';
 import { checkVersion } from './versions.js';
 
@@ -71,6 +73,9 @@ export function locate(name: SiblingName, root: string, config: HarnessConfig, i
 
 /** The `version` a package.json declares, or `undefined` when there is no such file or it is not JSON. */
 export function declaredVersion(file: string): unknown {
+  // Only a file is read: a named pipe under the name was read without end,
+  // and before any sibling ran (ADR-0002).
+  if (!isFile(file)) return undefined;
   // A manifest that holds null throws on the read, and any other value that
   // is not an object has no version, so the catch answers for both. Falling
   // out of it answers undefined as well, and a Buffer parses as its text:
@@ -91,11 +96,15 @@ export function declaredVersion(file: string): unknown {
  * `["node", "path/to/bin.js"]` works on every host; a Windows `.cmd` shim such
  * as `npx` cannot be started without a shell, and the error says to name the
  * script instead.
+ *
+ * A sibling that does not answer within `limit` is stopped, and rejected as
+ * a `SiblingError` that names it: what it was asked waits on it, the hook
+ * before a write among them, which then holds the write (ADR-0002).
  */
-export function runSibling(command: readonly string[], args: readonly string[], root: string, timeoutMs = 600_000): Promise<SiblingRun> {
+export function runSibling(name: string, command: readonly string[], args: readonly string[], root: string, limit = WORK_MS): Promise<SiblingRun> {
   const [first, ...rest] = command;
   const program = first === 'node' ? process.execPath : (first as string);
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     execFile(
       program,
       [...rest, ...args],
@@ -106,11 +115,15 @@ export function runSibling(command: readonly string[], args: readonly string[], 
         // Keeps a console window from opening on Windows; the sweep runs on
         // Linux, where the mutant is equivalent.
         windowsHide: true,
-        timeout: timeoutMs,
+        timeout: limit,
         shell: false,
         env: { ...process.env, NO_COLOR: '1', FORCE_COLOR: '0' },
       },
       (error, stdout, stderr) => {
+        if (stoppedAtLimit(error)) {
+          reject(new SiblingError(`${name} did not answer within ${limit / 1000} seconds, and was stopped`));
+          return;
+        }
         const failure = error as (Error & { code?: unknown }) | null;
         if (failure !== null && failure.code === 'ENOENT') {
           resolve({
@@ -125,6 +138,43 @@ export function runSibling(command: readonly string[], args: readonly string[], 
       },
     );
   });
+}
+
+/**
+ * Where and under what a session's answer of spec-brief's is kept, or
+ * `null` where none is. A command `tools` names is started every time:
+ * which version it runs cannot be told without starting it.
+ */
+async function keeperOf(kept: Kept, root: string, sibling: Extract<Sibling, { kind: 'found' }>): Promise<{ readonly commonDir: string; readonly key: string; readonly name: string; readonly version: string; readonly hash: Hash } | null> {
+  // A command with no version is kept nothing by the test of the version an
+  // answer names, too: the mutant without this one reads, for every write, a
+  // kept answer there is none of, and is equivalent.
+  if (sibling.version === null) return null;
+  const hash = await hasher();
+  const key = answerKey(root, kept.session, sibling.command, sibling.version);
+  return { commonDir: kept.commonDir, key, name: `${hash(key)}.json`, version: sibling.version, hash };
+}
+
+/**
+ * The briefs a kept answer gives, or `null` where it is not to be given:
+ * nothing kept, or what was kept is not a list document that names what it
+ * was read from in the version installed, or anything it names reads
+ * otherwise.
+ */
+async function givenAgain(stdout: string | null, version: string, root: string, hash: Hash): Promise<BriefRow[] | null> {
+  // JSON.parse reads null as null, which names no inputs, and a null read
+  // past the test of none below throws, which answers null: the two tests
+  // are the compiler's, and their mutants equivalent.
+  if (stdout === null) return null;
+  try {
+    const document: unknown = JSON.parse(stdout);
+    const inputs = inputsOf(document);
+    if (inputs === null || inputs.tool !== version || !(await readsAsListed(root, inputs, hash))) return null;
+    return parseBriefList(document);
+  } catch {
+    // What another program wrote there is no answer of spec-brief's.
+    return null;
+  }
 }
 
 export class SiblingError extends Error {
@@ -146,29 +196,80 @@ function parseJson(name: string, run: SiblingRun): unknown {
 export interface Siblings {
   readonly root: string;
   locate(name: SiblingName): Sibling;
-  /** Every brief, live and archived. Exit 2 from spec-brief is an error here too. */
-  briefs(): Promise<BriefRow[]>;
+  /**
+   * Every brief, live and archived. Exit 2 from spec-brief is an error here
+   * too, and so is a spec-brief that does not answer within `limit`, the
+   * time a question is given unless a caller gives another.
+   */
+  briefs(limit?: number): Promise<BriefRow[]>;
+  /**
+   * The same siblings, with spec-brief's list of the briefs kept for a
+   * session under the common directory and given again to that session's
+   * runs where every input it lists reads as listed (ADR-0002).
+   */
+  keeping(commonDir: string, session: string): Siblings;
   /** A sibling's JSON output for a command line, with its exit code and what it said on stderr; `absent` says why it cannot be run, missing or outdated. */
   json(name: SiblingName, args: readonly string[]): Promise<{ readonly code: number; readonly document: unknown; readonly stderr: string } | { readonly absent: string }>;
 }
 
+/** The command line spec-brief is asked for the briefs with. */
+const LIST: readonly string[] = ['list', '--archived', '--format', 'json', '--no-color'];
+
+/**
+ * The variables beyond git's own that an answer of spec-brief's can turn on
+ * and its list does not name: which git and which Node run, where git finds
+ * the person's configuration and ignore files, and how Node runs a script.
+ * Every variable whose name begins `GIT_` is read with them.
+ */
+const ANSWER_VARIABLES: readonly string[] = ['PATH', 'HOME', 'USERPROFILE', 'HOMEDRIVE', 'HOMEPATH', 'XDG_CONFIG_HOME', 'NODE_OPTIONS', 'NODE_PATH'];
+
+/**
+ * What a kept answer is the answer to: the work tree, the session, the
+ * spec-brief that answered, by its command, its version and the Node it ran
+ * on, the command line, and the variables above, as spec-brief is started
+ * with them (runSibling). An answer is given again only for the same.
+ */
+export function answerKey(root: string, session: string, command: readonly string[], version: string, env: Readonly<Record<string, string | undefined>> = process.env): string {
+  const variables = Object.keys(env)
+    .filter((name) => /^GIT_/i.test(name) || ANSWER_VARIABLES.includes(name.toUpperCase()))
+    // One case for each name, whichever: the mutant that folds to the other is equivalent.
+    .map((name) => [name.toUpperCase(), env[name]])
+    .sort();
+  return JSON.stringify({ root, session, command, version, node: process.version, args: LIST, variables });
+}
+
 /** The siblings of the work tree at `root`, looked for in its install and then in each of `installs` (locate). */
 export function createSiblings(root: string, config: HarnessConfig, installs: readonly string[] = []): Siblings {
-  const found = (name: SiblingName): readonly string[] => {
-    const sibling = locate(name, root, config, installs);
-    if (sibling.kind !== 'found') throw new SiblingError(sibling.reason);
-    return sibling.command;
-  };
+  return siblingsOf(root, config, installs, null);
+}
+
+/** Where a session's answers are kept, and which session's they are. */
+interface Kept {
+  readonly commonDir: string;
+  readonly session: string;
+}
+
+function siblingsOf(root: string, config: HarnessConfig, installs: readonly string[], kept: Kept | null): Siblings {
   return {
     root,
     locate: (name) => locate(name, root, config, installs),
-    async briefs() {
-      const run = await runSibling(found('spec-brief'), ['list', '--archived', '--format', 'json', '--no-color'], root);
+    async briefs(limit = ANSWER_MS) {
+      const sibling = locate('spec-brief', root, config, installs);
+      if (sibling.kind !== 'found') throw new SiblingError(sibling.reason);
+      const keeper = kept === null ? null : await keeperOf(kept, root, sibling);
+      if (keeper !== null) {
+        const again = await givenAgain(await keptAnswer(keeper.commonDir, keeper.name, keeper.key), keeper.version, root, keeper.hash);
+        if (again !== null) return again;
+      }
+      const run = await runSibling('spec-brief', sibling.command, LIST, root, limit);
       if (run.code === 2) {
         throw new SiblingError(`spec-brief could not list the briefs: ${run.stderr.trim().split('\n')[0] || 'exit 2'}`);
       }
+      let document: unknown;
+      let rows: BriefRow[];
       try {
-        return parseBriefList(parseJson('spec-brief', run));
+        document = parseJson('spec-brief', run);
+        rows = parseBriefList(document);
       } catch (error) {
         // parseJson throws a SiblingError, which this would copy, and
         // parseBriefList nothing but its own: the check is equivalent to its
@@ -176,11 +277,18 @@ export function createSiblings(root: string, config: HarnessConfig, installs: re
         if (error instanceof SiblingOutputError) throw new SiblingError(error.message);
         throw error;
       }
+      // Kept only where spec-brief said all was well and named what it read,
+      // in the version that answered: any other answer is read once.
+      if (keeper !== null && run.code === 0 && inputsOf(document)?.tool === keeper.version) {
+        await keepAnswer(keeper.commonDir, keeper.name, keeper.key, run.stdout);
+      }
+      return rows;
     },
+    keeping: (commonDir, session) => siblingsOf(root, config, installs, { commonDir, session }),
     async json(name, args) {
       const sibling = locate(name, root, config, installs);
       if (sibling.kind !== 'found') return { absent: sibling.reason };
-      const run = await runSibling(sibling.command, args, root);
+      const run = await runSibling(name, sibling.command, args, root);
       return { code: run.code, document: parseJson(name, run), stderr: run.stderr };
     },
   };
