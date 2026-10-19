@@ -238,6 +238,17 @@ export interface CallRecord {
 const ID = /^[\w-]{1,256}$/;
 
 /**
+ * The session a question is in, which spec-brief's answers are kept for,
+ * or `null` where it names none in the form Claude Code's ids have: such a
+ * question has every answer asked for afresh (ADR-0002).
+ */
+export function sessionOf(request: HookRequest): string | null {
+  // The pattern reads null as "null", and what is answered is the session,
+  // null: the test of null is the compiler's, and its mutant equivalent.
+  return request.session !== null && ID.test(request.session) ? request.session : null;
+}
+
+/**
  * The call a question is about, or `null` where it does not say which
  * session and call it is, or says it in a form no file is named by.
  */
