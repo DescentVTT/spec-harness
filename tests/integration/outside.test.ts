@@ -94,6 +94,31 @@ describe('a write outside every work tree of the repository', () => {
     });
   }
 
+  it('passes a file outside whichever work tree the rest of the call is decided by', async () => {
+    const [archived, unknown, broken] = PROBLEMS as [Problem, Problem, Problem];
+    for (const problem of [archived, unknown]) {
+      const repo = repository(FILES);
+      problem.make(repo);
+      const outside = join(temp(), 'notes.md');
+      // A linked worktree on no branch names no brief, and decides its own files: with a file outside, the call passes.
+      const free = join(temp(), 'free');
+      repo.git('worktree', 'add', '-q', '--detach', free);
+      for (const event of ['PreToolUse', 'PostToolUse']) {
+        expect(await ask(repo, event, { file_path: join(free, 'README.md') }), `${problem.name}: ${event} the free worktree's file`).toEqual(PASSED);
+        expect(await ask(repo, event, { file_path: outside, path: join(free, 'README.md') }), `${problem.name}: ${event} outside and the free worktree's file`).toEqual(PASSED);
+      }
+      // With a file of the project's beside them, the project's problem holds the call.
+      await held(ask(repo, 'PreToolUse', { file_path: outside, path: join(free, 'README.md'), notebook_path: join(repo.root, 'README.md') }), problem.said, `${problem.name}: and the project's file`);
+    }
+    // A configuration of the project's that does not load is read before any path is: a call with a file another work tree decides is held.
+    const repo = repository(FILES);
+    broken.make(repo);
+    const free = join(temp(), 'free');
+    repo.git('worktree', 'add', '-q', '--detach', free);
+    expect(await ask(repo, 'PreToolUse', { file_path: join(temp(), 'notes.md') })).toEqual(PASSED);
+    await held(ask(repo, 'PreToolUse', { file_path: join(temp(), 'notes.md'), path: join(free, 'README.md') }), broken.said, 'outside and the free worktree, the configuration not loading');
+  });
+
   it('is told by the files git keeps for the work trees, and held where they cannot all be named', async () => {
     const [, unknown, broken] = PROBLEMS as [Problem, Problem, Problem];
     const outside = join(temp(), 'notes.md');
