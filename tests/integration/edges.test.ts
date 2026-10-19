@@ -1,13 +1,34 @@
+import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
 import { afterAll, describe, expect, it } from 'vitest';
 
 import { ConfigError, DEFAULT_CONFIG } from '../../src/config.js';
-import { CALL_LIFE_MS, gitDirectories, holdsGit, isTop, keepCall, loadConfig, mainWorkTree, readJsonObject, readText, realSpelling, repositoryPath, stateDirectory, takeCall, writeAtomic } from '../../src/fs.js';
-import { addWorktree, blameLine, changes, commonDirectory, currentBranch, GitError, localBranches, mergeBase, remoteDefault, revision, show, stagedChanges, workTree, workTreeRoot } from '../../src/git.js';
+import { CALL_LIFE_MS, gitDirectories, holdsGit, isFile, isTop, keepCall, loadConfig, mainWorkTree, readJsonObject, readText, realSpelling, repositoryPath, stateDirectory, takeCall, writeAtomic } from '../../src/fs.js';
+import {
+  addWorktree,
+  ANSWER_MS,
+  blameLine,
+  changes,
+  commonDirectory,
+  currentBranch,
+  git as runGit,
+  GitError,
+  localBranches,
+  mergeBase,
+  remoteDefault,
+  revision,
+  show,
+  stagedChanges,
+  stoppedAtLimit,
+  WORK_MS,
+  workTree,
+  workTreeRoot,
+} from '../../src/git.js';
+import { pluginFile } from '../../src/round.js';
 import { runCommand, withWorktree } from '../../src/sandbox.js';
-import { createSiblings, locate, runSibling, SiblingError } from '../../src/siblings.js';
+import { createSiblings, declaredVersion, locate, runSibling, SiblingError } from '../../src/siblings.js';
 import { MAIN_INSTALL } from '../../src/workspace.js';
 import { brief, BRIEF_FILE, cleanup, cli, git, ignoresCase, install, installFake, parsed, repository, ROOT, temp } from './helpers.js';
 
@@ -375,6 +396,104 @@ describe('git', () => {
   });
 });
 
+describe('a process the harness starts, at its time limit (ADR-0002)', () => {
+  it('stops git at its limit and rejects the question, by the command it ran, where it answered as a failure', async () => {
+    const repo = repository({});
+    // git reads its input until the input ends, which the harness never closes.
+    const waiting = runGit(['-c', 'core.quotepath=false', 'hash-object', '--stdin'], repo.root, 300);
+    await expect(waiting).rejects.toBeInstanceOf(GitError);
+    await expect(waiting).rejects.toThrow(/^git hash-object did not answer within 0\.3 seconds, and was stopped$/);
+    // One that answers in time answers as before.
+    expect((await runGit(['rev-parse', '--is-inside-work-tree'], repo.root, 60_000)).stdout.trim()).toBe('true');
+  });
+
+  it('tells a process the harness stopped at its limit from one that failed, and from one stopped for its output', () => {
+    expect(stoppedAtLimit({ killed: true, code: null, signal: 'SIGTERM' })).toBe(true);
+    expect(stoppedAtLimit({ killed: true, code: 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' })).toBe(false);
+    expect(stoppedAtLimit({ killed: false, code: 1 })).toBe(false);
+    expect(stoppedAtLimit({ code: 'ENOENT' })).toBe(false);
+    expect(stoppedAtLimit(null)).toBe(false);
+  });
+});
+
+describe('a file read where a file is expected, and what stands there instead (ADR-0002)', () => {
+  const fifo = (path: string): void => {
+    mkdirSync(join(path, '..'), { recursive: true });
+    execFileSync('mkfifo', [path]);
+  };
+
+  it('is a regular file, links followed, and nothing else', async () => {
+    const root = temp();
+    writeFileSync(join(root, 'a.txt'), 'a');
+    mkdirSync(join(root, 'dir'));
+    expect([isFile(join(root, 'a.txt')), isFile(join(root, 'dir')), isFile(join(root, 'none'))]).toEqual([true, false, false]);
+    expect(await readText(join(root, 'dir'))).toBeNull();
+  });
+
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)('reads a file it may not open as one that is not there', async () => {
+    // A regular file the reader is refused: what reaches each reader's catch, now that no directory does.
+    const lock = (path: string): void => {
+      execFileSync('chmod', ['000', path]);
+    };
+    const root = temp();
+    writeFileSync(join(root, 'locked.txt'), 'a');
+    lock(join(root, 'locked.txt'));
+    expect(await readText(join(root, 'locked.txt'))).toBeNull();
+    const repo = repository({});
+    mkdirSync(join(repo.root, '.git', 'spec-harness', 'calls'), { recursive: true });
+    writeFileSync(join(repo.root, '.git', 'spec-harness', 'calls', 's.c.json'), '{}');
+    lock(join(repo.root, '.git', 'spec-harness', 'calls', 's.c.json'));
+    expect(await takeCall(join(repo.root, '.git'), 's.c.json')).toBeNull();
+    // A worktree's common directory that cannot be read is its own git directory, as one that is not there.
+    const linked = repository({});
+    const worktree = join(temp(), 'w');
+    linked.git('worktree', 'add', '-q', '--detach', worktree);
+    lock(join(linked.root, '.git', 'worktrees', 'w', 'commondir'));
+    expect(gitDirectories(worktree, {})?.common).toBe(join(realSpelling(linked.root), '.git', 'worktrees', 'w'));
+  });
+
+  it.skipIf(process.platform === 'win32')('reads no named pipe: each reader answers as for a file that is not there, and comes back', async () => {
+    const root = temp();
+    fifo(join(root, 'pipe'));
+    expect(isFile(join(root, 'pipe'))).toBe(false);
+    expect(await readText(join(root, 'pipe'))).toBeNull();
+    expect(declaredVersion(join(root, 'pipe'))).toBeUndefined();
+    // What a run before a write kept, where something else stands under the call's name.
+    const repo = repository({});
+    fifo(join(repo.root, '.git', 'spec-harness', 'calls', 's.c.json'));
+    expect(await takeCall(join(repo.root, '.git'), 's.c.json')).toBeNull();
+    // The files git keeps that the hook reads with no process: its configuration, and a worktree's common directory.
+    const other = repository({});
+    rmSync(join(other.root, '.git', 'config'));
+    fifo(join(other.root, '.git', 'config'));
+    expect(gitDirectories(other.root, {})).toEqual({ top: realSpelling(other.root), git: join(realSpelling(other.root), '.git'), common: join(realSpelling(other.root), '.git'), exact: true });
+    const linked = repository({});
+    const worktree = join(temp(), 'w');
+    linked.git('worktree', 'add', '-q', '--detach', worktree);
+    const record = join(linked.root, '.git', 'worktrees', 'w');
+    rmSync(join(record, 'commondir'));
+    fifo(join(record, 'commondir'));
+    expect(gitDirectories(worktree, {})?.common).toBe(join(realSpelling(linked.root), '.git', 'worktrees', 'w'));
+    // This package's manifest in the project's install: no installed copy to compare.
+    const project = temp();
+    fifo(join(project, 'node_modules', '@descent-vtt', 'spec-harness', 'package.json'));
+    expect(pluginFile(project)(join(project, 'x.js'))).toBe(false);
+  });
+
+  it.skipIf(process.platform === 'win32')('has a command come back from a named pipe where a request or a cited document stands', async () => {
+    const repo = repository({ [BRIEF_FILE]: brief({ affected: ['src/**'], body: '## Context\n\nSee [the design](../docs/design.md).\n' }), 'docs/design.md': '# Design\n' });
+    // A request that is no file is passed over, as one that cannot be read is.
+    fifo(join(repo.root, '.git', 'spec-harness', 'escalations', 'E-001-1.json'));
+    expect(await cli(['escalate', '--list'], repo.root)).toMatchObject({ code: 0, stderr: '' });
+    // A document a brief cites that is no file is cited and not found, as one that is not there.
+    rmSync(join(repo.root, 'docs', 'design.md'));
+    fifo(join(repo.root, 'docs', 'design.md'));
+    const context = await cli(['context', '001'], repo.root);
+    expect({ code: context.code, stderr: context.stderr }).toEqual({ code: 0, stderr: '' });
+    expect(context.stdout).toContain('- `docs/design.md`');
+  });
+});
+
 describe('the sandbox', () => {
   it('runs a command line through the shell, output and errors together', async () => {
     const root = temp();
@@ -495,7 +614,7 @@ describe('finding the siblings', () => {
   });
 
   it('runs "node" as this Node, and passes the exit code through', async () => {
-    const run = await runSibling(['node', '-e', 'console.log(process.execPath); process.exit(4)'], [], temp());
+    const run = await runSibling('a sibling', ['node', '-e', 'console.log(process.execPath); process.exit(4)'], [], temp());
     expect(run.code).toBe(4);
     expect(run.stdout.trim()).toBe(process.execPath);
   });
@@ -504,7 +623,7 @@ describe('finding the siblings', () => {
     const path = process.env['PATH'];
     process.env['PATH'] = temp();
     try {
-      expect((await runSibling(['node', '-e', 'process.stdout.write("ran")'], [], temp())).stdout).toBe('ran');
+      expect((await runSibling('a sibling', ['node', '-e', 'process.stdout.write("ran")'], [], temp())).stdout).toBe('ran');
     } finally {
       process.env['PATH'] = path;
     }
@@ -513,20 +632,41 @@ describe('finding the siblings', () => {
   it('runs a sibling with colour off and the rest of the environment as it is', async () => {
     process.env['SPEC_HARNESS_TEST_KEPT'] = 'kept';
     try {
-      const run = await runSibling(['node', '-e', 'process.stdout.write(JSON.stringify([process.env.NO_COLOR, process.env.FORCE_COLOR, process.env.SPEC_HARNESS_TEST_KEPT]))'], [], temp());
+      const run = await runSibling('a sibling', ['node', '-e', 'process.stdout.write(JSON.stringify([process.env.NO_COLOR, process.env.FORCE_COLOR, process.env.SPEC_HARNESS_TEST_KEPT]))'], [], temp());
       expect(JSON.parse(run.stdout)).toEqual(['1', '0', 'kept']);
     } finally {
       delete process.env['SPEC_HARNESS_TEST_KEPT'];
     }
   });
 
-  it('answers a sibling stopped at its time limit, or one that cannot start, with -1 and what went wrong', async () => {
-    expect((await runSibling(['node', '-e', 'setTimeout(() => {}, 20000)'], [], temp(), 200)).code).toBe(-1);
-    expect(await runSibling(['no-such-program-for-spec-harness'], [], temp())).toEqual({
+  it('stops a sibling at its time limit and says which, and answers one that cannot start with -1 and what went wrong', async () => {
+    // Read as a run that failed, its question was a sibling that printed no JSON; now it is said as what it is.
+    const stopped = runSibling('a sibling', ['node', '-e', 'setInterval(() => {}, 1000)'], [], temp(), 300);
+    await expect(stopped).rejects.toBeInstanceOf(SiblingError);
+    await expect(stopped).rejects.toThrow(/^a sibling did not answer within 0\.3 seconds, and was stopped$/);
+    // One that ends before its limit, by an exit of its own, answers as it ended.
+    expect((await runSibling('a sibling', ['node', '-e', 'setTimeout(() => process.exit(3), 50)'], [], temp(), 60_000)).code).toBe(3);
+    expect(await runSibling('a sibling', ['no-such-program-for-spec-harness'], [], temp())).toEqual({
       code: -1,
       stdout: '',
       stderr: 'cannot start "no-such-program-for-spec-harness": name the tool\'s script, such as ["node", "node_modules/@descent-vtt/<tool>/bin/<tool>.js"]',
     });
+  });
+
+  it.skipIf(process.platform === 'win32')('answers -1 for a sibling that cannot start for a reason of another kind, whose code is no exit code', async () => {
+    // A directory named as the program: Linux and macOS refuse it with EACCES, where Windows finds no such program.
+    expect(await runSibling('a sibling', [temp()], [], temp())).toEqual({ code: -1, stdout: '', stderr: '' });
+  });
+
+  it("gives spec-brief's list the time a question is given, and the hook's write is held at it", async () => {
+    // A configured spec-brief that never answers: listing the briefs is the one sibling run a write waits on.
+    const slow = { ...DEFAULT_CONFIG, tools: { ...DEFAULT_CONFIG.tools, 'spec-brief': ['node', '-e', 'setInterval(() => {}, 1000)'] } };
+    const listed = createSiblings(temp(), slow).briefs(300);
+    await expect(listed).rejects.toBeInstanceOf(SiblingError);
+    await expect(listed).rejects.toThrow(/^spec-brief did not answer within 0\.3 seconds, and was stopped$/);
+    // The bounds: a question is answered well inside the minute Claude Code gives the hook's entry, and work is given ten.
+    expect(ANSWER_MS).toBe(20_000);
+    expect(WORK_MS).toBe(600_000);
   });
 
   it('answers "absent" for JSON from a sibling that is not there', async () => {

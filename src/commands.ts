@@ -12,7 +12,7 @@ import { describeMeasured } from './audit.js';
 import { briefIdFromBranch } from './branch.js';
 import { findActive } from './briefs.js';
 import { formatFindings } from './formats.js';
-import { isDirectory } from './fs.js';
+import { isDirectory, isFile } from './fs.js';
 import { readJUnit, type JUnitRead } from './junit.js';
 import { classify, endOfOutput, readProbes, renderEvidence, renderUnexplained, verdictOf, type ProbeResult, type ProbeSpec } from './probe.js';
 import { createReader } from './reader.js';
@@ -233,6 +233,12 @@ const LEFT_RUNNING = ', and something it started was left running, holding its o
  */
 const A_DIRECTORY: JUnitRead = { ok: false, error: 'it is a directory, not a report' };
 
+/**
+ * The same where something that is neither stands there, as a named pipe the
+ * probe's command made: opened, it was read without end (ADR-0002).
+ */
+const NOT_A_FILE: JUnitRead = { ok: false, error: 'it is neither a file nor a directory, not a report' };
+
 async function runProbe(directory: string, probe: ProbeSpec, runs: number, timeout: number): Promise<ProbeResult['runs']> {
   const classified = [];
   for (let i = 0; i < runs; i += 1) {
@@ -243,7 +249,7 @@ async function runProbe(directory: string, probe: ProbeSpec, runs: number, timeo
     const run = await runCommand(probe.run, directory, timeout);
     // existsSync answers false for null, so the null check is there for the
     // type, and its mutant is equivalent.
-    const junit = report === null || !existsSync(report) ? null : isDirectory(report) ? A_DIRECTORY : readJUnit(await readFile(report, 'utf8'));
+    const junit = report === null || !existsSync(report) ? null : isDirectory(report) ? A_DIRECTORY : !isFile(report) ? NOT_A_FILE : readJUnit(await readFile(report, 'utf8'));
     const judged = classify(probe, { exitCode: run.exitCode, output: run.output, junit });
     // After whatever `classify` says of the run: red, green or stopped, it
     // is judged by its shell, and what it left is said beside the verdict.

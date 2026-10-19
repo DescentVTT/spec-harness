@@ -49,7 +49,7 @@ import {
 } from './configure.js';
 import { readRules, renderContext, type CitedDocument, type ContextPacket, type Rules } from './context.js';
 import type { DocumentReader } from './document.js';
-import { isDirectory, readJsonObject, readText, repositoryPath, stateDirectory, writeAtomic } from './fs.js';
+import { isDirectory, isFile, readJsonObject, readText, repositoryPath, stateDirectory, writeAtomic } from './fs.js';
 import { blameLine, changes, commonDirectory, isUncommitted, mergeBase, remoteDefault, revision, show, verifyCommit, workTreeRoot } from './git.js';
 import { decide, type Decision, type VerifiedRuling } from './guard.js';
 import { diffManifest, ecosystemOf, readManifestNames, type DependencyChange, type InstallScriptChange } from './manifests.js';
@@ -375,7 +375,10 @@ export function pluginFile(root: string): (path: string) => boolean {
     // or on the missing key inside this block, which the catch reads as no
     // installed copy: `exports?.` and `target !== null` are equivalent to
     // their mutants here. So is the encoding: a Buffer parses as its text.
-    const manifest: { exports?: Record<string, unknown> } = JSON.parse(readFileSync(join(installed, 'package.json'), 'utf8'));
+    // Only a file is read: what stands there and is none is no installed
+    // copy, as a manifest with no exports is (ADR-0002).
+    const file = join(installed, 'package.json');
+    const manifest: { exports?: Record<string, unknown> } = isFile(file) ? JSON.parse(readFileSync(file, 'utf8')) : {};
     const target = exportedFile(manifest.exports?.['./spec-brief-plugin']);
     if (target !== null) candidates.push(join(installed, target));
   } catch {
@@ -696,6 +699,8 @@ export async function listEscalations(workspace: Workspace): Promise<EscalationR
   const directory = await escalationDirectory(workspace);
   const out: EscalationRequest[] = [];
   for (const name of (await readdir(directory)).filter((n) => n.endsWith('.json')).sort()) {
+    // What is no file is no request, and is passed over as one that cannot be read is.
+    if (!isFile(join(directory, name))) continue;
     try {
       // A Buffer parses as its text, so the encoding is equivalent to its mutant.
       const request: EscalationRequest = JSON.parse(await readFile(join(directory, name), 'utf8'));

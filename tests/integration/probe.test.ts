@@ -234,6 +234,14 @@ describe('probe', () => {
     expect(parsed<ProbeReport>(result).results[0]?.runs).toEqual([{ outcome: 'no-report', detail: 'reports cannot be read: it is a directory, not a report', output: '' }]);
   });
 
+  it.skipIf(process.platform === 'win32')('says of a report that is a named pipe the command made that it cannot be read, and comes back (ADR-0002)', async () => {
+    // Opened, a pipe nothing writes to was read without end.
+    const repo = defect('id: v\nrun: mkfifo reports.xml; exit 1\ntest: value is fixed\njunit: reports.xml');
+    const result = await cli(['probe', '--format', 'json', '--at', 'base'], repo.root);
+    expect({ code: result.code, stderr: result.stderr }).toEqual({ code: 1, stderr: '' });
+    expect(parsed<ProbeReport>(result).results[0]?.runs).toEqual([{ outcome: 'no-report', detail: 'reports.xml cannot be read: it is neither a file nor a directory, not a report', output: '' }]);
+  });
+
   it('writes each probe file with a final newline, and runs the setup before the probe', async () => {
     const check = "const text = require('node:fs').readFileSync('data.txt', 'utf8'); console.log(text === 'x\\n' ? 'expected fixed' : JSON.stringify(text)); process.exit(1);";
     const repo = defect('id: v\nsetup: node -e "process.exit(0)"\nrun: node check.js\nsignature: expected fixed', { files: { 'check.js': check, 'data.txt': 'x' } });
