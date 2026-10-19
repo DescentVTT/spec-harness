@@ -380,7 +380,8 @@ export async function readsAsListed(root: string, inputs: BriefInputs, hash: Has
     index = join(found.git, 'index');
   }
   // Made once every check is known to be made, so that none is left to fail
-  // with no one reading it.
+  // with no one reading it. A text put among them where git was asked
+  // nothing is one `every` reads as true, so that mutant is equivalent.
   const checks = [
     ...inputs.files.map((file) => fileReads(at(file.path), file.sha256, hash)),
     ...inputs.directories.map((directory) => entriesRead(at(directory.path), directory.entries)),

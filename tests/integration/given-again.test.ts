@@ -323,6 +323,12 @@ describe("spec-brief's answer, kept for a session", () => {
     repo.git('config', '--worktree', 'core.excludesFile', join(repo.root, 'nowhere'));
     for (let n = 0; n < 2; n += 1) expect(await before(repo, 'src/db/schema.ts')).toBe('refused');
     expect(starts(repo.root)).toBe(2);
+    // Where the list names nothing git read, the git directory is asked nothing, and the answer is given again.
+    const asked = project();
+    asked.git('config', 'extensions.worktreeConfig', 'true');
+    asked.git('config', '--worktree', 'core.excludesFile', join(asked.root, 'nowhere'));
+    for (let n = 0; n < 2; n += 1) expect(await before(asked, 'src/db/schema.ts')).toBe('refused');
+    expect(starts(asked.root)).toBe(1);
   });
 
   it('gives the answer again where a path named as not there is under a file', async () => {
