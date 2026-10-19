@@ -17,12 +17,58 @@ export interface Run {
   readonly stderr: string;
 }
 
-/** Runs git and answers whatever it answered; a missing git is a code of -1. */
-export function git(args: readonly string[], cwd: string): Promise<Run> {
-  return new Promise((resolve) => {
+/**
+ * How long a process the harness asks a question of is given to answer:
+ * git's reads, spec-brief's list of the briefs. Claude Code gives the hook's
+ * entry 60 seconds, as init and the plugin write it, and cancels a hook that
+ * reaches them, which before a write lets the write go ahead (ADR-0002). A
+ * process that does not answer within this is stopped and its question
+ * answered as one that failed, which before a write holds it, well inside
+ * that minute; and the slowest such process measured, on a Windows
+ * workstation under load and on GitHub's runner, answered in a fraction of
+ * it.
+ */
+export const ANSWER_MS = 20_000;
+
+/**
+ * How long a process that does a round's work is given: a diff of the
+ * round, a worktree added for a probe or taken away, a sibling's check of
+ * the repository. Its length is the repository's, and none runs before a
+ * write.
+ */
+export const WORK_MS = 600_000;
+
+/**
+ * Whether a process ended because the harness stopped it at its time
+ * limit: Node kills it then and says so with `killed`. It kills one for
+ * output past `maxBuffer` as well, and names that by its code.
+ */
+export function stoppedAtLimit(error: unknown): boolean {
+  const failure = error as { killed?: unknown; code?: unknown } | null;
+  return failure !== null && failure.killed === true && failure.code !== 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER';
+}
+
+/** The git command a line of arguments runs, past the `-c` settings before it: every line the harness hands git names one. */
+function subcommand(args: readonly string[]): string {
+  return args.find((arg, index) => !arg.startsWith('-') && args[index - 1] !== '-c')!;
+}
+
+/**
+ * Runs git and answers whatever it answered; a missing git is a code of -1.
+ * A git that does not answer within `limit` is stopped, and rejected as a
+ * `GitError` that says so: read as a failure, a question about the work
+ * tree or the branch would answer as a directory in none, or a head on no
+ * branch, under which the hook checks no write.
+ */
+export function git(args: readonly string[], cwd: string, limit = ANSWER_MS): Promise<Run> {
+  return new Promise((resolve, reject) => {
     // windowsHide only keeps a console window from flashing up on Windows,
     // and the sweep runs on Linux, where its mutant is equivalent.
-    execFile('git', [...args], { cwd, maxBuffer: 256 * 1024 * 1024, encoding: 'utf8', windowsHide: true }, (error, stdout, stderr) => {
+    execFile('git', [...args], { cwd, maxBuffer: 256 * 1024 * 1024, encoding: 'utf8', windowsHide: true, timeout: limit }, (error, stdout, stderr) => {
+      if (stoppedAtLimit(error)) {
+        reject(new GitError(`git ${subcommand(args)} did not answer within ${limit / 1000} seconds, and was stopped`));
+        return;
+      }
       // Every caller tells 0 from any other code, never one failure from
       // another, so which code a failure gets is equivalent to its mutants.
       const code = error === null ? 0 : typeof (error as { code?: unknown }).code === 'number' ? (error as { code: number }).code : -1;
@@ -188,14 +234,14 @@ export function parseNameStatus(output: string): FileChange[] {
 
 /** The files changed from one revision to another, renames found. */
 export async function changes(from: string, to: string, cwd: string): Promise<FileChange[]> {
-  const run = await git(['diff', '--name-status', '-z', '--find-renames', '--no-color', from, to, '--'], cwd);
+  const run = await git(['diff', '--name-status', '-z', '--find-renames', '--no-color', from, to, '--'], cwd, WORK_MS);
   if (run.code !== 0) throw new GitError(`git diff ${from} ${to} failed: ${run.stderr.trim()}`);
   return parseNameStatus(run.stdout);
 }
 
 /** The files a commit would change: what is staged. */
 export async function stagedChanges(cwd: string): Promise<FileChange[]> {
-  const run = await git(['diff', '--cached', '--name-status', '-z', '--find-renames', '--no-color', '--'], cwd);
+  const run = await git(['diff', '--cached', '--name-status', '-z', '--find-renames', '--no-color', '--'], cwd, WORK_MS);
   if (run.code !== 0) throw new GitError(`git diff --cached failed: ${run.stderr.trim()}`);
   return parseNameStatus(run.stdout);
 }
@@ -251,7 +297,7 @@ export async function verifyCommit(sha: string, allowedSignersFile: string, cwd:
 }
 
 export async function addWorktree(path: string, rev: string, cwd: string): Promise<void> {
-  const run = await git(['worktree', 'add', '--detach', '--force', path, rev], cwd);
+  const run = await git(['worktree', 'add', '--detach', '--force', path, rev], cwd, WORK_MS);
   if (run.code !== 0) throw new GitError(`git worktree add failed: ${run.stderr.trim()}`);
 }
 
@@ -268,5 +314,5 @@ export async function removeWorktree(path: string, cwd: string): Promise<boolean
   // The sandbox asks again when this answers false, and git, asked again
   // about a worktree it has forgotten, changes nothing: the mutant that
   // always answers false is equivalent.
-  return (await git(['worktree', 'remove', '--force', path], cwd)).code === 0;
+  return (await git(['worktree', 'remove', '--force', path], cwd, WORK_MS)).code === 0;
 }

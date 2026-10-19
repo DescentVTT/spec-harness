@@ -19,6 +19,8 @@ import { join } from 'node:path';
 
 import { parseBriefList, SiblingOutputError } from './briefs.js';
 import type { HarnessConfig, SiblingName } from './config.js';
+import { isFile } from './fs.js';
+import { ANSWER_MS, stoppedAtLimit, WORK_MS } from './git.js';
 import type { BriefRow } from './types.js';
 import { checkVersion } from './versions.js';
 
@@ -71,6 +73,9 @@ export function locate(name: SiblingName, root: string, config: HarnessConfig, i
 
 /** The `version` a package.json declares, or `undefined` when there is no such file or it is not JSON. */
 export function declaredVersion(file: string): unknown {
+  // Only a file is read: a named pipe under the name was read without end,
+  // and before any sibling ran (ADR-0002).
+  if (!isFile(file)) return undefined;
   // A manifest that holds null throws on the read, and any other value that
   // is not an object has no version, so the catch answers for both. Falling
   // out of it answers undefined as well, and a Buffer parses as its text:
@@ -91,11 +96,15 @@ export function declaredVersion(file: string): unknown {
  * `["node", "path/to/bin.js"]` works on every host; a Windows `.cmd` shim such
  * as `npx` cannot be started without a shell, and the error says to name the
  * script instead.
+ *
+ * A sibling that does not answer within `limit` is stopped, and rejected as
+ * a `SiblingError` that names it: what it was asked waits on it, the hook
+ * before a write among them, which then holds the write (ADR-0002).
  */
-export function runSibling(command: readonly string[], args: readonly string[], root: string, timeoutMs = 600_000): Promise<SiblingRun> {
+export function runSibling(name: string, command: readonly string[], args: readonly string[], root: string, limit = WORK_MS): Promise<SiblingRun> {
   const [first, ...rest] = command;
   const program = first === 'node' ? process.execPath : (first as string);
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     execFile(
       program,
       [...rest, ...args],
@@ -106,11 +115,15 @@ export function runSibling(command: readonly string[], args: readonly string[], 
         // Keeps a console window from opening on Windows; the sweep runs on
         // Linux, where the mutant is equivalent.
         windowsHide: true,
-        timeout: timeoutMs,
+        timeout: limit,
         shell: false,
         env: { ...process.env, NO_COLOR: '1', FORCE_COLOR: '0' },
       },
       (error, stdout, stderr) => {
+        if (stoppedAtLimit(error)) {
+          reject(new SiblingError(`${name} did not answer within ${limit / 1000} seconds, and was stopped`));
+          return;
+        }
         const failure = error as (Error & { code?: unknown }) | null;
         if (failure !== null && failure.code === 'ENOENT') {
           resolve({
@@ -146,8 +159,12 @@ function parseJson(name: string, run: SiblingRun): unknown {
 export interface Siblings {
   readonly root: string;
   locate(name: SiblingName): Sibling;
-  /** Every brief, live and archived. Exit 2 from spec-brief is an error here too. */
-  briefs(): Promise<BriefRow[]>;
+  /**
+   * Every brief, live and archived. Exit 2 from spec-brief is an error here
+   * too, and so is a spec-brief that does not answer within `limit`, the
+   * time a question is given unless a caller gives another.
+   */
+  briefs(limit?: number): Promise<BriefRow[]>;
   /** A sibling's JSON output for a command line, with its exit code and what it said on stderr; `absent` says why it cannot be run, missing or outdated. */
   json(name: SiblingName, args: readonly string[]): Promise<{ readonly code: number; readonly document: unknown; readonly stderr: string } | { readonly absent: string }>;
 }
@@ -162,8 +179,8 @@ export function createSiblings(root: string, config: HarnessConfig, installs: re
   return {
     root,
     locate: (name) => locate(name, root, config, installs),
-    async briefs() {
-      const run = await runSibling(found('spec-brief'), ['list', '--archived', '--format', 'json', '--no-color'], root);
+    async briefs(limit = ANSWER_MS) {
+      const run = await runSibling('spec-brief', found('spec-brief'), ['list', '--archived', '--format', 'json', '--no-color'], root, limit);
       if (run.code === 2) {
         throw new SiblingError(`spec-brief could not list the briefs: ${run.stderr.trim().split('\n')[0] || 'exit 2'}`);
       }
@@ -180,7 +197,7 @@ export function createSiblings(root: string, config: HarnessConfig, installs: re
     async json(name, args) {
       const sibling = locate(name, root, config, installs);
       if (sibling.kind !== 'found') return { absent: sibling.reason };
-      const run = await runSibling(sibling.command, args, root);
+      const run = await runSibling(name, sibling.command, args, root);
       return { code: run.code, document: parseJson(name, run), stderr: run.stderr };
     },
   };

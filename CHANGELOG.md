@@ -9,6 +9,35 @@ only fixes, reports less or documents, so `^0.7.0` takes only releases that
 cannot turn a run red. The family's policy is
 [spec-core's ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
+## Unreleased
+
+### Changed
+
+- **A process the harness asks a question of is stopped after 20 seconds,
+  and the hook holds the write there.** git had no limit and spec-brief
+  ten minutes, where Claude Code cancels the hook at the 60 seconds its
+  entry gives it, and before a write lets the write go ahead: a named pipe
+  at `.spec-brief.json` or `.git/config` kept the hook, `doctor` and
+  every command from coming back. git's reads and spec-brief's list are
+  now stopped at 20 seconds and said, `spec-brief did not answer within
+  20 seconds, and was stopped`; before a write that is `cannot check this
+  write: ...`, exit 2, which holds it. A round's work, a diff, a probe's
+  worktree, a sibling's check, keeps ten minutes
+  ([ADR-0002](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0002-siblings-through-their-command-lines.md)).
+  Upgrading: where git or spec-brief takes longer than 20 seconds to
+  answer, which none measured does, writes are held and commands exit 2
+  with the line: find what it waits on.
+
+### Fixed
+
+- **A named pipe where the harness reads a file** no longer keeps a
+  command from coming back: a document a brief cites, a sibling's
+  `package.json`, what the run before a write kept, git's configuration
+  and a worktree's `commondir` as the hook reads them, a request waiting
+  for a ruling, a probe's report. Only a regular file is read, and what
+  else stands there is read as a file that is not there
+  ([ADR-0002](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0002-siblings-through-their-command-lines.md)).
+
 ## 0.19.0
 
 An option that takes one value is given one, and a line that is wrong is

@@ -502,6 +502,124 @@ No answer the hook gives to a call Claude Code makes changes but where
 another process changes what decides between its two runs: a minor
 release (spec-core's ADR-0009).
 
+*Amended 2026-10-19.* **Every process the harness starts has a time limit,
+and the hook holds the write at it; every file it reads is checked to be a
+file first.** *Claimed* by round 24's agents B and H: a named pipe at
+`.spec-brief.json` makes spec-brief wait, and the hook and `doctor` wait on
+spec-brief with no time limit; `readText` (a brief, a document a brief
+cites) and the hook's own reads of git's files and of what a run before a
+write kept read a path without checking it is a file.
+
+*Measured* through the launcher of main (3c4112c) and of this change, in
+scratch repositories on a brief's branch whose brief protects `src/db/**`,
+with spec-brief 0.8.0 installed: a named pipe made where the row says,
+nothing writing to it, in a Linux container as an ordinary account (Node
+24.21.0, git 2.47.3; `b25-fifo.mjs`), each run given 65 seconds, past the 60
+that `init` and the plugin give the hook's entry:
+
+| The named pipe, and the command | main | Now |
+| --- | --- | --- |
+| `.spec-brief.json`; the hook before a write | no answer: spec-brief reads its configuration without end, and the harness waits on it | exit 2 at 20 seconds: `cannot check this write: spec-brief did not answer within 20 seconds, and was stopped` |
+| the same; after a write | no answer | exit 2 at 20 seconds, the same words |
+| the same; as a session starts | no answer | exit 0 at 20 seconds, the words, `so every write of this session is held until it is mended` |
+| the same; `doctor`, `guard` | no answer | `doctor` comes back at 21 seconds, the brief's line saying it; `guard` exit 2 at 20 |
+| `.git/config`; the hook before a write and after one, `doctor` | no answer: git reads its configuration without end, and the hook's own read of it after a write stops the process | exit 2 at 20 seconds: `git rev-parse did not answer within 20 seconds, and was stopped`, before a write as `cannot check this write: ...` |
+| what the run before a write kept for the call; the hook after the write | no answer | the call decided as before, 1.2 seconds |
+| the `package.json` of the installed spec-brief; the hook before a write, `doctor` | no answer: it is read as the process waits on it | spec-brief `declares no version`, as for one that is not JSON: the write held, `doctor` exit 1 |
+| a document the brief cites; `context` | no answer | the document cited and not found, exit 0 |
+| a request waiting for a ruling; `escalate --list` | no answer | passed over, as one that cannot be read |
+| the report a probe's `junit` names, made by its command; `probe` | no answer | `cannot be read: it is neither a file nor a directory, not a report`, the probe invalid |
+| the brief's file; the hook, `doctor` | spec-brief lists no such brief: the write held, as for a brief not there | the same: the harness reads a brief's file only once spec-brief has listed it |
+| none; the hook and `doctor` | under a second | the same |
+
+So the claims hold, and more widely: git had no limit at all, and the
+hook's own reads of git's configuration, of a worktree's `commondir`, of a
+sibling's manifest and of the harness's own install, made as the process
+waits, stopped every timer with them. Spawned by the harness, spec-brief had
+a limit of ten minutes, which Claude Code's 60 seconds on the hook's entry
+reach first: the hooks reference (<https://code.claude.com/docs/en/hooks>,
+*Timeouts*, read 2026-10-19) has a command hook that reaches its timeout
+cancelled, and before a tool call not block it, unless `onFailure` is
+`"block"`. A hook that waits on a sibling past that minute lets the write
+go ahead.
+
+- **A process asked a question is stopped after 20 seconds** (`ANSWER_MS`,
+  `src/git.ts`): git's reads, and spec-brief's list of the briefs, which is
+  the one sibling run a write waits on. A process that does a round's work
+  keeps ten minutes (`WORK_MS`): a diff of the round, a worktree a probe
+  adds or takes away, a sibling's check of the repository, spec-brief's
+  `init`. `claude --version` keeps its 15 seconds, and a probe's command
+  its own timeout; `taskkill` is given a question's time, and the
+  sandbox's last `git worktree remove` the time of work.
+- **At the limit the question is answered as one that failed, and says
+  why.** git and the sibling are stopped, and the run rejected as a
+  `GitError` or a `SiblingError` that names the command and the limit:
+  read as a git that failed, a question of where the work tree is or which
+  branch is checked out answered as a directory in none, or a head on no
+  branch, under which the hook checks no write. Before a write that is a
+  write the hook could not check, in the words a write gets where a sibling
+  fails, `cannot check this write: ...`, exit 2, which holds it; after a
+  write, exit 2 with the same words, as for any sibling that fails; as a
+  session starts, the line of every write held. Every other command exits
+  2 with the line, and `doctor` says spec-brief's in its brief's line.
+- **Why 20 seconds.** Claude Code gives the hook's entry 60 (`"timeout":
+  60`, as `init` and the plugin write it). The hook runs at most one
+  process that does not answer, since the first ends the run, so a hook
+  whose process hangs answers at the limit and what came before it, well
+  inside that minute; the measured hang above answered at 20.2 seconds.
+  And no process it asks a question of comes near the limit: on the
+  Windows workstation, with a test suite running beside it and node taking
+  759 ms to start and do nothing, git's two starts took 63 and 62 ms at the
+  median of ten and 80 at the slowest, and spec-brief's list 915 ms and
+  1,004 at the slowest (`b25-measure-limits.mjs`); on GitHub's Windows
+  runner the hook as a session starts on a brief's branch, a write's check
+  without the write, two of git's starts and spec-brief's list, took 325 ms
+  at the median (ADR-0005, the fourth amendment of 2026-10-18,
+  DescentVTT/spec-harness#111). The limit is twenty times the slowest here
+  and some sixty times the whole hook there.
+- **Only a regular file is read where a file is expected** (`isFile`,
+  `src/fs.ts`), as `.spec-harness.json` and the settings files were from
+  0.19.0: a brief's file and a document a brief cites (`readText`, which
+  Windows shims are read through too), git's configuration and a worktree's
+  `commondir` as the hook reads them with no process, what a run before a
+  write kept, a sibling's `package.json`, the harness's own install in the
+  project, a request waiting for a ruling, and a probe's report. What else
+  stands there is read as a file that is not there, or, for a report, said
+  as neither a file nor a directory. The harness's own files, its manifest
+  and its skills, are read as they are: they are the package's, not the
+  repository's.
+- **The hook answers no line differently where nothing waits.** Every line
+  of the hook the amendments of ADR-0005 measured was run through the
+  launcher of main and of this change on Windows, taking turns, before
+  seven writes, after each and as a session starts, and git's hook
+  (`b25-hook-compare.mjs`): of 214 runs, each answered the same, exit code
+  and both streams. On Linux the plain tree above answered in the same time
+  on both builds, under a second.
+
+Tests hold each with a run that must stop and one that must still answer:
+git (`hash-object --stdin`, whose input the harness never closes) and a
+sibling stopped at a limit of their own, and one that answers before it;
+spec-brief's list stopped at the time a question is given, shortened to
+five seconds in `tests/integration/limits.test.ts`, through the hook before
+a write (held) and after one, as a session starts, through `doctor`, and a
+write that names no brief, which asks spec-brief nothing and still passes;
+and on Linux, each reader handed a named pipe.
+
+An exit code that can change for a tree, and runs that now end where they
+did not: a minor release (spec-core's ADR-0009). What was measured for this
+and left as it was:
+
+- **A hook whose entry gives it less than the limit.** A person may write a
+  `timeout` below 20 seconds on the hook's line, under which Claude Code
+  cancels it first. The hook cannot read its entry, and `doctor` does not
+  read the field.
+- **A process that answers slowly and does not hang.** The limit is each
+  process's; a hook whose every process took nearly 20 seconds could pass
+  the minute. No such machine was measured.
+- **spec-brief reading the brief's file.** spec-brief 0.8.0 lists no brief
+  whose file is a named pipe, so the hook holds the write as for a brief
+  that is not there; that is spec-brief's to say better.
+
 ## Consequences
 
 Each tool is released, pinned and dropped on its own, and the harness adds no
