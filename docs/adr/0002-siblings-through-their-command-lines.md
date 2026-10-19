@@ -502,6 +502,139 @@ No answer the hook gives to a call Claude Code makes changes but where
 another process changes what decides between its two runs: a minor
 release (spec-core's ADR-0009).
 
+*Amended 2026-10-19.* **A session's list of the briefs is given again
+where nothing it was read from has changed.** *Measured* by round 24 on a
+brief's branch before an Edit: about 1.6 to 1.9 seconds on a Windows
+workstation and 330 ms on GitHub's Windows runner, of which spec-brief's
+`list` is about 0.9 seconds and 180 ms. *Measured again* through the
+launcher of main (3c4112c) with spec-brief 0.9.0 installed, Windows 11,
+Node 24.18.1, Git for Windows 2.55.0, ten rounds at the median, with `node
+-e 0` at 684 ms beside them (`h25-bench.mjs`): the hook before an Edit in
+the scope took 1,624 ms on a brief's branch and 804 ms where no brief is
+named, and spec-brief's `list` alone 829 ms. The claim holds: on a brief's
+branch half of what a write waits on is spec-brief, asked the same thing
+before every write of a session.
+
+spec-core's ADR-0005, amended 2026-10-19, has a tool give another's answer
+again without starting it where that answer named everything it was read
+from and each reads as listed, and start the other on any doubt. spec-brief
+names it in `list --format json` as `inputs`, built at the same time
+(DescentVTT/spec-brief#69): `keep`, the version that answered as `tool`,
+each file read with the SHA-256 of its bytes or `null` where it was looked
+for and was not there, each directory listed with the names of the files in
+it, and `git`, what git read for the answer or `null` where it was asked
+nothing, which is what `list` asks it from that change on. Paths are read
+from the directory spec-brief was started in, which here is the work tree's
+top, and an absolute one as it stands.
+
+- **The hook keeps a session's answer.** Where Claude Code's question names
+  its session in the form its ids have (`session_id`), the answer of each
+  `list` the hook starts, before a write, after one or as the session
+  starts, is kept under the common directory (ADR-0003, amended the same
+  day), where `keep` is `true`, spec-brief exited 0, and the version it
+  names is the one installed. It is kept under the SHA-256 of what it is the
+  answer to, and that is held whole in the file and compared as it is read:
+  the work tree's top, the session, spec-brief's command (the Node that runs
+  it and its script), the version its manifest declares, that Node's
+  version, the command line, and the variables an answer turns on that its
+  list does not name, every one whose name begins `GIT_` and `PATH`, `HOME`,
+  `USERPROFILE`, `HOMEDRIVE`, `HOMEPATH`, `XDG_CONFIG_HOME`, `NODE_OPTIONS`
+  and `NODE_PATH`. So nothing one work tree or session keeps answers another;
+  a call's answer after a write is the call's own, as before.
+- **Given again only where every input reads as listed, with no process
+  started**: each file a file, never a pipe or a directory, whose bytes have
+  the digest, or nothing at its path, or under it, where it was listed as not
+  there; each directory holding the files listed and no other, as
+  spec-brief lists them, a link or a directory being no file; and where git
+  was asked, the index of the work tree's own git directory, found as the
+  files git keeps name it, and each ignore file. Then the kept text is read
+  by `parseBriefList` as the text spec-brief prints is.
+- **Anything else starts spec-brief as before**: nothing kept, or what is
+  kept another key's, no file, or no list document; an input that is
+  missing, cannot be read or reads otherwise; `keep` anything but `true`,
+  no `inputs`, a list that names nothing or holds anything in a form not
+  read here, another version; a command `tools` names, whose version
+  cannot be told without starting it; and `GIT_DIR`, `GIT_WORK_TREE`,
+  `GIT_INDEX_FILE` or `GIT_COMMON_DIR` set, where git reads an index other
+  than the one the list is checked against. A question that names no
+  session, and every command but the hook, start spec-brief every time.
+  Keeping an answer is passed over where it fails, which changes nothing of
+  the answer given.
+- **What spec-brief does not keep, `keep: false`, is never kept here**:
+  DescentVTT/spec-brief#69 says so where its root is not the directory it
+  was started in, where no configuration file names the root, and where its
+  briefs' or its archive's directory is not there, for which the shape has
+  no entry. A project `spec-brief init` set up has both, with a `.gitkeep`
+  in each.
+- **What is left as it was.** A spec-brief changed in place under the
+  version its manifest declares, as a linked checkout being rebuilt is,
+  gives the answer of its last build for as long as no input changes and the
+  session lasts. Verified rulings are not kept by this change.
+
+*Measured* through the launchers of main and of this change, with
+DescentVTT/spec-brief#69 at 2524903 built and installed, and spec-brief 0.9.0
+beside them for the release, the three taking turns inside each round, ten
+rounds at the median, on the Windows workstation, where starting node to do
+nothing took 809 ms, the machine shared (`h25-bench.mjs <work> 10 <out.json>
+main-090=<main>,<0.9.0> main-a2=<main>,<#69> h1-a2=<this>,<#69>`); a session
+was started once in each project before the rounds, and each write is a call
+of it:
+
+| The hook | main, spec-brief 0.9.0 | main, #69 | This change, #69 |
+| --- | ---: | ---: | ---: |
+| before an Edit, no brief named | 956 ms (1,086) | 1,007 ms (1,133) | 956 ms (1,223) |
+| before an Edit in the scope, on a brief's branch | 1,910 ms (2,397) | 1,785 ms (2,237) | 944 ms (1,202) |
+| before an Edit of a protected file, which it refuses | 2,202 ms (2,909) | 1,985 ms (2,454) | 966 ms (1,187) |
+| before an Edit in the scope, sixty briefs | 2,004 ms (2,448) | 1,923 ms (2,318) | 984 ms (1,238) |
+| after an Edit outside the scope, with no run before it | 1,908 ms (2,513) | 1,798 ms (2,611) | 969 ms (1,503) |
+| as a session starts, on a brief's branch | 1,867 ms (2,313) | 1,730 ms (2,220) | 1,729 ms (2,353) |
+| before an Edit in the scope, the first of a new session | 1,865 ms (2,911) | 1,789 ms (2,326) | 1,845 ms (2,299) |
+
+spec-brief's `list` alone took 1,020 ms (1,205) for 0.9.0, and 934 (1,133)
+and 922 (1,097) for #69, the same program twice.
+
+On GitHub's Windows runner (`windows-2025-vs2026`), thirty rounds, through a
+workflow of a draft pull request that measured and was closed
+(DescentVTT/spec-harness#116), where starting node to do nothing took 54 ms
+(Node 24.21.0, Git for Windows 2.56.0, four cores):
+
+| The hook | main, spec-brief 0.9.0 | main, #69 | This change, #69 |
+| --- | ---: | ---: | ---: |
+| before an Edit, no brief named | 149 ms (160) | 152 ms (159) | 149 ms (158) |
+| before an Edit in the scope, on a brief's branch | 325 ms (338) | 285 ms (300) | 162 ms (176) |
+| before an Edit of a protected file, which it refuses | 333 ms (345) | 296 ms (306) | 175 ms (183) |
+| before an Edit in the scope, sixty briefs | 359 ms (367) | 320 ms (327) | 171 ms (178) |
+| after an Edit outside the scope, with no run before it | 322 ms (331) | 283 ms (294) | 157 ms (167) |
+| as a session starts, on a brief's branch | 302 ms (310) | 262 ms (271) | 274 ms (284) |
+| before an Edit in the scope, the first of a new session | 324 ms (335) | 285 ms (294) | 297 ms (308) |
+
+spec-brief's `list` alone took 169 ms (175) for 0.9.0 and 129 (139) for
+#69.
+
+Once the session has an answer kept, a write on a brief's branch costs what
+one where no brief is named costs, and on the runner 13 ms more, for reading
+and hashing what the answer was read from: the two of git's processes, and
+no spec-brief. The run that keeps it, the session's start where its entry is
+written, costs a start of spec-brief and on the runner 12 ms more; a run that
+finds what it reads changed starts spec-brief and keeps the new answer.
+
+Every answer the hook gives is the one it gave. Each line of the hook the
+amendments of ADR-0005 measured was run through both builds, with
+DescentVTT/spec-brief#69 installed so that answers are kept and given again,
+in one session, before seven writes and after each, as the session starts,
+and git's hook beside them, and again after each of seven changes to what an
+answer is read from, made by no hook: the brief's bytes, a brief added, a
+file beside the briefs, spec-brief's configuration, its archive taken away,
+its configuration taken away, a configuration of its other name
+(`h25-hook-compare.mjs`): 913 runs, 591 of the lines as installed and 322
+after the changes, every one the same in its exit code, its standard output
+and its standard error. Answers were kept and given again until the
+archive's directory was taken away, after which #69 says `keep: false` and
+every run started spec-brief, as main's do. With spec-brief 0.9.0, which
+keeps nothing, 913 runs, every one the same.
+
+No answer changes: a patch (spec-core's ADR-0009).
+
 ## Consequences
 
 Each tool is released, pinned and dropped on its own, and the harness adds no
