@@ -35,6 +35,7 @@ import {
   pluginMarketplace,
   pluginPresence,
   PROJECT_SETTINGS,
+  readsOnFailure,
   registersServer,
   reportHooks,
   SPEC_BRIEF_CONFIGS,
@@ -522,7 +523,7 @@ export async function claudeCodeWiring(root: string, io: CliIO, pattern: Pattern
   // init writes its hooks into the project's file alone, and none where an array unloads it.
   const unloaded = arrayMatcher(sources.find(({ file }) => file === PROJECT_SETTINGS)!.settings);
   const under = (release: ClaudeCodeCheck | null): ClaudeCodeWiring => {
-    const lines = reportHooks(sources, root, (words) => read.get(JSON.stringify(words))!, pattern, matchingUnder(release));
+    const lines = reportHooks(sources, root, (words) => read.get(JSON.stringify(words))!, pattern, matchingUnder(release), readsOnFailure(release));
     // A line Claude Code starts for no write, before one or after, is in no
     // one's way: it is said, and the file is not counted for it.
     const hooks = sources.map(({ file }) => file).filter((file) => lines.some((line) => line.file === file && (isStarted(line.before) || isStarted(line.after))));

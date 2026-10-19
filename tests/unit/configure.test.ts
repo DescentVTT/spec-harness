@@ -37,7 +37,10 @@ import {
   mcpServer,
   mergeClaudeSettings,
   NO_SESSION_START,
+  ON_FAILURE_SINCE,
+  readsOnFailure,
   startsSessions,
+  withOnFailure,
   withSessionStart,
   mergeMcp,
   measuresArchive,
@@ -237,6 +240,34 @@ describe('Claude Code settings', () => {
     // One whose writes cannot be told is taken as started: a second line would run beside it.
     const conditional = { matcher: GUARD.matcher, hooks: [{ ...HOOK, if: 'Edit(*.ts)' }] };
     expect(mergeClaudeSettings({ hooks: { PreToolUse: [conditional], PostToolUse: [conditional] } })).toBeNull();
+  });
+
+  it('gives onFailure "block" to init\'s own entries under the three events it writes them under, and to no other', () => {
+    const BLOCKS = { ...HOOK, onFailure: 'block' };
+    const START = { hooks: [HOOK] };
+    expect(withOnFailure({ hooks: { PreToolUse: [GUARD], PostToolUse: [GUARD], SessionStart: [START] } })).toEqual({
+      hooks: { PreToolUse: [{ ...GUARD, hooks: [BLOCKS] }], PostToolUse: [{ ...GUARD, hooks: [BLOCKS] }], SessionStart: [{ hooks: [BLOCKS] }] },
+    });
+    // Where every one has it, nothing is to be written; one that has another value is given this one.
+    expect(withOnFailure({ hooks: { PreToolUse: [{ ...GUARD, hooks: [BLOCKS] }], PostToolUse: [{ ...GUARD, hooks: [BLOCKS] }] } })).toBeNull();
+    expect(withOnFailure({ hooks: { PreToolUse: [{ ...GUARD, hooks: [{ ...HOOK, onFailure: 'continue' }] }] } })).toEqual({ hooks: { PreToolUse: [{ ...GUARD, hooks: [BLOCKS] }] } });
+    // A person's line, another program's entry beside init's, a group with no line of init's, and an event init writes nothing under are as they were.
+    const theirs = { type: 'command', command: 'node', args: [...HOOK.args, '--brief', '001'] };
+    const lint = { type: 'command', command: 'npm run lint' };
+    const other = { matcher: 'Bash', hooks: [lint] };
+    expect(withOnFailure({ hooks: { PreToolUse: [other, { ...GUARD, hooks: [lint, HOOK, theirs] }], Stop: [{ hooks: [HOOK] }] }, model: 'x' })).toEqual({
+      hooks: { PreToolUse: [other, { ...GUARD, hooks: [lint, BLOCKS, theirs] }], Stop: [{ hooks: [HOOK] }] },
+      model: 'x',
+    });
+    expect(withOnFailure({ hooks: { PreToolUse: [{ ...GUARD, hooks: [theirs] }], Stop: [{ hooks: [HOOK] }] } })).toBeNull();
+    // A group that is not one, beside init's, is left as it stands.
+    expect(withOnFailure({ hooks: { PreToolUse: [null, { hooks: 'y' }, GUARD] } })).toEqual({ hooks: { PreToolUse: [null, { hooks: 'y' }, { ...GUARD, hooks: [BLOCKS] }] } });
+    for (const none of [{}, { hooks: null }, { hooks: { PreToolUse: 'x', PostToolUse: [null, { hooks: 'y' }] } }]) expect(withOnFailure(none), JSON.stringify(none)).toBeNull();
+    // What it is handed is not changed.
+    const given = { hooks: { PreToolUse: [GUARD] } };
+    withOnFailure(given);
+    expect(given).toEqual({ hooks: { PreToolUse: [{ matcher: GUARD.matcher, hooks: [HOOK] }] } });
+    expect(HOOK).not.toHaveProperty('onFailure');
   });
 });
 
@@ -848,7 +879,7 @@ describe('a root on the line that is a directory outside any work tree (ADR-0005
     expect(reported(under(GUARD.matcher, entry({ onFailure: 'block' })))[0]).toMatchObject({
       state: 'off',
       onFailure: 'block',
-      note: `${W} sets onFailure to "block", so Claude Code 2.1.295 or later holds a write when the hook fails, where it lets the write go ahead without it: by its exit 1 for a question it cannot read, by not starting, or by running past its timeout`,
+      note: `${W} sets onFailure to "block", so Claude Code 2.1.295 or later holds a write when the hook fails, where it lets the write go ahead without it: by not starting, as where the script on its line is not there, or by running past its timeout`,
     });
   });
 
@@ -879,7 +910,7 @@ describe('a root on the line that is in another work tree than the project\'s (A
     // The hook exits 0 under such a root, so no run of it fails: onFailure holds no write for it.
     expect(reported(under(GUARD.matcher, entry({ onFailure: 'block' })), elsewhereHookLine('../other', THEIRS))[0]).toMatchObject({
       state: 'off',
-      note: expect.stringContaining('where it lets the write go ahead without it: by its exit 1 for a question it cannot read'),
+      note: expect.stringContaining('where it lets the write go ahead without it: by not starting, as where the script on its line is not there, or by running past its timeout'),
     });
     // Waited on before no write, it leaves none unchecked that it was asked about: said as that, and no fault.
     expect(reported(under('Bash', entry()), elsewhereHookLine('../other', THEIRS))[0]).toMatchObject({ state: 'unstarted', detail: null });
@@ -1327,7 +1358,7 @@ describe("the lines of Claude Code's hook in its settings, and what doctor says 
     expect(all[2]?.detail?.startsWith('"hook claude --format xml" in .claude/settings.json (under PostToolUse alone): the hook\'s line cannot be read (')).toBe(true);
   });
 
-  it('says what onFailure "block" changes: a write held when the hook fails, which is every write where its line turns the guard off', () => {
+  it('says what onFailure "block" changes: a write held when the hook does not start or runs past its timeout, and nothing for a line it says turns the guard off', () => {
     const HOLDS = 'sets onFailure to "block", so Claude Code 2.1.295 or later holds a write when the hook fails';
     expect(reported(settings({ ...HOOK, onFailure: 'block' }))).toEqual([
       {
@@ -1338,15 +1369,16 @@ describe("the lines of Claude Code's hook in its settings, and what doctor says 
         onFailure: 'block',
         detail: null,
         ...EVERY,
-        note: `"hook claude" in .claude/settings.json ${HOLDS}, where it lets the write go ahead without it: by its exit 1 for a question it cannot read, by not starting, or by running past its timeout`,
+        note: `"hook claude" in .claude/settings.json ${HOLDS}, where it lets the write go ahead without it: by not starting, as where the script on its line is not there, or by running past its timeout`,
       },
     ]);
+    // The hook says such a line with exit 0, which is no failure: the field holds no write for it.
     expect(reported(settings({ ...exec('--root', '/nowhere'), onFailure: 'block' }))[0]).toMatchObject({
       state: 'off',
       onFailure: 'block',
-      note: `"hook claude --root /nowhere" in .claude/settings.json ${HOLDS}, which with this line is every write, the one that mends the line among them: mend it by hand`,
+      note: `"hook claude --root /nowhere" in .claude/settings.json ${HOLDS}, where it lets the write go ahead without it: by not starting, as where the script on its line is not there, or by running past its timeout`,
     });
-    expect(reported(settings({ ...exec('--format', 'xml'), onFailure: 'block' }))[0]?.note).toContain('which with this line is every write');
+    expect(reported(settings({ ...exec('--format', 'xml'), onFailure: 'block' }))[0]?.note).not.toContain('every write');
     // A line with more on it that guards is told as the line a release wrote is.
     expect(reported(settings({ ...exec('--brief', '001'), onFailure: 'block' }))[0]).toMatchObject({
       state: 'guards',
@@ -1357,6 +1389,42 @@ describe("the lines of Claude Code's hook in its settings, and what doctor says 
     expect(reported(settings({ ...shell(`${LEGACY} --root "$PWD"`), onFailure: 'block' }))[0]).toMatchObject({ state: 'unknown', onFailure: 'block', note: expect.stringContaining('where it lets the write go ahead without it') });
     // Any other value is Claude Code's default, or not one it reads.
     for (const value of ['continue', 'Block', true, undefined]) expect(reported(settings({ ...HOOK, onFailure: value }))[0], String(value)).toMatchObject({ onFailure: null, note: null });
+  });
+
+  it('advises onFailure "block" for a line that guards without it, where the Claude Code here reads the field', () => {
+    const here = (hooks: unknown, where = FILE) => reportHooks([{ file: where, settings: hooks }], PROJECT, read, undefined, undefined, true);
+    const ADVICE = `sets no onFailure, so Claude Code lets a write go ahead where the hook cannot start, as where the script on its line is not there, or runs past its timeout: where every Claude Code that reads the file is 2.1.295 or later, as the one here is, "onFailure": "block" holds the write instead, and `;
+    // init's own entries, in the file init writes: the option that writes it.
+    expect(here(settings(HOOK))).toEqual([
+      { file: FILE, events: BOTH, line: ['hook', 'claude'], state: 'guards', onFailure: null, detail: null, ...EVERY, note: `${W} ${ADVICE}spec-harness init --write --block-on-failure writes it on these entries` },
+    ]);
+    // A line a person wrote, or init's in a file init does not write: theirs to give it.
+    expect(here(settings(exec('--brief', '001')))[0]?.note).toBe(`"hook claude --brief 001" in .claude/settings.json ${ADVICE}it is written on each of its entries`);
+    expect(here(settings(HOOK), '.claude/settings.local.json')[0]?.note).toBe(`"hook claude" in .claude/settings.local.json ${ADVICE}it is written on each of its entries`);
+    expect(here(settings(shell(LEGACY)))[0]?.note).toBe(`${W} ${ADVICE}it is written on each of its entries`);
+    // Beside 0.1's entry, which init would not give the field, the line is not all init's.
+    expect(here(settings(HOOK, shell(LEGACY)))[0]?.note).toBe(`${W} ${ADVICE}it is written on each of its entries`);
+    // A line that sets it is said as before.
+    expect(here(settings({ ...HOOK, onFailure: 'block' }))[0]?.note).toContain('sets onFailure to "block"');
+    // Nothing for a line that is no guard: off, holding every write, waited on before no write, or one whose reading cannot be told.
+    expect(here(settings(exec('--root', '/nowhere')))[0]).toMatchObject({ state: 'off', note: null });
+    expect(here(both('Bash'))[0]).toMatchObject({ state: 'unstarted', note: null });
+    expect(here(settings(shell(`${LEGACY} --root "$PWD"`)))[0]).toMatchObject({ state: 'unknown', note: null });
+    const holding = reportHooks([{ file: FILE, settings: settings(exec('--brief', '404')) }], PROJECT, () => heldHookLine('the flag names brief 404'), undefined, undefined, true);
+    expect(holding[0]).toMatchObject({ state: 'held', note: null });
+    // And nothing where the Claude Code here does not read it, or cannot be told to.
+    expect(reported(settings(HOOK))[0]?.note).toBeNull();
+  });
+
+  it('reads the field from Claude Code 2.1.295 on, as a release that was told', () => {
+    expect(ON_FAILURE_SINCE).toBe('2.1.295');
+    expect(readsOnFailure({ state: 'ok', version: '2.1.295' })).toBe(true);
+    expect(readsOnFailure({ state: 'ok', version: '2.1.303', file: 'x' })).toBe(true);
+    expect(readsOnFailure({ state: 'ok', version: '2.2.0' })).toBe(true);
+    expect(readsOnFailure({ state: 'ok', version: '2.1.294' })).toBe(false);
+    expect(readsOnFailure({ state: 'outdated', version: '2.0.0' })).toBe(false);
+    expect(readsOnFailure({ state: 'unknown', reason: 'no claude is on PATH' })).toBe(false);
+    expect(readsOnFailure(null)).toBe(false);
   });
 
   const W = '"hook claude" in .claude/settings.json';
@@ -1464,7 +1532,7 @@ describe("the lines of Claude Code's hook in its settings, and what doctor says 
     // What the hook would do with such a line is not said: it is never asked before a write.
     expect(reported(both('Bash', exec('--root', PROJECT_DIR)))[0]).toMatchObject({ state: 'unstarted', detail: null });
     expect(reportHooks([{ file: FILE, settings: both('Bash', exec('--brief', '404')) }], PROJECT, () => heldHookLine('x'))[0]).toMatchObject({ state: 'unstarted', detail: null });
-    // A line the hook cannot read is said as off all the same: it fails after every write it is started for.
+    // A line the hook cannot read is said as off all the same: the hook says so after every write it is started for.
     expect(reported({ hooks: { PostToolUse: [group(undefined, exec('--nope'))] } })[0]).toMatchObject({ state: 'off', before: [], after: TOOLS });
   });
 

@@ -9,6 +9,34 @@ only fixes, reports less or documents, so `^0.7.0` takes only releases that
 cannot turn a run red. The family's policy is
 [spec-core's ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
+## Unreleased
+
+### Changed
+
+- **The hook says the guard is off with exit 0, where it exited 1.** A
+  question it cannot read and a line of its own that turns the guard off
+  (one it cannot read, a `--root` that is no directory) were one line on
+  stderr and exit 1, which Claude Code counts as a hook that failed: under
+  `"onFailure": "block"` that held every write of the session, the one
+  that mends the line among them. Each is now the same line to the person,
+  as `systemMessage`, and exit 0, and the write goes on as it did, so
+  `onFailure` holds only a hook that did not run
+  ([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
+  Upgrading: a script that read the hook's exit 1 or its stderr reads the
+  line as `systemMessage` on stdout, with exit 0.
+
+### Added
+
+- **`init --block-on-failure` writes `"onFailure": "block"` on its hook
+  entries**, and on those an earlier run wrote, so that Claude Code
+  2.1.295 or later holds a write where the hook cannot start, as in a
+  worktree with no install, or runs past its timeout. It is written only
+  where asked for, and the plugin does not carry it: no page says what an
+  older release does with the key. `doctor` advises it in a note, failing
+  nothing, for a line that guards without it where the Claude Code on
+  `PATH` reads the field
+  ([ADR-0012](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0012-one-way-into-claude-code.md)).
+
 ## 0.19.0
 
 An option that takes one value is given one, and a line that is wrong is

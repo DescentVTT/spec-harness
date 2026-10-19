@@ -38,11 +38,13 @@ import {
   matchingUnder,
   measuresArchive,
   mergeClaudeSettings,
+  withOnFailure,
   withSessionStart,
   mergeMcp,
   mergeSpecBrief,
   mergeSpecGraph,
   missingGitHook,
+  ON_FAILURE_SINCE,
   ONE_STRING,
   patternReader,
   PLUGIN,
@@ -343,17 +345,29 @@ export async function plan(workspace: Workspace, options: Options, io: CliIO): P
     // guard between them: left as they are, they are for the person to mend.
     const broken = lines.some((line) => line.state === 'off' || line.state === 'held') || !lines.some((line) => isStarted(line.before));
     const atStart = 'a SessionStart hook says, as a session starts, what would hold every write of it';
-    if (merged === null) steps.push({ file: SETTINGS, action: broken ? 'advise' : 'keep', detail: left === '' ? 'the guard hooks are installed' : left });
-    else
+    // Asked for, onFailure "block" on init's own entries, those it writes
+    // now and those a run before wrote, where it writes or keeps them: no
+    // page says what a Claude Code before 2.1.295 does with the key, so it
+    // is written only where asked for (ADR-0012).
+    const blocked = options.blockOnFailure && (merged !== null || !broken) ? withOnFailure(merged ?? settings ?? {}) : null;
+    const written = blocked ?? merged;
+    const holds = `onFailure "block" on the entries init writes, so that Claude Code ${ON_FAILURE_SINCE} or later holds a write where the hook cannot start or runs past its timeout`;
+    if (written === null) steps.push({ file: SETTINGS, action: broken ? 'advise' : 'keep', detail: left === '' ? 'the guard hooks are installed' : left });
+    else {
+      // What onFailure adds is said after what else is written, and alone where nothing else is.
+      const what =
+        merged === null
+          ? holds
+          : guarded === null
+            ? `beside the guard hooks, ${atStart}`
+            : `the guard hooks, run with node from the project's install: a PreToolUse hook refuses writes to protected files; a PostToolUse hook warns about writes outside the scope${started === null ? '' : `; ${atStart}`}${left === '' ? '' : `; ${left}`}`;
       steps.push({
         file: SETTINGS,
         action: settings === null ? 'create' : 'update',
-        detail:
-          guarded === null
-            ? `beside the guard hooks, ${atStart}`
-            : `the guard hooks, run with node from the project's install: a PreToolUse hook refuses writes to protected files; a PostToolUse hook warns about writes outside the scope${started === null ? '' : `; ${atStart}`}${left === '' ? '' : `; ${left}`}`,
-        apply: () => writeAtomic(settingsFile, stringify(merged)),
+        detail: blocked === null || merged === null ? what : `${what}; ${holds}`,
+        apply: () => writeAtomic(settingsFile, stringify(written)),
       });
+    }
   }
   // disableAllHooks turns off whatever hooks there are, and those init
   // writes with them: said of the file that holds the key, which is the

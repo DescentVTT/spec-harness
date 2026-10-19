@@ -420,6 +420,92 @@ way.
   holds one. The field is added, so no `schemaVersion` moves. Of the
   plugin's own entries nothing is read, as before.
 
+*Amended 2026-10-19.* **`init --block-on-failure` writes `"onFailure":
+"block"` on its entries, the plugin does not, and `doctor` advises it.**
+A hook that cannot start lets the write go ahead: where the project a
+session names is a worktree with no install, the script on the hook's line
+is not there, node exits 1, and Claude Code reads that as an error that
+does not block (ADR-0005, amended the same day, has what was measured and
+what the hooks reference says of the field). `onFailure: "block"` on the
+entry holds the write instead, from Claude Code 2.1.295 on, and the hook
+no longer exits 1 for any answer of its own, so the field holds only a
+hook that did not run, or ran past its timeout.
+
+Whether to write it turns on what a Claude Code that does not know the key
+does with an entry that carries it. A settings file of the project's is
+read by every clone's Claude Code, and the plugin's by whatever release
+loads it, and the oldest that runs the hooks is 2.1.139
+(`CLAUDE_CODE_MINIMUM`). Read 2026-10-19:
+
+- **The hooks reference** (<https://code.claude.com/docs/en/hooks>,
+  *Command hook fields*) has `onFailure` "Requires Claude Code v2.1.295 or
+  later", and says nothing of an older release.
+- **The changelog** (<https://code.claude.com/docs/en/changelog>) adds the
+  field under 2.1.295, of October 8, 2026, and says nothing of an unknown
+  key on a hook's entry under any release: what it has is an unrecognized
+  hook event name that no longer has a settings file ignored (2.1.101), a
+  malformed hooks entry that no longer invalidates the whole file
+  (2.1.122), and a top-level `$schema` in a plugin's `hooks/hooks.json`
+  that no longer shows an "unknown key" notice (2.1.274).
+- **The settings page** (<https://code.claude.com/docs/en/settings>, *Fix a
+  broken settings file*) has a value the schema rejects make Claude Code
+  set aside the file, or the entry alone, without saying which keys of a
+  hook's entry its schema of a release accepts.
+- **The plugin manifest reference**
+  (<https://code.claude.com/docs/en/plugins/manifest-reference>,
+  *Unrecognized fields*) has some of a plugin's objects strict, an
+  unknown key in one keeping the plugin from loading, and a field it names
+  (`options`) that keeps a plugin from loading on a release before the one
+  that added it. It is not the page of a hook's entry.
+
+So what a release from 2.1.139 to 2.1.294 does with the key cannot be
+told: it may pass over it, or set the entry aside as one its schema
+rejects, which would leave the guard unloaded and every write unchecked on
+that release. That follows from the pages and is none of their sentences.
+The side that holds the write is the one that keeps the hook loaded on
+every release a consumer may still run:
+
+- **`init` writes the field only where it is asked to**, with
+  `--block-on-failure`, an option of `init` alone (`src/usage.ts`). Asked,
+  it gives `"onFailure": "block"` to each of its own entries, the line it
+  writes under `PreToolUse`, `PostToolUse` and `SessionStart`, in a file it
+  writes them into and in one an earlier run wrote them into (`update`),
+  and to no line a person wrote or changed, which is theirs. Exit 2 does
+  nothing more than a notice after a write and as a session starts, by the
+  reference, so the field changes nothing there; it is written on all
+  three so that they stay one line. Without the option no entry carries
+  it, as in every release, and none that carries it loses it. A file that
+  holds a line `doctor` fails is the person's to mend, as before, and
+  `init` writes nothing into it.
+- **The plugin's `hooks/hooks.json` does not carry it.** A plugin has no
+  option, and is read by whatever release loads it.
+  `tests/integration/released-lines.test.ts` holds its entries to the four
+  keys every release wrote.
+- **`doctor` says which a line has, and advises it** where the Claude Code
+  on `PATH` reads the field, at 2.1.295 or later: of a line that guards
+  and whose entries set none, a note that a hook that cannot start, or
+  runs past its timeout, lets the write go ahead, that `"onFailure":
+  "block"` holds it where every Claude Code that reads the file is 2.1.295
+  or later, and how it is written, `init --write --block-on-failure` for
+  init's own entries in `.claude/settings.json`. It fails nothing, and is
+  not said where the release is older or cannot be told. Of a line that
+  sets it, the note says what it holds, as before. `--format json` has
+  each line's `onFailure`, as before, and the note as `note`; no field is
+  added.
+
+Input accepted that was refused, and a note added: a minor release beside
+the exit code ADR-0005 changes (spec-core's ADR-0009). What was found and
+left as it was:
+
+- **The plugin's own entries.** A plugin user has no way to the field but
+  to turn the plugin off for the project and have `init`'s entries
+  instead; `doctor` does not say so, since it reads no line of the
+  plugin's.
+- **The timeout on the entry.** `init` and the plugin write `"timeout":
+  60`. Under `onFailure: "block"` a hook that runs past it holds the
+  write, and without the field lets it go ahead. What the hook waits on
+  within that minute is not changed here.
+
 ## Consequences
 
 - A plugin turned on by managed settings or `--settings` is invisible to

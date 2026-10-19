@@ -24,9 +24,28 @@ import { arrayMatcher, GIT_HOOK_LINE, GUARD_HOOK, matchingUnder, mcpServer, merg
 import { CALLABLE_TOOLS, WRITING_TOOLS } from '../../src/hooks.js';
 import { claudeHookLine, refusal, twoValues } from '../../src/usage.js';
 import { parseOptions } from '../../src/workspace.js';
-import { brief, BRIEF_FILE, cleanup, cli, parsed, repository, ROOT, temp, type Repository } from './helpers.js';
+import { brief, BRIEF_FILE, cleanup, cli, parsed, repository, ROOT, temp, type Captured, type Repository } from './helpers.js';
 
 afterAll(cleanup);
+
+/**
+ * The hook's answer where it checks nothing and says so: one line to the
+ * person, as `systemMessage`, and exit 0. Exit 1 said it before, which
+ * Claude Code counts as a hook that failed, and `onFailure: "block"` holds
+ * the write for (ADR-0005).
+ */
+const warning = (said: string): Captured => ({ code: 0, stdout: `${JSON.stringify({ systemMessage: said })}\n`, stderr: '' });
+
+/** The line a run says as a warning, alone on stdout with nothing on stderr, or `null` for any other answer. */
+function warned(result: Captured): string | null {
+  if (result.code !== 0 || result.stderr !== '') return null;
+  try {
+    const value = JSON.parse(result.stdout) as Record<string, unknown>;
+    return Object.keys(value).length === 1 && typeof value['systemMessage'] === 'string' ? value['systemMessage'] : null;
+  } catch {
+    return null;
+  }
+}
 
 const SCRIPT = 'node_modules/@descent-vtt/spec-harness/bin/spec-harness.js';
 
@@ -137,6 +156,12 @@ describe('the lines the releases wrote', () => {
       for (const hook of hooks.hooks[event]?.flatMap((group) => group.hooks) ?? []) expect(lines, event).toContainEqual([hook.command, ...hook.args]);
     }
     expect(hooks.hooks['SessionStart']).toHaveLength(1);
+    // No onFailure on the plugin's entries: what a Claude Code before 2.1.295
+    // does with the key is on no page, and a plugin is read by whatever
+    // release loads it, where init writes the key only when asked (ADR-0012).
+    for (const event of Object.keys(hooks.hooks)) {
+      for (const hook of hooks.hooks[event]?.flatMap((group) => group.hooks) ?? []) expect(Object.keys(hook), event).toEqual(['type', 'command', 'args', 'timeout']);
+    }
     const servers = JSON.parse(readFileSync(join(ROOT, '.mcp.json'), 'utf8')) as { mcpServers: Record<string, { command: string; args: string[] }> };
     const server = servers.mcpServers['spec-harness'] as { command: string; args: string[] };
     expect(lines).toContainEqual([server.command, ...server.args]);
@@ -192,7 +217,7 @@ describe('the lines the releases wrote', () => {
   });
 
   it("put no --root on a hook's line: one that stands there, and what the hook says of it, is a person's", () => {
-    // Claude Code's hook says a root that is not there, with exit 1. Every
+    // Claude Code's hook says a root that is not there, with exit 0. Every
     // line a release wrote for a hook is still handed to it without one.
     const hooks = WRITTEN.filter((written) => wordsOf(written.line).includes('hook'));
     expect(hooks.map((written) => wordsOf(written.line).at(-1))).toEqual(['claude', 'claude', 'git', 'git', 'git']);
@@ -238,8 +263,8 @@ describe("Claude Code's hook, with more on its line than a release wrote", () =>
     }
   });
 
-  it('keeps its own answers: exit 1 for a question it cannot read, exit 0 outside a work tree, exit 2 for a brief that is not one', async () => {
-    expect(await cli(['hook', 'claude', 'extra', '--strict'], repo.root, { stdin: 'not json' })).toEqual({ code: 1, stdout: '', stderr: 'spec-harness: the hook input is not JSON\n' });
+  it('keeps its own answers: a warning for a question it cannot read, exit 0 outside a work tree, exit 2 for a brief that is not one', async () => {
+    expect(await cli(['hook', 'claude', 'extra', '--strict'], repo.root, { stdin: 'not json' })).toEqual(warning('spec-harness: the hook input is not JSON, so nothing it asks about is checked'));
     // A root that is there and is no work tree is a session outside one.
     expect(await cli(['hook', 'claude', '--root', temp()], repo.root, { stdin: QUESTION() })).toEqual({ code: 0, stdout: '', stderr: '' });
     expect(await cli(['hook', 'claude', '--brief', '404'], repo.root, { stdin: QUESTION() })).toEqual({
@@ -259,35 +284,37 @@ describe("Claude Code's hook, with a --root on its line that is not there", () =
   // No release wrote a --root on the hook's line: one that stands there is a
   // person's. A root that is a file, or is not there, read as a session
   // outside a work tree: exit 0, no word, and the write went on unguarded.
-  // It is said now, and with exit 1: to Claude Code an error that does not
-  // block, whose first line of stderr it shows the person. Exit 2 would hold
-  // every write of the session over a line only a write can mend (ADR-0005).
-  const said = (root: string): string =>
-    `spec-harness: --root is "${root}", which is not a directory, so the guard is off and this write is not checked; give the hook's line a directory that exists, or leave --root out for the project Claude Code names\n`;
+  // It is said now, in one line to the person, and exit 0: the write goes
+  // on as it would without the hook. Exit 2 would hold every write of the
+  // session over a line only a write can mend, and so would exit 1 under
+  // onFailure "block", which Claude Code counts as a hook that failed
+  // (ADR-0005).
+  const said = (root: string): Captured =>
+    warning(`spec-harness: --root is "${root}", which is not a directory, so the guard is off and this write is not checked; give the hook's line a directory that exists, or leave --root out for the project Claude Code names`);
 
-  it('says so in one line with exit 1, before a write and after one, and refuses nothing', async () => {
+  it('says so in one line with exit 0, before a write and after one, and refuses nothing', async () => {
     const nowhere = join(repo.root, 'nowhere');
     for (const event of ['PreToolUse', 'PostToolUse']) {
-      expect(await cli(['hook', 'claude', '--root', nowhere], repo.root, { stdin: QUESTION(event) }), event).toEqual({ code: 1, stdout: '', stderr: said(nowhere) });
+      expect(await cli(['hook', 'claude', '--root', nowhere], repo.root, { stdin: QUESTION(event) }), event).toEqual(said(nowhere));
     }
     const file = join(repo.root, 'src', 'db', 'schema.ts');
-    expect(await cli(['hook', 'claude', '--root', file], repo.root, { stdin: QUESTION() })).toEqual({ code: 1, stdout: '', stderr: said(file) });
+    expect(await cli(['hook', 'claude', '--root', file], repo.root, { stdin: QUESTION() })).toEqual(said(file));
     // Space alone names no directory either; git started in none for it.
-    expect(await cli(['hook', 'claude', '--root', ' '], repo.root, { stdin: QUESTION() })).toEqual({ code: 1, stdout: '', stderr: said(' ') });
+    expect(await cli(['hook', 'claude', '--root', ' '], repo.root, { stdin: QUESTION() })).toEqual(said(' '));
   });
 
-  it('is exit 1 whatever stands beside it, never the exit 2 that holds every write, and never an answer', async () => {
+  it('is a warning whatever stands beside it, never the exit 2 that holds every write, and never an answer', async () => {
     const nowhere = join(repo.root, 'nowhere');
     // --brief 404 alone holds the write, exit 2: the root is asked about first, since no brief can be read without one.
     for (const rest of [['--brief', '404'], ['--brief', '', '--base', ' '], ['001', '--brief', '001', '--list', '--path', 'src/a.ts', '--strict']]) {
       const result = await cli(['hook', 'claude', '--root', nowhere, ...rest], repo.root, { stdin: QUESTION() });
-      expect(result, rest.join(' ')).toEqual({ code: 1, stdout: '', stderr: said(nowhere) });
+      expect(result, rest.join(' ')).toEqual(said(nowhere));
     }
   });
 
   it('keeps what the hook answered before it: a question it cannot read, and a tool that writes no file', async () => {
     const nowhere = join(repo.root, 'nowhere');
-    expect(await cli(['hook', 'claude', '--root', nowhere], repo.root, { stdin: 'not json' })).toEqual({ code: 1, stdout: '', stderr: 'spec-harness: the hook input is not JSON\n' });
+    expect(await cli(['hook', 'claude', '--root', nowhere], repo.root, { stdin: 'not json' })).toEqual(warning('spec-harness: the hook input is not JSON, so nothing it asks about is checked'));
     const bash = JSON.stringify({ session_id: 's', cwd: repo.root, hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: 'ls' } });
     expect(await cli(['hook', 'claude', '--root', nowhere], repo.root, { stdin: bash })).toEqual({ code: 0, stdout: '', stderr: '' });
   });
@@ -309,10 +336,10 @@ describe("Claude Code's hook, on a line the parser cannot read", () => {
   // or an --at that is none: each was exit 2 before the question was read,
   // which to Claude Code holds the write, and every write after it, the one
   // that mends the line among them. It is said as a root that is not there
-  // is: one line, exit 1, where there is a write the line leaves unchecked
-  // (ADR-0005).
-  const OFF = '), so the guard is off and this write is not checked; mend it in Claude Code\'s settings, where init writes "hook claude" and nothing after it\n';
-  const said = (wrong: string): string => `spec-harness: the hook's line cannot be read (${wrong}${OFF}`;
+  // is: one line to the person, exit 0, where there is a write the line
+  // leaves unchecked (ADR-0005).
+  const OFF = '), so the guard is off and this write is not checked; mend it in Claude Code\'s settings, where init writes "hook claude" and nothing after it';
+  const said = (wrong: string): Captured => warning(`spec-harness: the hook's line cannot be read (${wrong}${OFF}`);
 
   /** Lines node's parser refuses, each with how its refusal starts: the rest is node's to word. */
   const REFUSED: readonly (readonly [readonly string[], string])[] = [
@@ -333,32 +360,31 @@ describe("Claude Code's hook, on a line the parser cannot read", () => {
     [['--at', 'sideways'], '--at must be base, head or both, not "sideways"'],
   ];
 
-  it('says so in one line with exit 1, before a write and after one, and holds no write for it', async () => {
+  it('says so in one line with exit 0, before a write and after one, and holds no write for it', async () => {
     for (const event of ['PreToolUse', 'PostToolUse']) {
       for (const [rest, starts] of REFUSED) {
         const result = await cli(['hook', 'claude', ...rest], repo.root, { stdin: QUESTION(event) });
         const where = `${event}: ${rest.join(' ')}`;
-        expect({ code: result.code, stdout: result.stdout }, where).toEqual({ code: 1, stdout: '' });
-        expect(result.stderr.startsWith(`spec-harness: the hook's line cannot be read (${starts}`), `${where}: ${result.stderr}`).toBe(true);
-        expect(result.stderr.endsWith(OFF), where).toBe(true);
-        // One line: Claude Code shows the first of a hook that exits 1.
-        expect(result.stderr.indexOf('\n'), where).toBe(result.stderr.length - 1);
+        const line = warned(result);
+        expect(line?.startsWith(`spec-harness: the hook's line cannot be read (${starts}`), `${where}: ${JSON.stringify(result)}`).toBe(true);
+        expect(line?.endsWith(OFF), where).toBe(true);
+        // One line: what the person is shown.
+        expect(line, where).not.toContain('\n');
       }
       for (const [rest, wrong] of NONE) {
-        expect(await cli(['hook', 'claude', ...rest], repo.root, { stdin: QUESTION(event) }), `${event}: ${rest.join(' ')}`).toEqual({ code: 1, stdout: '', stderr: said(wrong) });
+        expect(await cli(['hook', 'claude', ...rest], repo.root, { stdin: QUESTION(event) }), `${event}: ${rest.join(' ')}`).toEqual(said(wrong));
       }
     }
   });
 
   it('keeps on one line what node says in three of an option that may have lost its value', async () => {
     const result = await cli(['hook', 'claude', '--root', '--brief', '001'], repo.root, { stdin: QUESTION() });
-    expect({ code: result.code, stdout: result.stdout }).toEqual({ code: 1, stdout: '' });
-    expect(result.stderr).toBe(
+    expect(result).toEqual(
       said("Option '--root' argument is ambiguous. Did you forget to specify the option argument for '--root'? To specify an option argument starting with a dash use '--root=-XYZ'."),
     );
   });
 
-  it('is exit 1 whatever else stands on the line or names the brief, never the exit 2 that holds every write, and never an answer', async () => {
+  it('is a warning whatever else stands on the line or names the brief, never the exit 2 that holds every write, and never an answer', async () => {
     // --brief 404 alone holds the write, exit 2, and so does SPEC_BRIEF: a line that cannot be read names no round.
     for (const rest of [
       ['--brief', '404', '--nope'],
@@ -373,15 +399,14 @@ describe("Claude Code's hook, on a line the parser cannot read", () => {
     ]) {
       for (const event of ['PreToolUse', 'PostToolUse']) {
         const result = await cli(['hook', 'claude', ...rest], repo.root, { stdin: QUESTION(event), env: { SPEC_BRIEF: '404' } });
-        expect({ code: result.code, stdout: result.stdout }, `${event}: ${rest.join(' ')}`).toEqual({ code: 1, stdout: '' });
-        expect(result.stderr.endsWith(OFF), `${event}: ${rest.join(' ')}`).toBe(true);
+        expect(warned(result)?.endsWith(OFF), `${event}: ${rest.join(' ')}: ${JSON.stringify(result)}`).toBe(true);
       }
     }
   });
 
   it('says two values for an option that takes one, naming both, and guards where the two name one thing as it reads them', async () => {
     // --root nowhere --root . guarded in ., and --brief 001 --brief 404 held every write for 404.
-    const twice = (option: string, first: string, other: string): string =>
+    const twice = (option: string, first: string, other: string): Captured =>
       said(`--${option} is given twice, as ${JSON.stringify(first)} and as ${JSON.stringify(other)}, and one of the two would go unread`);
     for (const event of ['PreToolUse', 'PostToolUse']) {
       for (const [rest, option, first, other] of [
@@ -392,7 +417,7 @@ describe("Claude Code's hook, on a line the parser cannot read", () => {
         [['--format', 'json', '--format', 'pretty'], 'format', 'json', 'pretty'],
         [['--note', 'a', '--note', 'b'], 'note', 'a', 'b'],
       ] as const) {
-        expect(await cli(['hook', 'claude', ...rest], repo.root, { stdin: QUESTION(event) }), `${event}: ${rest.join(' ')}`).toEqual({ code: 1, stdout: '', stderr: twice(option, first, other) });
+        expect(await cli(['hook', 'claude', ...rest], repo.root, { stdin: QUESTION(event) }), `${event}: ${rest.join(' ')}`).toEqual(twice(option, first, other));
       }
     }
     // A relative root is read from where the hook is started, which is not the directory a test runs it for.
@@ -406,14 +431,13 @@ describe("Claude Code's hook, on a line the parser cannot read", () => {
   it("is the hook's line wherever the option stands, and a value before the command is not taken for it", async () => {
     for (const argv of [['--nope', 'hook', 'claude'], ['hook', '--nope', 'claude'], ['--root', repo.root, 'hook', 'claude', '--nope'], ['hook', 'claude', 'extra', '-x']]) {
       const result = await cli(argv, repo.root, { stdin: QUESTION() });
-      expect({ code: result.code, stdout: result.stdout }, argv.join(' ')).toEqual({ code: 1, stdout: '' });
-      expect(result.stderr.endsWith(OFF), argv.join(' ')).toBe(true);
+      expect(warned(result)?.endsWith(OFF), `${argv.join(' ')}: ${JSON.stringify(result)}`).toBe(true);
     }
   });
 
   it('keeps what the hook answered before it: a question it cannot read, and a tool that writes no file', async () => {
-    expect(await cli(['hook', 'claude', '--nope'], repo.root, { stdin: 'not json' })).toEqual({ code: 1, stdout: '', stderr: 'spec-harness: the hook input is not JSON\n' });
-    expect(await cli(['hook', 'claude', '--format', 'xml'], repo.root, { stdin: '{"tool_name":"Write"}' })).toEqual({ code: 1, stdout: '', stderr: 'spec-harness: the hook input names no event or tool\n' });
+    expect(await cli(['hook', 'claude', '--nope'], repo.root, { stdin: 'not json' })).toEqual(warning('spec-harness: the hook input is not JSON, so nothing it asks about is checked'));
+    expect(await cli(['hook', 'claude', '--format', 'xml'], repo.root, { stdin: '{"tool_name":"Write"}' })).toEqual(warning('spec-harness: the hook input names no event or tool, so nothing it asks about is checked'));
     const bash = JSON.stringify({ session_id: 's', cwd: repo.root, hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: 'ls' } });
     for (const rest of [['--nope'], ['--root'], ['--at', 'sideways']]) {
       expect(await cli(['hook', 'claude', ...rest], repo.root, { stdin: bash }), rest.join(' ')).toEqual({ code: 0, stdout: '', stderr: '' });
@@ -544,7 +568,7 @@ describe("doctor, of the hook's line in Claude Code's settings", () => {
           expect(result, rest.join(' ')).toEqual({ code: 0, stdout: '', stderr: '' });
         } else {
           expect(said.detail.startsWith(where), said.detail).toBe(true);
-          expect(result, rest.join(' ')).toEqual({ code: 1, stdout: '', stderr: `spec-harness: ${said.detail.slice(where.length).replace('no write is checked', 'this write is not checked')}\n` });
+          expect(result, rest.join(' ')).toEqual(warning(`spec-harness: ${said.detail.slice(where.length).replace('no write is checked', 'this write is not checked')}`));
         }
       }
     } finally {
@@ -555,9 +579,10 @@ describe("doctor, of the hook's line in Claude Code's settings", () => {
 
 describe("Claude Code's hook, whatever is on its line", () => {
   // The two things a line must never do: answer `allow`, which would skip
-  // the person's own permission prompt, and hold a write, exit 2, for what is
-  // wrong with the line itself. Exit 2 is for a write the hook could not
-  // check, as for the brief that is named and is not one, above.
+  // the person's own permission prompt, and hold a write for what is wrong
+  // with the line itself: exit 2 holds it, and so does any other exit but 0
+  // under onFailure "block". Exit 2 is for a write the hook could not check,
+  // as for the brief that is named and is not one, above.
   const LINES: readonly (readonly string[])[] = [
     // Read, and passed over: the word as an option, an argument and a value.
     ['--allow', 'allow', '--note', 'allow'],
@@ -580,7 +605,7 @@ describe("Claude Code's hook, whatever is on its line", () => {
         const result = await cli(['hook', 'claude', ...rest], repo.root, { stdin: before(path) });
         const where = `${rest.join(' ')} | ${path}`;
         expect(result.stdout, where).not.toContain('"allow"');
-        expect([0, 1], where).toContain(result.code);
+        expect(result.code, where).toBe(0);
         // The line that is read still decides: the protected file is refused.
         if (rest === LINES[0] && path === 'src/db/schema.ts') expect(JSON.parse(result.stdout)).toMatchObject({ hookSpecificOutput: { permissionDecision: 'deny' } });
       }

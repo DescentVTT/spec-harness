@@ -48,6 +48,7 @@ describe('options', () => {
       version: false,
       write: false,
       gitHook: false,
+      blockOnFailure: false,
       paths: [],
       reason: undefined,
       options: [],
@@ -73,6 +74,7 @@ describe('options', () => {
       '--strict',
       '--write',
       '--git-hook',
+      '--block-on-failure',
       '--path', 'a.ts',
       '--path', 'b.ts',
       '--reason', 'why',
@@ -91,7 +93,7 @@ describe('options', () => {
       command: 'escalate',
       positionals: [],
       // Each once, in the order given, by its long name.
-      given: ['brief', 'base', 'root', 'format', 'strict', 'write', 'git-hook', 'path', 'reason', 'option', 'recommend', 'list', 'show', 'allow', 'deny', 'note', 'id', 'at'],
+      given: ['brief', 'base', 'root', 'format', 'strict', 'write', 'git-hook', 'block-on-failure', 'path', 'reason', 'option', 'recommend', 'list', 'show', 'allow', 'deny', 'note', 'id', 'at'],
       // Every value of each option that takes one; a list has its own, and an option that takes none has no value.
       written: { brief: ['012'], base: ['origin/main'], root: ['/repo'], format: ['json'], reason: ['why'], recommend: ['Allow'], show: ['E-1'], note: ['n'], id: ['p'], at: ['head'] },
       brief: '012',
@@ -103,6 +105,7 @@ describe('options', () => {
       version: false,
       write: true,
       gitHook: true,
+      blockOnFailure: true,
       paths: ['a.ts', 'b.ts'],
       reason: 'why',
       options: ['Allow: cost', 'Refuse'],

@@ -99,6 +99,50 @@ describe('init', () => {
     expect(['.spec-brief.json', '.spec-harness.json', '.claude/settings.json', '.mcp.json'].map((file) => repo.read(file))).toEqual(contents);
   });
 
+  it('writes onFailure "block" on its own entries only when asked, onto entries a run before wrote too, and never onto a person\'s', async () => {
+    const BLOCKS = { ...GUARD_HOOK, onFailure: 'block' };
+    const HOLDS = 'onFailure "block" on the entries init writes, so that Claude Code 2.1.295 or later holds a write where the hook cannot start or runs past its timeout';
+    const entries = (repo: Repository): unknown[] => {
+      const { hooks } = JSON.parse(repo.read('.claude/settings.json')) as { hooks: Record<string, { hooks: unknown[] }[]> };
+      return ['PreToolUse', 'PostToolUse', 'SessionStart'].map((event) => hooks[event]?.[0]?.hooks[0]);
+    };
+    // Not asked: no entry carries it, as in every release.
+    const plain = installed();
+    const first = await cli(['init', '--write'], plain.root);
+    expect(first.code).toBe(0);
+    expect(first.stdout).not.toContain('onFailure');
+    expect(entries(plain)).toEqual([GUARD_HOOK, GUARD_HOOK, GUARD_HOOK]);
+    // Asked, on a file that holds them already: each of the three is given it, and a run after changes nothing.
+    const plan = await cli(['init', '--block-on-failure'], plain.root);
+    expect(plan.stdout).toContain(`update  .claude/settings.json\n        ${HOLDS}\n`);
+    expect(entries(plain)).toEqual([GUARD_HOOK, GUARD_HOOK, GUARD_HOOK]);
+    expect((await cli(['init', '--write', '--block-on-failure'], plain.root)).code).toBe(0);
+    expect(entries(plain)).toEqual([BLOCKS, BLOCKS, BLOCKS]);
+    expect((await cli(['init', '--block-on-failure'], plain.root)).stdout).toContain('keep    .claude/settings.json\n        the guard hooks are installed\n');
+    // Without the option a run takes nothing away.
+    expect((await cli(['init', '--write'], plain.root)).stdout).toContain('keep    .claude/settings.json\n');
+    expect(entries(plain)).toEqual([BLOCKS, BLOCKS, BLOCKS]);
+    // Asked on a file that has none: written with the entries, and said after them.
+    const fresh = installed();
+    const written = await cli(['init', '--write', '--block-on-failure'], fresh.root);
+    expect(written.stdout).toContain("create  .claude/settings.json\n        the guard hooks, run with node from the project's install: ");
+    expect(written.stdout).toContain(`; ${HOLDS}\n`);
+    expect(entries(fresh)).toEqual([BLOCKS, BLOCKS, BLOCKS]);
+    // A line a person wrote is theirs, the field with the rest of it.
+    const theirs = { type: 'command', command: 'node', args: [...(GUARD_HOOK['args'] as string[]), '--base', 'main'] };
+    const person = repository({ '.claude/settings.json': JSON.stringify({ hooks: { PreToolUse: [{ matcher: 'Edit|Write|MultiEdit|NotebookEdit', hooks: [theirs] }], PostToolUse: [{ matcher: 'Edit|Write|MultiEdit|NotebookEdit', hooks: [theirs] }] } }) });
+    const kept = person.read('.claude/settings.json');
+    const left = await cli(['init', '--write', '--block-on-failure'], person.root);
+    expect(left.stdout).toContain('keep    .claude/settings.json\n        "hook claude --base main" in .claude/settings.json is more than init writes, and guards');
+    expect(person.read('.claude/settings.json')).toBe(kept);
+    // A file that holds a line that turns the guard off is the person's to mend, and is left as it is, init's own entries in it with the rest.
+    const off = { ...theirs, args: [...(GUARD_HOOK['args'] as string[]), '--nope'] };
+    const broken = repository({ '.claude/settings.json': JSON.stringify({ hooks: { PreToolUse: [{ hooks: [off, GUARD_HOOK] }], PostToolUse: [{ hooks: [off, GUARD_HOOK] }] } }) });
+    const before = broken.read('.claude/settings.json');
+    expect((await cli(['init', '--write', '--block-on-failure'], broken.root)).stdout).toContain('advise  .claude/settings.json\n');
+    expect(broken.read('.claude/settings.json')).toBe(before);
+  });
+
   it('merges into settings that exist, keeping the person\'s own hooks and servers', async () => {
     const lint = { matcher: 'Write', hooks: [{ type: 'command', command: 'npm run lint' }] };
     const repo = repository({

@@ -1835,6 +1835,103 @@ spec-brief where a brief is named. The hooks reference has an interactive
 session's SessionStart hooks run in the background, with Claude's first
 response waiting for them, once a session.
 
+*Amended 2026-10-19.* **The hook says the guard is off with exit 0, so that
+`onFailure` holds only a hook that did not run.** *Claimed* by round 24's
+evaluation of a consumer's request, measured then: where the session's
+project is itself a worktree with no install, the hook's line names a
+script that is not there, node exits 1, and Claude Code goes ahead with
+the write, a guard off with only a notice; and setting `"onFailure":
+"block"` on the entry would also turn the hook's own exit 1, which it
+gives where it means that the guard is off and the write goes on, into a
+held write.
+
+What Claude Code's hooks reference has, read 2026-10-19
+(<https://code.claude.com/docs/en/hooks>, *Exit code output*, *Other exit
+codes*, *Timeouts*, *Block the action when a hook fails* and *JSON
+output*). A hook that exits with a code other than 0 and 2, or fails in
+another way, as by not starting, is a non-blocking error: the action goes
+ahead and the transcript shows a notice with the first line of its
+stderr, "except for hooks whose failure blocks the action". A hook that
+reaches its timeout is cancelled, and before a tool call does not block it.
+`onFailure` on a command hook, read by Claude Code 2.1.295 and later, is
+`"continue"` by default; set to `"block"`, a failure does what exit 2 does
+on the event, and the failures it lists are a hook that cannot start, an
+exit code other than 0 and 2 (even one that printed JSON allowing the
+action), a timeout and output that is no valid JSON. `systemMessage` is a
+field of the hook's JSON every event accepts, a warning shown to the
+person; the events that discard it or show it elsewhere are listed under
+each event, and `PreToolUse`, `PostToolUse` and `SessionStart` are not
+among them.
+
+*Measured* through the launcher of main (3c4112c) and of this change
+(Windows 11, Node 24.18.1, Git for Windows 2.55.0), in a scratch project on
+a brief's branch whose brief protects `src/db/**` (`b25-measure-b1.mjs`):
+
+| The hook's line, or its question | main | Now |
+| --- | --- | --- |
+| `hook claude` as `init` writes it, the placeholder filled with a linked worktree that has no install, before a write | node exits 1, `Error: Cannot find module ...`, whose first line on stderr is `node:internal/modules/cjs/loader:1520` | the same: the harness does not run |
+| `hook claude --nope`, `--format xml`, `--root --brief 001`, two values for one option, before a write and after one | exit 1, the line on stderr: `the hook's line cannot be read (...), so the guard is off and this write is not checked; ...` | exit 0, the same line as `systemMessage` |
+| `hook claude --root nowhere`, or a root that is a file, before a write and after one | exit 1, `--root is "nowhere", which is not a directory, so the guard is off ...` | exit 0, the same line as `systemMessage` |
+| a question that is not JSON, is not an object, or names no event or tool, as a `Stop` question does | exit 1, `the hook input is not JSON` and the like | exit 0, the same words and `, so nothing it asks about is checked`, as `systemMessage` |
+| a question whose input cannot be read at all (in-process, a stream that throws) | exit 1, `the hook input could not be read: ...` | exit 0, the same as `systemMessage` |
+| any of these as a session starts | exit 0, the line as `systemMessage` and `additionalContext` | the same |
+| `hook claude --brief 404`, a configuration that does not load, briefs that cannot be read | exit 2, the write held | the same |
+| `hook claude` before and after every write, by each tool, and git's hook | | the same, byte for byte |
+
+So the claim holds. Under `onFailure: "block"`, the field Claude Code
+reads to hold a hook that could not run, the hook's exit 1 for a line of
+its own that turns the guard off held every write of the session, the
+one that mends the line among them, which is what the amendments of
+2026-10-11 made that exit to avoid.
+
+- **No answer of the hook's is exit 1.** Where it means that the guard is
+  off and the write goes on, for a line it cannot read, a root that is no
+  directory, or a question it cannot read, it says so in the same one
+  line, to the person as `systemMessage`, and exits 0 (`warningResponse`,
+  `src/hooks.ts`). The write goes on as it did, and the person reads the
+  line as a warning where they read it as a hook error. Exit 2 is for a
+  write the hook could not check, as before, and a timeout or a script
+  that is not there is no answer of the hook's at all. So `onFailure:
+  "block"` holds a write only where the hook did not run, which is what
+  the field is for; a person who sets it no longer holds every write for
+  a line the hook says is off.
+- **The person is told, as before.** The reference has a non-blocking
+  error's notice shown in the transcript and `systemMessage` shown to the
+  person, and says of neither that it reaches Claude. Claude reads the line
+  as a session starts, where it is `additionalContext` as well.
+- **A question the hook cannot read is said the same way.** It has no event
+  to answer by, and `systemMessage` is a field every event takes; the line
+  says, after what was wrong, that nothing it asks about is checked.
+- **`doctor` reads the field as the hook now answers.** Of a line that sets
+  `onFailure: "block"` it says that Claude Code 2.1.295 or later holds a
+  write when the hook fails, by not starting or by running past its
+  timeout, where the note said the field held every write under a line
+  that turns the guard off. What `init` writes of the field, and what
+  `doctor` advises, is ADR-0012's (amended the same day).
+- **Every other answer is as it was.** Every line of the hook the
+  amendments above measured, before seven writes and after each, as a
+  session starts, three questions it cannot read and git's hook, was run
+  through the launcher of main and of this change taking turns
+  (`b25-hook-compare.mjs`): of 214 runs, 130 are the same, the hook's own
+  lines and git's hook among them; 69 are a line that turns the guard off,
+  or a question it cannot read, said as `systemMessage` with exit 0 where
+  it was stderr with exit 1; 8 are `--help`, whose words are new; and 7 are
+  `hook claude --block-on-failure`, a line the parser refused, which now
+  names an option `init` reads and so is passed over and guards, as any
+  option another command reads is. `tests/integration/released-lines.test.ts`
+  holds the hook to exit 0 for every line it says is off, and to no exit
+  1 for any line at all.
+
+An exit code that changed is a minor release (spec-core's ADR-0009). What
+was measured for this and left as it was:
+
+- **A hook that cannot start says nothing a person can act on.** Where the
+  script is not there, the notice carries node's first line on stderr,
+  `node:internal/modules/cjs/loader:1520`, which names neither the harness
+  nor the missing install. The harness cannot speak where it does not run;
+  `doctor` run in that work tree finds the siblings in the main work
+  tree's install and says nothing of the hook's script.
+
 ## Consequences
 
 An agent that writes through a shell passes the guard and is caught at the

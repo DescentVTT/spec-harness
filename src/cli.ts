@@ -27,7 +27,7 @@ import { gitDirectories, holdsGit, isDirectory, keepCall, loadConfig, realSpelli
 import { GitError, show, stagedChanges } from './git.js';
 import type { DocumentReader } from './document.js';
 import type { Decision } from './guard.js';
-import { afterResponse, callFile, callRecord, claudeResponse, gitResponse, keptCall, parseClaudeHook, SESSION_START, sessionResponse, warningsKept, warningsOf, type CallRecord, type HookRequest, type HookResponse } from './hooks.js';
+import { afterResponse, callFile, callRecord, claudeResponse, gitResponse, keptCall, parseClaudeHook, SESSION_START, sessionResponse, warningResponse, warningsKept, warningsOf, type CallRecord, type HookRequest, type HookResponse } from './hooks.js';
 import type { Base } from './round.js';
 import type { BriefRow } from './types.js';
 import { SiblingError } from './siblings.js';
@@ -85,7 +85,9 @@ Commands:
   premises            Do the live briefs' premises still hold? For CI: exit 1 when one
                       is stale, or, with --strict, when spec-guard cannot read one.
   init                Configure the spec-* tools to agree. Prints the plan; --write
-                      applies it; --git-hook adds a pre-commit hook.
+                      applies it; --git-hook adds a pre-commit hook; --block-on-failure
+                      has Claude Code 2.1.295 or later hold a write when the hook cannot
+                      start or runs past its timeout.
   mcp                 Serve start_round, check_path, request_escalation, audit_round,
                       list_rounds and the workflow prompts over MCP on stdio.
   doctor              Which siblings are installed, at which versions, which brief is
@@ -108,6 +110,7 @@ Options:
   --format <fmt>      pretty or json; audit and premises also gitlab, sarif or github.
                       For every command but hook and mcp.
   --strict            Warnings fail the run. For guard, audit, premises and doctor.
+  --block-on-failure  onFailure "block" on the hook entries init writes. For init.
   --help, --version   One of the two: both on one line are refused.
 
 An option a command does not read, an argument it does not take, an option or an
@@ -116,8 +119,9 @@ and an option that takes one value given two that name two things are refused, e
 not read as if they were not there, and so with --help or --version on the line. The
 same value twice, as --root . --root ./, is read once. doctor says an empty --brief or
 --base in its report. hook claude reads its line as every release has, and says a line
-it cannot read, two values for one option among them, and a --root that is not a
-directory, with exit 1: it refuses nothing for either.
+it cannot read, two values for one option among them, a --root that is not a
+directory, and a question it cannot read, as a warning to the person with exit 0: it
+refuses nothing for any of them.
 
 Exit codes: 0 clean, 1 refused or found something, 2 the answer cannot be trusted.
 `;
@@ -196,10 +200,11 @@ async function readStdin(io: CliIO): Promise<string> {
 
 /**
  * The write Claude Code asks the hook about, or the session that starts, or
- * the exit code that answers already: 1 for a question that cannot be read,
- * 0 for a tool that writes no file. Asked before anything on the hook's own
- * line is, so that a line that is wrong is said where there is a write it
- * leaves unchecked, or a session whose every write it leaves so.
+ * the exit code that answers already, 0: for a question that cannot be read,
+ * said to the person, and for a tool that writes no file. Asked before
+ * anything on the hook's own line is, so that a line that is wrong is said
+ * where there is a write it leaves unchecked, or a session whose every write
+ * it leaves so.
  */
 async function writeAsked(io: CliIO): Promise<HookRequest | number> {
   let question: string;
@@ -208,29 +213,25 @@ async function writeAsked(io: CliIO): Promise<HookRequest | number> {
   } catch (error) {
     // A question that could not be read is one the hook cannot see, as one
     // it cannot parse is, below: it has no event to hold a write by.
-    io.stderr.write(`spec-harness: the hook input could not be read: ${(error as Error).message}\n`);
-    return EXIT_FAILED;
+    return answer(io, warningResponse(`the hook input could not be read: ${(error as Error).message}, so nothing it asks about is checked`));
   }
   const request = parseClaudeHook(question);
-  if ('error' in request) {
-    // A hook that cannot read its question refuses nothing it cannot see,
-    // but says so where the person reads it: a non-blocking error.
-    io.stderr.write(`spec-harness: ${request.error}\n`);
-    return EXIT_FAILED;
-  }
+  // A hook that cannot read its question refuses nothing it cannot see, and
+  // says so where the person reads it.
+  if ('error' in request) return answer(io, warningResponse(`${request.error}, so nothing it asks about is checked`));
   return request.paths.length === 0 && request.event !== SESSION_START ? EXIT_OK : request;
 }
 
 /**
  * What is wrong with the hook's own line, said and nothing refused for it:
- * one line, since Claude Code shows the first line of the stderr of a hook
- * that exits 1 and goes on with the write, where exit 2 would hold every
- * write of the session, the one that mends the line among them (ADR-0005).
+ * one line, shown to the person, and exit 0, where exit 2 would hold every
+ * write of the session, the one that mends the line among them. Exit 1 said
+ * it as well, and is what Claude Code counts as a hook that failed, which
+ * `onFailure: "block"` holds the write for (ADR-0005).
  */
 function guardOff(io: CliIO, { wrong, mend }: LineFault, event: string): number {
   if (event === SESSION_START) return answer(io, sessionResponse(`${wrong}, so the guard is off and no write of this session is checked; ${mend}`));
-  io.stderr.write(`spec-harness: ${wrong}, so the guard is off and this write is not checked; ${mend}\n`);
-  return EXIT_FAILED;
+  return answer(io, warningResponse(`${wrong}, so the guard is off and this write is not checked; ${mend}`));
 }
 
 function answer(io: CliIO, response: { readonly stdout: string; readonly exitCode: number }): number {
