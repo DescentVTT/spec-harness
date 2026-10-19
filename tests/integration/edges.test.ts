@@ -429,6 +429,28 @@ describe('a file read where a file is expected, and what stands there instead (A
     expect(await readText(join(root, 'dir'))).toBeNull();
   });
 
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)('reads a file it may not open as one that is not there', async () => {
+    // A regular file the reader is refused: what reaches each reader's catch, now that no directory does.
+    const lock = (path: string): void => {
+      execFileSync('chmod', ['000', path]);
+    };
+    const root = temp();
+    writeFileSync(join(root, 'locked.txt'), 'a');
+    lock(join(root, 'locked.txt'));
+    expect(await readText(join(root, 'locked.txt'))).toBeNull();
+    const repo = repository({});
+    mkdirSync(join(repo.root, '.git', 'spec-harness', 'calls'), { recursive: true });
+    writeFileSync(join(repo.root, '.git', 'spec-harness', 'calls', 's.c.json'), '{}');
+    lock(join(repo.root, '.git', 'spec-harness', 'calls', 's.c.json'));
+    expect(await takeCall(join(repo.root, '.git'), 's.c.json')).toBeNull();
+    // A worktree's common directory that cannot be read is its own git directory, as one that is not there.
+    const linked = repository({});
+    const worktree = join(temp(), 'w');
+    linked.git('worktree', 'add', '-q', '--detach', worktree);
+    lock(join(linked.root, '.git', 'worktrees', 'w', 'commondir'));
+    expect(gitDirectories(worktree, {})?.common).toBe(join(realSpelling(linked.root), '.git', 'worktrees', 'w'));
+  });
+
   it.skipIf(process.platform === 'win32')('reads no named pipe: each reader answers as for a file that is not there, and comes back', async () => {
     const root = temp();
     fifo(join(root, 'pipe'));
@@ -628,6 +650,11 @@ describe('finding the siblings', () => {
       stdout: '',
       stderr: 'cannot start "no-such-program-for-spec-harness": name the tool\'s script, such as ["node", "node_modules/@descent-vtt/<tool>/bin/<tool>.js"]',
     });
+  });
+
+  it.skipIf(process.platform === 'win32')('answers -1 for a sibling that cannot start for a reason of another kind, whose code is no exit code', async () => {
+    // A directory named as the program: Linux and macOS refuse it with EACCES, where Windows finds no such program.
+    expect(await runSibling('a sibling', [temp()], [], temp())).toEqual({ code: -1, stdout: '', stderr: '' });
   });
 
   it("gives spec-brief's list the time a question is given, and the hook's write is held at it", async () => {
