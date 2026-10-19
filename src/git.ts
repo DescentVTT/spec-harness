@@ -239,6 +239,55 @@ export async function changes(from: string, to: string, cwd: string): Promise<Fi
   return parseNameStatus(run.stdout);
 }
 
+/**
+ * How many words stand before the path in each kind of record of
+ * `git status --porcelain=v2`, as git-status(1) has them (Git for Windows
+ * 2.55.0, *Porcelain Format Version 2*, read 2026-10-19): an ordinary
+ * change, `1`, and seven; a rename or a copy, `2`, and eight, its path
+ * followed by the path it came from as a record of its own under `-z`; an
+ * unmerged path, `u`, and nine; an untracked or an ignored path, `?` or
+ * `!`, and none. A header, `#`, names no path.
+ */
+const STATUS_FIELDS: Readonly<Record<string, number>> = { '1': 8, '2': 9, u: 10, '?': 1, '!': 1 };
+
+/**
+ * The paths `git status --porcelain=v2 -z` names, each once, in the order
+ * git gives them: a rename or a copy by both its paths. A path with a space
+ * in it is the rest of its record, which `-z` prints as is.
+ */
+export function parseStatus(output: string): string[] {
+  const records = output.split('\0');
+  const paths = new Set<string>();
+  for (let at = 0; at < records.length; at += 1) {
+    const record = records[at]!;
+    const fields = STATUS_FIELDS[record.charAt(0)];
+    if (fields === undefined) continue;
+    paths.add(record.split(' ').slice(fields).join(' '));
+    if (record.startsWith('2')) {
+      at += 1;
+      paths.add(records[at] ?? '');
+    }
+  }
+  paths.delete('');
+  return [...paths];
+}
+
+/**
+ * Every path the work tree holds changed from HEAD: tracked files that
+ * differ in the index or in the work tree, unmerged ones, and each
+ * untracked file, those in an untracked directory one by one. One start of
+ * git, with no optional lock taken: a status that writes the index as it
+ * refreshes it holds a lock that can make another git running beside it
+ * fail, and the manual has a status run in the background take none
+ * (git-status(1), *Background Refresh*, and git(1), `--no-optional-locks`,
+ * as Git for Windows 2.55.0 has them, read 2026-10-19).
+ */
+export async function changedPaths(cwd: string): Promise<string[]> {
+  const run = await git(['--no-optional-locks', 'status', '--porcelain=v2', '-z', '--untracked-files=all'], cwd);
+  if (run.code !== 0) throw new GitError(`git status failed: ${run.stderr.trim()}`);
+  return parseStatus(run.stdout);
+}
+
 /** The files a commit would change: what is staged. */
 export async function stagedChanges(cwd: string): Promise<FileChange[]> {
   const run = await git(['diff', '--cached', '--name-status', '-z', '--find-renames', '--no-color', '--'], cwd, WORK_MS);

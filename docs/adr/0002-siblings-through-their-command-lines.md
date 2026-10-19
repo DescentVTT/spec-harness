@@ -548,7 +548,10 @@ go ahead.
   the one sibling run a write waits on. A process that does a round's work
   keeps ten minutes (`WORK_MS`): a diff of the round, a worktree a probe
   adds or takes away, a sibling's check of the repository, spec-brief's
-  `init`. `claude --version` keeps its 15 seconds, and a probe's command
+  `init`. The report at the end of a turn reads what changed with one
+  `git status`, a question, so it has 20 seconds, inside the 60 its entry
+  is given in the background; at the limit the report says that in place
+  of the paths. `claude --version` keeps its 15 seconds, and a probe's command
   its own timeout; `taskkill` is given a question's time, and the
   sandbox's last `git worktree remove` the time of work.
 - **At the limit the question is answered as one that failed, and says

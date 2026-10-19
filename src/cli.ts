@@ -24,10 +24,10 @@ import type { ClaudeCodeWiring } from './configure.js';
 import { dirname, join } from 'node:path';
 
 import { gitDirectories, holdsGit, isDirectory, keepCall, loadConfig, realSpelling, repositoryPath, StateError, takeCall } from './fs.js';
-import { GitError, show, stagedChanges } from './git.js';
+import { changedPaths, GitError, show, stagedChanges } from './git.js';
 import type { DocumentReader } from './document.js';
 import type { Decision } from './guard.js';
-import { afterResponse, callFile, callRecord, claudeResponse, gitResponse, keptCall, parseClaudeHook, SESSION_START, sessionResponse, warningsKept, warningsOf, type CallRecord, type HookRequest, type HookResponse } from './hooks.js';
+import { afterResponse, callFile, callRecord, claudeResponse, gitResponse, keptCall, parseClaudeHook, SESSION_START, sessionResponse, TURN_END, turnResponse, warningsKept, warningsOf, type CallRecord, type HookRequest, type HookResponse } from './hooks.js';
 import type { Base } from './round.js';
 import type { BriefRow } from './types.js';
 import { SiblingError } from './siblings.js';
@@ -67,8 +67,10 @@ Commands:
   context [brief]     What an agent needs to start a round: the brief, its scope,
                       rulings, dependencies, the rules in force, the cited documents.
   guard <path...>     May the round write these paths? Exit 1 if one is refused.
-  hook claude         Answer a Claude Code PreToolUse, PostToolUse or SessionStart hook
-                      (stdin). At session start it says what would hold every write.
+  hook claude         Answer a Claude Code PreToolUse, PostToolUse, SessionStart or Stop
+                      hook (stdin). At session start it says what would hold every
+                      write; at a turn's end, with "turnReport" on, what the work tree
+                      holds that the brief protects or that is outside its scope.
   hook git            Answer git's pre-commit hook for the staged files.
   escalate            Ask a person to rule: --path <file> (repeatable) --reason <why>
                       [--option "<label>: <cost>"]... [--recommend <text>].
@@ -218,7 +220,7 @@ async function writeAsked(io: CliIO): Promise<HookRequest | number> {
     io.stderr.write(`spec-harness: ${request.error}\n`);
     return EXIT_FAILED;
   }
-  return request.paths.length === 0 && request.event !== SESSION_START ? EXIT_OK : request;
+  return request.paths.length === 0 && request.event !== SESSION_START && request.event !== TURN_END ? EXIT_OK : request;
 }
 
 /**
@@ -229,6 +231,7 @@ async function writeAsked(io: CliIO): Promise<HookRequest | number> {
  */
 function guardOff(io: CliIO, { wrong, mend }: LineFault, event: string): number {
   if (event === SESSION_START) return answer(io, sessionResponse(`${wrong}, so the guard is off and no write of this session is checked; ${mend}`));
+  if (event === TURN_END) return answer(io, turnResponse(`spec-harness: ${wrong}, so the guard is off and no write of this session is checked; ${mend}`));
   io.stderr.write(`spec-harness: ${wrong}, so the guard is off and this write is not checked; ${mend}\n`);
   return EXIT_FAILED;
 }
@@ -265,6 +268,44 @@ async function sessionProblem(options: Options, io: CliIO, root: string, cwd: st
     // briefs, and whatever a defect throws.
     if (error instanceof UsageError) return null;
     return `${(error as Error).message}, ${held}; spec-harness doctor says more`;
+  }
+}
+
+/** The most paths a report names one by one: past it, how many more there are. */
+const REPORTED = 20;
+
+/**
+ * What the work tree holds at the end of a turn that the brief protects or
+ * that is outside its scope, one line a path in the words a write of it is
+ * given; or `null` where there is nothing to say: `turnReport` is off, no
+ * brief is named, nothing changed is either, or the session is in no work
+ * tree (ADR-0005). The work tree is the one a write of the session is
+ * decided in. One start of git reads what changed, and nothing is asked of
+ * the base, so no ruling is read: a protected file a signed ruling allows
+ * is said as protected, and the audit reads the ruling. A configuration
+ * that does not load is said by every write and as the session starts, and
+ * here holds the report back without a word.
+ */
+async function turnReport(options: Options, io: CliIO, root: string, cwd: string | null): Promise<string | null> {
+  try {
+    const named = await openWorkspace({ ...options, root }, io);
+    const found = cwd === null ? null : await otherTree(named, cwd);
+    const workspace = found === null ? named : await openFound(found, io, () => [named.root]);
+    if (!workspace.config.turnReport) return null;
+    const { brief, problem } = describeActive(await activeBrief(workspace, options, io.env));
+    if (problem !== null) return `spec-harness: ${heldHookLine(problem).wrong}, so what the work tree holds is not reported, and every write is held; spec-harness doctor says more`;
+    if (brief === null) return null;
+    const [changed, { decide }] = await Promise.all([changedPaths(workspace.root), import('./guard.js')]);
+    const outOfScope = workspace.config.outOfScope;
+    const said = changed.map((path) => decide({ path, given: path, brief, rulings: [], outOfScope })).filter((decision) => decision.verdict !== 'allow');
+    if (said.length === 0) return null;
+    const lines = said.slice(0, REPORTED).map((decision) => `- ${decision.message}. Next: ${decision.hint}.`);
+    const more = said.length > REPORTED ? [`- and ${said.length - REPORTED} more: spec-harness guard <path> says each`] : [];
+    const paths = said.length === 1 ? `a path that brief ${brief.id} protects or that is outside its scope` : `${said.length} paths that brief ${brief.id} protects or that are outside its scope`;
+    return [`spec-harness: as this turn ended, the work tree held changes to ${paths}:`, ...lines, ...more].join('\n');
+  } catch (error) {
+    if (error instanceof UsageError || error instanceof ConfigError) return null;
+    return `spec-harness: ${(error as Error).message}, so what the work tree holds is not reported`;
   }
 }
 
@@ -404,6 +445,7 @@ async function hookCommand(options: Options, io: CliIO): Promise<number> {
     const cwd = request.cwd ?? io.cwd;
     const root = line.root ?? io.env['CLAUDE_PROJECT_DIR'] ?? cwd;
     if (request.event === SESSION_START) return answer(io, sessionResponse(await sessionProblem(options, io, root, request.cwd)));
+    if (request.event === TURN_END) return answer(io, turnResponse(await turnReport(options, io, root, request.cwd)));
     const record = callRecord(request, { root: line.root, brief: options.brief, base: options.base }, io.cwd, io.env, version());
     if (request.event === 'PostToolUse') {
       const answered = await answeredAfter(root, record, request.cwd, io);

@@ -70,6 +70,12 @@ const GUARDED_EVENTS = [BEFORE, AFTER];
  * left out, it is every way a session starts.
  */
 const AT_START = 'SessionStart';
+/**
+ * The event Claude Code runs as its main agent finishes a turn, under which
+ * the hook reports what the work tree holds where `turnReport` is on
+ * (ADR-0005). Its entry has no matcher: the event takes none.
+ */
+const AT_TURN_END = 'Stop';
 const GUARD_ARGS: readonly string[] = Object.freeze([`${PROJECT_DIR}/${BIN}`, 'hook', 'claude']);
 
 /**
@@ -77,6 +83,17 @@ const GUARD_ARGS: readonly string[] = Object.freeze([`${PROJECT_DIR}/${BIN}`, 'h
  * path is one argument whatever it holds, and no shell is involved.
  */
 export const GUARD_HOOK: Readonly<Json> = Object.freeze({ type: 'command', command: 'node', args: GUARD_ARGS, timeout: 60 });
+
+/**
+ * The hook's entry at the end of a turn: the guard's line, run in the
+ * background. Claude Code waits on no part of it, so the turn ends as it
+ * would, and it hands the hook's `systemMessage` to Claude as the next
+ * turn begins, where from an entry it waits on it shows the person the
+ * message instead (the hooks reference,
+ * https://code.claude.com/docs/en/hooks, *Run hooks in the background* and
+ * *JSON output*, read 2026-10-19).
+ */
+export const TURN_HOOK: Readonly<Json> = Object.freeze({ ...GUARD_HOOK, async: true });
 
 // bare-name: what 0.1 installed, an npx command found from wherever the
 // session stood. Read here so that init replaces it, and never run.
@@ -376,6 +393,25 @@ export function withSessionStart(settings: Json, isHook: (words: readonly string
  */
 export function startsSessions(settings: unknown, isHook: (words: readonly string[]) => boolean): boolean {
   const groups = field(field(settings, 'hooks'), AT_START);
+  if (!Array.isArray(groups)) return false;
+  return groups.some((group) => hooksOf(group).some((hook) => isObject(hook) && (isGuard(hook) || knownAs(hook, isHook))));
+}
+
+/**
+ * Settings with init's entry under `Stop` added, or `null` where a line
+ * of the hook stands there already, init's or one `isHook` knows, which
+ * would report the turn twice (ADR-0012).
+ */
+export function withTurnReport(settings: Json, isHook: (words: readonly string[]) => boolean): Json | null {
+  if (reportsTurns(settings, isHook)) return null;
+  const hooks = isObject(settings['hooks']) ? settings['hooks'] : {};
+  const listed = hooks[AT_TURN_END];
+  return { ...settings, hooks: { ...hooks, [AT_TURN_END]: [...(Array.isArray(listed) ? listed : []), { hooks: [{ ...TURN_HOOK, args: [...GUARD_ARGS] }] }] } };
+}
+
+/** Whether settings have Claude Code start the hook as a turn ends: an entry under `Stop` whose line is init's, or one `isHook` knows as the hook's. */
+export function reportsTurns(settings: unknown, isHook: (words: readonly string[]) => boolean): boolean {
+  const groups = field(field(settings, 'hooks'), AT_TURN_END);
   if (!Array.isArray(groups)) return false;
   return groups.some((group) => hooksOf(group).some((hook) => isObject(hook) && (isGuard(hook) || knownAs(hook, isHook))));
 }
