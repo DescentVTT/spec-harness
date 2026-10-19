@@ -2049,6 +2049,10 @@ describe('the entry as a turn ends (ADR-0012)', () => {
     const theirs = { hooks: [{ ...HOOK, args: [...HOOK.args, '--root', PROJECT_DIR] }] };
     expect(withTurnReport({ hooks: { Stop: [theirs] } }, isHook)).toBeNull();
     expect(reportsTurns({ hooks: { Stop: [theirs] } }, isHook)).toBe(true);
+    // Beside another group under the event, as well.
+    const other = { hooks: [{ type: 'command', command: 'echo done' }] };
+    expect(reportsTurns({ hooks: { Stop: [other, END] } }, isHook)).toBe(true);
+    expect(withTurnReport({ hooks: { Stop: [other, END] } }, isHook)).toBeNull();
     // Known only by what the caller knows of a line.
     expect(withTurnReport({ hooks: { Stop: [theirs] } }, () => false)).toEqual({ hooks: { Stop: [theirs, END] } });
     expect(reportsTurns({ hooks: { Stop: [theirs] } }, () => false)).toBe(false);

@@ -326,7 +326,9 @@ export async function plan(workspace: Workspace, options: Options, io: CliIO): P
     }
     // The plugin's hooks are the same for every project, and run the report
     // for none: one that asks for it adds the entry, which guards nothing
-    // twice (ADR-0012).
+    // twice (ADR-0012). Only init's own line is known here, so a line a
+    // person wrote under the event has the entry advised beside it; an
+    // `undefined` reads as the `false` does, and that mutant is equivalent.
     if (workspace.config.turnReport && !reportsTurns(settings, () => false)) {
       steps.push({ file: SETTINGS, action: 'advise', detail: `"turnReport" is on, and the plugin brings no hook for the end of a turn: add ${JSON.stringify({ hooks: [TURN_HOOK] })} under "Stop"` });
     }

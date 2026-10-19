@@ -17,7 +17,7 @@ import { join } from 'node:path';
 
 import { afterAll, describe, expect, it } from 'vitest';
 
-import { GUARD_HOOK, TURN_HOOK } from '../../src/configure.js';
+import { GUARD_HOOK, mergeClaudeSettings, TURN_HOOK } from '../../src/configure.js';
 import { brief, BRIEF_FILE, cleanup, cli, install, installPlugin, parsed, repository, temp, write, type Repository } from './helpers.js';
 
 afterAll(cleanup);
@@ -152,6 +152,15 @@ describe('the hook as a turn ends', () => {
     expect(report(await stop(named, { line: ['--nope'] }))).toEqual([expect.stringMatching(/so the guard is off and no write of this session is checked; /)]);
   });
 
+  it('reports the project Claude Code names wherever the hook is started, and where the question names no directory', async () => {
+    const repo = project();
+    repo.write('src/db/schema.ts', 'changed;\n');
+    const said = ['spec-harness: as this turn ended, the work tree held changes to a path that brief 001 protects or that is outside its scope:', PROTECTED('src/db/schema.ts')];
+    expect(report(await cli(['hook', 'claude'], temp(), { stdin: question(repo.root), env: { CLAUDE_PROJECT_DIR: repo.root } }))).toEqual(said);
+    const nowhere = JSON.stringify({ session_id: 's', hook_event_name: 'Stop', stop_hook_active: false });
+    expect(report(await cli(['hook', 'claude'], repo.root, { stdin: nowhere, env: { CLAUDE_PROJECT_DIR: repo.root } }))).toEqual(said);
+  });
+
   it('reports the work tree a write of the session is decided in, a worktree of the project where the session works in one', async () => {
     const repo = project({ turnReport: true }, 'main');
     const tree = join(temp(), 'w');
@@ -229,6 +238,26 @@ describe('init, for the report at the end of a turn', () => {
     running.write('.claude/settings.json', `${JSON.stringify({ hooks: { Stop: [AT_END] } })}\n`);
     running.commit('the report');
     expect((await steps(running, env)).map((step) => step.action)).toEqual(['skip']);
+    // A line of a person's own under the event is not init's entry, and the entry is said beside it.
+    const theirs = project();
+    theirs.write('.claude/settings.json', `${JSON.stringify({ hooks: { Stop: [{ hooks: [{ ...TURN_HOOK, args: [...(TURN_HOOK['args'] as string[]), '--brief', '001'] }] }] } })}\n`);
+    theirs.commit('a line of their own');
+    expect((await steps(theirs, env)).map((step) => step.action)).toEqual(['skip', 'advise']);
+  });
+
+  it('writes both entries beside the guard hooks an earlier release wrote, once turnReport is on', async () => {
+    const repo = project({});
+    repo.write('.claude/settings.json', `${JSON.stringify(mergeClaudeSettings({}))}\n`);
+    repo.commit('the guard hooks of an earlier release');
+    repo.write('.spec-harness.json', `${JSON.stringify({ ...JSON.parse(repo.read('.spec-harness.json')), turnReport: true })}\n`);
+    expect(await steps(repo)).toEqual([
+      {
+        file: '.claude/settings.json',
+        action: 'update',
+        detail:
+          'beside the guard hooks, a SessionStart hook says, as a session starts, what would hold every write of it; a Stop hook, in the background, tells Claude as each turn begins what the work tree held at the end of the last that the brief protects or that is outside its scope',
+      },
+    ]);
   });
 
   it("writes no entry into a file that holds a line of the hook a person wrote, which is theirs to complete", async () => {
