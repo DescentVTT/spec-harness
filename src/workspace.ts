@@ -392,6 +392,9 @@ export function mayBeElsewhere(cwd: string, top: string): boolean {
  * none (ADR-0005).
  */
 export async function otherTree(named: Workspace, cwd: string): Promise<FoundTree | null> {
+  // Asked anyway, git names the root's own top for a directory in its work
+  // tree, and none for one not made, either of which answers `null` below:
+  // the mutant that always asks is equivalent, at a process's cost.
   if (!mayBeElsewhere(cwd, named.root)) return null;
   const found = await findTree(cwd);
   // The project's own work tree, found again, would decide every path the
@@ -468,13 +471,15 @@ async function treeHolding(named: Workspace, path: string, from: string): Promis
 export async function writesBy(named: Workspace, cwd: string | null, paths: readonly string[], io: CliIO): Promise<{ readonly workspace: Workspace; readonly paths: readonly string[] }[]> {
   const from = cwd ?? io.cwd;
   const trees: { readonly tree: FoundTree | null; readonly paths: string[] }[] = [];
+  // The parts in the order their work trees are first met, each with its
+  // paths in the order they were named.
   for (const path of paths) {
     const tree = await treeHolding(named, path, from);
     const part = trees.find((other) => other.tree?.root === tree?.root);
     if (part === undefined) trees.push({ tree, paths: [path] });
     else part.paths.push(path);
   }
-  // The root's own, last, as it was decided after the work tree Claude works in.
-  trees.sort((one, other) => Number(one.tree === null) - Number(other.tree === null));
-  return Promise.all(trees.map(async ({ tree, paths: held }) => ({ workspace: tree === null ? named : await openFound(tree, io, () => [named.root]), paths: held })));
+  // The root's own last, as it was decided after the work tree Claude works in.
+  const ordered = [...trees.filter((part) => part.tree !== null), ...trees.filter((part) => part.tree === null)];
+  return Promise.all(ordered.map(async ({ tree, paths: held }) => ({ workspace: tree === null ? named : await openFound(tree, io, () => [named.root]), paths: held })));
 }

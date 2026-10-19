@@ -188,15 +188,20 @@ describe('a path in a third work tree of the repository (ADR-0005)', () => {
     for (const event of ['PreToolUse', 'PostToolUse']) expect(await hook(repo.root, event, here, { file_path: join(temp(), 'loose.txt') }), event).toEqual({ code: 0, stdout: '', stderr: '' });
   });
 
-  it("is said before the project's own in one answer, as cwd's work tree's was", async () => {
+  it("is said by work tree, in the order they are first named, the project's own last, as cwd's work tree's came first", async () => {
     const repo = project('claude/brief-001-p');
-    const inside = linked(repo, join(repo.root, '.claude', 'worktrees', 'b'), 'claude/brief-001-b');
-    // The project's protected file named first, the worktree's after it: each refused by its own.
-    const result = await hook(repo.root, 'PreToolUse', repo.root, { file_path: file(repo.root, 'src/db/schema.ts'), path: file(inside, 'src/db/new.ts') });
-    expect(decision(result.stdout)).toBe('deny');
-    const reason = (JSON.parse(result.stdout) as { hookSpecificOutput: { permissionDecisionReason: string } }).hookSpecificOutput.permissionDecisionReason;
-    expect(reason.indexOf('change src/db/new.ts')).toBeGreaterThan(-1);
-    expect(reason.indexOf('change src/db/new.ts')).toBeLessThan(reason.indexOf('change src/db/schema.ts'));
+    const a = linked(repo, join(repo.root, '.claude', 'worktrees', 'a'), 'claude/brief-001-a');
+    const b = linked(repo, join(repo.root, '.claude', 'worktrees', 'b'), 'claude/brief-001-b');
+    // The files each refusal names, in the order the answer says them: each work tree's protected file, refused by its own.
+    const refused = async (input: Record<string, unknown>): Promise<string[]> => {
+      const result = await hook(repo.root, 'PreToolUse', repo.root, input);
+      expect(decision(result.stdout)).toBe('deny');
+      const reason = (JSON.parse(result.stdout) as { hookSpecificOutput: { permissionDecisionReason: string } }).hookSpecificOutput.permissionDecisionReason;
+      return reason.split('\n').map((line) => /change (\S+) \(/.exec(line)?.[1] ?? line);
+    };
+    expect(await refused({ file_path: file(repo.root, 'src/db/p.ts'), path: file(a, 'src/db/a.ts'), notebook_path: file(b, 'src/db/b.ts') })).toEqual(['src/db/a.ts', 'src/db/b.ts', 'src/db/p.ts']);
+    // Two paths of one work tree with another's between them: said together, where that work tree is first met.
+    expect(await refused({ file_path: file(a, 'src/db/one.ts'), path: file(b, 'src/db/b.ts'), notebook_path: file(a, 'src/db/two.ts') })).toEqual(['src/db/one.ts', 'src/db/two.ts', 'src/db/b.ts']);
   });
 
   it('is decided by the innermost work tree of the repository around it, past a repository of its own inside that one', async () => {

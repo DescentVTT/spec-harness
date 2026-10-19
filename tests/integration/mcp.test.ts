@@ -3,7 +3,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { INSTRUCTIONS, prompts, rootsClient, tools, type Roots } from '../../src/server.js';
 import { createMcpServer, type JsonObject, type ToolDefinition } from '../../src/vendor/spec-core/jsonrpc/index.js';
@@ -461,6 +461,16 @@ describe('the work tree a tool reads the round in (ADR-0008)', () => {
     expect((await called('start_round', { directory: '.claude/worktrees/w' })).structured).toMatchObject({ brief: '001', workTree: { from: 'argument' } });
     expect(await called('start_round', { directory: '' })).toMatchObject({ isError: true, text: '"directory" is "", which names no directory; give it the directory the round is in, or leave it out.' });
     expect(await called('start_round', { directory: 7 })).toMatchObject({ isError: true, text: '"directory" must be a string.' });
+    // Every tool that reads a branch takes it, and refuses one that is no string.
+    expect((await called('check_path', { paths: ['src/db/schema.ts'], directory: tree })).structured).toMatchObject({ workTree: { from: 'argument' }, decisions: [{ verdict: 'deny' }] });
+    expect((await called('request_escalation', { paths: ['src/db/schema.ts'], reason: 'The schema moves.', directory: tree })).structured).toMatchObject({ workTree: { from: 'argument' } });
+    for (const [name, args] of [
+      ['check_path', { paths: ['src/db/schema.ts'] }],
+      ['request_escalation', { paths: ['src/db/schema.ts'], reason: 'The schema moves.' }],
+      ['audit_round', {}],
+    ] as [string, JsonObject][]) {
+      expect(await called(name, { ...args, directory: 7 }), name).toMatchObject({ isError: true, text: '"directory" must be a string.' });
+    }
     const elsewhere = temp();
     expect(await called('start_round', { directory: elsewhere })).toMatchObject({
       isError: true,
@@ -500,6 +510,8 @@ describe('the work tree a tool reads the round in (ADR-0008)', () => {
     const object = { href: shaped.href, protocol: shaped.protocol, hostname: shaped.hostname, pathname: shaped.pathname };
     expect(client.observe({ jsonrpc: '2.0', id: 'spec-harness-roots-1', result: { roots: [{ uri, name: 'w' }, { uri: 'https://example.com/x' }, { uri: 7 }, { uri: object }, null] } })).toBe(true);
     expect(await asked).toEqual([tree]);
+    // An answer to a request answered already is none.
+    expect(client.observe({ jsonrpc: '2.0', id: 'spec-harness-roots-1', result: { roots: [] } })).toBe(false);
     // Asked again, under another id; an error, or no answer in time, is no roots.
     const again = client.ask();
     expect(JSON.parse(written[1]!)).toMatchObject({ id: 'spec-harness-roots-2' });
@@ -523,6 +535,21 @@ describe('the work tree a tool reads the round in (ADR-0008)', () => {
     bare.observe({ jsonrpc: '2.0', id: 3, method: 'initialize' });
     expect(await bare.ask()).toBeNull();
     expect(none).toEqual([]);
+  });
+
+  it('lets go of the time it waits for an answer once one comes', async () => {
+    vi.useFakeTimers();
+    try {
+      const client = rootsClient(() => undefined, 5_000);
+      client.observe({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { capabilities: { roots: {} } } });
+      const asked = client.ask();
+      expect(vi.getTimerCount()).toBe(1);
+      client.observe({ jsonrpc: '2.0', id: 'spec-harness-roots-1', result: { roots: [] } });
+      expect(await asked).toEqual([]);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("reads a worktree on no branch by the branch the forge's CI names, as every command does", async () => {

@@ -109,6 +109,9 @@ export function rootsClient(write: (line: string) => void, limit = ROOTS_MS): Ro
       const meta = isObject(params['_meta']) ? params['_meta'] : {};
       if ((message['method'] === 'initialize' && declares(params['capabilities'])) || declares(meta[CLIENT_CAPABILITIES_KEY])) declared = true;
       const id = message['id'];
+      // The server's requests have strings for ids, so one that is no string
+      // finds nothing waiting either way: the mutant that drops the test is
+      // equivalent.
       const settle = typeof id === 'string' && message['method'] === undefined ? waiting.get(id) : undefined;
       if (settle === undefined) return false;
       settle(message);
