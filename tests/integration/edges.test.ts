@@ -127,12 +127,13 @@ describe('the git directories a work tree\'s files name', () => {
     const repo = repository({ 'src/a.ts': 'a;\n' });
     const top = realSpelling(repo.root);
     const common = join(top, '.git');
-    expect(gitDirectories(repo.root, {})).toEqual({ top, common, exact: true });
-    expect(gitDirectories(join(repo.root, 'src'), {})).toEqual({ top, common, exact: true });
-    expect(gitDirectories(join(repo.root, 'src', 'not-there-yet'), {})).toEqual({ top, common, exact: true });
+    expect(gitDirectories(repo.root, {})).toEqual({ top, git: common, common, exact: true });
+    expect(gitDirectories(join(repo.root, 'src'), {})).toEqual({ top, git: common, common, exact: true });
+    expect(gitDirectories(join(repo.root, 'src', 'not-there-yet'), {})).toEqual({ top, git: common, common, exact: true });
     const linked = join(temp(), 'linked');
     repo.git('worktree', 'add', '-q', '--detach', linked);
-    expect(gitDirectories(linked, {})).toEqual({ top: realSpelling(linked), common, exact: true });
+    // A linked worktree's own git directory is the one its .git file names, under the common directory's worktrees.
+    expect(gitDirectories(linked, {})).toEqual({ top: realSpelling(linked), git: realSpelling(join(common, 'worktrees', 'linked')), common, exact: true });
   });
 
   it('are found through a .git file that names its git directory relative to it', () => {
@@ -143,7 +144,7 @@ describe('the git directories a work tree\'s files name', () => {
     // Git for Windows marks the file hidden, which a write over it is refused for: it is written anew.
     rmSync(join(linked, '.git'));
     writeFileSync(join(linked, '.git'), `gitdir: ${relative(linked, named).split('\\').join('/')}\n`);
-    expect(gitDirectories(linked, {})).toEqual({ top: realSpelling(linked), common: join(realSpelling(repo.root), '.git'), exact: true });
+    expect(gitDirectories(linked, {})).toEqual({ top: realSpelling(linked), git: realSpelling(join(repo.root, '.git', 'worktrees', 'linked')), common: join(realSpelling(repo.root), '.git'), exact: true });
   });
 
   it('are none outside every work tree, or where a .git file names no git directory', () => {
@@ -163,7 +164,7 @@ describe('the git directories a work tree\'s files name', () => {
     for (const env of [{ GIT_DIR: join(repo.root, '.git') }, { GIT_WORK_TREE: repo.root }]) expect(gitDirectories(repo.root, env)?.exact, JSON.stringify(env)).toBe(false);
     expect(gitDirectories(repo.root, { GIT_EDITOR: 'vi' })?.exact).toBe(true);
     repo.git('config', 'core.worktree', top);
-    expect(gitDirectories(repo.root, {})).toEqual({ top, common: join(top, '.git'), exact: false });
+    expect(gitDirectories(repo.root, {})).toEqual({ top, git: join(top, '.git'), common: join(top, '.git'), exact: false });
     repo.git('config', '--unset', 'core.worktree');
     expect(gitDirectories(repo.root, {})?.exact).toBe(true);
     writeFileSync(join(repo.root, '.git', 'config.worktree'), '[core]\n');

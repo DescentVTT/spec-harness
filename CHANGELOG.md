@@ -32,6 +32,21 @@ cannot turn a run red. The family's policy is
 
 ### Changed
 
+- **The hook gives a session spec-brief's list of the briefs again, where
+  nothing it was read from has changed.** On a brief's branch the hook
+  started spec-brief before every write, most of what a write waited for on
+  Windows. Where spec-brief's `list --format json` names everything its
+  answer was read from, its `inputs`, the hook keeps the answer for the
+  session under the git common directory, in `spec-harness/answers/`, and
+  gives it again to the session's later runs while every file, directory
+  and index on the list reads as listed, with no process started; anything
+  else starts spec-brief as before. No answer changes
+  ([ADR-0002](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0002-siblings-through-their-command-lines.md),
+  [ADR-0003](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0003-state-outside-the-work-tree.md)).
+  Upgrading: nothing to change. A spec-brief whose `list` names no
+  `inputs`, 0.9.0 and every release before it, is started before every
+  write as it was.
+
 - **A process the harness asks a question of is stopped after 20 seconds,
   and the hook holds the write there.** git had no limit and spec-brief
   ten minutes, where Claude Code cancels the hook at the 60 seconds its
