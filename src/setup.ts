@@ -39,6 +39,9 @@ import {
   measuresArchive,
   mergeClaudeSettings,
   withSessionStart,
+  withTurnReport,
+  reportsTurns,
+  TURN_HOOK,
   mergeMcp,
   mergeSpecBrief,
   mergeSpecGraph,
@@ -321,6 +324,14 @@ export async function plan(workspace: Workspace, options: Options, io: CliIO): P
       const detail = describeSkipped(plugin, 'hooks', present, wiring.hooks);
       steps.push({ file: SETTINGS, action: wiring.hooks.length > 0 ? 'advise' : 'skip', detail: untold === null ? detail : `${detail}. ${untold}` });
     }
+    // The plugin's hooks are the same for every project, and run the report
+    // for none: one that asks for it adds the entry, which guards nothing
+    // twice (ADR-0012). Only init's own line is known here, so a line a
+    // person wrote under the event has the entry advised beside it; an
+    // `undefined` reads as the `false` does, and that mutant is equivalent.
+    if (workspace.config.turnReport && !reportsTurns(settings, () => false)) {
+      steps.push({ file: SETTINGS, action: 'advise', detail: `"turnReport" is on, and the plugin brings no hook for the end of a turn: add ${JSON.stringify({ hooks: [TURN_HOOK] })} under "Stop"` });
+    }
   } else if (settings === 'unreadable') {
     steps.push({ file: SETTINGS, action: 'advise', detail: `cannot be read as JSON; add the guard as a PreToolUse and a PostToolUse hook by hand: ${JSON.stringify(GUARD_HOOK)}` });
   } else if (array !== null) {
@@ -337,12 +348,17 @@ export async function plan(workspace: Workspace, options: Options, io: CliIO): P
     // them, or by itself in a file whose two an earlier release wrote. A file
     // with a line of the person's is theirs to complete (ADR-0012).
     const started = left === '' ? withSessionStart(guarded ?? settings ?? {}, isHook) : null;
-    const merged = started ?? guarded;
+    // The report at the end of a turn, where the configuration asks for one,
+    // beside the entries as init writes them (ADR-0005, ADR-0012).
+    const turned = left === '' && workspace.config.turnReport ? withTurnReport(started ?? guarded ?? settings ?? {}, isHook) : null;
+    const merged = turned ?? started ?? guarded;
     // A line that turns the guard off or holds every write is one doctor
     // fails, and lines of which none is waited on before a write are no
     // guard between them: left as they are, they are for the person to mend.
     const broken = lines.some((line) => line.state === 'off' || line.state === 'held') || !lines.some((line) => isStarted(line.before));
     const atStart = 'a SessionStart hook says, as a session starts, what would hold every write of it';
+    const atEnd = 'a Stop hook, in the background, tells Claude as each turn begins what the work tree held at the end of the last that the brief protects or that is outside its scope';
+    const beside = [started === null ? null : atStart, turned === null ? null : atEnd].filter((part): part is string => part !== null);
     if (merged === null) steps.push({ file: SETTINGS, action: broken ? 'advise' : 'keep', detail: left === '' ? 'the guard hooks are installed' : left });
     else
       steps.push({
@@ -350,8 +366,8 @@ export async function plan(workspace: Workspace, options: Options, io: CliIO): P
         action: settings === null ? 'create' : 'update',
         detail:
           guarded === null
-            ? `beside the guard hooks, ${atStart}`
-            : `the guard hooks, run with node from the project's install: a PreToolUse hook refuses writes to protected files; a PostToolUse hook warns about writes outside the scope${started === null ? '' : `; ${atStart}`}${left === '' ? '' : `; ${left}`}`,
+            ? `beside the guard hooks, ${beside.join('; ')}`
+            : `the guard hooks, run with node from the project's install: a PreToolUse hook refuses writes to protected files; a PostToolUse hook warns about writes outside the scope${beside.map((part) => `; ${part}`).join('')}${left === '' ? '' : `; ${left}`}`,
         apply: () => writeAtomic(settingsFile, stringify(merged)),
       });
   }

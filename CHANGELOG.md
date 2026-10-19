@@ -18,6 +18,25 @@ where the branch names a brief no round can work under
 ([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md),
 [ADR-0004](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0004-the-active-brief-is-named-not-guessed.md)).
 
+### Added
+
+- **A report at the end of a turn, where `.spec-harness.json` asks for
+  one.** With `"turnReport": true`, `hook claude` answers Claude Code's
+  `Stop`: with one `git status`, every path the work tree holds changed
+  that the brief protects or that is outside its scope, a shell's writes
+  among them, in the words a write of it is given, as one `systemMessage`,
+  exit 0, and never a field that has Claude go on. `init` writes the entry,
+  in the background, where the key is on, and Claude reads the report as the
+  next turn begins; the plugin carries none, and with it on `init` says
+  what to add
+  ([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md),
+  [ADR-0012](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0012-one-way-into-claude-code.md)).
+  Upgrading: off by default, so nothing changes until the key is turned on
+  and `spec-harness init --write` run again. A `Stop` entry aimed at the
+  hook exited 1, `the hook input names no event or tool`, and now exits 0;
+  a configuration's unknown key is refused with `turnReport` among the keys
+  it names.
+
 ### Changed
 
 - **A write to `.spec-harness.json` itself goes on while it does not
@@ -28,7 +47,8 @@ where the branch names a brief no round can work under
   held, to the person and to Claude. A file of that name elsewhere, a link
   to it, a second name of it and the configuration of another work tree
   are held as before, and so is a configuration that is a directory, a
-  named pipe, or a link to a file of the repository. As a session starts the hook says the same.
+  named pipe, or a link to a file of the repository. As a session starts
+  the hook says the same.
   Upgrading: a brief that protects `.spec-harness.json` does not hold that
   write while the file does not load, since none of it is read; the audit
   and spec-brief's archive still measure the change.

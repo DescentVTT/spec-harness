@@ -64,6 +64,16 @@ function isObject(value: unknown): value is Json {
  */
 export const SESSION_START = 'SessionStart';
 
+/**
+ * The event Claude Code runs as its main agent finishes a turn, under which
+ * the hook reports what the work tree holds, where the configuration asks
+ * for it (ADR-0005). No tool is named.
+ */
+export const TURN_END = 'Stop';
+
+/** The events that name no tool, which the hook answers of the session and not of a write. */
+const NO_TOOL: readonly string[] = [SESSION_START, TURN_END];
+
 /** Reads a Claude Code hook's stdin, or says why it cannot. */
 export function parseClaudeHook(raw: string): HookRequest | { readonly error: string } {
   let value: unknown;
@@ -75,8 +85,8 @@ export function parseClaudeHook(raw: string): HookRequest | { readonly error: st
   if (!isObject(value)) return { error: 'the hook input is not a JSON object' };
   const event = value['hook_event_name'];
   const tool = value['tool_name'];
-  if (typeof event !== 'string' || (typeof tool !== 'string' && event !== SESSION_START)) return { error: 'the hook input names no event or tool' };
-  // A session's start names no tool, and is read as naming none.
+  if (typeof event !== 'string' || (typeof tool !== 'string' && !NO_TOOL.includes(event))) return { error: 'the hook input names no event or tool' };
+  // A session's start and a turn's end name no tool, and are read as naming none.
   const named = typeof tool === 'string' ? tool : '';
   const input = isObject(value['tool_input']) ? value['tool_input'] : {};
   const paths: string[] = [];
@@ -104,6 +114,20 @@ export function sessionResponse(problem: string | null): HookResponse {
   if (problem === null) return NONE;
   const said = `spec-harness: ${problem}`;
   return { stdout: `${JSON.stringify({ systemMessage: said, hookSpecificOutput: { hookEventName: SESSION_START, additionalContext: said } })}\n`, exitCode: 0 };
+}
+
+/**
+ * The answer as a turn ends: the report, in one `systemMessage`, or
+ * nothing, where there is nothing to report. Always exit 0, and never a
+ * field that has Claude go on: `decision`, `additionalContext` and exit 2
+ * each continue the turn under Stop, and `continue: false` would stop one
+ * another hook continues. Claude Code shows a `systemMessage` to the person
+ * from an entry it waits on, and hands it to Claude on the next turn from
+ * one it runs in the background, as `init` writes it (ADR-0005, ADR-0012).
+ */
+export function turnResponse(report: string | null): HookResponse {
+  if (report === null) return NONE;
+  return { stdout: `${JSON.stringify({ systemMessage: report })}\n`, exitCode: 0 };
 }
 
 export interface HookResponse {
