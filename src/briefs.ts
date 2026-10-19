@@ -100,10 +100,15 @@ export interface InputFile {
   readonly sha256: string | null;
 }
 
-/** A directory whose files a `list` answer was read from, by their names: entries that are files, as spec-brief lists them. */
+/**
+ * A directory whose files a `list` answer was read from, by their names:
+ * entries that are files, as spec-brief lists them; or `null` where
+ * spec-brief looked for the directory and found none, which is then to be
+ * found none again.
+ */
 export interface InputDirectory {
   readonly path: string;
-  readonly entries: readonly string[];
+  readonly entries: readonly string[] | null;
 }
 
 /**
@@ -148,7 +153,8 @@ function inputDirectories(value: unknown): InputDirectory[] | null {
   for (const item of value) {
     if (!isObject(item) || !inputPath(item['path'])) return null;
     const entries = item['entries'];
-    if (!Array.isArray(entries) || !entries.every((entry) => typeof entry === 'string')) return null;
+    // A name listed twice is a list that is not of one directory's files.
+    if (entries !== null && (!Array.isArray(entries) || !entries.every((entry) => typeof entry === 'string') || new Set(entries).size !== entries.length)) return null;
     directories.push({ path: item['path'], entries });
   }
   return directories;

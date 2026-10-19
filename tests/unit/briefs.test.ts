@@ -200,6 +200,10 @@ describe('what a list answer was read from', () => {
     expect(of({ ...INPUTS, directories: [] })).toMatchObject({ files: INPUTS.files, directories: [] });
     expect(of({ ...INPUTS, files: [] })).toMatchObject({ files: [], directories: INPUTS.directories });
     expect(of({ ...INPUTS, directories: [{ path: 'briefs', entries: [] }], files: [] })).toMatchObject({ directories: [{ path: 'briefs', entries: [] }] });
+    // As many files as directories names something too.
+    expect(of({ ...INPUTS, files: [INPUTS.files[0]], directories: INPUTS.directories })).toMatchObject({ files: [INPUTS.files[0]] });
+    // A directory looked for and not found is listed with no entries, and must stay so.
+    expect(of({ ...INPUTS, directories: [{ path: 'briefs/archive', entries: null }] })).toMatchObject({ directories: [{ path: 'briefs/archive', entries: null }] });
   });
 
   it('is none where the answer may not be kept: no inputs, keep anything but true, no version', () => {
@@ -231,12 +235,14 @@ describe('what a list answer was read from', () => {
       { ...INPUTS, files: [{ path: 'a', sha256: `${A.slice(1)}g` }] },
       { ...INPUTS, files: [{ path: 'a', sha256: `x${A}` }] },
       { ...INPUTS, files: [{ path: 'a', sha256: 0 }] },
+      { ...INPUTS, files: [{ path: 'a', sha256: [A] }] },
       { ...INPUTS, directories: undefined },
       { ...INPUTS, directories: [{ entries: [] }] },
       { ...INPUTS, directories: [{ path: '', entries: [] }] },
       { ...INPUTS, directories: [{ path: 'briefs' }] },
       { ...INPUTS, directories: [{ path: 'briefs', entries: 'a.md' }] },
       { ...INPUTS, directories: [{ path: 'briefs', entries: ['a.md', 1] }] },
+      { ...INPUTS, directories: [{ path: 'briefs', entries: ['a.md', 'b.md', 'a.md'] }] },
       { ...INPUTS, directories: ['briefs'] },
       { ...INPUTS, git: undefined },
       { ...INPUTS, git: [] },

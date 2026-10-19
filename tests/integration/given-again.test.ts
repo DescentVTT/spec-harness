@@ -42,8 +42,8 @@ const FILES = {
  * `fake.json` there says how it answers: `inputs` false prints none, `keep`
  * the value it prints, `tool` the version it says it is, `git` whether it
  * names the index and the ignore files, `bad` a digest that is not one,
- * `absent` more paths it names as not there, and `exit` the code it exits
- * with. It names a directory's files in reverse order, as nothing requires
+ * `absent` more paths it names as not there, `missing` directories it
+ * names as not there, and `exit` the code it exits with. It names a directory's files in reverse order, as nothing requires
  * them in one.
  */
 const FAKE = [
@@ -84,7 +84,8 @@ const FAKE = [
   "  git = { index: digest(join(gitDir, 'index')), ignores: [{ path: '.gitignore', sha256: digest(join(root, '.gitignore')) }, { path: exclude.split('\\\\').join('/'), sha256: digest(exclude) }] };",
   '}',
   "for (const path of settings.absent ?? []) files.push({ path, sha256: null });",
-  "const inputs = { keep: settings.keep ?? true, tool: settings.tool ?? version, files: settings.empty === true ? [] : files, directories: settings.empty === true ? [] : [{ path: 'briefs', entries: [...entries].reverse() }], git };",
+  "const missing = (settings.missing ?? []).map((path) => ({ path, entries: null }));",
+  "const inputs = { keep: settings.keep ?? true, tool: settings.tool ?? version, files: settings.empty === true ? [] : files, directories: settings.empty === true ? [] : [{ path: 'briefs', entries: [...entries].reverse() }, ...missing], git };",
   "const document = { tool: 'spec-brief', version, schemaVersion: 2, command: 'list', ok: true, briefs, sections: {}, ...(settings.inputs === false ? {} : { inputs }) };",
   "process.stdout.write(JSON.stringify(document, null, 2) + '\\n');",
   'process.exitCode = settings.exit ?? 0;',
@@ -99,6 +100,7 @@ interface Fake {
   readonly bad?: boolean;
   readonly empty?: boolean;
   readonly absent?: readonly string[];
+  readonly missing?: readonly string[];
   readonly exit?: number;
 }
 
@@ -178,6 +180,7 @@ describe("spec-brief's answer, kept for a session", () => {
       // The last of the files in their order as text: the rest are the start of the list.
       ['a file of a directory listed, removed', (repo) => rmSync(join(repo.root, 'briefs', 'a-note.md')), 'refused'],
       ['a brief added', (repo) => repo.write('briefs/002_more.md', brief({ title: '002 - More', protected: ['src/auth/**'] })), 'refused'],
+      ['the directory listed taken away', (repo) => rmSync(join(repo.root, 'briefs'), { recursive: true }), 'refused'],
     ];
     for (const [what, change, then] of changes) {
       const repo = project();
@@ -189,6 +192,10 @@ describe("spec-brief's answer, kept for a session", () => {
       expect(starts(repo.root), what).toBe(2);
       if (what === 'a directory where a file was listed') {
         expect(after, what).toEqual({ code: 2, stdout: '', stderr: 'spec-harness: cannot check this write: spec-brief could not list the briefs: .spec-brief.json is a directory\n' });
+        continue;
+      }
+      if (what === 'the directory listed taken away') {
+        expect(after, what).toEqual({ code: 2, stdout: '', stderr: 'spec-harness: cannot check this write: spec-brief could not list the briefs: briefs/ does not exist\n' });
         continue;
       }
       expect(after.code, what).toBe(0);
@@ -324,10 +331,31 @@ describe("spec-brief's answer, kept for a session", () => {
     expect(starts(repo.root)).toBe(1);
   });
 
+  it('gives the answer again while a directory named as not there is still not there, and starts spec-brief once anything stands there', async () => {
+    for (const [what, make] of [
+      ['a directory', (repo: Repository) => mkdirSync(join(repo.root, 'briefs', 'archive'))],
+      ['a file', (repo: Repository) => repo.write('briefs/archive', 'not a directory\n')],
+    ] as const) {
+      const repo = project({ missing: ['briefs/archive'] });
+      for (let n = 0; n < 2; n += 1) expect(await before(repo, 'src/db/schema.ts'), what).toBe('refused');
+      expect(starts(repo.root), what).toBe(1);
+      make(repo);
+      expect(await before(repo, 'src/db/schema.ts'), what).toBe('refused');
+      expect(starts(repo.root), what).toBe(2);
+    }
+    // Under a file, a directory is not there either.
+    const under = project({ missing: ['README.md/archive'] });
+    for (let n = 0; n < 2; n += 1) expect(await before(under, 'src/db/schema.ts')).toBe('refused');
+    expect(starts(under.root)).toBe(1);
+  });
+
   it('starts spec-brief where a path named as not there cannot be looked for', async () => {
-    const repo = project({ absent: [`a${String.fromCharCode(0)}b`] });
-    for (let n = 0; n < 2; n += 1) expect(await before(repo, 'src/db/schema.ts')).toBe('refused');
-    expect(starts(repo.root)).toBe(2);
+    const odd = `a${String.fromCharCode(0)}b`;
+    for (const fake of [{ absent: [odd] }, { missing: [odd] }]) {
+      const repo = project(fake);
+      for (let n = 0; n < 2; n += 1) expect(await before(repo, 'src/db/schema.ts'), Object.keys(fake)[0]).toBe('refused');
+      expect(starts(repo.root), Object.keys(fake)[0]).toBe(2);
+    }
   });
 
   // Windows has no named pipe at a path of the disk.
@@ -364,6 +392,7 @@ describe("spec-brief's answer, kept for a session", () => {
       ["another key's", () => writeFileSync(file, `${JSON.stringify({ ...kept, key: `${kept.key} ` })}\n`)],
       ['an answer that is no text', () => writeFileSync(file, `${JSON.stringify({ ...kept, answer: JSON.parse(kept.answer) })}\n`)],
       ['an answer that is not JSON', () => writeFileSync(file, `${JSON.stringify({ ...kept, answer: '{' })}\n`)],
+      ['an answer in a list', () => writeFileSync(file, `${JSON.stringify({ ...kept, answer: [kept.answer] })}\n`)],
       ['an answer that names no inputs', () => writeFileSync(file, `${JSON.stringify({ ...kept, answer: JSON.stringify({ ...JSON.parse(kept.answer), inputs: undefined }) })}\n`)],
       ['an answer another version gave', () => writeFileSync(file, `${JSON.stringify({ ...kept, answer: JSON.stringify({ ...JSON.parse(kept.answer), inputs: { ...JSON.parse(kept.answer).inputs, tool: '0.10.1' } }) })}\n`)],
       ['a directory', () => mkdirSync(file)],

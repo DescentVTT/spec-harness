@@ -522,10 +522,12 @@ names it in `list --format json` as `inputs`, built at the same time
 (DescentVTT/spec-brief#69): `keep`, the version that answered as `tool`,
 each file read with the SHA-256 of its bytes or `null` where it was looked
 for and was not there, each directory listed with the names of the files in
-it, and `git`, what git read for the answer or `null` where it was asked
-nothing, which is what `list` asks it from that change on. Paths are read
-from the directory spec-brief was started in, which here is the work tree's
-top, and an absolute one as it stands.
+it, or `entries: null` where it was looked for and was not there, which the
+shape gained the same day for an archive's directory not yet made, and
+`git`, what git read for the answer or `null` where it was asked nothing,
+which is what `list` asks it from that change on. Paths are read from the
+directory spec-brief was started in, which here is the work tree's top, and
+an absolute one as it stands.
 
 - **The hook keeps a session's answer.** Where Claude Code's question names
   its session in the form its ids have (`session_id`), the answer of each
@@ -545,27 +547,29 @@ top, and an absolute one as it stands.
   started**: each file a file, never a pipe or a directory, whose bytes have
   the digest, or nothing at its path, or under it, where it was listed as not
   there; each directory holding the files listed and no other, as
-  spec-brief lists them, a link or a directory being no file; and where git
-  was asked, the index of the work tree's own git directory, found as the
-  files git keeps name it, and each ignore file. Then the kept text is read
-  by `parseBriefList` as the text spec-brief prints is.
+  spec-brief lists them, a link or a directory being no file, compared as a
+  set; each directory listed as not there still not there, in any form, a
+  link that leads nowhere among them; and where git was asked, the index of
+  the work tree's own git directory, found as the files git keeps name it,
+  and each ignore file. The checks are made at once, with no process. Then
+  the kept text is read by `parseBriefList` as the text spec-brief prints
+  is.
 - **Anything else starts spec-brief as before**: nothing kept, or what is
   kept another key's, no file, or no list document; an input that is
   missing, cannot be read or reads otherwise; `keep` anything but `true`,
   no `inputs`, a list that names nothing or holds anything in a form not
   read here, another version; a command `tools` names, whose version
-  cannot be told without starting it; and `GIT_DIR`, `GIT_WORK_TREE`,
-  `GIT_INDEX_FILE` or `GIT_COMMON_DIR` set, where git reads an index other
-  than the one the list is checked against. A question that names no
+  cannot be told without starting it; and, where the list names what git
+  read, `GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE` or `GIT_COMMON_DIR`
+  set, or a worktree key in the configuration, where git reads an index
+  other than the one the list is checked against. A question that names no
   session, and every command but the hook, start spec-brief every time.
   Keeping an answer is passed over where it fails, which changes nothing of
   the answer given.
 - **What spec-brief does not keep, `keep: false`, is never kept here**:
   DescentVTT/spec-brief#69 says so where its root is not the directory it
-  was started in, where no configuration file names the root, and where its
-  briefs' or its archive's directory is not there, for which the shape has
-  no entry. A project `spec-brief init` set up has both, with a `.gitkeep`
-  in each.
+  was started in and where no configuration file names the root, so that
+  git or the search above the root decides it.
 - **What is left as it was.** A spec-brief changed in place under the
   version its manifest declares, as a linked checkout being rebuilt is,
   gives the answer of its last build for as long as no input changes and the

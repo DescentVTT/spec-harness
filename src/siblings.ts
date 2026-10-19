@@ -131,15 +131,13 @@ export function runSibling(command: readonly string[], args: readonly string[], 
 /**
  * Where and under what a session's answer of spec-brief's is kept, or
  * `null` where none is. A command `tools` names is started every time:
- * which version it runs cannot be told without starting it. So is
- * spec-brief wherever git is sent to another index than the work tree's own
- * (ELSEWHERE).
+ * which version it runs cannot be told without starting it.
  */
 async function keeperOf(kept: Kept, root: string, sibling: Extract<Sibling, { kind: 'found' }>): Promise<{ readonly commonDir: string; readonly key: string; readonly name: string; readonly version: string; readonly hash: Hash } | null> {
   // A command with no version is kept nothing by the test of the version an
   // answer names, too: the mutant without this one reads, for every write, a
   // kept answer there is none of, and is equivalent.
-  if (sibling.version === null || ELSEWHERE.some((name) => process.env[name] !== undefined)) return null;
+  if (sibling.version === null) return null;
   const hash = await hasher();
   const key = answerKey(root, kept.session, sibling.command, sibling.version);
   return { commonDir: kept.commonDir, key, name: `${hash(key)}.json`, version: sibling.version, hash };
@@ -152,6 +150,9 @@ async function keeperOf(kept: Kept, root: string, sibling: Extract<Sibling, { ki
  * otherwise.
  */
 async function givenAgain(stdout: string | null, version: string, root: string, hash: Hash): Promise<BriefRow[] | null> {
+  // JSON.parse reads null as null, which names no inputs, and a null read
+  // past the test of none below throws, which answers null: the two tests
+  // are the compiler's, and their mutants equivalent.
   if (stdout === null) return null;
   try {
     const document: unknown = JSON.parse(stdout);
@@ -199,13 +200,6 @@ export interface Siblings {
 const LIST: readonly string[] = ['list', '--archived', '--format', 'json', '--no-color'];
 
 /**
- * Where git reads another git directory, work tree or index than the work
- * tree's own: the index a list is checked against is then not the one git
- * read, so nothing is kept or given again.
- */
-const ELSEWHERE: readonly string[] = ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR'];
-
-/**
  * The variables beyond git's own that an answer of spec-brief's can turn on
  * and its list does not name: which git and which Node run, where git finds
  * the person's configuration and ignore files, and how Node runs a script.
@@ -222,6 +216,7 @@ const ANSWER_VARIABLES: readonly string[] = ['PATH', 'HOME', 'USERPROFILE', 'HOM
 export function answerKey(root: string, session: string, command: readonly string[], version: string, env: Readonly<Record<string, string | undefined>> = process.env): string {
   const variables = Object.keys(env)
     .filter((name) => /^GIT_/i.test(name) || ANSWER_VARIABLES.includes(name.toUpperCase()))
+    // One case for each name, whichever: the mutant that folds to the other is equivalent.
     .map((name) => [name.toUpperCase(), env[name]])
     .sort();
   return JSON.stringify({ root, session, command, version, node: process.version, args: LIST, variables });
