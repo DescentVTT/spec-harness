@@ -91,6 +91,108 @@ export function parseBriefList(document: unknown): BriefRow[] {
 }
 
 /**
+ * A file a `list` answer was read from, by the SHA-256 of its bytes in hex;
+ * or `null` where spec-brief looked for it and found none, which is then to
+ * be found none again.
+ */
+export interface InputFile {
+  readonly path: string;
+  readonly sha256: string | null;
+}
+
+/**
+ * A directory whose files a `list` answer was read from, by their names:
+ * entries that are files, as spec-brief lists them; or `null` where
+ * spec-brief looked for the directory and found none, which is then to be
+ * found none again.
+ */
+export interface InputDirectory {
+  readonly path: string;
+  readonly entries: readonly string[] | null;
+}
+
+/**
+ * Everything a `list` answer was read from, as spec-brief lists it: its
+ * version, the files and directories it read, and what git read for it, the
+ * index and the ignore files, or `null` where it asked git nothing. A path
+ * is relative to the work tree and POSIX, or absolute where git names a
+ * file outside it (spec-core ADR-0005, amended 2026-10-19).
+ */
+export interface BriefInputs {
+  readonly tool: string;
+  readonly files: readonly InputFile[];
+  readonly directories: readonly InputDirectory[];
+  readonly git: { readonly index: string | null; readonly ignores: readonly InputFile[] } | null;
+}
+
+const DIGEST = /^[0-9a-f]{64}$/;
+
+function inputPath(value: unknown): value is string {
+  return typeof value === 'string' && value !== '';
+}
+
+function digestOf(value: unknown): string | null | undefined {
+  return value === null || (typeof value === 'string' && DIGEST.test(value)) ? value : undefined;
+}
+
+function inputFiles(value: unknown): InputFile[] | null {
+  if (!Array.isArray(value)) return null;
+  const files: InputFile[] = [];
+  for (const item of value) {
+    if (!isObject(item) || !inputPath(item['path'])) return null;
+    const sha256 = digestOf(item['sha256']);
+    if (sha256 === undefined) return null;
+    files.push({ path: item['path'], sha256 });
+  }
+  return files;
+}
+
+function inputDirectories(value: unknown): InputDirectory[] | null {
+  if (!Array.isArray(value)) return null;
+  const directories: InputDirectory[] = [];
+  for (const item of value) {
+    if (!isObject(item) || !inputPath(item['path'])) return null;
+    const entries = item['entries'];
+    // A name listed twice is a list that is not of one directory's files.
+    if (entries !== null && (!Array.isArray(entries) || !entries.every((entry) => typeof entry === 'string') || new Set(entries).size !== entries.length)) return null;
+    directories.push({ path: item['path'], entries });
+  }
+  return directories;
+}
+
+/**
+ * What a `list` document says its answer was read from, where it may be
+ * given again; `null` where it lists nothing, where `keep` is anything but
+ * `true`, where it names nothing, and where anything on it is in a form not
+ * read here. Each is a doubt, and a doubt starts spec-brief as before
+ * (ADR-0002). The rows are `parseBriefList`'s to read, whatever this
+ * answers: a list this cannot read keeps an answer from being given again,
+ * and changes nothing of it.
+ */
+export function inputsOf(document: unknown): BriefInputs | null {
+  if (!isObject(document)) return null;
+  const inputs = document['inputs'];
+  if (!isObject(inputs) || inputs['keep'] !== true || typeof inputs['tool'] !== 'string') return null;
+  const files = inputFiles(inputs['files']);
+  const directories = inputDirectories(inputs['directories']);
+  const git = inputs['git'];
+  let asked: BriefInputs['git'];
+  if (git === null) {
+    asked = null;
+  } else {
+    if (!isObject(git)) return null;
+    const index = digestOf(git['index']);
+    const ignores = inputFiles(git['ignores']);
+    if (index === undefined || ignores === null) return null;
+    asked = { index, ignores };
+  }
+  // A list that names nothing is an answer that cannot be told from one that
+  // was read from nowhere.
+  if (files === null || directories === null || files.length + directories.length === 0) return null;
+  return { tool: inputs['tool'], files, directories, git: asked };
+}
+
+/**
  * How the active brief was named, for messages. An argument is the id a
  * command takes after its name, or a tool call's `brief`: said to be the
  * flag's, it sent a person looking for a `--brief` nobody had typed.
