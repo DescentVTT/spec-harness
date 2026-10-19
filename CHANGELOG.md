@@ -135,12 +135,12 @@ that; and on Windows a drive letter is one in either case
   it is.
 - **`--help` or `--version` beside a `--root` that is not a directory is
   a line the hook cannot read.** `hook claude --help --root nowhere`
-  printed the help, exit 0, where without `--help` the hook says the root
-  with exit 1. It says `the hook's line cannot be read (--help is given
-  beside a fault, --root is "nowhere", which is not a directory, ...)`, one
-  line on stderr with exit 1, before a write and after one, and holds no
-  write; as a session starts it says the same, exit 0. `doctor` says the
-  line in the same words.
+  printed the help, exit 0, where without `--help` the hook says the
+  root. It says `the hook's line cannot be read (--help is given beside a
+  fault, --root is "nowhere", which is not a directory, ...)` as it says
+  every line it cannot read, to the person with exit 0, before a write and
+  after one, and holds no write; as a session starts it says the same.
+  `doctor` says the line in the same words.
   Upgrading: mend the line; no line a release wrote carries either.
 - **`doctor --strict` fails where git cannot say where it runs its
   hooks.** Under a `core.hooksPath` that names a file, `where git runs its

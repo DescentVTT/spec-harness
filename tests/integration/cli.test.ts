@@ -906,13 +906,13 @@ describe("doctor on the line of Claude Code's hook in its settings (ADR-0005)", 
       const hooked = await cli(['hook', 'claude', ...rest.map((word) => word.split('${CLAUDE_PROJECT_DIR}').join(repo.root))], repo.root, { stdin: question });
       expect(hooked, rest.join(' ')).toEqual({ code: 0, stdout: asked === 'help' ? HELP : `${VERSION}\n`, stderr: '' });
     }
-    // Beside a root that is not a directory, the hook says what it said without either, as a line it cannot read: exit 1, and nothing held.
+    // Beside a root that is not a directory, the hook says what it said without either, as a line it cannot read: to the person, exit 0, and nothing held.
     const fault = `the hook's line cannot be read (--help is given beside a fault, --root is "nowhere", which is not a directory, and the help would be printed in its place), so the guard is off`;
     repo.write('.claude/settings.json', settings([hook(['--help', '--root', 'nowhere'])]));
     const beside = await cli(['doctor'], repo.root, { env });
     expect(beside.code).toBe(1);
     expect(beside.stdout).toContain(`\n        "hook claude --help --root nowhere" in .claude/settings.json: ${fault} and no write is checked; mend it in Claude Code's settings, where init writes "hook claude" and nothing after it\n`);
-    expect(await cli(['hook', 'claude', '--help', '--root', 'nowhere'], repo.root, { stdin: question })).toEqual({ code: 1, stdout: '', stderr: `spec-harness: ${fault} and this write is not checked; mend it in Claude Code's settings, where init writes "hook claude" and nothing after it\n` });
+    expect(await cli(['hook', 'claude', '--help', '--root', 'nowhere'], repo.root, { stdin: question })).toEqual({ code: 0, stdout: `${JSON.stringify({ systemMessage: `spec-harness: ${fault} and this write is not checked; mend it in Claude Code's settings, where init writes "hook claude" and nothing after it` })}\n`, stderr: '' });
     // As a session starts, the same words, of every write of it.
     const start = await cli(['hook', 'claude', '-h', '--root', 'nowhere'], repo.root, { stdin: JSON.stringify({ session_id: 's', cwd: repo.root, hook_event_name: 'SessionStart', source: 'startup' }) });
     expect(start.code).toBe(0);

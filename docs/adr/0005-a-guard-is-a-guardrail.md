@@ -2187,7 +2187,7 @@ into `.claude/settings.json` under both events with `init`'s matcher:
 | `hook claude --help`, `--version`, `-h` or `-v` on the line | the hook prints the help or the version, exit 0, before a write to the protected file and after it; `doctor`: `is more than init writes, and guards`, exit 0 | the hook the same; `doctor`: the line asks for the help or the version, which the hook prints in place of checking the write, so the guard is off; exit 1 |
 | the same with `--root ""`, `--root <the project>` or `--brief 404` beside it | the hook the same; `doctor`: guards, or holds every write for 404 | the hook the same; `doctor`: the guard is off, as above; exit 1 |
 | the same with a `--root` in no work tree beside it | the hook the same; `doctor`: the root, off | the hook the same; `doctor`: the help or the version, off |
-| `--help`, `--version` or `-h` beside `--root nowhere` | the hook prints the help or the version, exit 0; `doctor`: the root is not a directory, off; exit 1 | the hook, before a write and after one: `the hook's line cannot be read (--help is given beside a fault, --root is "nowhere", which is not a directory, and the help would be printed in its place)`, exit 1, and holds no write; `doctor` the same words; exit 1 |
+| `--help`, `--version` or `-h` beside `--root nowhere` | the hook prints the help or the version, exit 0; `doctor`: the root is not a directory, off; exit 1 | the hook, before a write and after one: `the hook's line cannot be read (--help is given beside a fault, --root is "nowhere", which is not a directory, and the help would be printed in its place)`, to the person, exit 0 (exit 1 before main had the hook say the guard is off with exit 0), and holds no write; `doctor` the same words; exit 1 |
 | `.spec-harness.json` of mode 000 (Linux) | `doctor`, `guard` and the hook: `.spec-harness.json is not valid JSON: EACCES: permission denied, open ...`, exit 2 | `.spec-harness.json cannot be read: EACCES: permission denied, open ...`, exit 2 |
 | `.spec-harness.json` held open by another process with no sharing (Windows) | `doctor`, `guard`, `context` and the hook: `is not valid JSON: EBUSY: resource busy or locked, ...`, exit 2 | `cannot be read: EBUSY: ...`, exit 2 |
 | a `core.hooksPath` that names a file, with nothing wiring Claude Code to the guard so that no release is asked | `where git runs its hooks cannot be told: ...`; `doctor` exit 0, and 0 under `--strict` | the same words; exit 0, and 1 under `--strict` |
@@ -2222,20 +2222,22 @@ wired.
   hook reads no brief and opens no root before the answer, so `doctor`
   asks spec-brief and git nothing for it either.
 - **Beside a root that is not a directory, either is a line the hook
-  cannot read.** The hook says such a root as it runs, with exit 1 (the
-  first amendment of 2026-10-11), and the help or the version was printed
-  in its place, exit 0, so the guard someone set up was off with no word.
-  Such a line is now said as one the hook cannot read, after its question
-  is read, before a write and after one, exit 1, and no write is held for
-  it; as a session starts it is said in the same words, exit 0. The faults
-  read so are those the line shows by itself: a root that is a file, or is
-  not there, or is empty where the directory the hook is started in is
-  gone. A root outside any work tree or in another, and a brief that is not
-  one, take git or spec-brief to tell, and neither is asked before an
-  answer that runs nothing: beside those the hook prints the help, and
-  `doctor` says the line as above. The decision named "a wrong value"
-  beside `--help`; these are the values a wrong one can be told by with no
-  process started.
+  cannot read.** The hook says such a root as it runs (the first
+  amendment of 2026-10-11), and the help or the version was printed in its
+  place, exit 0, so the guard someone set up was off with no word. Such a
+  line is now said as one the hook cannot read, after its question is
+  read, before a write and after one, as every such line is said: to the
+  person, exit 0, by the amendment of 2026-10-19 that has the hook say the
+  guard is off with exit 0 (it was exit 1 when this was measured), and no
+  write is held for it; as a session starts it is said in the same words,
+  exit 0. The faults read so are those the line shows by itself: a root
+  that is a file, or is not there, or is empty where the directory the
+  hook is started in is gone. A root outside any work tree or in another,
+  and a brief that is not one, take git or spec-brief to tell, and neither
+  is asked before an answer that runs nothing: beside those the hook
+  prints the help, and `doctor` says the line as above. The decision named
+  "a wrong value" beside `--help`; these are the values a wrong one can be
+  told by with no process started.
 - **A configuration that cannot be read is said as that.** Reading the
   file and parsing it are told apart: a read that fails is
   `.spec-harness.json cannot be read: ` and Node's words, EACCES where the
