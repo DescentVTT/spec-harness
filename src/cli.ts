@@ -433,6 +433,16 @@ async function answeredAfter(root: string, record: CallRecord | null, cwd: strin
   }
 }
 
+/**
+ * The answer before a write the hook could not check: one line, and exit 2,
+ * which holds the write. Claude Code shows the line to Claude as the
+ * reason.
+ */
+function cannotCheck(io: CliIO, error: unknown): number {
+  io.stderr.write(`spec-harness: cannot check this write: ${(error as Error).message}\n`);
+  return EXIT_ERROR;
+}
+
 async function hookCommand(options: Options, io: CliIO): Promise<number> {
   const kind = options.positionals[0];
   if (kind === 'claude') {
@@ -460,6 +470,10 @@ async function hookCommand(options: Options, io: CliIO): Promise<number> {
       workspace = await openWorkspace({ ...options, root }, io);
     } catch (error) {
       if (error instanceof UsageError) return EXIT_OK;
+      // git asked where the work tree is and did not answer within its time
+      // limit: before a write that is a write the hook could not check, said
+      // as one (ADR-0002).
+      if (error instanceof GitError && request.event === 'PreToolUse') return cannotCheck(io, error);
       throw error;
     }
     try {
@@ -496,8 +510,7 @@ async function hookCommand(options: Options, io: CliIO): Promise<number> {
       if (request.event !== 'PreToolUse') throw error;
       // A round is named and its briefs cannot be read: the guard cannot
       // tell a protected file from any other, so the write waits.
-      io.stderr.write(`spec-harness: cannot check this write: ${(error as Error).message}\n`);
-      return EXIT_ERROR;
+      return cannotCheck(io, error);
     }
   }
   if (kind === 'git') {
