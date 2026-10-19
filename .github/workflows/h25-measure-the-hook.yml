@@ -1,0 +1,66 @@
+# Temporary: times `hook claude` on the CI's Windows image for round 25,
+# section H1 (a brief's answer given again), against spec-brief 0.9.0 and the
+# spec-brief of DescentVTT/spec-brief#69, which names what its answer was
+# read from. The pull request that carries it is a draft, is closed unmerged
+# once its log is read, and its branch deleted.
+name: h25 measure the hook (temporary)
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  measure:
+    if: github.head_ref == 'h25/measure-a-briefs-answer'
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+      - run: npm ci --ignore-scripts
+      - run: npm run build
+      - name: Build the branch measured
+        shell: bash
+        run: |
+          git worktree add "$RUNNER_TEMP/h25-h1" "origin/perf/a-briefs-answer-given-again"
+          (cd "$RUNNER_TEMP/h25-h1" && git log --oneline -1 && npm ci --ignore-scripts && npm run build)
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: DescentVTT/spec-brief
+          ref: fbe987561707758f078757a66bf74f489b8b3c96
+          path: h25/spec-brief-090
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: DescentVTT/spec-brief
+          ref: 2524903d6f4608a285e3aa8a67ae727b0ff69145
+          path: h25/spec-brief-69
+          persist-credentials: false
+      - name: Build the two spec-briefs
+        shell: bash
+        run: |
+          for dir in h25/spec-brief-090 h25/spec-brief-69; do
+            (cd "$dir" && git log --oneline -1 && npm ci --ignore-scripts && npm run build)
+          done
+      - name: Machine
+        shell: bash
+        run: |
+          node --version; git --version; git log --oneline -1
+          node -e "const o=require('os'); console.log(o.cpus()[0].model, o.cpus().length, Math.round(o.totalmem()/2**30)+' GB')"
+      - name: Measure, 30 rounds
+        shell: bash
+        run: |
+          node .github/h25-bench.mjs "$RUNNER_TEMP/h25/work" 30 "$RUNNER_TEMP/h25/out.json" \
+            main-090="$GITHUB_WORKSPACE,$GITHUB_WORKSPACE/h25/spec-brief-090" \
+            main-a2="$GITHUB_WORKSPACE,$GITHUB_WORKSPACE/h25/spec-brief-69" \
+            h1-a2="$RUNNER_TEMP/h25-h1,$GITHUB_WORKSPACE/h25/spec-brief-69"
+          echo "h25-json-begin"
+          cat "$RUNNER_TEMP/h25/out.json"
+          echo "h25-json-end"
