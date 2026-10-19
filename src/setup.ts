@@ -193,7 +193,9 @@ export async function plan(workspace: Workspace, options: Options, io: CliIO): P
 
   // spec-brief first: every other setting is derived from its directories.
   const briefConfig = SPEC_BRIEF_CONFIGS.find((name) => existsSync(join(root, name)));
-  const brief = workspace.siblings.locate('spec-brief');
+  // One name for the sibling found and for the sibling run, which a run that is stopped says.
+  const tool = 'spec-brief';
+  const brief = workspace.siblings.locate(tool);
   let briefs = 'briefs';
   let archive = 'briefs/archive';
   if (briefConfig === undefined) {
@@ -205,7 +207,7 @@ export async function plan(workspace: Workspace, options: Options, io: CliIO): P
         action: 'run',
         detail: 'spec-brief init: the brief and archive directories, every default spelled out',
         apply: async () => {
-          const run = await runSibling(command, ['init'], root);
+          const run = await runSibling(tool, command, ['init'], root);
           if (run.code !== 0) throw new Error(`spec-brief init failed: ${run.stderr.trim()}`);
         },
       });

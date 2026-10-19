@@ -60,6 +60,21 @@ cannot turn a run red. The family's policy is
   `inputs`, 0.9.0 and every release before it, is started before every
   write as it was.
 
+- **A process the harness asks a question of is stopped after 20 seconds,
+  and the hook holds the write there.** git had no limit and spec-brief
+  ten minutes, where Claude Code cancels the hook at the 60 seconds its
+  entry gives it, and before a write lets the write go ahead: a named pipe
+  at `.spec-brief.json` or `.git/config` kept the hook, `doctor` and
+  every command from coming back. git's reads and spec-brief's list are
+  now stopped at 20 seconds and said, `spec-brief did not answer within
+  20 seconds, and was stopped`; before a write that is `cannot check this
+  write: ...`, exit 2, which holds it. A round's work, a diff, a probe's
+  worktree, a sibling's check, keeps ten minutes
+  ([ADR-0002](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0002-siblings-through-their-command-lines.md)).
+  Upgrading: where git or spec-brief takes longer than 20 seconds to
+  answer, which none measured does, writes are held and commands exit 2
+  with the line: find what it waits on.
+
 - **The hook says the guard is off with exit 0, where it exited 1.** A
   question it cannot read and a line of its own that turns the guard off
   (one it cannot read, a `--root` that is no directory) were one line on
@@ -71,6 +86,16 @@ cannot turn a run red. The family's policy is
   ([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
   Upgrading: a script that read the hook's exit 1 or its stderr reads the
   line as `systemMessage` on stdout, with exit 0.
+
+### Fixed
+
+- **A named pipe where the harness reads a file** no longer keeps a
+  command from coming back: a document a brief cites, a sibling's
+  `package.json`, what the run before a write kept, git's configuration
+  and a worktree's `commondir` as the hook reads them, a request waiting
+  for a ruling, a probe's report. Only a regular file is read, and what
+  else stands there is read as a file that is not there
+  ([ADR-0002](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0002-siblings-through-their-command-lines.md)).
 
 ## 0.19.0
 

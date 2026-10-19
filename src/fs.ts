@@ -20,6 +20,16 @@ function standing(path: string): Stats | null {
 }
 
 /**
+ * Whether a regular file stands at a path, links followed. Only one is read
+ * where a file is expected: opened, a named pipe nothing writes to is read
+ * without end, and one read as the process waits on it, as the harness reads
+ * a few small files, stops every timer with it (ADR-0002).
+ */
+export function isFile(path: string): boolean {
+  return standing(path)?.isFile() === true;
+}
+
+/**
  * Reads `.spec-harness.json` at the root, or the defaults when there is none.
  *
  * Only a file is read. A named pipe under the file's name was read without
@@ -187,8 +197,9 @@ export function gitDirectories(root: string, env: Readonly<Record<string, string
   return { top, git: gitDir, common, exact: !moved && !elsewhere };
 }
 
-/** A file's text, or `null` where it cannot be read. */
+/** A file's text, or `null` where it cannot be read or is no file. */
 function textOf(file: string): string | null {
+  if (!isFile(file)) return null;
   try {
     return readFileSync(file, 'utf8');
   } catch {
@@ -231,6 +242,8 @@ export async function keepCall(commonDir: string, name: string, text: string, no
 /** What was kept for a call, taken away as it is read; `null` where nothing was. */
 export async function takeCall(commonDir: string, name: string): Promise<string | null> {
   const file = join(commonDir, 'spec-harness', 'calls', name);
+  // What is no file holds nothing kept, and is written over at the next write.
+  if (!isFile(file)) return null;
   try {
     const text = await readFile(file, 'utf8');
     // Taken away by another run since it was read, the mutants of `force`
@@ -436,7 +449,9 @@ export function isDirectory(path: string): boolean {
   }
 }
 
+/** A file's text, or `null` where it cannot be read or is no file: a brief, a document one cites, a shim. */
 export async function readText(file: string): Promise<string | null> {
+  if (!isFile(file)) return null;
   try {
     return await readFile(file, 'utf8');
   } catch {
