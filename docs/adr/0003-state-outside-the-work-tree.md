@@ -454,6 +454,40 @@ never committed:
   next run before a write removes any older than a day, with any temporary
   file a write that was stopped left. ADR-0002 has why a day.
 
+*Amended 2026-10-19.* **A session's answer of spec-brief's is kept, and
+read before a write.** In-flight state of a fourth kind: the hook keeps
+spec-brief's list of the briefs for a session of Claude Code's, and gives it
+again to the session's later runs while everything the answer was read from
+reads as listed (ADR-0002, amended the same day; spec-core's ADR-0005,
+amended the same day, makes such an answer state of this kind, removable
+at any time with no answer changing). It lives where every in-flight state
+of the harness does, `<git-common-dir>/spec-harness/answers/`, shared by
+every worktree of the repository, invisible to `git status`, never
+committed:
+
+- **One file an answer**, `<sha256>.json`, the SHA-256 of what it is the
+  answer to: the work tree, the session, spec-brief's command and version,
+  the command line and the variables named there. The file holds that key
+  whole, compared as it is read, and spec-brief's text as it printed it.
+  It is written whole or not at all, by a run that started spec-brief, and
+  read again by the session's runs, before a write among them, without
+  being taken away.
+- **Read before a write, which nothing kept was until now.** The amendment
+  of 2026-10-18 had what a call keeps read only after the write, so that a
+  file another program wrote there changed no refusal. An answer kept here
+  decides one: it says what the brief protects. What reads as it was listed
+  is the answer spec-brief would give again, and whatever does not starts
+  spec-brief. A file another program writes there with a list of inputs that
+  read as listed gives the hook its answer, which a program that can write
+  the git directory could equally give by writing the protected file itself,
+  or the brief: the guard is a guardrail for an agent that keeps to its
+  tools, and the audit and the archive are the gates (ADR-0005).
+- **A day, and then removed.** A file not kept again for a day is removed by
+  the next run that keeps one, with any temporary file a write that was
+  stopped left: a session's answer is a few kilobytes, and one removed too
+  soon costs one start of spec-brief. Removing the directory changes no
+  answer.
+
 ## Consequences
 
 `git worktree add` is the one git write in the family, bounded to a directory

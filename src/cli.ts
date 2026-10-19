@@ -27,7 +27,7 @@ import { gitDirectories, holdsGit, isDirectory, keepCall, loadConfig, outsideEve
 import { changedPaths, GitError, show, stagedChanges } from './git.js';
 import type { DocumentReader } from './document.js';
 import type { Decision } from './guard.js';
-import { afterResponse, callFile, callRecord, claudeResponse, gitResponse, keptCall, mendResponse, NONE, parseClaudeHook, SESSION_START, sessionResponse, TURN_END, turnResponse, warningsKept, warningsOf, type CallRecord, type HookRequest, type HookResponse } from './hooks.js';
+import { afterResponse, callFile, callRecord, claudeResponse, gitResponse, keptCall, mendResponse, NONE, parseClaudeHook, SESSION_START, sessionOf, sessionResponse, TURN_END, turnResponse, warningsKept, warningsOf, type CallRecord, type HookRequest, type HookResponse } from './hooks.js';
 import type { Base } from './round.js';
 import type { BriefRow } from './types.js';
 import { SiblingError } from './siblings.js';
@@ -135,12 +135,22 @@ Exit codes: 0 clean, 1 refused or found something, 2 the answer cannot be truste
  */
 const reader = async (): Promise<DocumentReader> => (await import('./reader.js')).createReader();
 
+/**
+ * The work tree with spec-brief's answers kept for a session of Claude
+ * Code's, and given again to it where all they were read from reads the
+ * same (ADR-0002); as it is where no session is named.
+ */
+function keptFor(workspace: Workspace, session: string | null): Workspace {
+  return session === null ? workspace : { ...workspace, siblings: workspace.siblings.keeping(workspace.commonDir, session) };
+}
+
 async function decisionsFor(
   workspace: Workspace,
   options: Options,
   io: CliIO,
   given: readonly string[],
   cwd: string,
+  session: string | null = null,
 ): Promise<{ readonly decisions: Decision[]; readonly brief: BriefRow | null } | { readonly problem: string }> {
   // A path outside every work tree of the repository is decided as one
   // outside it, whichever brief is named and whatever is wrong with the
@@ -148,7 +158,7 @@ async function decisionsFor(
   // among them, where no brief decides one (ADR-0005). So no brief is asked
   // about for such a write, and spec-brief is not run for it.
   const outside = outsideEvery(given, workspace.root, workspace.commonDir, cwd);
-  const active = outside ? null : await activeBrief(workspace, options, io.env);
+  const active = outside ? null : await activeBrief(keptFor(workspace, session), options, io.env);
   const { brief, note, problem } = active === null ? { brief: null, note: undefined, problem: null } : describeActive(active);
   if (problem !== null) return { problem };
   const { checkPaths } = await import('./round.js');
@@ -284,7 +294,7 @@ function mending(error: unknown, request: HookRequest, cwd: string, env: CliIO['
  * `doctor` says, and with what mends it. `null` where nothing does. The
  * check never ends the session's start: whatever it meets is said.
  */
-async function sessionProblem(options: Options, io: CliIO, root: string, cwd: string | null): Promise<string | null> {
+async function sessionProblem(options: Options, io: CliIO, root: string, cwd: string | null, session: string | null): Promise<string | null> {
   const held = 'so every write of this session is held until it is mended';
   try {
     const named = await openWorkspace({ ...options, root }, io);
@@ -292,7 +302,7 @@ async function sessionProblem(options: Options, io: CliIO, root: string, cwd: st
     // there, and so is the check (ADR-0005).
     const found = cwd === null ? null : await otherTree(named, cwd);
     const workspace = found === null ? named : await openFound(found, io, () => [named.root]);
-    const { problem } = describeActive(await activeBrief(workspace, options, io.env));
+    const { problem } = describeActive(await activeBrief(keptFor(workspace, session), options, io.env));
     return problem === null ? null : `${heldHookLine(problem).wrong}, ${held}: fix the brief or the branch before writing; spec-harness doctor says more`;
   } catch (error) {
     // A session in no work tree has nothing to guard, as a write there has
@@ -462,6 +472,16 @@ async function answeredAfter(root: string, record: CallRecord | null, cwd: strin
   }
 }
 
+/**
+ * The answer before a write the hook could not check: one line, and exit 2,
+ * which holds the write. Claude Code shows the line to Claude as the
+ * reason.
+ */
+function cannotCheck(io: CliIO, error: unknown): number {
+  io.stderr.write(`spec-harness: cannot check this write: ${(error as Error).message}\n`);
+  return EXIT_ERROR;
+}
+
 async function hookCommand(options: Options, io: CliIO): Promise<number> {
   const kind = options.positionals[0];
   if (kind === 'claude') {
@@ -473,7 +493,8 @@ async function hookCommand(options: Options, io: CliIO): Promise<number> {
     if (line.state === 'off') return guardOff(io, line.fault, request.event);
     const cwd = request.cwd ?? io.cwd;
     const root = line.root ?? io.env['CLAUDE_PROJECT_DIR'] ?? cwd;
-    if (request.event === SESSION_START) return answer(io, sessionResponse(await sessionProblem(options, io, root, request.cwd)));
+    const session = sessionOf(request);
+    if (request.event === SESSION_START) return answer(io, sessionResponse(await sessionProblem(options, io, root, request.cwd, session)));
     if (request.event === TURN_END) return answer(io, turnResponse(await turnReport(options, io, root, request.cwd)));
     const record = callRecord(request, { root: line.root, brief: options.brief, base: options.base }, io.cwd, io.env, version());
     if (request.event === 'PostToolUse') {
@@ -490,6 +511,10 @@ async function hookCommand(options: Options, io: CliIO): Promise<number> {
       if (error instanceof UsageError) return EXIT_OK;
       const mended = mending(error, request, cwd, io.env);
       if (mended !== null) return answer(io, mended);
+      // git asked where the work tree is and did not answer within its time
+      // limit: before a write that is a write the hook could not check, said
+      // as one (ADR-0002).
+      if (error instanceof GitError && request.event === 'PreToolUse') return cannotCheck(io, error);
       throw error;
     }
     try {
@@ -501,7 +526,7 @@ async function hookCommand(options: Options, io: CliIO): Promise<number> {
       // answer is made from, in any work tree that decides it.
       let keeps = true;
       for (const part of await writesBy(workspace, request.cwd, request.paths, io)) {
-        const decided = await decisionsFor(part.workspace, options, io, part.paths, cwd);
+        const decided = await decisionsFor(part.workspace, options, io, part.paths, cwd, session);
         if ('problem' in decided) {
           // Exit 2 blocks the tool call, and its stderr reaches the model. Where
           // the name stands on the hook's own line, what is wrong with it is
@@ -531,8 +556,7 @@ async function hookCommand(options: Options, io: CliIO): Promise<number> {
       if (mended !== null) return answer(io, mended);
       // A round is named and its briefs cannot be read: the guard cannot
       // tell a protected file from any other, so the write waits.
-      io.stderr.write(`spec-harness: cannot check this write: ${(error as Error).message}\n`);
-      return EXIT_ERROR;
+      return cannotCheck(io, error);
     }
   }
   if (kind === 'git') {

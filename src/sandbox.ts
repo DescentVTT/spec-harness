@@ -21,7 +21,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { constants, tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { addWorktree, removeWorktree } from './git.js';
+import { addWorktree, ANSWER_MS, removeWorktree, WORK_MS } from './git.js';
 import { probeEnvironment } from './probe.js';
 
 const live = new Map<string, string>();
@@ -113,7 +113,8 @@ function stop(child: ChildProcess): void {
     // stopping the shell alone leaves node holding the output. True already
     // on Windows, so the mutant that makes it true is equivalent there;
     // elsewhere there is no taskkill, and the shell alone is stopped.
-    if (process.platform === 'win32') execFileSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
+    // taskkill is a question answered at once, and given the time one is (git.ts).
+    if (process.platform === 'win32') execFileSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true, timeout: ANSWER_MS });
     else process.kill(-child.pid, 'SIGKILL');
   } catch {
     // Reached when the group is already gone, and the command's shell with
@@ -158,7 +159,7 @@ function discard(directory: string): Error | null {
  */
 function forget(directory: string, repository: string): boolean {
   try {
-    execFileSync('git', ['worktree', 'remove', '--force', directory], { cwd: repository, stdio: 'ignore', windowsHide: true });
+    execFileSync('git', ['worktree', 'remove', '--force', directory], { cwd: repository, stdio: 'ignore', windowsHide: true, timeout: WORK_MS });
     // Asked again about a worktree it has forgotten, git changes nothing, so
     // the mutant that answers false here is equivalent.
     return true;

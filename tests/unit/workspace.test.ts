@@ -202,16 +202,18 @@ describe('options', () => {
 });
 
 function workspace(branch: string | null, branches = DEFAULT_CONFIG.branches): Workspace {
+  const siblings: Workspace['siblings'] = {
+    root: '/repo',
+    locate: () => ({ kind: 'absent', reason: 'not in a unit test' }),
+    briefs: async () => [],
+    json: async () => ({ absent: 'not in a unit test' }),
+    keeping: () => siblings,
+  };
   return {
     root: '/repo',
     commonDir: '/repo/.git',
     config: { ...DEFAULT_CONFIG, branches },
-    siblings: {
-      root: '/repo',
-      locate: () => ({ kind: 'absent', reason: 'not in a unit test' }),
-      briefs: async () => [],
-      json: async () => ({ absent: 'not in a unit test' }),
-    },
+    siblings,
     branch,
     cwd: '/repo',
   };
