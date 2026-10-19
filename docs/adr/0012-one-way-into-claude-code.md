@@ -420,6 +420,39 @@ way.
   holds one. The field is added, so no `schemaVersion` moves. Of the
   plugin's own entries nothing is read, as before.
 
+*Amended 2026-10-19.* **An entry at the end of a turn, where
+`turnReport` is on.** `init` writes, where `.spec-harness.json` has
+`"turnReport": true`, an entry under `Stop` that runs the hook's own line,
+`node ${CLAUDE_PROJECT_DIR}/node_modules/@descent-vtt/spec-harness/bin/spec-harness.js hook claude`,
+with `"async": true` and no matcher, which the event takes none of (ADR-0005,
+amended the same day, has what the hook says there and why in the
+background). The line is the one the guard's entries have run since 0.1.2,
+so `tests/integration/released-lines.test.ts` holds it as it holds theirs.
+
+- **Only where the key is on, beside init's entries where they stand as
+  init writes them**, as the entry as a session starts is: with them, in a
+  file init writes them into, and by itself, `update`, in a file whose
+  entries an earlier release wrote, once the key is turned on and `init
+  --write` is run again. A file with a line of the hook a person wrote or
+  changed is theirs to complete. A line of the hook already under `Stop`,
+  init's or a person's, is the entry, and no second one is written.
+- **The plugin carries none.** Its `hooks/hooks.json` is the same for every
+  project, and an entry there would start the hook at the end of every turn
+  of every session that has the plugin on, to read a key that is off. With
+  the plugin on and the key on, `init` writes no hook, as before, and says
+  the entry to add, `advise`.
+- **`async` is a key every Claude Code the harness runs under reads**:
+  Claude Code's changelog fixes background hooks in 2.1.23, older than
+  2.1.139, the oldest release `doctor` reads as running the hooks
+  (`CLAUDE_CODE_MINIMUM`), and has a malformed hooks entry invalidate no
+  longer the whole settings file from 2.1.122 on
+  (<https://code.claude.com/docs/en/changelog>, read 2026-10-19). That no
+  release from 2.1.139 on unloads the entry for the key follows from the
+  two and was not measured: no Claude Code was started.
+- **`doctor` reads nothing of the entry**, which guards no write: what it
+  says of the hook's lines is of those under `PreToolUse` and
+  `PostToolUse`, as before.
+
 *Amended 2026-10-19.* **`init --block-on-failure` writes `"onFailure":
 "block"` on its entries, the plugin does not, and `doctor` advises it.**
 A hook that cannot start lets the write go ahead: where the project a
@@ -477,6 +510,17 @@ every release a consumer may still run:
   it, as in every release, and none that carries it loses it. A file that
   holds a line `doctor` fails is the person's to mend, as before, and
   `init` writes nothing into it.
+- **The entry at the end of a turn is left without it.** `init` writes
+  that entry under `Stop`, in the background, where the configuration asks
+  for the report (amended before this, the same day). The hooks reference
+  (*Block the action when a hook fails*, read 2026-10-19) says "The field
+  has no effect on these hooks", and lists `Stop` hooks among them, since
+  exit 2 as a turn ends sends Claude back to work, and background command
+  hooks, those that set `async` or `asyncRewake`. So `--block-on-failure` leaves that entry as
+  it is, `withOnFailure` reading the three events alone, and `init` says
+  the field is on the other three. A question the hook cannot read as a
+  turn ends, or a line of its own it cannot read there, is said as
+  `systemMessage` with exit 0, as on every other event (ADR-0005).
 - **The plugin's `hooks/hooks.json` does not carry it.** A plugin has no
   option, and is read by whatever release loads it.
   `tests/integration/released-lines.test.ts` holds its entries to the four

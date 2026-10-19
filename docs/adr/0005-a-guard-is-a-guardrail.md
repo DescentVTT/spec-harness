@@ -1835,6 +1835,134 @@ spec-brief where a brief is named. The hooks reference has an interactive
 session's SessionStart hooks run in the background, with Claude's first
 response waiting for them, once a session.
 
+*Amended 2026-10-19.* **A report at the end of a turn, where the
+configuration asks for one.** An agent that writes through a shell passes
+the guard, which Claude Code starts for Edit, Write and NotebookEdit, and
+is caught at the commit and at the audit. Round 24's evaluation of a
+consumer's request weighed two ways to say such a write sooner: a hook after
+every shell command, and one report a turn of what the work tree holds; the
+user chose the second, off by default.
+
+*Measured* through the launcher of main (3c4112c) and of this change
+(Windows 11, Node 24.18.1, Git for Windows 2.55.0), in scratch projects
+with spec-brief 0.9.0 installed and brief 042 covering `src/auth/**` and
+protecting `src/db/**`, each handed the question Claude Code's hooks
+reference shows for `Stop`, with the processes the run started written down
+by a preload (`h25-measure-h2.mjs`):
+
+| As the turn ends | main | Now |
+| --- | --- | --- |
+| `turnReport` off, a protected file changed | exit 1, `the hook input names no event or tool`, no process | exit 0, nothing; two of git's processes, opening the work tree |
+| `turnReport` on, no brief named, a protected file changed | the same | exit 0, nothing; the same two |
+| `turnReport` on, a brief's branch, nothing changed | the same | exit 0, nothing; the two, spec-brief, and `git status` |
+| `turnReport` on, a brief's branch, `src/db/schema.ts` changed and `notes/new.md` made, by no hook | the same | exit 0, one `systemMessage`: `spec-harness: as this turn ended, the work tree held changes to 2 paths that brief 042 protects or that are outside its scope:`, then a line for each, `src/db/schema.ts` as protected and `notes/new.md` as outside the scope, in the words a write of each is given; the same four processes |
+| `turnReport` on, a branch that names a brief spec-brief does not list | the same | exit 0, `the branch names brief 999, and spec-brief knows no such brief, so what the work tree holds is not reported, and every write is held; spec-harness doctor says more`; the two and spec-brief |
+
+What the hooks reference has of the end of a turn, read 2026-10-19
+(<https://code.claude.com/docs/en/hooks>, *Stop*, *Stop decision control*,
+*JSON output*, *Block the action when a hook fails* and *Run hooks in the
+background*). `Stop` runs when the main agent has finished responding, and
+not where a person interrupted it; an API error runs `StopFailure` instead,
+whose output is ignored. Under `Stop`, `decision: "block"` and exit 2 keep
+Claude going, and so does `hookSpecificOutput.additionalContext`, which
+Claude reads "at the end of the turn" while the conversation continues so
+that it can act on it, within the same loop protections, `stop_hook_active`
+and a cap of eight continuations in a row. `systemMessage` is a warning
+shown to the person. `continue: false` stops Claude entirely and takes
+precedence over any event-specific decision field. An entry with `async:
+true` runs in the background, can block and control nothing, and once it
+exits Claude Code delivers its `additionalContext` and `systemMessage` to
+Claude on the next conversation turn, showing neither to the person; while
+the session is idle the delivery waits for the next prompt, and under `-p` a
+background hook still running at the end is killed. `onFailure` has no
+effect on `Stop` or on a background hook.
+
+So a report that reaches Claude as the turn ends keeps the turn going, which
+is not what was decided; and nothing the hook prints reaches both the person
+and Claude without that, but `continue: false` with a `stopReason`, which
+would end a turn another hook keeps going, a `/goal` among them. What was
+built:
+
+- **`turnReport`, a key of `.spec-harness.json`, `false` by default.**
+  `true` alone turns it on, and anything but `true`, `false` or `null` is a
+  configuration that does not load, as every key's wrong value is.
+- **The hook reads `Stop`** as it reads `SessionStart`, a question that names
+  no tool. With `turnReport` off it says nothing and starts nothing past
+  opening the work tree; with it on, it reads the work tree a write of the
+  session is decided in, as the amendments of 2026-10-18 have it, and the
+  brief that work tree's branch, the line or `SPEC_BRIEF` names.
+- **One start of git a report:** `git --no-optional-locks status
+  --porcelain=v2 -z --untracked-files=all`, every path that differs from
+  HEAD in the index or the work tree, unmerged or untracked, an untracked
+  directory's files one by one, a rename by both its paths
+  (git-status(1), *Porcelain Format Version 2*, as Git for Windows 2.55.0
+  has it, read 2026-10-19). git's manual has a status run in the
+  background take no optional lock, since the lock it takes to write the
+  index it refreshes can make another git beside it fail (git-status(1),
+  *Background Refresh*; git(1), `--no-optional-locks`): the report runs
+  beside Claude's next turn and its git.
+- **Each path is decided as a write of it is**, by the brief and the
+  `outOfScope` in force, and every decision that is not `allow` is said in
+  its own words and next step: a protected file, a protection that cannot
+  be read, and a file outside the scope, warned of, asked about or refused
+  as `outOfScope` says. No ruling is read, which would ask git for the base
+  and a commit's signature: a protected file a signed ruling allows is
+  reported as protected, and the audit reads the ruling. Twenty paths are
+  named one by one, and past them how many more there are.
+- **One `systemMessage`, exit 0, or nothing**, and never `decision`,
+  `additionalContext`, `continue` or exit 2. A brief named that spec-brief
+  does not list, and a line of the hook's own it cannot read, are said there
+  in the words a session's start has for them; a configuration that does not
+  load, which every write and the session's start say already, and a
+  session in no work tree, say nothing; a git that fails is said in its own
+  words.
+- **`init` writes the entry with `async: true`** (ADR-0012, amended the same
+  day): the turn waits on none of it, and Claude reads the report as the next
+  turn begins. Run without `async`, the same line shows the person the
+  report as the turn ends, Claude reads none of it, and the end of the turn
+  waits for the hook, as for any entry it waits on. Two entries would be two
+  reports and two starts of git a turn, and were not written.
+
+**Why one report a turn is not the hook the amendment of 2026-09-30 turned
+down.** That one ran after every shell command, so every command paid for
+it; it read a command's words, which are easy to get around; and the audit
+stayed the gate. This one is asked for, and off otherwise; it is paid once a
+turn, in the background, where the turn waits on nothing; it reads the work
+tree and not a command, so how a file was changed, a shell, a script or a
+tool, makes no difference to it; and it refuses and holds nothing, so the
+audit stays the gate. What it lets through: a change made and undone within
+a turn, and one committed within it, which git's pre-commit hook and the
+audit have; an ignored file; a turn an interrupt or an API error ended, for
+which no `Stop` runs; and a write it reports has happened, the report being
+read when the next turn begins.
+
+**What it costs**, the builds taking turns, ten rounds at the median, beside
+`node -e 0`:
+
+| As the turn ends | main | Now |
+| --- | ---: | ---: |
+| `turnReport` off | 934 ms | 1,028 ms |
+| `turnReport` on, no brief named | 954 ms | 1,059 ms |
+| `turnReport` on, a brief's branch, nothing changed | 991 ms | 2,221 ms |
+| `turnReport` on, a brief's branch, two paths reported | 913 ms | 2,234 ms |
+| `turnReport` on, a brief spec-brief does not list | 962 ms | 2,225 ms |
+
+On the Windows workstation, where starting node to do nothing took 907 ms
+beside these runs, the machine shared; main's column is the hook reading a
+question it refuses. Where `init` writes the entry, in the background, the
+turn waits on none of it.
+
+Every answer before and after a write, and as a session starts, is as it
+was: the lines of the hook the amendments of this record measured were run
+through both builds before seven writes and after each, as a session starts,
+and git's hook beside them, and again after seven changes to what spec-brief
+reads (`h25-hook-compare.mjs`), 913 runs: 883 the same, and the 30 of `hook
+claude --help` and `-h`, which print the help with its new words for the end
+of a turn, exit 0 as before.
+
+A `Stop` entry aimed at the hook exited 1 and is now read, and a key is
+added: a minor release (spec-core's ADR-0009).
+
 *Amended 2026-10-19.* **The hook says the guard is off with exit 0, so that
 `onFailure` holds only a hook that did not run.** *Claimed* by round 24's
 evaluation of a consumer's request, measured then: where the session's

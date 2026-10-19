@@ -20,7 +20,7 @@ import { join } from 'node:path';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { arrayMatcher, GIT_HOOK_LINE, GUARD_HOOK, matchingUnder, mcpServer, mergeClaudeSettings, PRE_COMMIT, PROJECT_DIR, PROJECT_DIR_OR_HERE, reportHooks, withSessionStart } from '../../src/configure.js';
+import { arrayMatcher, GIT_HOOK_LINE, GUARD_HOOK, matchingUnder, mcpServer, mergeClaudeSettings, PRE_COMMIT, PROJECT_DIR, PROJECT_DIR_OR_HERE, reportHooks, TURN_HOOK, withSessionStart, withTurnReport } from '../../src/configure.js';
 import { CALLABLE_TOOLS, WRITING_TOOLS } from '../../src/hooks.js';
 import { claudeHookLine, refusal, twoValues } from '../../src/usage.js';
 import { parseOptions } from '../../src/workspace.js';
@@ -508,6 +508,13 @@ describe("doctor, of the hook's line in Claude Code's settings", () => {
     // The tools it names are the ones the hook reads a file from, and no other:
     // every one a supported Claude Code can call, and the one name more that
     // the hook reads for whatever still sends it.
+    // And the entry at a turn's end, where turnReport is on, runs the same line and is read for no write.
+    const turns = withTurnReport(withSessionStart(mergeClaudeSettings({}) ?? {}, () => false) ?? {}, () => false) as { hooks: Record<string, { matcher?: string; hooks: { command: string; args: string[] }[] }[]> };
+    expect(Object.keys(turns.hooks)).toEqual(['PreToolUse', 'PostToolUse', 'SessionStart', 'Stop']);
+    expect(turns.hooks['Stop']?.map((group) => group.matcher)).toEqual([undefined]);
+    expect(turns.hooks['Stop']?.flatMap((group) => group.hooks.map((hook) => [hook.command, ...hook.args]))).toEqual([[GUARD_HOOK['command'], ...(GUARD_HOOK['args'] as string[])]]);
+    expect(TURN_HOOK['args']).toEqual(GUARD_HOOK['args']);
+    expect(reportHooks([{ file: '.claude/settings.json', settings: turns }], '/the/project', read)).toEqual([RELEASED]);
     expect(MATCHER.split('|')).toEqual(WRITING_TOOLS);
     for (const tool of CALLABLE_TOOLS) expect(MATCHER.split('|'), tool).toContain(tool);
   });

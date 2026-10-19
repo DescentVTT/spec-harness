@@ -11,6 +11,38 @@ cannot turn a run red. The family's policy is
 
 ## Unreleased
 
+### Added
+
+- **A report at the end of a turn, where `.spec-harness.json` asks for
+  one.** With `"turnReport": true`, `hook claude` answers Claude Code's
+  `Stop`: with one `git status`, every path the work tree holds changed
+  that the brief protects or that is outside its scope, a shell's writes
+  among them, in the words a write of it is given, as one `systemMessage`,
+  exit 0, and never a field that has Claude go on. `init` writes the entry,
+  in the background, where the key is on, and Claude reads the report as the
+  next turn begins; the plugin carries none, and with it on `init` says
+  what to add
+  ([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md),
+  [ADR-0012](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0012-one-way-into-claude-code.md)).
+  Upgrading: off by default, so nothing changes until the key is turned on
+  and `spec-harness init --write` run again. A `Stop` entry aimed at the
+  hook exited 1, `the hook input names no event or tool`, and now exits 0;
+  a configuration's unknown key is refused with `turnReport` among the keys
+  it names.
+
+- **`init --block-on-failure` writes `"onFailure": "block"` on its hook
+  entries before and after a write and as a session starts**, and on those
+  an earlier run wrote, so that Claude Code 2.1.295 or later holds a write
+  where the hook cannot start, as in a worktree with no install, or runs
+  past its timeout. It is written only
+  where asked for, and the plugin does not carry it: no page says what an
+  older release does with the key. `doctor` advises it in a note, failing
+  nothing, for a line that guards without it where the Claude Code on
+  `PATH` reads the field
+  ([ADR-0012](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0012-one-way-into-claude-code.md)).
+  The entry at the end of a turn is left without it: it runs in the
+  background, where the hooks reference gives the field no effect.
+
 ### Changed
 
 - **The hook says the guard is off with exit 0, where it exited 1.** A
@@ -24,18 +56,6 @@ cannot turn a run red. The family's policy is
   ([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
   Upgrading: a script that read the hook's exit 1 or its stderr reads the
   line as `systemMessage` on stdout, with exit 0.
-
-### Added
-
-- **`init --block-on-failure` writes `"onFailure": "block"` on its hook
-  entries**, and on those an earlier run wrote, so that Claude Code
-  2.1.295 or later holds a write where the hook cannot start, as in a
-  worktree with no install, or runs past its timeout. It is written only
-  where asked for, and the plugin does not carry it: no page says what an
-  older release does with the key. `doctor` advises it in a note, failing
-  nothing, for a line that guards without it where the Claude Code on
-  `PATH` reads the field
-  ([ADR-0012](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0012-one-way-into-claude-code.md)).
 
 ## 0.19.0
 

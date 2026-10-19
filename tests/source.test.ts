@@ -375,7 +375,7 @@ describe('a module that is loaded where it runs', () => {
     // module asked for with import() has a test file that imports it at its
     // top. This file is in no sweep, and is not counted.
     const lazy = new Set(sources.flatMap((path) => [...text(path).matchAll(/(?<!typeof )\bimport\('\.\/([a-z]+)\.js'\)/g)].map((match) => `src/${match[1] as string}.ts`)));
-    expect([...lazy].sort()).toEqual(['src/audit.ts', 'src/commands.ts', 'src/configure.ts', 'src/host.ts', 'src/premises.ts', 'src/reader.ts', 'src/round.ts', 'src/server.ts', 'src/setup.ts', 'src/signers.ts']);
+    expect([...lazy].sort()).toEqual(['src/audit.ts', 'src/commands.ts', 'src/configure.ts', 'src/guard.ts', 'src/host.ts', 'src/premises.ts', 'src/reader.ts', 'src/round.ts', 'src/server.ts', 'src/setup.ts', 'src/signers.ts']);
     const tests = [...walk('tests')].filter((path) => path.endsWith('.test.ts') && path !== 'tests/source.test.ts');
     const loadedBy = (module: string): string[] =>
       tests.filter((path) => [...text(path).matchAll(/^import (?!type )[^;]*? from '((?:\.\.\/)+src\/[a-z]+)\.js';$/gm)].some((match) => posix.join(posix.dirname(path), `${match[1] as string}.ts`) === module));

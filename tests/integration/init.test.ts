@@ -101,7 +101,7 @@ describe('init', () => {
 
   it('writes onFailure "block" on its own entries only when asked, onto entries a run before wrote too, and never onto a person\'s', async () => {
     const BLOCKS = { ...GUARD_HOOK, onFailure: 'block' };
-    const HOLDS = 'onFailure "block" on the entries init writes, so that Claude Code 2.1.295 or later holds a write where the hook cannot start or runs past its timeout';
+    const HOLDS = `onFailure "block" on init's PreToolUse, PostToolUse and SessionStart entries, so that Claude Code 2.1.295 or later holds a write where the hook cannot start or runs past its timeout`;
     const entries = (repo: Repository): unknown[] => {
       const { hooks } = JSON.parse(repo.read('.claude/settings.json')) as { hooks: Record<string, { hooks: unknown[] }[]> };
       return ['PreToolUse', 'PostToolUse', 'SessionStart'].map((event) => hooks[event]?.[0]?.hooks[0]);

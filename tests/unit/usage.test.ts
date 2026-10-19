@@ -101,7 +101,7 @@ describe('the help', () => {
   it('gives each option that not every command reads to the commands that read it', () => {
     for (const option of ['brief', 'base', 'strict']) expect(said(option), option).toEqual(reading(option));
     expect(HELP).toContain('--root <dir>        Run from another directory, which must exist. For every command.\n');
-    expect(HELP).toContain('--block-on-failure  onFailure "block" on the hook entries init writes. For init.\n');
+    expect(HELP).toContain(`--block-on-failure  onFailure "block" on init's entries but the one as a turn ends. For init.\n`);
     expect(reading('block-on-failure')).toEqual(['init']);
     expect(reading('root')).toEqual(Object.keys(TAKES).sort());
     expect(HELP.replace(/\s+/g, ' ')).toContain('audit and premises also gitlab, sarif or github. For every command but hook and mcp.');
