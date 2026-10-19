@@ -1963,6 +1963,110 @@ of a turn, exit 0 as before.
 A `Stop` entry aimed at the hook exited 1 and is now read, and a key is
 added: a minor release (spec-core's ADR-0009).
 
+*Amended 2026-10-19.* **A path is decided by the work tree of the
+repository that holds it, and every command finds the siblings as the hook
+does.** *Claimed* by round 24's agent H, from the third amendment of
+2026-10-18, which left them: a path in a third work tree, neither the one
+that holds the question's `cwd` nor the one the root names, is decided by
+the root's and passes as a file outside it; `guard`, `context`, `audit` and
+`probe` look for the siblings in a work tree's own install alone, where the
+hook falls back to the project's; and a nested repository's own brief is not
+applied.
+
+*Measured* through the launcher of main (3c4112c) and of this change
+(Windows 11, Node 24.18.1, Git for Windows 2.55.0; `b25-measure-b3.mjs`), in
+a project on `main`, which names no brief, with spec-brief installed in its
+main checkout: worktrees `a` and `b` under `.claude/worktrees/`, on
+`brief/001-a` and `brief/002-b`, and `c` beside the project on
+`brief/002-c`, each brief protecting `src/db/**`, none of them installed
+into; and a repository of its own at `vendor/nested`, on a branch whose
+brief protects the same. The hook started as its line starts it, from the
+project with `CLAUDE_PROJECT_DIR` naming it.
+
+| The write, and where `cwd` is | main | Now |
+| --- | --- | --- |
+| an Edit of `b`'s protected file, `cwd` in `a` | exit 0, no word | refused, by brief 002 |
+| an Edit of `c`'s protected file, `cwd` in `a` | exit 0, no word | refused, by brief 002 |
+| an Edit of `b`'s or `c`'s protected file, `cwd` at the project | exit 0, no word | refused |
+| an Edit of `a`'s protected file, `cwd` in `a`; one of `b`'s file in its scope; one of the project's protected file | refused; nothing; nothing | the same |
+| after each of these writes | nothing | nothing |
+| an Edit of the nested repository's protected file, `cwd` at the project or in it | exit 0, no word | the same |
+| `guard src/db/schema.ts`, `context`, `rulings`, `audit`, `probe`, `premises`, in `a` | exit 2, `spec-brief is not installed here` | the main work tree's install: `guard` refuses, exit 1, and each other answers |
+| `doctor` and git's hook in `a` | the main work tree's install | the same |
+
+So the claims hold: where a session at the project, or in one worktree,
+writes into another, the hook read the path from the project's top, as a
+file of `.claude/worktrees/b/` under the project's branch or as one outside
+the project, and passed it.
+
+- **The innermost work tree of the repository that holds a path decides
+  it.** For each path the hook looks through the directories above it, with
+  no process, for each that holds a `.git`. The first is the root's own top:
+  the path is decided as before. Any other is asked of git once, and where
+  it is the top of a work tree that shares the git directory the root's
+  repository keeps, that work tree decides the path: its branch names the
+  brief, and its briefs, configuration and rulings decide it, read from its
+  top, with its siblings looked for in its install and then the project's,
+  as `cwd`'s were. One of another repository's, a submodule's or a clone's,
+  is passed by for the next above it. So a path is decided by the work tree
+  that holds it whichever `cwd` is in, and the one `cwd` is in decides the
+  paths it holds as it did; a question with no `cwd` is read the same way.
+  A session at its project's root writing the project's own files starts no
+  process it did not: the walk stops at the project's top.
+- **After a write, a path in another work tree is decided again.** The run
+  after a write that found nothing kept said nothing, with no process
+  started, where the configuration of `cwd`'s work tree has
+  `outOfScope` other than `warn`. It now does so only where no path of the
+  write may be in another work tree than that one, by the same walk: a
+  third work tree whose configuration warns is asked.
+- **A nested repository is decided as before.** A submodule, or a clone
+  inside the tree, is another repository, whose git directory is not the
+  root's: a path in it is decided by the work tree of the root's repository
+  around it, by that one's briefs, under the path it has there, the
+  project's for a clone inside the project and a worktree's for one inside
+  that worktree. What that lets through: a file the nested repository's own
+  brief protects is outside that scope, warned of after the write and not
+  refused, and one the project's brief does not reach passes with no word.
+  Its own sessions are guarded by its own hook.
+  `tests/integration/worktrees.test.ts` holds both.
+- **Every command finds the siblings as the hook does.** `guard`,
+  `context`, `rulings`, `audit`, `probe`, `premises`, `escalate`, `rule`,
+  `init` and the server look for a sibling in the work tree's own install
+  and then, in a linked worktree with none, in the main work tree's, where
+  `git worktree add` was run, as git's hook and `doctor` did
+  (`MAIN_INSTALL`, `src/workspace.ts`), and so does the hook in the work
+  tree its root names. In `cwd`'s work tree, or a third, it looks in that
+  one's and then the project's, as before.
+- **Where `${CLAUDE_PROJECT_DIR}` points in a session started with `claude
+  --worktree` is on no page.** Read 2026-10-19: the worktrees page
+  (<https://code.claude.com/docs/en/worktrees>, *Start Claude in a
+  worktree*) has the flag create the worktree under `.claude/worktrees/`
+  and start Claude in it, and *Set up the worktree environment* has a
+  worktree a fresh checkout to install dependencies into; *What worktrees
+  share with the main checkout* has a desktop-app session point the
+  variable at the main checkout's root, and says nothing of the flag on
+  that point; the hooks reference (<https://code.claude.com/docs/en/hooks>,
+  *Reference scripts by path*) has the variable the project root where the
+  session started, and keeps it where it was when Claude enters a worktree
+  mid-session; and the changelog has, under 2.1.78, `--worktree` loading
+  skills and hooks from the worktree's directory. Whether the root where
+  such a session started is the main checkout or the worktree, no page
+  says. Where it is the worktree, and the worktree has no install, the
+  hook's script is not there and Claude Code goes ahead with the write
+  unless the entry sets `onFailure: "block"`; the README says so.
+
+Every line of the hook the amendments above measured was run through the
+launcher of main and of this change on Windows, taking turns, before seven
+writes, after each and as a session starts, and git's hook
+(`b25-hook-compare.mjs`), in a repository with no worktree: the count is in
+the pull request.
+
+A write that passed is refused, and commands that exited 2 run: a minor
+release (spec-core's ADR-0009). What was measured for this and left as it
+was:
+
+- **A nested repository's own brief** is not applied, as above.
+
 *Amended 2026-10-19.* **A configuration that does not load lets a write
 to itself through, and to nothing else.** The amendment of 2026-10-08 has a
 configuration that does not load end the hook with exit 2, which holds the

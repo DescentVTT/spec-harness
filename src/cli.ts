@@ -21,9 +21,9 @@
 import { SiblingOutputError } from './briefs.js';
 import { CONFIG_FILE, ConfigError, SIBLINGS, SPEC_BRIEF_CONFIGS } from './config.js';
 import type { ClaudeCodeWiring } from './configure.js';
-import { dirname, join } from 'node:path';
+import { dirname, resolve } from 'node:path';
 
-import { gitDirectories, holdsGit, isDirectory, keepCall, loadConfig, outsideEvery, realSpelling, repositoryPath, StateError, takeCall, writesOnly } from './fs.js';
+import { gitDirectories, isDirectory, keepCall, loadConfig, outsideEvery, StateError, takeCall, writesOnly } from './fs.js';
 import { changedPaths, GitError, show, stagedChanges } from './git.js';
 import type { DocumentReader } from './document.js';
 import type { Decision } from './guard.js';
@@ -40,20 +40,20 @@ import {
   EXIT_ERROR,
   EXIT_FAILED,
   EXIT_OK,
-  findTree,
-  foundCommonDir,
   json,
   MAIN_INSTALL,
+  mayBeElsewhere,
   openFound,
   openWorkspace,
+  otherTree,
   parseOptions,
   UsageError,
   version,
   type CliIO,
-  type FoundTree,
   type Options,
   type UnreadableLine,
   type Workspace,
+  writesBy,
 } from './workspace.js';
 
 export { EXIT_ERROR, EXIT_FAILED, EXIT_OK, UsageError, version, type CliIO } from './workspace.js';
@@ -372,75 +372,6 @@ async function unreadLine(said: string, io: CliIO): Promise<number> {
 }
 
 /**
- * Whether a work tree other than the one whose top is `top` may hold `cwd`:
- * `cwd` is outside it, or a `.git` stands in a directory between the two,
- * where a linked worktree, a submodule or a repository of its own starts.
- * Where neither is so, `cwd` is in that work tree, and git is asked nothing
- * more: a session works at its project's top, or below it, for nearly every
- * write. Answering that one may is what git is then asked, so the mutant
- * that always answers so is equivalent, at the cost of a process, and so
- * is each that only answers so more often: a slice one short reaches the
- * top itself, which holds a `.git`, and a part named in place of none is
- * a directory no top holds.
- */
-function mayBeElsewhere(cwd: string, top: string): boolean {
-  const path = repositoryPath(cwd, top, cwd);
-  if (path === null) return true;
-  const parts = path === '' ? [] : path.split('/');
-  return parts.some((_, index) => holdsGit(join(top, ...parts.slice(0, index + 1))));
-}
-
-/**
- * The work tree that holds `cwd`, where it is another work tree of the
- * repository the hook's root names, by the git directory the two share;
- * `null` where `cwd` is in the root's own, in another repository, or in
- * none (ADR-0005).
- */
-async function otherTree(named: Workspace, cwd: string): Promise<FoundTree | null> {
-  if (!mayBeElsewhere(cwd, named.root)) return null;
-  const found = await findTree(cwd);
-  // The project's own work tree, found again, would decide every path the
-  // same way once more: the check saves reading its configuration twice, and
-  // its mutant is equivalent.
-  if (found === null || found.root === named.root) return null;
-  const common = await foundCommonDir(found);
-  // git names a common directory wherever it names a top, so `null` is
-  // there for the type.
-  if (common === null || realSpelling(common) !== realSpelling(named.commonDir)) return null;
-  return found;
-}
-
-/**
- * The work trees a write is decided in, each with the paths it decides
- * (ADR-0005). The repository is the one the hook's root names, as before,
- * and so is the work tree, but where the question's `cwd` is in another
- * work tree of that repository, linked or main, by the git directory the
- * two share: there a session works in a worktree while Claude Code names
- * the project it started in, and the hook decided by the project's branch,
- * which named no brief, so a protected write passed with no word. That work
- * tree decides the paths it holds, by its branch, its briefs and its
- * configuration, with its siblings looked for in its install and then the
- * project's. A path it does not hold is decided as before, by the work tree
- * the root names: a write to the project's own file from a worktree is
- * refused where it was. Where both hold a path, one is inside the other,
- * and the inner one holds it as git reads it. A `cwd` in another
- * repository, or in none, leaves every path where it was.
- */
-async function writesBy(named: Workspace, cwd: string | null, paths: readonly string[], io: CliIO): Promise<{ readonly workspace: Workspace; readonly paths: readonly string[] }[]> {
-  const asBefore = [{ workspace: named, paths }];
-  if (cwd === null) return asBefore;
-  const found = await otherTree(named, cwd);
-  if (found === null) return asBefore;
-  const inner = repositoryPath(found.root, named.root, cwd) !== null;
-  const holds = (path: string): boolean => repositoryPath(path, found.root, cwd) !== null && (inner || repositoryPath(path, named.root, cwd) === null);
-  const own = paths.filter(holds);
-  if (own.length === 0) return asBefore;
-  const workspace = await openFound(found, io, () => [named.root]);
-  const rest = paths.filter((path) => !holds(path));
-  return [{ workspace, paths: own }, ...(rest.length === 0 ? [] : [{ workspace: named, paths: rest }])];
-}
-
-/**
  * The answer after a write, where it can be given with no process started,
  * or `null` where it is to be decided as before (ADR-0002, ADR-0003).
  *
@@ -453,7 +384,7 @@ async function writesBy(named: Workspace, cwd: string | null, paths: readonly st
  * `deny` there is nothing to say, where the configuration read is the one
  * git would have the hook read, of the work tree the session is in.
  */
-async function answeredAfter(root: string, record: CallRecord | null, cwd: string | null, io: CliIO): Promise<HookResponse | null> {
+async function answeredAfter(root: string, record: CallRecord | null, cwd: string | null, paths: readonly string[], io: CliIO): Promise<HookResponse | null> {
   const found = gitDirectories(root, io.env);
   if (found === null) return null;
   if (record !== null) {
@@ -463,7 +394,9 @@ async function answeredAfter(root: string, record: CallRecord | null, cwd: strin
     const warnings = kept === null ? null : warningsKept(kept, record);
     if (warnings !== null) return afterResponse(warnings);
   }
-  if (!found.exact || (cwd !== null && mayBeElsewhere(cwd, found.top))) return null;
+  // A path in another work tree than the one this configuration is read
+  // from may be decided by another's, which may warn.
+  if (!found.exact || (cwd !== null && mayBeElsewhere(cwd, found.top)) || paths.some((path) => mayBeElsewhere(resolve(cwd ?? io.cwd, path), found.top))) return null;
   try {
     return (await loadConfig(found.top)).config.outOfScope === 'warn' ? null : afterResponse([]);
   } catch {
@@ -498,7 +431,7 @@ async function hookCommand(options: Options, io: CliIO): Promise<number> {
     if (request.event === TURN_END) return answer(io, turnResponse(await turnReport(options, io, root, request.cwd)));
     const record = callRecord(request, { root: line.root, brief: options.brief, base: options.base }, io.cwd, io.env, version());
     if (request.event === 'PostToolUse') {
-      const answered = await answeredAfter(root, record, request.cwd, io);
+      const answered = await answeredAfter(root, record, request.cwd, request.paths, io);
       if (answered !== null) {
         io.stdout.write(answered.stdout);
         return answered.exitCode;

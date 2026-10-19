@@ -67,6 +67,36 @@ where the branch names a brief no round can work under
   Upgrading: where git or spec-brief takes longer than 20 seconds to
   answer, which none measured does, writes are held and commands exit 2
   with the line: find what it waits on.
+- **A path is decided by the work tree that holds it.** A path in a work
+  tree of the repository that was neither the one the project names nor
+  the one the question's `cwd` is in was read from the project's top, as a
+  file of `.claude/worktrees/<name>/` under the project's branch or as one
+  outside the project, and a write its own brief protects passed with no
+  word. That work tree now decides it, by its branch, briefs and
+  configuration; a nested repository's file is decided as before
+  ([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
+  Upgrading: a session that writes into another worktree has the write
+  refused where that worktree's brief protects it.
+- **Every command finds the siblings in the main work tree's install** where
+  a linked worktree has none, as git's hook and `doctor` did: `guard`,
+  `context`, `audit`, `probe` and the rest exited 2, `spec-brief is not
+  installed here`.
+  Upgrading: in such a worktree these commands run, and `guard` and
+  `audit` can exit 1 where they exited 2.
+- **The server reads the work tree a path is in, and the round in the one
+  its client names.** `check_path` read every path as the project's, and
+  every tool the project's branch, so a worktree's file read as
+  `.claude/worktrees/<name>/...` and its brief went unnamed. `check_path`
+  decides an absolute path by the work tree of the repository that holds
+  it, and `start_round`, `check_path`, `request_escalation` and
+  `audit_round` read the round in the work tree a new `directory`
+  argument names, else the one the client's roots name where they name
+  exactly one of the repository's, else the project's, and say which as
+  `workTree`
+  ([ADR-0008](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0008-one-server-for-rounds.md)).
+  Upgrading: a client that declares roots naming a worktree has its calls
+  answered for that worktree; a script reading the tools' structured
+  answers finds `workTree`.
 - **A write to `.spec-harness.json` itself goes on while it does not
   load.** Every write was held, exit 2, the one that mends the file among
   them, so a session could not mend a typo in it. Before a write to that
