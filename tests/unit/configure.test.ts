@@ -14,6 +14,7 @@ import {
   describeClaudeRelease,
   describeGitHook,
   describeHooksOff,
+  describeInstalls,
   describePresence,
   GIT_HOOK_LINE,
   gitHookNote,
@@ -2016,5 +2017,15 @@ describe('the entry as a session starts (ADR-0012)', () => {
     expect(NO_SESSION_START).toBe(
       'note: no settings file has Claude Code start the hook as a session starts, so a configuration that does not load, or a brief named that spec-brief does not list, is said only at the first write, which it holds: spec-harness init --write adds the entry beside the two it wrote',
     );
+  });
+});
+
+describe('the install the hook\'s line runs, from a linked worktree', () => {
+  it('is a note where the main checkout\'s release and this work tree\'s differ, none among them, and nothing where they are one', () => {
+    expect(describeInstalls('/work/app', '0.19.0', '0.19.0')).toBeNull();
+    expect(describeInstalls('/work/app', null, null)).toBeNull();
+    expect(describeInstalls('/work/app', '0.18.0', '0.19.0')).toBe(`note: this is a linked worktree of /work/app, and the hook's line runs the spec-harness installed where \${CLAUDE_PROJECT_DIR} points: this work tree's, 0.19.0, in a session started here, and /work/app's, 0.18.0, in one started there, as a worktree session of the desktop app is`);
+    expect(describeInstalls('/work/app', null, '0.19.0')).toBe(`note: this is a linked worktree of /work/app, and the hook's line runs the spec-harness installed where \${CLAUDE_PROJECT_DIR} points: this work tree's, 0.19.0, in a session started here, and /work/app's, none, in one started there, as a worktree session of the desktop app is`);
+    expect(describeInstalls('/work/app', '0.19.0', null)).toBe(`note: this is a linked worktree of /work/app, and the hook's line runs the spec-harness installed where \${CLAUDE_PROJECT_DIR} points: this work tree's, none, in a session started here, and /work/app's, 0.19.0, in one started there, as a worktree session of the desktop app is`);
   });
 });

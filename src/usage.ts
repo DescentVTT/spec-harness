@@ -36,6 +36,9 @@ export interface CommandLine {
   readonly recommend: string | undefined;
   readonly show: string | undefined;
   readonly id: string | undefined;
+  /** Whether the line asks for the help, or for the version, which every command answers in place of running. */
+  readonly help: boolean;
+  readonly version: boolean;
 }
 
 /** Whether a value names nothing: empty, or only space. */
@@ -79,16 +82,31 @@ const VALUED = literal({
 }) satisfies Record<string, Valued>;
 
 /**
+ * A resolved path with its drive letter in one case. On Windows a drive
+ * letter names its volume in either case, `D:\` and `d:\` alike (Microsoft's
+ * Naming Files, Paths, and Namespaces, Naming Conventions, read 2026-10-19),
+ * where Node's `resolve` keeps the case it was written in (spec-core
+ * ADR-0005, amended 2026-10-19). The rest of the path is left as it is: NTFS
+ * can be made to tell names apart by case, so whether two names are one
+ * directory is the disk's to say. A path resolved elsewhere starts with `/`,
+ * and has no drive letter to fold.
+ */
+export function foldDrive(path: string): string {
+  return /^[a-z]:/.test(path) ? `${path[0]!.toUpperCase()}${path.slice(1)}` : path;
+}
+
+/**
  * Whether two values of an option that takes one ask for one thing, as the
  * option reads them: a brief by its id as spec-brief's names are matched,
  * space around it dropped and `12` the brief `012` (ADR-0004); a root by the
  * directory it names from `cwd`, the one an empty root names on the hook's
- * line among them; any other as it is written, since each is read so, a
- * format, a probe's position, an id or text.
+ * line among them, with a drive letter in either case; any other as it is
+ * written, since each is read so, a format, a probe's position, an id or
+ * text.
  */
 function asksOne(option: string, first: string, other: string, cwd: string): boolean {
   if (option === 'brief') return sameId(first.trim(), other.trim());
-  if (option === 'root') return resolve(cwd, first) === resolve(cwd, other);
+  if (option === 'root') return foldDrive(resolve(cwd, first)) === foldDrive(resolve(cwd, other));
   return first === other;
 }
 
@@ -339,6 +357,42 @@ export function readHookLine(root: string | undefined, cwd: string, isDirectory:
 }
 
 /**
+ * What `--help` or `--version` on the hook's line stands beside that the
+ * hook would say as it runs, in the words for a line it cannot read; `null`
+ * where the line asks for neither, or stands beside nothing the line itself
+ * shows to be wrong. Every command answers either before it runs, so the
+ * hook printed the help over a root that is not a directory, exit 0, and
+ * said nothing of it (ADR-0005). A fault only git or spec-brief can tell
+ * stays unsaid: neither is asked before an answer that runs nothing.
+ */
+export function answerBeside(line: Pick<CommandLine, 'help' | 'version' | 'root'>, cwd: string, isDirectory: (path: string) => boolean): string | null {
+  if (!line.help && !line.version) return null;
+  const read = readHookLine(line.root, cwd, isDirectory);
+  if (read.state === 'guards') return null;
+  const asked = line.help ? 'help' : 'version';
+  return `--${asked} is given beside a fault, ${read.fault.wrong}, and the ${asked} would be printed in its place`;
+}
+
+/**
+ * A line of the hook's that asks for the help or the version, which the hook
+ * prints, exit 0, in place of reading its question: no write is checked
+ * under it, and Claude Code, by its hooks reference, writes what a hook
+ * that exits 0 prints to its debug log, so nothing says the guard is off
+ * (ADR-0005). The hook says nothing of it, since a person who asks the hook
+ * for its help at a terminal is answered the same way.
+ */
+export function answeringHookLine(asked: 'help' | 'version'): GuardOff {
+  return {
+    state: 'off',
+    silent: true,
+    fault: {
+      wrong: `the line asks for the ${asked}, which the hook prints, exit 0, in place of checking the write`,
+      mend: 'take that option off the line, where init writes "hook claude" and nothing after it',
+    },
+  };
+}
+
+/**
  * A line whose root is a directory outside any git work tree. The hook
  * reads that as a session outside one, where it has nothing to guard: it
  * checks no write and says nothing, exit 0 (ADR-0005), and that stays. Only
@@ -403,7 +457,9 @@ export function holderHookLine(line: Guards, tree: OtherTree, path: string): Gua
  * every write under one that names no brief, which only spec-brief can tell.
  * A line with two values for an option that takes one is a line the hook
  * cannot read, whichever option it is, read from `cwd` as the hook reads it
- * from where it is started (cli.ts).
+ * from where it is started (cli.ts). So is one with the help or the version
+ * beside a root that is not a directory; and with either beside nothing it
+ * can see is wrong, the line checks no write, whatever else it holds.
  */
 export function claudeHookLine(
   words: readonly string[],
@@ -421,6 +477,10 @@ export function claudeHookLine(
   if (!isClaudeHook(line.command, line.positionals[0])) return null;
   const twice = twoValues(line, cwd);
   if (twice !== null) return unreadHookLine(twice);
+  const beside = answerBeside(line, cwd, isDirectory);
+  if (beside !== null) return unreadHookLine(beside);
+  if (line.help) return answeringHookLine('help');
+  if (line.version) return answeringHookLine('version');
   const read = readHookLine(line.root, cwd, isDirectory);
   return read.state === 'guards' && line.brief !== undefined && !isBlank(line.brief) ? { ...read, brief: line.brief } : read;
 }

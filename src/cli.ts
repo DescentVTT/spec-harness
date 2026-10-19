@@ -23,15 +23,15 @@ import { CONFIG_FILE, ConfigError, SIBLINGS, SPEC_BRIEF_CONFIGS } from './config
 import type { ClaudeCodeWiring } from './configure.js';
 import { dirname, join } from 'node:path';
 
-import { gitDirectories, holdsGit, isDirectory, keepCall, loadConfig, realSpelling, repositoryPath, StateError, takeCall } from './fs.js';
+import { gitDirectories, holdsGit, isDirectory, keepCall, loadConfig, mainWorkTree, realSpelling, repositoryPath, StateError, takeCall } from './fs.js';
 import { GitError, show, stagedChanges } from './git.js';
 import type { DocumentReader } from './document.js';
 import type { Decision } from './guard.js';
 import { afterResponse, callFile, callRecord, claudeResponse, gitResponse, keptCall, parseClaudeHook, SESSION_START, sessionResponse, warningsKept, warningsOf, type CallRecord, type HookRequest, type HookResponse } from './hooks.js';
 import type { Base } from './round.js';
 import type { BriefRow } from './types.js';
-import { SiblingError } from './siblings.js';
-import { emptyValue, heldHookLine, isBlank, isClaudeHook, readHookLine, refusal, twoValues, unreadHookLine, type Command, type LineFault } from './usage.js';
+import { declaredVersion, SiblingError } from './siblings.js';
+import { answerBeside, emptyValue, heldHookLine, isBlank, isClaudeHook, readHookLine, refusal, twoValues, unreadHookLine, type Command, type LineFault } from './usage.js';
 import { CLAUDE_CODE_MINIMUM, MINIMUM_VERSIONS, type ClaudeCodeCheck } from './versions.js';
 import {
   activeBrief,
@@ -114,9 +114,10 @@ An option a command does not read, an argument it does not take, an option or an
 argument given an empty value, a brief given both as the argument and as --brief,
 and an option that takes one value given two that name two things are refused, exit 2,
 not read as if they were not there, and so with --help or --version on the line. The
-same value twice, as --root . --root ./, is read once. doctor says an empty --brief or
---base in its report. hook claude reads its line as every release has, and says a line
-it cannot read, two values for one option among them, and a --root that is not a
+same value twice, as --root . --root ./, is read once, and on Windows a drive letter in
+either case. doctor says an empty --brief or --base in its report. hook claude reads its
+line as every release has, and says a line it cannot read, two values for one option or
+--help beside a --root that is not a directory among them, and a --root that is not a
 directory, with exit 1: it refuses nothing for either.
 
 Exit codes: 0 clean, 1 refused or found something, 2 the answer cannot be trusted.
@@ -490,6 +491,16 @@ async function baseAndSigners(
 }
 
 /**
+ * The release of spec-harness installed in a work tree, where the hook's
+ * line, init's and the plugin's, names its script under the project's
+ * `node_modules`; `null` where none is, or its manifest gives no version.
+ */
+function harnessRelease(root: string): string | null {
+  const version = declaredVersion(join(root, 'node_modules', '@descent-vtt', 'spec-harness', 'package.json'));
+  return typeof version === 'string' ? version : null;
+}
+
+/**
  * How Claude Code is wired to the guard, and the release of the one on
  * `PATH`, which waits on the wiring: only a Claude Code that runs the guard
  * is asked its release, since one older than the hooks need lets every
@@ -511,7 +522,7 @@ async function doctorCommand(options: Options, io: CliIO): Promise<number> {
   // What doctor alone runs of them, loaded before anything is asked: the
   // five things below are asked at once, and none waits on a module.
   const [configure, round, setup, signing] = await Promise.all([import('./configure.js'), import('./round.js'), import('./setup.js'), import('./signers.js')]);
-  const { describeBase, describeClaudeCode, describeClaudeRelease, describeGitHook, describeHooksOff, describePlugin, describePresence, describeSignerKeys, describeSignerProblem, describeSigners, guardSwitchedOff, NO_SESSION_START, wiringState } = configure;
+  const { describeBase, describeClaudeCode, describeClaudeRelease, describeGitHook, describeHooksOff, describeInstalls, describePlugin, describePresence, describeSignerKeys, describeSignerProblem, describeSigners, guardSwitchedOff, guardWired, NO_SESSION_START, wiringState } = configure;
   const { diagnoseBrief, specBriefPlugin } = round;
   const { gitHook } = setup;
   const { notFido2, readAllowedSigners } = signing;
@@ -573,7 +584,12 @@ async function doctorCommand(options: Options, io: CliIO): Promise<number> {
   // And whether the hook is started as a session starts, where settings hold
   // the guard: a note, failing nothing, and `sessionStart` in the document.
   const atStart = wiring.hooks.length > 0 && !wiring.sessionStart ? NO_SESSION_START : null;
-  const wiringNotes = [describePresence(wiring), wiring.hooksOff === null ? null : describeHooksOff(wiring.hooksOff, switchedOff)].filter((note): note is string => note !== null);
+  // And, in a linked worktree where something wires the guard, the release
+  // the hook's line runs where it is not this work tree's own: a note. In
+  // the main work tree both are read from one install, and are one.
+  const main = mainWorkTree(workspace.commonDir);
+  const installs = guardWired(wiring) && main !== null ? describeInstalls(main, harnessRelease(main), harnessRelease(workspace.root)) : null;
+  const wiringNotes = [describePresence(wiring), wiring.hooksOff === null ? null : describeHooksOff(wiring.hooksOff, switchedOff), installs].filter((note): note is string => note !== null);
   // How the hook runs the harness is a note: one that goes through npx guards
   // as well as one that does not, and fails nothing, --strict or not.
   const { hook, note: hookNote } = answerOf(hookAsked);
@@ -644,7 +660,8 @@ async function doctorCommand(options: Options, io: CliIO): Promise<number> {
   // commit at. A release that cannot be told is not fine either, nor a
   // line whose reading cannot be, nor a plugin that cannot be told to be on
   // this machine, nor a hook git runs that cannot be read, which stops every
-  // commit as a script and runs as a program: --strict fails the four.
+  // commit as a script and runs as a program, nor a place git runs its hooks
+  // from that git cannot name: --strict fails the five.
   const outdated = rows.some((row) => row.state === 'outdated');
   const usable = rows.some((row) => row.state === 'found');
   const off = wiring.lines.some((line) => line.state === 'off' || line.state === 'held');
@@ -654,7 +671,8 @@ async function doctorCommand(options: Options, io: CliIO): Promise<number> {
   // Only an unreadable hook has `runs`, so the test of its state is the
   // compiler's, and its mutant is equivalent.
   const untold =
-    options.strict && (release?.state === 'unknown' || wiring.lines.some((line) => line.state === 'unknown') || wiring.presence?.state === 'unknown' || (hook.state === 'unreadable' && hook.runs));
+    options.strict &&
+    (release?.state === 'unknown' || wiring.lines.some((line) => line.state === 'unknown') || wiring.presence?.state === 'unknown' || (hook.state === 'unreadable' && hook.runs) || hook.state === 'unknown');
   return outdated || !usable || claude === 'both' || off || switchedOff || missing || tooOld || stopped || untold ? EXIT_FAILED : EXIT_OK;
 }
 
@@ -721,6 +739,12 @@ async function dispatch(argv: readonly string[], io: CliIO): Promise<number> {
     io.stderr.write(`spec-harness: ${refused}\n`);
     return EXIT_ERROR;
   }
+  // Claude Code's hook is exempt from every refusal above, and said a root
+  // that is not a directory only as it ran, which the help or the version
+  // answered in place of: printed beside one, either is a line it cannot
+  // read, said where there is a write it leaves unchecked (ADR-0005).
+  const beside = isClaudeHook(options.command, options.positionals[0]) ? answerBeside(options, io.cwd, isDirectory) : null;
+  if (beside !== null) return unreadLine(beside, io);
   if (options.version) {
     io.stdout.write(`${version()}\n`);
     return EXIT_OK;

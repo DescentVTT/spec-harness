@@ -9,6 +9,61 @@ only fixes, reports less or documents, so `^0.7.0` takes only releases that
 cannot turn a run red. The family's policy is
 [spec-core's ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
+## Unreleased
+
+`doctor` says a line of Claude Code's hook that asks for the help or the
+version as a guard that is off, fails `--strict` where git cannot say
+where it runs its hooks, and notes in a linked worktree the release the
+hook's line runs; a `.spec-harness.json` that cannot be read is said as
+that; and on Windows a drive letter is one in either case
+([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
+
+### Changed
+
+- **A hook line that asks for the help or the version is a guard that is
+  off.** `hook claude --help`, `--version`, `-h` and `-v` print the help
+  or the version, exit 0, and check no write, which Claude Code takes for a
+  hook that succeeded; `doctor` said such a line guards, and said a
+  `--brief 404` beside it held every write. It says the line as one under
+  which no write is checked, whatever else is on it, and exits 1.
+  Upgrading: take the option off the hook's line; `doctor` exits 1 until
+  it is.
+- **`--help` or `--version` beside a `--root` that is not a directory is
+  a line the hook cannot read.** `hook claude --help --root nowhere`
+  printed the help, exit 0, where without `--help` the hook says the root
+  with exit 1. It says `the hook's line cannot be read (--help is given
+  beside a fault, --root is "nowhere", which is not a directory, ...)`, one
+  line on stderr with exit 1, before a write and after one, and holds no
+  write; as a session starts it says the same, exit 0. `doctor` says the
+  line in the same words.
+  Upgrading: mend the line; no line a release wrote carries either.
+- **`doctor --strict` fails where git cannot say where it runs its
+  hooks.** Under a `core.hooksPath` that names a file, `where git runs its
+  hooks cannot be told` failed nothing, under `--strict` or not, where a
+  release, a hook's line, a plugin or a hook file that cannot be told
+  fails `--strict`.
+  Upgrading: point `core.hooksPath` at a directory, or leave it unset.
+
+### Added
+
+- **`doctor`, run in a linked worktree, notes the release the hook's line
+  runs.** The line names its script under `${CLAUDE_PROJECT_DIR}`, which
+  in a worktree session of the desktop app is the main checkout. Where the
+  main checkout's install of spec-harness and the worktree's are not one
+  release, a note names both; it fails nothing.
+
+### Fixed
+
+- **A `.spec-harness.json` that cannot be read is said as that.** One the
+  account may not read, or one another process holds open on Windows, was
+  `.spec-harness.json is not valid JSON: EACCES: ...`. It is
+  `.spec-harness.json cannot be read: EACCES: ...`, exit 2 as before.
+- **On Windows `--root C:\work` beside `--root c:\work` is one root.**
+  Every command refused the two as two directories, exit 2, and the hook
+  read such a line as one it cannot read, under which it checked no write;
+  Windows names a volume by its letter in either case. The hook now guards
+  under that root, and the rest of the path is compared as before.
+
 ## 0.19.0
 
 An option that takes one value is given one, and a line that is wrong is

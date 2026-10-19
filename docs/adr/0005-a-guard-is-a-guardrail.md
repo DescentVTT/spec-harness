@@ -1835,6 +1835,144 @@ spec-brief where a brief is named. The hooks reference has an interactive
 session's SessionStart hooks run in the background, with Claude's first
 response waiting for them, once a session.
 
+*Amended 2026-10-19.* **What `doctor` says of a hook's line that asks for
+the help or the version, of a configuration that cannot be read, and of
+where git runs its hooks, and a drive letter in either case.** The first
+amendment of 2026-10-18 measured three things and left them: `--help` or
+`--version` on the hook's line beside a fault the hook says as it runs, a
+line `hook claude --help` that `doctor` read as guarding, and a root
+compared as Node's `path.resolve` spells it. The second left a
+`.spec-harness.json` the account may not read, refused in words that call
+it JSON that is not valid; and the third of 2026-10-14 had `where git runs
+its hooks cannot be told` fail nothing. *Claimed* by round 24's agent B:
+each stands as it was left, and `--strict` passes the last. *Measured*
+through the launcher of 0.19.0 (3c4112c) and of this change, taking turns,
+on Windows 11 (Node 24.18.1, Git for Windows 2.55.0, no `claude` on `PATH`)
+and, for a mode the account may not read, in a container as an ordinary
+account (Linux, Node 24.21.0, git 2.47.3), in a project whose brief
+protects `src/db/schema.ts`, on the brief's branch, the hook's line written
+into `.claude/settings.json` under both events with `init`'s matcher:
+
+| What stands | 0.19.0 | Now |
+| --- | --- | --- |
+| `hook claude --help`, `--version`, `-h` or `-v` on the line | the hook prints the help or the version, exit 0, before a write to the protected file and after it; `doctor`: `is more than init writes, and guards`, exit 0 | the hook the same; `doctor`: the line asks for the help or the version, which the hook prints in place of checking the write, so the guard is off; exit 1 |
+| the same with `--root ""`, `--root <the project>` or `--brief 404` beside it | the hook the same; `doctor`: guards, or holds every write for 404 | the hook the same; `doctor`: the guard is off, as above; exit 1 |
+| the same with a `--root` in no work tree beside it | the hook the same; `doctor`: the root, off | the hook the same; `doctor`: the help or the version, off |
+| `--help`, `--version` or `-h` beside `--root nowhere` | the hook prints the help or the version, exit 0; `doctor`: the root is not a directory, off; exit 1 | the hook, before a write and after one: `the hook's line cannot be read (--help is given beside a fault, --root is "nowhere", which is not a directory, and the help would be printed in its place)`, exit 1, and holds no write; `doctor` the same words; exit 1 |
+| `.spec-harness.json` of mode 000 (Linux) | `doctor`, `guard` and the hook: `.spec-harness.json is not valid JSON: EACCES: permission denied, open ...`, exit 2 | `.spec-harness.json cannot be read: EACCES: permission denied, open ...`, exit 2 |
+| `.spec-harness.json` held open by another process with no sharing (Windows) | `doctor`, `guard`, `context` and the hook: `is not valid JSON: EBUSY: resource busy or locked, ...`, exit 2 | `cannot be read: EBUSY: ...`, exit 2 |
+| a `core.hooksPath` that names a file, with nothing wiring Claude Code to the guard so that no release is asked | `where git runs its hooks cannot be told: ...`; `doctor` exit 0, and 0 under `--strict` | the same words; exit 0, and 1 under `--strict` |
+| `doctor --root C:\...\repo --root c:\...\repo`, and so `guard` and `context` | exit 2: `--root is given twice, ...` | runs in the project |
+| `--root C:\nowhere --root c:\nowhere` | exit 2, given twice | exit 2: `--root is "c:\nowhere", which is not a directory` |
+| `hook claude --root C:\...\repo --root c:\...\repo` | exit 1, a line the hook cannot read, and the write goes on; `doctor`: off; exit 1 | refuses the write to the protected file; `doctor`: guards; exit 0 |
+
+So each claim holds. With `--strict`, a project whose settings wire the
+guard and that has no `claude` on `PATH` failed on 0.19.0 as well, for the
+release that cannot be told, which is why the row is measured with nothing
+wired.
+
+- **A line that asks for the help or the version is a guard that is off.**
+  Every command answers either before it runs, and the hook does too: it
+  prints the help or the version on stdout and exits 0 without reading its
+  question. Claude Code's hooks reference
+  (<https://code.claude.com/docs/en/hooks>, *Exit code output* and *Exit
+  code 0*, read 2026-10-19) has a hook that exits 0 succeed and the action
+  go ahead, and of what such a hook prints that is not JSON it says that
+  for most events "Claude Code writes stdout to the debug log and doesn't
+  show it in the transcript"; of the events a write is asked about, before
+  it and after it, neither is among the exceptions it names. So no write
+  is checked under such a line, and neither the person nor Claude is told.
+  The hook keeps answering so: a person who asks it for its help at a
+  terminal is answered the same way, and it cannot tell the two apart
+  without waiting for a question that never comes there (the second
+  amendment of 2026-10-11).
+  `doctor` reads the line through the hook's own reading of it
+  (`claudeHookLine`, `src/usage.ts`), which now says it as a guard that is
+  off and that the hook says nothing of, as a root outside any work tree
+  is, and exits 1. Whatever else stands on the line is read no further: the
+  hook reads no brief and opens no root before the answer, so `doctor`
+  asks spec-brief and git nothing for it either.
+- **Beside a root that is not a directory, either is a line the hook
+  cannot read.** The hook says such a root as it runs, with exit 1 (the
+  first amendment of 2026-10-11), and the help or the version was printed
+  in its place, exit 0, so the guard someone set up was off with no word.
+  Such a line is now said as one the hook cannot read, after its question
+  is read, before a write and after one, exit 1, and no write is held for
+  it; as a session starts it is said in the same words, exit 0. The faults
+  read so are those the line shows by itself: a root that is a file, or is
+  not there, or is empty where the directory the hook is started in is
+  gone. A root outside any work tree or in another, and a brief that is not
+  one, take git or spec-brief to tell, and neither is asked before an
+  answer that runs nothing: beside those the hook prints the help, and
+  `doctor` says the line as above. The decision named "a wrong value"
+  beside `--help`; these are the values a wrong one can be told by with no
+  process started.
+- **A configuration that cannot be read is said as that.** Reading the
+  file and parsing it are told apart: a read that fails is
+  `.spec-harness.json cannot be read: ` and Node's words, EACCES where the
+  account may not read it and EBUSY where another process holds it open
+  on Windows, and only a text that is no JSON is `is not valid JSON`. Exit
+  2 as before, from every command and from the hook, which holds the write
+  as for any configuration that does not load.
+- **Where git runs its hooks cannot be told fails `--strict`**, as a
+  Claude Code release, a line of the hook, a plugin that may be on the
+  machine and a hook file git runs that cannot be read each do. Read
+  against every other place `doctor` says it cannot tell, two others fail
+  nothing under `--strict`, and are left (below).
+- **On Windows a drive letter names its volume in either case**, by
+  spec-core's ADR-0005 as amended on 2026-10-19
+  (DescentVTT/spec-core#42), which reads Microsoft's *Naming Files, Paths,
+  and Namespaces* (*Naming Conventions*): two roots are compared with the
+  drive letter of each resolved path in one case (`foldDrive`,
+  `src/usage.ts`), and the rest of the path as resolved, since NTFS can be
+  made to tell names apart by case and that is the disk's to say. `doctor`
+  reads the hook's line through the same comparison. A path resolved
+  elsewhere starts with `/`, so on Linux and macOS `C:\x` and `c:\x` stay
+  two names in the directory they are read from.
+- **In a linked worktree, the release the hook's line runs.** The line,
+  `init`'s and the plugin's, names its script under `${CLAUDE_PROJECT_DIR}`.
+  Claude Code's worktrees page (<https://code.claude.com/docs/en/worktrees>,
+  *What worktrees share with the main checkout* and *Ask Claude to create a
+  worktree*, read 2026-10-19) has a worktree session started from the
+  desktop app read the project's hooks from the main checkout's root, run
+  them there and point `${CLAUDE_PROJECT_DIR}` at it, and has the
+  placeholder stay where a session started once it enters a worktree; the
+  hooks reference (*Reference scripts by path*) has it name the project
+  root where the session started. So the hook such a session runs is the
+  main checkout's install, and in a session started in the worktree it
+  follows that the hook is the worktree's own. `doctor`, run
+  in a linked worktree where something wires the guard, notes both
+  releases where they are not one, a release or `none`
+  (`describeInstalls`, `src/configure.ts`), and fails nothing: from 0.19.0
+  on either decides a write by the work tree that holds it, so the note
+  says which release answers, not where a write is decided. Measured
+  through both launchers, the main checkout's install and the worktree's
+  made up as manifests:
+
+  | The main checkout's install, and the worktree's | `doctor` in the worktree, 0.19.0 | Now |
+  | --- | --- | --- |
+  | 0.18.0 and 0.19.0; 0.19.0 and none; none and 0.19.0 | nothing of it; exit 0 | the note, with both; exit 0 |
+  | one release in both, or none in either | nothing of it | the same |
+  | `doctor` in the main checkout | nothing of it | the same |
+
+An exit code that can change for a tree that passed is a minor release
+(spec-core's ADR-0009). What was measured for this and left as it was:
+
+- **Two things `doctor` cannot tell that `--strict` passes.** A line of
+  the hook waited on before every write whose entries after a write cannot
+  be read, as an `if` on its `PostToolUse` entry alone makes it, says
+  `which writes it is started after cannot be told here` of a line that
+  guards: the state is `guards`, and `--strict` reads states. And a
+  `.spec-brief.json` that is not JSON is `whether spec-brief loads
+  spec-harness's plugin is unknown`, exit 0 under `--strict` (measured).
+  The first is of warnings after a write, which hold nothing; the second
+  of the archive's reading of a ruling. Neither was decided here.
+- **`--help` beside a brief that is not one, or a root in another work
+  tree**: the hook prints the help, and the line is said as a guard that
+  is off, by the help.
+- **`doctor`'s words for `-h` and `-v`** are those for `--help` and
+  `--version`: the line is shown above them as it was written.
+
 ## Consequences
 
 An agent that writes through a shell passes the guard and is caught at the

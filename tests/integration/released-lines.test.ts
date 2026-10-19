@@ -512,6 +512,9 @@ describe("doctor, of the hook's line in Claude Code's settings", () => {
       ['--root', outside],
       ['--brief', '001', '--brief', '404'],
       ['--root', PROJECT_DIR, '--root', `${PROJECT_DIR}/`, '--brief', '1', '--brief', '001'],
+      ['--help'],
+      ['-v', '--brief', '404'],
+      ['--help', '--root', 'nowhere'],
     ];
     repo.write('.claude/settings.json', JSON.stringify(held(...LINES.map((rest) => entry(['node', `${PROJECT_DIR}/${SCRIPT}`, 'hook', 'claude', ...rest])))));
     try {
@@ -524,6 +527,9 @@ describe("doctor, of the hook's line in Claude Code's settings", () => {
         [LINES[4], 'off'],
         [LINES[5], 'off'],
         [LINES[6], 'guards'],
+        [LINES[7], 'off'],
+        [LINES[8], 'off'],
+        [LINES[9], 'off'],
       ]);
       for (const [index, rest] of LINES.entries()) {
         const said = doctor.claudeCode.lines[index] as { state: string; detail: string };
@@ -538,6 +544,11 @@ describe("doctor, of the hook's line in Claude Code's settings", () => {
           const mend = ', so the hook holds every write until the line is mended: name a brief spec-brief lists, or take --brief off the line';
           expect(said.detail.startsWith(where) && said.detail.endsWith(mend), said.detail).toBe(true);
           expect(result, rest.join(' ')).toEqual({ code: 2, stdout: '', stderr: `spec-harness: ${said.detail.slice(where.length, -mend.length)}. Fix the brief or the branch before writing.\n` });
+        } else if (rest === LINES[7] || rest === LINES[8]) {
+          // The help or the version, printed in place of checking the write: exit 0, as doctor says of it, and the protected file's write not refused.
+          expect(said.detail, said.detail).toContain(`the line asks for the ${rest === LINES[7] ? 'help' : 'version'}, which the hook prints, exit 0, in place of checking the write, so the guard is off`);
+          expect(result, rest.join(' ')).toMatchObject({ code: 0, stderr: '' });
+          expect(result.stdout, rest.join(' ')).not.toContain('permissionDecision');
         } else if (rest === LINES[4]) {
           // The one fault the hook says nothing of: exit 0 and no word, as doctor says of it.
           expect(said.detail, said.detail).toContain(`--root is "${outside}", a directory outside any git work tree, which the hook reads as a session outside one, exit 0 and no word, so the guard is off`);
@@ -570,6 +581,7 @@ describe("Claude Code's hook, whatever is on its line", () => {
     ['--allow', '--root', 'nowhere'],
     ['--allow', '--root', 'a', '--root', 'b'],
     ['--help', '--version'],
+    ['--help', '--allow', '--root', 'nowhere'],
   ];
 
   it('never answers allow, and never holds a write for its own line: one the round may make, one it may not, one outside its scope', async () => {
