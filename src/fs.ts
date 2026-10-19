@@ -7,6 +7,7 @@ import { existsSync, readFileSync, realpathSync, statSync, type Stats } from 'no
 import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
+import type { BriefInputs } from './briefs.js';
 import { ConfigError, CONFIG_FILE, DEFAULT_CONFIG, parseConfig, type HarnessConfig } from './config.js';
 
 /** What stands at a path, links followed, or `null` where nothing does: a link to nothing is nothing. */
@@ -157,7 +158,7 @@ export async function stateDirectory(commonDir: string, ...parts: string[]): Pro
  * `null` where no directory up to the top of the filesystem holds one, or
  * a `.git` file names none.
  */
-export function gitDirectories(root: string, env: Readonly<Record<string, string | undefined>>): { readonly top: string; readonly common: string; readonly exact: boolean } | null {
+export function gitDirectories(root: string, env: Readonly<Record<string, string | undefined>>): { readonly top: string; readonly git: string; readonly common: string; readonly exact: boolean } | null {
   let top = realSpelling(root);
   let found: Stats | null = null;
   for (;;) {
@@ -183,7 +184,7 @@ export function gitDirectories(root: string, env: Readonly<Record<string, string
   // No configuration holds no key, as a text without one does: the mutant
   // of the empty text is equivalent.
   const elsewhere = /^\s*worktree\s*=/im.test(textOf(join(common, 'config')) ?? '') || existsSync(join(gitDir, 'config.worktree'));
-  return { top, common, exact: !moved && !elsewhere };
+  return { top, git: gitDir, common, exact: !moved && !elsewhere };
 }
 
 /** A file's text, or `null` where it cannot be read. */
@@ -239,6 +240,120 @@ export async function takeCall(commonDir: string, name: string): Promise<string 
     return text;
   } catch {
     return null;
+  }
+}
+
+/** SHA-256 of a text or of bytes, in hex. */
+export type Hash = (data: string | Uint8Array) => string;
+
+/** SHA-256, loaded where something is hashed: a run that keeps no answer loads no hash (ADR-0002). */
+export async function hasher(): Promise<Hash> {
+  const { createHash } = await import('node:crypto');
+  return (data) => createHash('sha256').update(data).digest('hex');
+}
+
+/**
+ * How long a session's answer of spec-brief's is kept once it was last
+ * kept (ADR-0003). A day, as a call's: an answer removed costs one start of
+ * spec-brief, and one kept is a few kilobytes.
+ */
+export const ANSWER_LIFE_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Keeps a session's answer of spec-brief's under the common directory, with
+ * the key it answers, and removes what was kept over a day ago. Whatever
+ * fails is passed over: the answer is the one given whether or not it is
+ * kept.
+ */
+export async function keepAnswer(commonDir: string, name: string, key: string, answer: string, now: number = Date.now()): Promise<void> {
+  try {
+    const directory = await stateDirectory(commonDir, 'answers');
+    await writeAtomic(join(directory, name), `${JSON.stringify({ key, answer })}\n`);
+    for (const entry of await readdir(directory)) {
+      const file = join(directory, entry);
+      if (now - (await stat(file)).mtimeMs > ANSWER_LIFE_MS) await rm(file, { force: true });
+    }
+  } catch {
+    // A full disk, a directory another run removed: the next run starts spec-brief.
+  }
+}
+
+/**
+ * The answer kept under `name` for `key`, or `null` where there is none:
+ * nothing there, something that is not a file, a text that is not what
+ * `keepAnswer` writes, or another key's.
+ */
+export async function keptAnswer(commonDir: string, name: string, key: string): Promise<string | null> {
+  const file = join(commonDir, 'spec-harness', 'answers', name);
+  try {
+    // Only a file is read: a named pipe would be read without end.
+    if (!(await stat(file)).isFile()) return null;
+    // A text that holds null throws on the read, and any other that is no
+    // object has no key: the catch answers for both. A Buffer parses as its
+    // text, so the encoding is equivalent to its mutant.
+    const kept: { readonly key?: unknown; readonly answer?: unknown } = JSON.parse(await readFile(file, 'utf8'));
+    return kept.key === key && typeof kept.answer === 'string' ? kept.answer : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Whether a path that could not be read names nothing: it, or a directory on the way to it, is not there. */
+function nothingThere(error: unknown): boolean {
+  const { code } = error as NodeJS.ErrnoException;
+  return code === 'ENOENT' || code === 'ENOTDIR';
+}
+
+/**
+ * Whether a file reads as listed: a file, never a pipe or a directory, whose
+ * bytes have the digest; or, listed as not there, nothing at its path.
+ */
+async function fileReads(file: string, sha256: string | null, hash: Hash): Promise<boolean> {
+  let there: Stats;
+  try {
+    there = await stat(file);
+  } catch (error) {
+    return sha256 === null && nothingThere(error);
+  }
+  // Only a file is read: a named pipe would be read without end. A file
+  // listed as not there has no digest a file's bytes have.
+  if (!there.isFile()) return false;
+  return hash(await readFile(file)) === sha256;
+}
+
+/**
+ * Whether a directory is there and holds the files listed, and no other: a
+ * file as spec-brief lists one, an entry that is a file itself, where a
+ * directory or a link is not one. What is no directory, a named pipe among
+ * it, is refused by the listing, which throws.
+ */
+async function entriesRead(directory: string, entries: readonly string[]): Promise<boolean> {
+  const names = (await readdir(directory, { withFileTypes: true })).flatMap((entry) => (entry.isFile() ? [entry.name] : [])).sort();
+  const listed = [...entries].sort();
+  return names.length === listed.length && names.every((name, at) => name === listed[at]);
+}
+
+/**
+ * Whether every input of an answer reads as listed, with no process
+ * started: each file by the digest of its bytes, or as not there; each
+ * directory by its entries; and, where git was asked, the index of the work
+ * tree's git directory and each ignore file. A path is read from the work
+ * tree's top, or as it stands where it is absolute. Anything that cannot be
+ * read, and a git directory that is not the work tree's own as git would
+ * find it, is a doubt, and answers `false` (ADR-0002).
+ */
+export async function readsAsListed(root: string, inputs: BriefInputs, hash: Hash, env: Readonly<Record<string, string | undefined>> = process.env): Promise<boolean> {
+  const at = (path: string): string => (isAbsolute(path) ? path : join(root, ...path.split('/')));
+  const checks = [...inputs.files.map((file) => fileReads(at(file.path), file.sha256, hash)), ...inputs.directories.map((directory) => entriesRead(at(directory.path), directory.entries))];
+  if (inputs.git !== null) {
+    const found = gitDirectories(root, env);
+    if (found === null || !found.exact || found.top !== realSpelling(root)) return false;
+    checks.push(fileReads(join(found.git, 'index'), inputs.git.index, hash), ...inputs.git.ignores.map((file) => fileReads(at(file.path), file.sha256, hash)));
+  }
+  try {
+    return (await Promise.all(checks)).every((reads) => reads);
+  } catch {
+    return false;
   }
 }
 

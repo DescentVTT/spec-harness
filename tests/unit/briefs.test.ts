@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { findActive, parseBriefList, SiblingOutputError, SUPPORTED_SCHEMA_VERSIONS } from '../../src/briefs.js';
+import { findActive, inputsOf, parseBriefList, SiblingOutputError, SUPPORTED_SCHEMA_VERSIONS } from '../../src/briefs.js';
 import { row } from './helpers.js';
 
 function document(briefs: unknown[], overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -174,5 +174,78 @@ describe('the active brief', () => {
 
   it('never guesses from a single live brief', () => {
     expect(findActive([live], {}).kind).toBe('none');
+  });
+});
+
+describe('what a list answer was read from', () => {
+  const A = 'a'.repeat(64);
+  const B = '0123456789abcdef'.repeat(4);
+  const INPUTS = {
+    keep: true,
+    tool: '0.10.0',
+    files: [
+      { path: '.spec-brief.json', sha256: A },
+      { path: 'spec-brief.json', sha256: null },
+    ],
+    directories: [{ path: 'briefs', entries: ['001_a.md', 'README.md'] }],
+    git: { index: B, ignores: [{ path: '.gitignore', sha256: null }, { path: 'C:/repo/.git/info/exclude', sha256: A }] },
+  };
+  const of = (inputs: unknown): unknown => inputsOf(document([FULL], { inputs }));
+
+  it('reads every input it lists, and git as not asked where it says so', () => {
+    expect(of(INPUTS)).toEqual({ tool: '0.10.0', files: INPUTS.files, directories: INPUTS.directories, git: INPUTS.git });
+    expect(of({ ...INPUTS, git: null })).toEqual({ tool: '0.10.0', files: INPUTS.files, directories: INPUTS.directories, git: null });
+    expect(of({ ...INPUTS, git: { index: null, ignores: [] } })).toMatchObject({ git: { index: null, ignores: [] } });
+    // A list of files alone, or of directories alone, names something.
+    expect(of({ ...INPUTS, directories: [] })).toMatchObject({ files: INPUTS.files, directories: [] });
+    expect(of({ ...INPUTS, files: [] })).toMatchObject({ files: [], directories: INPUTS.directories });
+    expect(of({ ...INPUTS, directories: [{ path: 'briefs', entries: [] }], files: [] })).toMatchObject({ directories: [{ path: 'briefs', entries: [] }] });
+  });
+
+  it('is none where the answer may not be kept: no inputs, keep anything but true, no version', () => {
+    expect(inputsOf(document([FULL]))).toBeNull();
+    expect(inputsOf(null)).toBeNull();
+    expect(inputsOf([INPUTS])).toBeNull();
+    for (const inputs of [null, [], 'inputs', { ...INPUTS, keep: false }, { ...INPUTS, keep: 'true' }, { ...INPUTS, keep: 1 }, { ...INPUTS, keep: undefined }, { ...INPUTS, tool: undefined }, { ...INPUTS, tool: 10 }]) {
+      expect(of(inputs), JSON.stringify(inputs)).toBeNull();
+    }
+  });
+
+  it('is none for a list that names nothing, whether or not git was asked', () => {
+    expect(of({ ...INPUTS, files: [], directories: [] })).toBeNull();
+    expect(of({ ...INPUTS, files: [], directories: [], git: null })).toBeNull();
+  });
+
+  it('is none for anything on the list in a form not read here', () => {
+    const wrong: unknown[] = [
+      { ...INPUTS, files: undefined },
+      { ...INPUTS, files: {} },
+      { ...INPUTS, files: ['.spec-brief.json'] },
+      { ...INPUTS, files: [{ sha256: A }] },
+      { ...INPUTS, files: [{ path: '', sha256: A }] },
+      { ...INPUTS, files: [{ path: 7, sha256: A }] },
+      { ...INPUTS, files: [{ path: 'a' }] },
+      { ...INPUTS, files: [{ path: 'a', sha256: A.toUpperCase() }] },
+      { ...INPUTS, files: [{ path: 'a', sha256: A.slice(1) }] },
+      { ...INPUTS, files: [{ path: 'a', sha256: `${A}0` }] },
+      { ...INPUTS, files: [{ path: 'a', sha256: `${A.slice(1)}g` }] },
+      { ...INPUTS, files: [{ path: 'a', sha256: `x${A}` }] },
+      { ...INPUTS, files: [{ path: 'a', sha256: 0 }] },
+      { ...INPUTS, directories: undefined },
+      { ...INPUTS, directories: [{ entries: [] }] },
+      { ...INPUTS, directories: [{ path: '', entries: [] }] },
+      { ...INPUTS, directories: [{ path: 'briefs' }] },
+      { ...INPUTS, directories: [{ path: 'briefs', entries: 'a.md' }] },
+      { ...INPUTS, directories: [{ path: 'briefs', entries: ['a.md', 1] }] },
+      { ...INPUTS, directories: ['briefs'] },
+      { ...INPUTS, git: undefined },
+      { ...INPUTS, git: [] },
+      { ...INPUTS, git: 'git' },
+      { ...INPUTS, git: { ignores: [] } },
+      { ...INPUTS, git: { index: 'index', ignores: [] } },
+      { ...INPUTS, git: { index: B } },
+      { ...INPUTS, git: { index: B, ignores: [{ path: '.gitignore', sha256: 'x' }] } },
+    ];
+    for (const inputs of wrong) expect(of(inputs), JSON.stringify(inputs)).toBeNull();
   });
 });

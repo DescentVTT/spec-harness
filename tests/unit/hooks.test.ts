@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { Decision, Verdict } from '../../src/guard.js';
-import { afterResponse, CALL_VARIABLES, callFile, callRecord, CALLABLE_TOOLS, claudeResponse, gitResponse, keptCall, parseClaudeHook, SESSION_START, sessionResponse, warningsKept, warningsOf, WRITING_TOOLS, type HookRequest } from '../../src/hooks.js';
+import { afterResponse, CALL_VARIABLES, callFile, callRecord, CALLABLE_TOOLS, claudeResponse, gitResponse, keptCall, parseClaudeHook, SESSION_START, sessionOf, sessionResponse, warningsKept, warningsOf, WRITING_TOOLS, type HookRequest } from '../../src/hooks.js';
 
 function hook(fields: Record<string, unknown>): string {
   return JSON.stringify({ session_id: 's', hook_event_name: 'PreToolUse', tool_name: 'Write', cwd: '/repo', ...fields });
@@ -269,5 +269,19 @@ describe('what the run before a write keeps for the run after it', () => {
     }
     // What a warning holds besides its message and its next step is not read.
     expect(warningsKept(JSON.stringify({ record, warnings: [{ message: 'm', hint: 'h', verdict: 'deny' }] }), record)).toEqual([{ message: 'm', hint: 'h' }]);
+  });
+});
+
+describe("the session spec-brief's answers are kept for", () => {
+  const request: HookRequest = { event: 'PreToolUse', tool: 'Edit', cwd: '/repo', paths: ['/repo/a.ts'], session: 'abc-123', call: null };
+
+  it("is the question's session, in the form Claude Code's ids have, whether or not it names a call", () => {
+    expect(sessionOf(request)).toBe('abc-123');
+    expect(sessionOf({ ...request, event: SESSION_START, tool: '', paths: [] })).toBe('abc-123');
+    expect(sessionOf({ ...request, session: 'a'.repeat(256) })).toBe('a'.repeat(256));
+  });
+
+  it('is none where the question names none, or one in another form', () => {
+    for (const session of [null, '', '../abc', 'a/b', 'a b', `x${'1'.repeat(256)}`]) expect(sessionOf({ ...request, session }), String(session)).toBeNull();
   });
 });
