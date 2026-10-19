@@ -632,10 +632,12 @@ file beside the briefs, spec-brief's configuration, its archive taken away,
 its configuration taken away, a configuration of its other name
 (`h25-hook-compare.mjs`): 913 runs, 591 of the lines as installed and 322
 after the changes, every one the same in its exit code, its standard output
-and its standard error. Answers were kept and given again until the
-archive's directory was taken away, after which #69 says `keep: false` and
-every run started spec-brief, as main's do. With spec-brief 0.9.0, which
-keeps nothing, 913 runs, every one the same.
+and its standard error, with #69 at 2524903, under which answers were kept
+and given again until the archive's directory was taken away and #69 said
+`keep: false`; and 913 the same again with #69 at 19df161, which names that
+directory with `entries: null`, and under which answers were kept and given
+again after each change. With spec-brief 0.9.0, which keeps nothing, 913
+runs, every one the same.
 
 No answer changes: a patch (spec-core's ADR-0009).
 
