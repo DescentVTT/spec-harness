@@ -2426,7 +2426,9 @@ wired.
   account may not read it and EBUSY where another process holds it open
   on Windows, and only a text that is no JSON is `is not valid JSON`. Exit
   2 as before, from every command and from the hook, which holds the write
-  as for any configuration that does not load.
+  as for any configuration that does not load, and lets a write to the
+  file itself through as for one (the amendment of 2026-10-19 that lets a
+  configuration that does not load have a write to itself through).
 - **Where git runs its hooks cannot be told fails `--strict`**, as a
   Claude Code release, a line of the hook, a plugin that may be on the
   machine and a hook file git runs that cannot be read each do. Read

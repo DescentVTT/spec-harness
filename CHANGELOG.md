@@ -200,7 +200,8 @@ that; and on Windows a drive letter is one in either case
 - **A `.spec-harness.json` that cannot be read is said as that.** One the
   account may not read, or one another process holds open on Windows, was
   `.spec-harness.json is not valid JSON: EACCES: ...`. It is
-  `.spec-harness.json cannot be read: EACCES: ...`, exit 2 as before.
+  `.spec-harness.json cannot be read: EACCES: ...`, exit 2 as before, and
+  a write to the file itself goes on, as to one that does not load.
 - **On Windows `--root C:\work` beside `--root c:\work` is one root.**
   Every command refused the two as two directories, exit 2, and the hook
   read such a line as one it cannot read, under which it checked no write;

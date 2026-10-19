@@ -423,7 +423,7 @@ describe('the configuration', () => {
   });
 
   // An account that may do anything may read the file too, and Windows keeps no such bit.
-  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)('says a file it may not read is one it cannot read, with the reason, never as JSON that is not valid', async () => {
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)('says a file it may not read is one it cannot read, with the reason, never as JSON that is not valid, and lets a write to it through', async () => {
     // It was `is not valid JSON: EACCES: permission denied, open ...`, which sent a person to the file's text.
     const repo = repository({ [BRIEF_FILE]: brief() });
     const file = join(repo.root, '.spec-harness.json');
@@ -433,6 +433,10 @@ describe('the configuration', () => {
       for (const argv of [['guard', 'a.ts'], ['doctor']]) expect(await cli(argv, repo.root), argv.join(' ')).toEqual({ code: 2, stdout: '', stderr: said });
       const input = JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: 'Write', cwd: repo.root, tool_input: { file_path: 'a.ts' } });
       expect(await cli(['hook', 'claude'], repo.root, { stdin: input })).toEqual({ code: 2, stdout: '', stderr: said });
+      // A write to the file itself is let through, as to one that does not load: the person may mend what the account may not read.
+      const own = JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: 'Write', cwd: repo.root, tool_input: { file_path: file } });
+      const line = `${said.slice(0, -1)}, so every other write is held until it loads; this write, to ${file} itself, is not checked`;
+      expect(await cli(['hook', 'claude'], repo.root, { stdin: own })).toEqual({ code: 0, stderr: '', stdout: `${JSON.stringify({ systemMessage: line, hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: line } })}\n` });
     } finally {
       chmodSync(file, 0o644);
     }
