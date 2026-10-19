@@ -4,12 +4,13 @@
  */
 
 import { readFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { parseArgs, type ParseArgsOptionsConfig } from 'node:util';
 
 import { findActive, type ActiveBrief, type ActiveSource } from './briefs.js';
 import { briefIdFromBranch, ciBranch } from './branch.js';
 import type { HarnessConfig } from './config.js';
-import { holdsGit, isTop, loadConfig, mainWorkTree } from './fs.js';
+import { holdsGit, isTop, loadConfig, mainWorkTree, realSpelling, repositoryPath } from './fs.js';
 import { commonDirectory, currentBranch, workTree, workTreeRoot, type WorkTree } from './git.js';
 import type { FindingFormat } from './formats.js';
 import { createSiblings, type Siblings } from './siblings.js';
@@ -244,7 +245,7 @@ export async function foundCommonDir(found: FoundTree): Promise<string | null> {
   return found.tree === 'unread' ? commonDirectory(found.root) : found.tree.commonDir;
 }
 
-export async function openWorkspace(options: Pick<Options, 'root'>, io: CliIO, installs: Installs = NO_INSTALLS): Promise<Workspace> {
+export async function openWorkspace(options: Pick<Options, 'root'>, io: CliIO, installs: Installs = MAIN_INSTALL): Promise<Workspace> {
   const cwd = options.root ?? io.cwd;
   const found = await findTree(cwd);
   if (found === null) throw new UsageError(`${cwd} is not inside a git work tree; spec-harness measures rounds by their commits`);
@@ -255,17 +256,10 @@ export async function openWorkspace(options: Pick<Options, 'root'>, io: CliIO, i
 export type Installs = (root: string, commonDir: string) => readonly string[];
 
 /**
- * Every command but the hooks and doctor: a work tree is checked with its
- * own install, as it was. A name put on the list is a directory relative to
- * where the command runs, which holds no install, and no list at all is
- * the siblings' own default of none, so those mutants are equivalent.
- */
-const NO_INSTALLS: Installs = () => [];
-
-/**
- * git's hook and doctor: a linked worktree with no install of its own is
- * checked with the main work tree's, where `git worktree add` leaves the
- * project's `node_modules` (ADR-0005).
+ * Every command: a linked worktree with no install of its own is checked
+ * with the main work tree's, where `git worktree add` leaves the project's
+ * `node_modules`, as git's hook and doctor were, and as the hook is with the
+ * project's (ADR-0005).
  */
 export const MAIN_INSTALL: Installs = (root, commonDir) => {
   const main = mainWorkTree(commonDir);
@@ -275,7 +269,7 @@ export const MAIN_INSTALL: Installs = (root, commonDir) => {
 };
 
 /** The rest of opening a work tree, once it is found: its common directory, its configuration and its branch. */
-export async function openFound(found: FoundTree, io: CliIO, installs: Installs = NO_INSTALLS): Promise<Workspace> {
+export async function openFound(found: FoundTree, io: CliIO, installs: Installs = MAIN_INSTALL): Promise<Workspace> {
   const { cwd, root, tree, early } = found;
   // The common directory and the branch are asked of the root. What git
   // said from `cwd` is that answer where `cwd` is the root, the same
@@ -376,3 +370,120 @@ export function json(command: string, body: Record<string, unknown>): string {
   return `${JSON.stringify({ tool: 'spec-harness', version: version(), schemaVersion: JSON_SCHEMA_VERSION, command, ...body }, null, 2)}\n`;
 }
 
+/**
+ * Whether a work tree other than the one whose top is `top` may hold `cwd`:
+ * `cwd` is outside it, or a `.git` stands in a directory between the two,
+ * where a linked worktree, a submodule or a repository of its own starts.
+ * Where neither is so, `cwd` is in that work tree, and git is asked nothing
+ * more: a session works at its project's top, or below it, for nearly every
+ * write. Answering that one may is what git is then asked, so the mutant
+ * that always answers so is equivalent, at the cost of a process, and so
+ * is each that only answers so more often: a slice one short reaches the
+ * top itself, which holds a `.git`, and a part named in place of none is
+ * a directory no top holds.
+ */
+export function mayBeElsewhere(cwd: string, top: string): boolean {
+  const path = repositoryPath(cwd, top, cwd);
+  if (path === null) return true;
+  const parts = path === '' ? [] : path.split('/');
+  return parts.some((_, index) => holdsGit(join(top, ...parts.slice(0, index + 1))));
+}
+
+/**
+ * The work tree that holds `cwd`, where it is another work tree of the
+ * repository the work tree `named` is one of, as the hook's root names it, by the git directory the two share;
+ * `null` where `cwd` is in the root's own, in another repository, or in
+ * none (ADR-0005).
+ */
+export async function otherTree(named: Workspace, cwd: string): Promise<FoundTree | null> {
+  // Asked anyway, git names the root's own top for a directory in its work
+  // tree, and none for one not made, either of which answers `null` below:
+  // the mutant that always asks is equivalent, at a process's cost.
+  if (!mayBeElsewhere(cwd, named.root)) return null;
+  const found = await findTree(cwd);
+  // The project's own work tree, found again, would decide every path the
+  // same way once more: the check saves reading its configuration twice, and
+  // its mutant is equivalent.
+  if (found === null || found.root === named.root) return null;
+  const common = await foundCommonDir(found);
+  // git names a common directory wherever it names a top, so `null` is
+  // there for the type.
+  if (common === null || realSpelling(common) !== realSpelling(named.commonDir)) return null;
+  return found;
+}
+
+/**
+ * The top of the nearest work tree, of any repository, above a directory or
+ * a file: the nearest directory above it that holds a `.git`, found with no
+ * process; `null` where none does. A path not yet written has the
+ * directories it would be written in looked through, those not made yet
+ * among them.
+ */
+function topAbove(path: string): string | null {
+  for (let directory = dirname(path); ; directory = dirname(directory)) {
+    if (holdsGit(directory)) return directory;
+    // Only the top of the filesystem is its own parent.
+    if (dirname(directory) === directory) return null;
+  }
+}
+
+/**
+ * The innermost work tree of the repository the work tree `named` is one of
+ * that holds a path, where it is not `named` itself: a linked worktree or the
+ * main one, inside the project, beside it, or around it (ADR-0005). The
+ * directories above the path are looked through, with no process, for each
+ * that holds a `.git`; git is asked of each that is not `named`'s top, and
+ * one that git names as no work tree of this repository's, a submodule's, a
+ * clone's inside the tree, or a `.git` that stands in no work tree's top, is
+ * passed by for the next above it. `null` where the first of this repository
+ * met is `named`, or none is: the path is decided by `named`, as before, a
+ * path in no work tree of the repository among them.
+ */
+async function treeHolding(named: Workspace, path: string, from: string): Promise<FoundTree | null> {
+  const own = realSpelling(named.root);
+  // An absolute path, as Claude Code sends one, is what resolve leaves it.
+  for (let top = topAbove(realSpelling(resolve(from, path))); top !== null; top = topAbove(top)) {
+    if (top === own) return null;
+    const tree = await otherTree(named, top);
+    // git names a work tree whose top is not this directory where it reads
+    // the `.git` here as no repository's, an empty directory say, and names
+    // the one around it: the walk meets that one's top next, past any `.git`
+    // between that git reads as none too, and takes it. So the mutant that
+    // takes what git names here is equivalent for every work tree git makes;
+    // the check keeps a `core.worktree` set by hand to name another
+    // directory from deciding a path that directory does not hold.
+    if (tree !== null && realSpelling(tree.root) === top) return tree;
+  }
+  return null;
+}
+
+/**
+ * The work trees a write is decided in, each with the paths it decides, for
+ * the hook and for the server's `check_path` (ADR-0005). The repository is
+ * the one the hook's root names, as before. Each path is decided by the
+ * innermost work tree of that repository that holds it, by its branch, its
+ * briefs and its configuration, read from its top, with its siblings looked
+ * for in its install and then the project's: there a session works in a
+ * worktree while Claude Code names the project it started in, or writes from
+ * one into another, and the hook decided by the project's branch, which
+ * named no brief, so a protected write passed with no word. A path in no
+ * other work tree of the repository is decided by the work tree the root
+ * names, as before: a write to the project's own file from a worktree is
+ * refused where it was, and a path in another repository, or in none, is
+ * read as it was. `cwd` is what a relative path is read from.
+ */
+export async function writesBy(named: Workspace, cwd: string | null, paths: readonly string[], io: CliIO): Promise<{ readonly workspace: Workspace; readonly paths: readonly string[] }[]> {
+  const from = cwd ?? io.cwd;
+  const trees: { readonly tree: FoundTree | null; readonly paths: string[] }[] = [];
+  // The parts in the order their work trees are first met, each with its
+  // paths in the order they were named.
+  for (const path of paths) {
+    const tree = await treeHolding(named, path, from);
+    const part = trees.find((other) => other.tree?.root === tree?.root);
+    if (part === undefined) trees.push({ tree, paths: [path] });
+    else part.paths.push(path);
+  }
+  // The root's own last, as it was decided after the work tree Claude works in.
+  const ordered = [...trees.filter((part) => part.tree !== null), ...trees.filter((part) => part.tree === null)];
+  return Promise.all(ordered.map(async ({ tree, paths: held }) => ({ workspace: tree === null ? named : await openFound(tree, io, () => [named.root]), paths: held })));
+}
