@@ -7,6 +7,7 @@
  */
 
 import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { Readable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 
@@ -15,12 +16,15 @@ import { findActive } from './briefs.js';
 import { briefIdFromBranch } from './branch.js';
 import { titleOf } from './context.js';
 import { createReader } from './reader.js';
+import { realSpelling } from './fs.js';
 import { buildContext, checkPaths, raiseEscalation, runAudit } from './round.js';
 import type { EscalationOption } from './rulings.js';
 import type { BriefRow } from './types.js';
 import { emptyValue, isBlank, type ValuedOption } from './usage.js';
 import {
+  CLIENT_CAPABILITIES_KEY,
   createMcpServer,
+  isObject,
   serveLines,
   toolError,
   unknownArguments,
@@ -29,7 +33,7 @@ import {
   type ToolDefinition,
   type ToolOutcome,
 } from './vendor/spec-core/jsonrpc/index.js';
-import { describeActive, openWorkspace, version, type CliIO, type Options, type Workspace } from './workspace.js';
+import { describeActive, findTree, foundCommonDir, mayBeElsewhere, openFound, openWorkspace, version, writesBy, type CliIO, type Options, type Workspace } from './workspace.js';
 
 const reader = createReader();
 
@@ -56,6 +60,151 @@ const baseProperty = {
  */
 function namesNothing(argument: string, option: ValuedOption, value: string): ToolOutcome {
   return toolError(`${emptyValue(`"${argument}"`, option, value)}.`);
+}
+
+const directoryProperty = {
+  type: 'string',
+  description:
+    "A directory in the work tree the round is in, such as the worktree you work in. Omit to use the work tree the client's roots name, where they name one of this repository, or else the project's.",
+};
+
+/**
+ * The directories a client's roots name, or `null` where it declared no
+ * roots, answered with an error, or did not answer in time.
+ */
+export type Roots = () => Promise<readonly string[] | null>;
+
+/** No client to ask: the tools as a caller of the package builds them, with no server around them. */
+const NO_ROOTS: Roots = async () => null;
+
+/** How long a client is given to answer `roots/list`: Claude Code answers from what it holds (its MCP page, below). */
+export const ROOTS_MS = 5_000;
+
+/**
+ * The client's roots, asked as MCP has a server ask them, with a request of
+ * the server's own, `roots/list`, where the client declared the capability
+ * as it started: in its `initialize`, or a later request's `_meta`. Claude
+ * Code's MCP page (https://code.claude.com/docs/en/mcp, Option 3: Add a local
+ * stdio server, read 2026-10-19) has it answer with the session's launch
+ * directory and every working directory added to it, and
+ * `CLAUDE_PROJECT_DIR` the stable project root, which does not move with
+ * them. The answer arrives on the input as a response, which the protocol's
+ * module passes over: it is read here first, by the id it was asked under.
+ */
+export interface RootsClient {
+  /** Reads a message before the protocol's handler does: `true` where it was the answer to a request of this one's, which is then no one else's. */
+  observe(message: unknown): boolean;
+  readonly ask: Roots;
+}
+
+export function rootsClient(write: (line: string) => void, limit = ROOTS_MS): RootsClient {
+  let declared = false;
+  let asked = 0;
+  const waiting = new Map<string, (answer: unknown) => void>();
+  const declares = (capabilities: unknown): boolean => isObject(capabilities) && isObject(capabilities['roots']);
+  return {
+    observe(message) {
+      if (!isObject(message)) return false;
+      const params = isObject(message['params']) ? message['params'] : {};
+      const meta = isObject(params['_meta']) ? params['_meta'] : {};
+      if ((message['method'] === 'initialize' && declares(params['capabilities'])) || declares(meta[CLIENT_CAPABILITIES_KEY])) declared = true;
+      const id = message['id'];
+      const settle = typeof id === 'string' && message['method'] === undefined ? waiting.get(id) : undefined;
+      if (settle === undefined) return false;
+      settle(message);
+      return true;
+    },
+    async ask() {
+      if (!declared) return null;
+      asked += 1;
+      const id = `spec-harness-roots-${asked}`;
+      const answer = await new Promise<unknown>((settled) => {
+        const timer = setTimeout(() => settled(null), limit);
+        waiting.set(id, (message) => {
+          clearTimeout(timer);
+          settled(message);
+        });
+        write(JSON.stringify({ jsonrpc: '2.0', id, method: 'roots/list' }));
+      });
+      waiting.delete(id);
+      const result = isObject(answer) ? answer['result'] : undefined;
+      const roots = isObject(result) ? result['roots'] : undefined;
+      if (!Array.isArray(roots)) return null;
+      // A root is a `file:` URI, by the protocol; Node refuses one of any other scheme, which names no directory here.
+      return roots.flatMap((root: unknown) => {
+        const uri = isObject(root) ? root['uri'] : undefined;
+        if (typeof uri !== 'string') return [];
+        try {
+          return [fileURLToPath(uri)];
+        } catch {
+          return [];
+        }
+      });
+    },
+  };
+}
+
+/** Where a tool reads the round: the work tree, and what named it. */
+interface Chosen {
+  readonly workspace: Workspace;
+  readonly from: 'argument' | 'roots' | 'server';
+}
+
+/**
+ * The work tree of the server's repository that holds a directory: the
+ * server's own where it is in that, with no `.git` between, and otherwise the
+ * one git names, where it shares the git directory the server's repository
+ * keeps; `null` where the directory is in another repository, or in none.
+ */
+async function treeOf(server: Workspace, io: CliIO, directory: string): Promise<Workspace | null> {
+  // Asked anyway, git names the server's own top for a directory in it,
+  // which answers the server's own below: the mutant that always asks is
+  // equivalent, at a process's cost.
+  if (!mayBeElsewhere(directory, server.root)) return server;
+  const found = await findTree(directory);
+  if (found === null) return null;
+  // Its own work tree, opened again, reads every answer the same way: the
+  // check saves a start of git, and its mutant is equivalent.
+  if (realSpelling(found.root) === realSpelling(server.root)) return server;
+  const common = await foundCommonDir(found);
+  // git names a common directory wherever it names a top, so `null` is there for the type.
+  if (common === null || realSpelling(common) !== realSpelling(server.commonDir)) return null;
+  return openFound(found, io, () => [server.root]);
+}
+
+/**
+ * The work tree a tool that reads a branch reads the round in (ADR-0008):
+ * the one a `directory` given names; where none is given, the one the
+ * client's roots name, where they name one work tree of this repository and
+ * no other; and the server's own otherwise, as before. The server is started
+ * once, for the project Claude Code names, and a session in a worktree
+ * names that worktree to it in neither the project nor the server's root.
+ */
+async function chosen(server: Workspace, io: CliIO, roots: Roots, given: unknown): Promise<Chosen | ToolOutcome> {
+  if (given !== undefined) {
+    if (typeof given !== 'string') return toolError('"directory" must be a string.');
+    if (isBlank(given)) return toolError(`"directory" is ${JSON.stringify(given)}, which names no directory; give it the directory the round is in, or leave it out.`);
+    const workspace = await treeOf(server, io, resolve(server.root, given));
+    if (workspace === null) return toolError(`"directory" is ${JSON.stringify(given)}, which is in no work tree of this repository; give a directory in the project or in one of its worktrees, or leave it out.`);
+    return { workspace, from: 'argument' };
+  }
+  const named = await roots();
+  if (named !== null) {
+    const trees = new Map<string, Workspace>();
+    for (const directory of named) {
+      const workspace = await treeOf(server, io, directory);
+      if (workspace !== null) trees.set(realSpelling(workspace.root), workspace);
+    }
+    const [only, ...more] = [...trees.values()];
+    if (only !== undefined && more.length === 0) return { workspace: only, from: 'roots' };
+  }
+  return { workspace: server, from: 'server' };
+}
+
+/** What a tool's answer says of the work tree it read: always in its structured part, and in its text where it is not the server's own. */
+function readIn(where: Chosen): { readonly said: string; readonly workTree: JsonObject } {
+  const how = where.from === 'argument' ? 'the "directory" given' : "the client's roots";
+  return { said: where.from === 'server' ? '' : `\n\nRead in the work tree at ${where.workspace.root}, which ${how} name.`, workTree: { root: where.workspace.root, from: where.from } };
 }
 
 /** The `base` argument, or the tool error for one that is not a string, or names no commit. */
@@ -114,8 +263,13 @@ async function round(workspace: Workspace, env: CliIO['env'], id: unknown): Prom
   return { brief, briefs };
 }
 
-export function tools(workspace: Workspace, env: CliIO['env']): ToolDefinition[] {
+export function tools(workspace: Workspace, env: CliIO['env'], roots: Roots = NO_ROOTS): ToolDefinition[] {
   const readOnly = { readOnlyHint: true, idempotentHint: true, openWorldHint: false };
+  // A tool writes nothing to the server's streams, so these are never
+  // written to, and their mutants are equivalent: what a tool says is its
+  // answer.
+  const quiet = { write: (): boolean => true };
+  const io: CliIO = { stdout: quiet, stderr: quiet, cwd: workspace.cwd, env };
   return [
     {
       descriptor: {
@@ -123,20 +277,24 @@ export function tools(workspace: Workspace, env: CliIO['env']): ToolDefinition[]
         title: 'Start a round',
         description:
           'Everything needed to start the round: the brief in full, the files it may write and must not change, signed rulings, the briefs it depends on, the architecture rules in force for its scope, and the documents it cites.',
-        inputSchema: { type: 'object', properties: { brief: briefProperty, base: baseProperty }, additionalProperties: false },
+        inputSchema: { type: 'object', properties: { brief: briefProperty, base: baseProperty, directory: directoryProperty }, additionalProperties: false },
         annotations: readOnly,
       },
       async call(args: JsonObject): Promise<ToolOutcome> {
-        const unknown = unknownArguments(args, ['brief', 'base']);
+        const unknown = unknownArguments(args, ['brief', 'base', 'directory']);
         if (unknown) return unknown;
         const base = baseOf(args);
         if ('text' in base) return base;
-        const found = await round(workspace, env, args['brief']);
+        const where = await chosen(workspace, io, roots, args['directory']);
+        if ('text' in where) return where;
+        const found = await round(where.workspace, env, args['brief']);
         if ('text' in found) return found;
-        const packet = await buildContext(workspace, found.brief, found.briefs, reader, base.base);
+        const packet = await buildContext(where.workspace, found.brief, found.briefs, reader, base.base);
+        const { said, workTree } = readIn(where);
         return {
-          text: packet.markdown,
+          text: `${packet.markdown}${said}`,
           structured: {
+            workTree,
             brief: found.brief.id,
             included: [...packet.included],
             omitted: [...packet.omitted],
@@ -160,9 +318,14 @@ export function tools(workspace: Workspace, env: CliIO['env']): ToolDefinition[]
         inputSchema: {
           type: 'object',
           properties: {
-            paths: { type: 'array', items: { type: 'string' }, description: 'Paths relative to the project root, or absolute inside it. An empty one is refused.' },
+            paths: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Paths relative to the top of the work tree the round is in, or absolute; an absolute one in another work tree of this repository is decided by that one. An empty one is refused.',
+            },
             brief: briefProperty,
             base: baseProperty,
+            directory: directoryProperty,
           },
           required: ['paths'],
           additionalProperties: false,
@@ -170,17 +333,25 @@ export function tools(workspace: Workspace, env: CliIO['env']): ToolDefinition[]
         annotations: readOnly,
       },
       async call(args: JsonObject): Promise<ToolOutcome> {
-        const unknown = unknownArguments(args, ['paths', 'brief', 'base']);
+        const unknown = unknownArguments(args, ['paths', 'brief', 'base', 'directory']);
         if (unknown) return unknown;
         const given = pathsOf(args);
         if ('text' in given) return given;
         const base = baseOf(args);
         if ('text' in base) return base;
-        const found = await round(workspace, env, args['brief']);
-        if ('text' in found) return found;
-        const decisions = await checkPaths(workspace, found.brief, undefined, given.paths, workspace.root, reader, base.base);
+        const where = await chosen(workspace, io, roots, args['directory']);
+        if ('text' in where) return where;
+        // Each path by the work tree of this repository that holds it, as the
+        // hook decides a write: the one read, another, or the server's own.
+        const decisions = [];
+        for (const part of await writesBy(workspace, where.workspace.root, given.paths, io)) {
+          const found = await round(part.workspace, env, args['brief']);
+          if ('text' in found) return found;
+          decisions.push(...(await checkPaths(part.workspace, found.brief, undefined, part.paths, where.workspace.root, reader, base.base)));
+        }
         const text = decisions.map((d) => `${d.verdict}: ${d.message}${d.verdict === 'allow' ? '' : `. Next: ${d.hint}`}`).join('\n');
-        return { text, structured: { decisions: decisions.map((d) => ({ ...d })) } };
+        const { said, workTree } = readIn(where);
+        return { text: `${text}${said}`, structured: { workTree, decisions: decisions.map((d) => ({ ...d })) } };
       },
     },
     {
@@ -201,6 +372,7 @@ export function tools(workspace: Workspace, env: CliIO['env']): ToolDefinition[]
             },
             recommendation: { type: 'string', description: 'Which option you recommend, and why. Omit it when there is none: an empty one is refused.' },
             brief: briefProperty,
+            directory: directoryProperty,
           },
           required: ['paths', 'reason'],
           additionalProperties: false,
@@ -208,7 +380,7 @@ export function tools(workspace: Workspace, env: CliIO['env']): ToolDefinition[]
         annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: false },
       },
       async call(args: JsonObject): Promise<ToolOutcome> {
-        const unknown = unknownArguments(args, ['paths', 'reason', 'options', 'recommendation', 'brief']);
+        const unknown = unknownArguments(args, ['paths', 'reason', 'options', 'recommendation', 'brief', 'directory']);
         if (unknown) return unknown;
         // Every part of the memo before anything is written: a person rules
         // on what it says, and cannot rule on a part that says nothing.
@@ -221,15 +393,18 @@ export function tools(workspace: Workspace, env: CliIO['env']): ToolDefinition[]
         const recommendation = args['recommendation'];
         if (recommendation !== undefined && typeof recommendation !== 'string') return toolError('"recommendation" must be a string.');
         if (recommendation !== undefined && isBlank(recommendation)) return namesNothing('recommendation', 'recommend', recommendation);
-        const found = await round(workspace, env, args['brief']);
+        const where = await chosen(workspace, io, roots, args['directory']);
+        if ('text' in where) return where;
+        const found = await round(where.workspace, env, args['brief']);
         if ('text' in found) return found;
-        const { request, memo } = await raiseEscalation(workspace, found.brief, {
+        const { request, memo } = await raiseEscalation(where.workspace, found.brief, {
           paths: given.paths,
           reason,
           options: choices.options,
           recommendation: recommendation ?? null,
         });
-        return { text: `${memo}\nStop here until a person rules on ${request.id}.`, structured: { id: request.id } };
+        const { said, workTree } = readIn(where);
+        return { text: `${memo}\nStop here until a person rules on ${request.id}.${said}`, structured: { id: request.id, workTree } };
       },
     },
     {
@@ -238,17 +413,19 @@ export function tools(workspace: Workspace, env: CliIO['env']): ToolDefinition[]
         title: 'Audit the round',
         description:
           'Did the round stay inside the lines: what the archive would refuse (open boxes, protected files, files outside the scope), the brief\'s own assertions, unverified rulings, every dependency added and every package allowed to run install scripts.',
-        inputSchema: { type: 'object', properties: { brief: briefProperty, base: baseProperty }, additionalProperties: false },
+        inputSchema: { type: 'object', properties: { brief: briefProperty, base: baseProperty, directory: directoryProperty }, additionalProperties: false },
         annotations: readOnly,
       },
       async call(args: JsonObject): Promise<ToolOutcome> {
-        const unknown = unknownArguments(args, ['brief', 'base']);
+        const unknown = unknownArguments(args, ['brief', 'base', 'directory']);
         if (unknown) return unknown;
         const base = baseOf(args);
         if ('text' in base) return base;
-        const found = await round(workspace, env, args['brief']);
+        const where = await chosen(workspace, io, roots, args['directory']);
+        if ('text' in where) return where;
+        const found = await round(where.workspace, env, args['brief']);
         if ('text' in found) return found;
-        const result = await runAudit(workspace, found.brief, reader, base.base);
+        const result = await runAudit(where.workspace, found.brief, reader, base.base);
         const { counts, findings, measured } = result.report;
         // What was measured beside what was found: "nothing found" from an
         // audit that ran no goal is not a round that is done.
@@ -256,9 +433,10 @@ export function tools(workspace: Workspace, env: CliIO['env']): ToolDefinition[]
           findings.length === 0
             ? 'The audit found nothing in what it measured.'
             : findings.map((f) => `${f.severity} ${f.rule}: ${f.message}. Next: ${f.hint}`).join('\n');
+        const { said, workTree } = readIn(where);
         return {
-          text: `${text}\n\n${describeMeasured(measured)}\n\n${counts.error} error(s), ${counts.warning} warning(s), ${counts.note} note(s)`,
-          structured: { counts, measured: { ...measured }, findings: findings.map((f) => ({ ...f })) },
+          text: `${text}\n\n${describeMeasured(measured)}\n\n${counts.error} error(s), ${counts.warning} warning(s), ${counts.note} note(s)${said}`,
+          structured: { workTree, counts, measured: { ...measured }, findings: findings.map((f) => ({ ...f })) },
         };
       },
     },
@@ -319,12 +497,17 @@ export async function mcpCommand(options: Options, io: CliIO): Promise<number> {
   // Claude Code starts a plugin's server in the plugin's directory, and names
   // the project in CLAUDE_PROJECT_DIR; the server answers for the project.
   const workspace = await openWorkspace({ ...options, root: options.root ?? (io.env['CLAUDE_PROJECT_DIR'] || undefined) }, io);
-  const handle = createMcpServer({ name: 'spec-harness', version: version(), instructions: INSTRUCTIONS, tools: tools(workspace, io.env), prompts: prompts() });
+  const write = (line: string): void => {
+    io.stdout.write(`${line}\n`);
+  };
+  // The work tree a session is in, where its client names it (ADR-0008).
+  const roots = rootsClient(write);
+  const handle = createMcpServer({ name: 'spec-harness', version: version(), instructions: INSTRUCTIONS, tools: tools(workspace, io.env, roots.ask), prompts: prompts() });
   // A session handed over whole, as a test hands it, is served as a client
   // would stream it on stdin. Only the built command line serves
   // process.stdin, and the suite spawns it from dist/, outside the sweep
   // (tests/integration/mcp.test.ts), so a mutant that ignores it survives.
   const input = io.stdin === undefined ? process.stdin : Readable.from([Buffer.from(await io.stdin())]);
-  await serveLines(input, (line) => io.stdout.write(`${line}\n`), handle);
+  await serveLines(input, write, async (message) => (roots.observe(message) ? null : handle(message)));
   return 0;
 }

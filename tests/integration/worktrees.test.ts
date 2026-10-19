@@ -10,7 +10,7 @@
  * words Claude Code's line hands it, with the question Claude Code asks.
  */
 
-import { join } from 'node:path';
+import { join, relative as relativeTo } from 'node:path';
 
 import { afterAll, describe, expect, it } from 'vitest';
 
@@ -131,8 +131,116 @@ describe("git's hook and doctor in a linked worktree with no install", () => {
     expect(commit.stderr).toContain('refused  brief 001 does not empower this round to change src/db/schema.ts');
     const doctor = parsed<{ siblings: { tool: string; state: string; elsewhere: string | null }[] }>(await cli(['doctor', '--format', 'json'], tree));
     expect(doctor.siblings.find((sibling) => sibling.tool === 'spec-brief')).toMatchObject({ state: 'found', elsewhere: expect.any(String) });
-    // Every other command reads the work tree's own install, as before.
-    expect(await cli(['guard', 'src/db/schema.ts'], tree)).toMatchObject({ code: 2, stderr: expect.stringContaining('spec-brief is not installed here') });
+  });
+});
+
+describe('every other command in a linked worktree with no install (ADR-0005)', () => {
+  it("reads the main work tree's siblings, as git's hook does, where each said spec-brief is not installed here", async () => {
+    const repo = project();
+    const tree = linked(repo, join(temp(), 'linked'), 'brief/001-linked');
+    const guard = await cli(['guard', 'src/db/schema.ts'], tree);
+    expect({ code: guard.code, stderr: guard.stderr }).toEqual({ code: 1, stderr: '' });
+    expect(guard.stdout).toContain('refused  brief 001 does not empower this round to change src/db/schema.ts');
+    for (const argv of [['context'], ['rulings']]) expect(await cli(argv, tree), argv.join(' ')).toMatchObject({ code: 0, stderr: '' });
+    // Its own install is read first, as the hook reads it: one too old to run is the one said.
+    installFake(tree, 'spec-brief', JSON.stringify({ version: '0.1.0' }));
+    expect(await cli(['guard', 'src/db/schema.ts'], tree)).toMatchObject({ code: 2, stderr: expect.stringContaining('spec-brief 0.1.0 is installed here') });
+    // And a main work tree with none, on a brief's branch, is said to have none.
+    const bare = repository(FILES, null);
+    bare.git('checkout', '-q', '-b', 'brief/001-bare');
+    expect(await cli(['guard', 'src/db/schema.ts'], bare.root)).toMatchObject({ code: 2, stderr: expect.stringContaining('spec-brief is not installed here') });
+  });
+});
+
+describe('a path in a third work tree of the repository (ADR-0005)', () => {
+  // Neither the one the project names nor the one cwd is in: the hook read it
+  // from the project's top, as a file of the project or one outside it, and
+  // a write its own brief protects passed with no word.
+  it('is decided by the work tree that holds it, inside the project or beside it, wherever cwd is', async () => {
+    const repo = project();
+    const here = linked(repo, join(repo.root, '.claude', 'worktrees', 'a'), 'claude/brief-001-a');
+    const inside = linked(repo, join(repo.root, '.claude', 'worktrees', 'b'), 'claude/brief-001-b');
+    const beside = linked(repo, join(temp(), 'c'), 'claude/brief-001-c');
+    for (const [cwd, tree] of [
+      [here, inside],
+      [here, beside],
+      [repo.root, inside],
+      [repo.root, beside],
+      [join(temp(), 'elsewhere'), inside],
+    ] as const) {
+      const result = await hook(repo.root, 'PreToolUse', cwd, { file_path: file(tree, 'src/db/schema.ts') });
+      expect({ code: result.code, stderr: result.stderr, decision: decision(result.stdout) }, `${cwd} | ${tree}`).toEqual({ code: 0, stderr: '', decision: 'deny' });
+      expect(result.stdout, `${cwd} | ${tree}`).toContain(REFUSAL);
+    }
+    // A question with no cwd: the same.
+    const bare = await cli(['hook', 'claude'], repo.root, {
+      stdin: JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: file(inside, 'src/db/schema.ts') } }),
+      env: { CLAUDE_PROJECT_DIR: repo.root },
+    });
+    expect({ code: bare.code, decision: decision(bare.stdout) }).toEqual({ code: 0, decision: 'deny' });
+    // A file in its scope passes, before and after, and the project's own file is the project's, which names no brief.
+    for (const event of ['PreToolUse', 'PostToolUse']) expect(await hook(repo.root, event, here, { file_path: file(beside, 'src/auth/a.ts') }), event).toEqual({ code: 0, stdout: '', stderr: '' });
+    expect(await hook(repo.root, 'PreToolUse', here, { file_path: file(repo.root, 'src/db/schema.ts') })).toEqual({ code: 0, stdout: '', stderr: '' });
+    // One question that names a file of two of them: each by its own, and the refusal stands.
+    const both = await hook(repo.root, 'PreToolUse', here, { file_path: file(beside, 'src/auth/a.ts'), path: file(inside, 'src/db/schema.ts') });
+    expect({ code: both.code, decision: decision(both.stdout) }).toEqual({ code: 0, decision: 'deny' });
+    // A file in no work tree at all is outside the repository, as before.
+    for (const event of ['PreToolUse', 'PostToolUse']) expect(await hook(repo.root, event, here, { file_path: join(temp(), 'loose.txt') }), event).toEqual({ code: 0, stdout: '', stderr: '' });
+  });
+
+  it("is said before the project's own in one answer, as cwd's work tree's was", async () => {
+    const repo = project('claude/brief-001-p');
+    const inside = linked(repo, join(repo.root, '.claude', 'worktrees', 'b'), 'claude/brief-001-b');
+    // The project's protected file named first, the worktree's after it: each refused by its own.
+    const result = await hook(repo.root, 'PreToolUse', repo.root, { file_path: file(repo.root, 'src/db/schema.ts'), path: file(inside, 'src/db/new.ts') });
+    expect(decision(result.stdout)).toBe('deny');
+    const reason = (JSON.parse(result.stdout) as { hookSpecificOutput: { permissionDecisionReason: string } }).hookSpecificOutput.permissionDecisionReason;
+    expect(reason.indexOf('change src/db/new.ts')).toBeGreaterThan(-1);
+    expect(reason.indexOf('change src/db/new.ts')).toBeLessThan(reason.indexOf('change src/db/schema.ts'));
+  });
+
+  it('is decided by the innermost work tree of the repository around it, past a repository of its own inside that one', async () => {
+    const repo = project();
+    const inside = linked(repo, join(repo.root, '.claude', 'worktrees', 'b'), 'claude/brief-001-b');
+    // A clone inside the worktree, which is another repository.
+    const nested = join(inside, 'vendor', 'n');
+    write(nested, 'src/db/schema.ts', 'other;\n');
+    git(nested, 'init', '-q', '-b', 'main');
+    git(nested, 'add', '-A');
+    git(nested, 'commit', '-q', '-m', 'n');
+    // The worktree decides it, by the path it has there, outside brief 001's scope: warned of after the write.
+    expect(await hook(repo.root, 'PreToolUse', repo.root, { file_path: file(nested, 'src/db/schema.ts') })).toEqual({ code: 0, stdout: '', stderr: '' });
+    const after = await hook(repo.root, 'PostToolUse', repo.root, { file_path: file(nested, 'src/db/schema.ts') });
+    expect(JSON.parse(after.stdout).hookSpecificOutput.additionalContext).toMatch(/^spec-harness: vendor\/n\/src\/db\/schema\.ts is outside brief 001's scope/);
+  });
+
+  it("is warned of after a write outside its scope by its own configuration, where the project's would say nothing", async () => {
+    const repo = repository({ ...FILES, '.spec-harness.json': JSON.stringify({ outOfScope: 'deny' }) }, null);
+    install(repo.root, 'spec-brief');
+    const beside = linked(repo, join(temp(), 'c'), 'claude/brief-001-c');
+    // That work tree's branch warns of a write outside the scope; the project's checkout denies one.
+    write(beside, '.spec-harness.json', JSON.stringify({ outOfScope: 'warn' }));
+    git(beside, 'commit', '-q', '-am', 'warn');
+    const after = await hook(repo.root, 'PostToolUse', repo.root, { file_path: file(beside, 'README.md') });
+    expect(after.code).toBe(0);
+    expect(JSON.parse(after.stdout).hookSpecificOutput.additionalContext).toMatch(/^spec-harness: README\.md is outside brief 001's scope/);
+    // A path written relative to the question's cwd is read from there, as Claude Code does not send one.
+    const relative = await cli(['hook', 'claude'], repo.root, {
+      stdin: question('PostToolUse', join(repo.root, 'src'), { file_path: relativeTo(join(repo.root, 'src'), file(beside, 'README.md')) }),
+      env: { CLAUDE_PROJECT_DIR: repo.root },
+    });
+    expect(JSON.parse(relative.stdout).hookSpecificOutput.additionalContext).toMatch(/^spec-harness: README\.md is outside brief 001's scope/);
+    // The project's own file after the write: nothing, under its own deny, with no process started for it.
+    expect(await hook(repo.root, 'PostToolUse', repo.root, { file_path: file(repo.root, 'README.md') })).toEqual({ code: 0, stdout: '', stderr: '' });
+    // And named with that work tree's: warned of, by that one's.
+    const two = await hook(repo.root, 'PostToolUse', repo.root, { file_path: file(repo.root, 'README.md'), path: file(beside, 'README.md') });
+    expect(two.stdout).toContain("spec-harness: README.md is outside brief 001's scope");
+    // A question with no cwd: a relative path is read from where the hook started, the project's own file here.
+    const bare = await cli(['hook', 'claude'], repo.root, {
+      stdin: JSON.stringify({ hook_event_name: 'PostToolUse', tool_name: 'Edit', tool_input: { file_path: 'README.md' } }),
+      env: { CLAUDE_PROJECT_DIR: repo.root },
+    });
+    expect(bare).toEqual({ code: 0, stdout: '', stderr: '' });
   });
 });
 

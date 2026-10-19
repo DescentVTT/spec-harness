@@ -1,13 +1,14 @@
 import { spawn } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { INSTRUCTIONS, prompts, tools } from '../../src/server.js';
+import { INSTRUCTIONS, prompts, rootsClient, tools, type Roots } from '../../src/server.js';
 import { createMcpServer, type JsonObject, type ToolDefinition } from '../../src/vendor/spec-core/jsonrpc/index.js';
 import { openWorkspace, parseOptions, version, type Workspace } from '../../src/workspace.js';
-import { BIN, brief, BRIEF_FILE, cleanup, cli, repository, ROOT, temp, type Repository } from './helpers.js';
+import { BIN, brief, BRIEF_FILE, cleanup, cli, install, repository, ROOT, temp, type Repository } from './helpers.js';
 
 afterAll(cleanup);
 
@@ -77,8 +78,8 @@ describe('the tools', () => {
     const text = { type: 'string' };
     const paths = { type: 'array', items: text };
     expect(schemas).toEqual({
-      start_round: { type: 'object', properties: { brief: text, base: text }, additionalProperties: false },
-      check_path: { type: 'object', properties: { paths, brief: text, base: text }, required: ['paths'], additionalProperties: false },
+      start_round: { type: 'object', properties: { brief: text, base: text, directory: text }, additionalProperties: false },
+      check_path: { type: 'object', properties: { paths, brief: text, base: text, directory: text }, required: ['paths'], additionalProperties: false },
       request_escalation: {
         type: 'object',
         properties: {
@@ -87,11 +88,12 @@ describe('the tools', () => {
           options: { type: 'array', items: { type: 'object', properties: { label: text, consequence: text }, required: ['label', 'consequence'] } },
           recommendation: text,
           brief: text,
+          directory: text,
         },
         required: ['paths', 'reason'],
         additionalProperties: false,
       },
-      audit_round: { type: 'object', properties: { brief: text, base: text }, additionalProperties: false },
+      audit_round: { type: 'object', properties: { brief: text, base: text, directory: text }, additionalProperties: false },
       list_rounds: { type: 'object', properties: {}, additionalProperties: false },
     });
   });
@@ -111,7 +113,10 @@ describe('the tools', () => {
     const outcome = await tool('start_round').call({});
     expect(outcome.isError).toBeUndefined();
     expect(outcome.text.startsWith('# Round 001: Rotate tokens\n')).toBe(true);
+    // Read in the server's own work tree, which is said where a script reads it, and not in the packet.
+    expect(outcome.text).not.toContain('Read in the work tree');
     expect(outcome.structured).toEqual({
+      workTree: { root: workspace.root, from: 'server' },
       brief: '001',
       included: [],
       omitted: [],
@@ -125,6 +130,7 @@ describe('the tools', () => {
     });
     const next = await tool('start_round').call({ brief: '2' });
     expect(next.structured).toEqual({
+      workTree: { root: workspace.root, from: 'server' },
       brief: '002',
       included: ['docs/adr/0003.md', 'docs/adr/0004.md'],
       omitted: [],
@@ -163,11 +169,11 @@ describe('the tools', () => {
     expect(await tool('check_path').call({ paths: 'a.ts' })).toEqual({ text: '"paths" must be a non-empty array of strings.', isError: true });
     expect(await tool('check_path').call({ paths: [1] })).toEqual({ text: '"paths" must be a non-empty array of strings.', isError: true });
     expect(await tool('check_path').call({ paths: ['a', 1] })).toEqual({ text: '"paths" must be a non-empty array of strings.', isError: true });
-    expect(await tool('check_path').call({ paths: ['a'], path: 'b' })).toEqual({ text: 'Unknown argument "path"; this tool takes paths, brief and base.', isError: true });
+    expect(await tool('check_path').call({ paths: ['a'], path: 'b' })).toEqual({ text: 'Unknown argument "path"; this tool takes paths, brief, base and directory.', isError: true });
     expect(await tool('check_path').call({ paths: ['a'], brief: 1 })).toEqual({ text: '"brief" must be a string.', isError: true });
     expect(await tool('check_path').call({ paths: ['a'], base: 1 })).toEqual({ text: '"base" must be a string.', isError: true });
     expect(await tool('start_round').call({ base: ['main'] })).toEqual({ text: '"base" must be a string.', isError: true });
-    expect(await tool('start_round').call({ at: 'main' })).toEqual({ text: 'Unknown argument "at"; this tool takes brief and base.', isError: true });
+    expect(await tool('start_round').call({ at: 'main' })).toEqual({ text: 'Unknown argument "at"; this tool takes brief, base and directory.', isError: true });
     // Said of the argument that named it: a tool call has no flag.
     expect(await tool('check_path').call({ paths: ['a'], brief: '404' })).toEqual({ text: '"brief" names brief 404, and spec-brief knows no such brief', isError: true });
     expect(await tool('start_round').call({ brief: '3' })).toEqual({ text: '"brief" names brief 003, which is archived; a closed round writes nothing', isError: true });
@@ -201,7 +207,7 @@ describe('the tools', () => {
       recommendation: 'Allow.',
     });
     expect(outcome.isError).toBeUndefined();
-    expect(outcome.structured).toEqual({ id: 'E-001-1' });
+    expect(outcome.structured).toEqual({ id: 'E-001-1', workTree: { root: workspace.root, from: 'server' } });
     expect(outcome.text).toContain('# Escalation E-001-1');
     expect(outcome.text).toContain('1. **Allow** - one column\n2. **Refuse**\n');
     expect(outcome.text).toContain('## The agent recommends\n\nAllow.\n');
@@ -342,7 +348,7 @@ describe('the tools', () => {
 
   it('request_escalation and audit_round act on the brief they are given', async () => {
     const other = await tool('request_escalation').call({ paths: ['lib/x.ts'], reason: 'r', brief: '2' });
-    expect(other.structured).toEqual({ id: 'E-002-1' });
+    expect(other.structured).toEqual({ id: 'E-002-1', workTree: { root: workspace.root, from: 'server' } });
     expect(other.text).toContain('Brief 002 (`briefs/002_next.md`)');
     const nowhere = { text: '"brief" names brief 404, and spec-brief knows no such brief', isError: true };
     expect(await tool('request_escalation').call({ paths: ['a'], reason: 'r', brief: '404' })).toEqual(nowhere);
@@ -401,6 +407,129 @@ describe('the tools', () => {
     const listed = await tools(other, {}).find((t) => t.descriptor.name === 'list_rounds')?.call({});
     expect(listed?.text.split('\n')).toContain('003 - draft, wave -, waits on 1, 2');
     expect(listed?.text.split('\n')).toContain('004 Unstated - unknown, wave -, ready');
+  });
+});
+
+describe('the work tree a tool reads the round in (ADR-0008)', () => {
+  // The server is started once, for the project Claude Code names. A session
+  // in a worktree works there, and check_path read every path as the
+  // project's, start_round the project's branch.
+  const QUIET = { stdout: { write: () => true }, stderr: { write: () => true }, env: {} };
+  let project: Repository;
+  let server: Workspace;
+  let tree: string;
+  let other: string;
+
+  beforeAll(async () => {
+    project = repository({ [BRIEF_FILE]: brief({ affected: ['src/auth/**'], protected: ['src/db/**'] }), '.gitignore': 'node_modules/\n.claude/worktrees/\n', 'src/db/schema.ts': 'table;\n' }, null);
+    install(project.root, 'spec-brief');
+    tree = join(project.root, '.claude', 'worktrees', 'w');
+    project.git('worktree', 'add', '-q', '-b', 'claude/brief-001-w', tree);
+    other = join(temp(), 'other');
+    project.git('worktree', 'add', '-q', '-b', 'claude/brief-001-o', other);
+    server = await openWorkspace(parseOptions(['mcp']), { ...QUIET, cwd: project.root });
+  });
+
+  const called = async (name: string, args: JsonObject, roots?: Roots) => {
+    const found = tools(server, {}, roots).find((candidate) => candidate.descriptor.name === name);
+    return found!.call(args);
+  };
+
+  it('is the one the client\'s roots name, where they name one work tree of this repository, and is said', async () => {
+    const started = await called('start_round', {}, async () => [tree]);
+    expect(started.isError).toBeUndefined();
+    expect(started.structured).toMatchObject({ brief: '001', workTree: { root: expect.stringMatching(/\.claude\/worktrees\/w$/), from: 'roots' } });
+    expect(started.text).toMatch(/\n\nRead in the work tree at .*\.claude\/worktrees\/w, which the client's roots name\.$/);
+    // A directory below the worktree's top names it as well.
+    expect((await called('start_round', {}, async () => [join(tree, 'src')])).structured).toMatchObject({ workTree: { from: 'roots' } });
+  });
+
+  it("is the server's own where the roots name none, two, or only work trees of another repository, as before", async () => {
+    const elsewhere = repository({});
+    for (const roots of [async () => null, async () => [], async () => [tree, other], async () => [elsewhere.root, temp()]] as Roots[]) {
+      const outcome = await called('start_round', {}, roots);
+      // The project's branch names no brief, which a round needs.
+      expect(outcome.isError, String(roots)).toBe(true);
+    }
+  });
+
+  it('is the one a "directory" given names, over the roots, and refuses one in no work tree of this repository', async () => {
+    const outcome = await called('audit_round', { directory: other }, async () => [tree]);
+    expect(outcome.structured).toMatchObject({ workTree: { root: expect.stringMatching(/other$/), from: 'argument' } });
+    expect(outcome.text).toMatch(/which the "directory" given name\.$/);
+    // Relative to the project.
+    expect((await called('start_round', { directory: '.claude/worktrees/w' })).structured).toMatchObject({ brief: '001', workTree: { from: 'argument' } });
+    expect(await called('start_round', { directory: '' })).toMatchObject({ isError: true, text: '"directory" is "", which names no directory; give it the directory the round is in, or leave it out.' });
+    expect(await called('start_round', { directory: 7 })).toMatchObject({ isError: true, text: '"directory" must be a string.' });
+    const elsewhere = temp();
+    expect(await called('start_round', { directory: elsewhere })).toMatchObject({
+      isError: true,
+      text: `"directory" is ${JSON.stringify(elsewhere)}, which is in no work tree of this repository; give a directory in the project or in one of its worktrees, or leave it out.`,
+    });
+  });
+
+  it('decides an absolute path in check_path by the work tree of this repository that holds it, wherever the round is read', async () => {
+    const decided = async (paths: string[], roots?: Roots) => ((await called('check_path', { paths }, roots)).structured as { decisions: { verdict: string; path: string }[] }).decisions.map((d) => [d.path, d.verdict]);
+    // The server's own work tree names no brief; each worktree's branch names 001.
+    expect(await decided([join(tree, 'src', 'db', 'schema.ts')])).toEqual([['src/db/schema.ts', 'deny']]);
+    expect(await decided([join(other, 'src', 'db', 'schema.ts'), join(other, 'src', 'auth', 'a.ts')])).toEqual([
+      ['src/db/schema.ts', 'deny'],
+      ['src/auth/a.ts', 'allow'],
+    ]);
+    // A relative path is read from the work tree the round is read in.
+    expect(await decided(['src/db/schema.ts'], async () => [tree])).toEqual([['src/db/schema.ts', 'deny']]);
+    // The project's own file under the project's branch, which names no brief: a round needs one.
+    const own = await called('check_path', { paths: [join(project.root, 'src', 'db', 'schema.ts')] });
+    expect(own.isError).toBe(true);
+  });
+
+  it("asks the client for its roots only where it declared them, by a request of its own, and reads the answer by that request's id", async () => {
+    const written: string[] = [];
+    const client = rootsClient((line) => written.push(line), 1_000);
+    expect(await client.ask()).toBeNull();
+    expect(written).toEqual([]);
+    expect(client.observe({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { capabilities: { roots: { listChanged: true } } } })).toBe(false);
+    const asked = client.ask();
+    expect(written.map((line) => JSON.parse(line))).toEqual([{ jsonrpc: '2.0', id: 'spec-harness-roots-1', method: 'roots/list' }]);
+    // Another id, and a request of the client's, are not the answer.
+    expect(client.observe({ jsonrpc: '2.0', id: 'spec-harness-roots-9', result: { roots: [] } })).toBe(false);
+    expect(client.observe({ jsonrpc: '2.0', id: 'spec-harness-roots-1', method: 'ping' })).toBe(false);
+    const uri = pathToFileURL(tree).href;
+    // A uri that is no string is none, one shaped as Node reads a URL among them.
+    const shaped = pathToFileURL(repo.root);
+    const object = { href: shaped.href, protocol: shaped.protocol, hostname: shaped.hostname, pathname: shaped.pathname };
+    expect(client.observe({ jsonrpc: '2.0', id: 'spec-harness-roots-1', result: { roots: [{ uri, name: 'w' }, { uri: 'https://example.com/x' }, { uri: 7 }, { uri: object }, null] } })).toBe(true);
+    expect(await asked).toEqual([tree]);
+    // Asked again, under another id; an error, or no answer in time, is no roots.
+    const again = client.ask();
+    expect(JSON.parse(written[1]!)).toMatchObject({ id: 'spec-harness-roots-2' });
+    client.observe({ jsonrpc: '2.0', id: 'spec-harness-roots-2', error: { code: -32601, message: 'Method not found' } });
+    expect(await again).toBeNull();
+    expect(await client.ask()).toBeNull();
+    // A capability declared in a request's _meta, as a client of the newer protocol sends it, is declared too.
+    const sent: string[] = [];
+    const modern = rootsClient((line) => sent.push(line), 1);
+    modern.observe({ jsonrpc: '2.0', id: 3, method: 'tools/list', params: { _meta: { 'io.modelcontextprotocol/clientCapabilities': { roots: {} } } } });
+    expect(await modern.ask()).toBeNull();
+    expect(sent).toHaveLength(1);
+    // A message that is no object is no answer.
+    expect(client.observe('x')).toBe(false);
+    expect(client.observe(null)).toBe(false);
+    // Capabilities with no roots, or roots named where no capabilities are declared, declare none.
+    const none: string[] = [];
+    const bare = rootsClient((line) => none.push(line), 1);
+    bare.observe({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { capabilities: {} } });
+    bare.observe({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { capabilities: { roots: {} } } });
+    bare.observe({ jsonrpc: '2.0', id: 3, method: 'initialize' });
+    expect(await bare.ask()).toBeNull();
+    expect(none).toEqual([]);
+  });
+
+  it("reads a worktree on no branch by the branch the forge's CI names, as every command does", async () => {
+    const detached = join(temp(), 'detached');
+    project.git('worktree', 'add', '-q', '--detach', detached);
+    const found = tools(server, { GITHUB_HEAD_REF: 'claude/brief-001-ci' }).find((candidate) => candidate.descriptor.name === 'start_round');
+    expect((await found!.call({ directory: detached })).structured).toMatchObject({ brief: '001', workTree: { from: 'argument' } });
   });
 });
 
@@ -545,5 +674,37 @@ describe('over stdio, as a client runs it', () => {
     expect((answers[1]?.result['tools'] as { name: string }[]).map((t) => t.name)).toEqual(['start_round', 'check_path', 'request_escalation', 'audit_round', 'list_rounds']);
     const decisions = (answers[2]?.result['structuredContent'] as { decisions: { verdict: string }[] }).decisions;
     expect(decisions.map((d) => d.verdict)).toEqual(['deny', 'allow']);
+  });
+
+  it("asks a client that declares roots for them, and reads the round in the one work tree they name (ADR-0008)", async () => {
+    if (!existsSync(join(ROOT, 'dist', 'cli.js'))) throw new Error('dist/cli.js is missing: run "npm run build" before the suite');
+    const project = repository({ [BRIEF_FILE]: brief({ affected: ['src/auth/**'], protected: ['src/db/**'] }), '.gitignore': 'node_modules/\n' }, null);
+    install(project.root, 'spec-brief');
+    const tree = join(temp(), 'w');
+    project.git('worktree', 'add', '-q', '-b', 'claude/brief-001-w', tree);
+    const child = spawn(process.execPath, [BIN, 'mcp'], { cwd: project.root, env: { ...process.env, SPEC_BRIEF: '', CLAUDE_PROJECT_DIR: project.root }, stdio: ['pipe', 'pipe', 'pipe'] });
+    const lines: Record<string, unknown>[] = [];
+    let buffer = '';
+    const send = (message: unknown): void => {
+      child.stdin.write(`${JSON.stringify(message)}\n`);
+    };
+    child.stdout.setEncoding('utf8').on('data', (chunk: string) => {
+      buffer += chunk;
+      for (let at = buffer.indexOf('\n'); at !== -1; at = buffer.indexOf('\n')) {
+        const message = JSON.parse(buffer.slice(0, at)) as Record<string, unknown>;
+        buffer = buffer.slice(at + 1);
+        lines.push(message);
+        // The client of this test answers the server's request as Claude Code's MCP page has Claude Code answer it.
+        if (message['method'] === 'roots/list') send({ jsonrpc: '2.0', id: message['id'], result: { roots: [{ uri: pathToFileURL(tree).href }] } });
+        if (message['id'] === 2) child.stdin.end();
+      }
+    });
+    send({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: { roots: { listChanged: true } }, clientInfo: { name: 't', version: '1' } } });
+    send({ jsonrpc: '2.0', method: 'notifications/initialized' });
+    send({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'start_round', arguments: {} } });
+    expect(await new Promise<number | null>((resolve) => child.once('close', resolve))).toBe(0);
+    expect(lines.filter((message) => message['method'] === 'roots/list')).toHaveLength(1);
+    const result = lines.find((message) => message['id'] === 2)?.['result'] as { structuredContent: { brief: string; workTree: { from: string } } };
+    expect(result.structuredContent).toMatchObject({ brief: '001', workTree: { from: 'roots' } });
   });
 });
