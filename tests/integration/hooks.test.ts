@@ -83,9 +83,9 @@ describe('hook claude', () => {
     expect(await claude(hookInput('PreToolUse', 'Bash', { command: 'ls' }), { env: { SPEC_BRIEF: '404' } })).toEqual({ code: 0, stdout: '', stderr: '' });
   });
 
-  it('reports input it cannot read as a non-blocking error', async () => {
-    expect(await claude('{"hook_event_name":')).toEqual({ code: 1, stdout: '', stderr: 'spec-harness: the hook input is not JSON\n' });
-    expect(await claude('{"tool_name":"Write"}')).toEqual({ code: 1, stdout: '', stderr: 'spec-harness: the hook input names no event or tool\n' });
+  it('says input it cannot read to the person, with exit 0, which no onFailure takes for a hook that failed', async () => {
+    expect(await claude('{"hook_event_name":')).toEqual({ code: 0, stdout: `${JSON.stringify({ systemMessage: 'spec-harness: the hook input is not JSON, so nothing it asks about is checked' })}\n`, stderr: '' });
+    expect(await claude('{"tool_name":"Write"}')).toEqual({ code: 0, stdout: `${JSON.stringify({ systemMessage: 'spec-harness: the hook input names no event or tool, so nothing it asks about is checked' })}\n`, stderr: '' });
   });
 
   it('finds the project from CLAUDE_PROJECT_DIR, or --root, when run from elsewhere', async () => {

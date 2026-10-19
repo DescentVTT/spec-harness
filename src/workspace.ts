@@ -81,6 +81,8 @@ export interface Options {
   readonly write: boolean;
   /** init: also install git's pre-commit hook. */
   readonly gitHook: boolean;
+  /** init: `onFailure: "block"` on the hook entries it writes (ADR-0012). */
+  readonly blockOnFailure: boolean;
   /** escalate: the files the round needs, the reason, the options and the recommendation. */
   readonly paths: readonly string[];
   readonly reason: string | undefined;
@@ -108,6 +110,7 @@ export function parseOptions(argv: readonly string[]): Options {
     strict: { type: 'boolean' },
     write: { type: 'boolean' },
     'git-hook': { type: 'boolean' },
+    'block-on-failure': { type: 'boolean' },
     path: { type: 'string', multiple: true },
     reason: { type: 'string' },
     option: { type: 'string', multiple: true },
@@ -174,6 +177,7 @@ export function parseOptions(argv: readonly string[]): Options {
     version: values.version === true,
     write: values.write === true,
     gitHook: values['git-hook'] === true,
+    blockOnFailure: values['block-on-failure'] === true,
     paths: values.path ?? [],
     reason: values.reason,
     options: values.option ?? [],

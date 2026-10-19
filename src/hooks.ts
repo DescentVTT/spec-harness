@@ -153,6 +153,20 @@ export function mendResponse(said: string): HookResponse {
 /** The answer that says nothing and decides nothing: the write goes on as the person's own permissions have it. */
 export const NONE: HookResponse = { stdout: '', exitCode: 0 };
 
+/**
+ * The answer where the hook checks nothing and says so, a question it cannot
+ * read or a line of its own that turns the guard off: one line, as
+ * `systemMessage`, which Claude Code's hooks reference has shown to the
+ * person on every event the hook answers, and exit 0. It decides nothing,
+ * so the call goes on as it would without the hook. It was exit 1, which
+ * the reference counts as a hook that failed: under `onFailure: "block"`,
+ * which holds the call of a hook that cannot start, it held every write of
+ * a session for a line only a write can mend (ADR-0005).
+ */
+export function warningResponse(said: string): HookResponse {
+  return { stdout: `${JSON.stringify({ systemMessage: `spec-harness: ${said}` })}\n`, exitCode: 0 };
+}
+
 function reasonOf(decisions: readonly Warning[]): string {
   return decisions.map((decision) => `spec-harness: ${decision.message}. Next: ${decision.hint}.`).join('\n');
 }

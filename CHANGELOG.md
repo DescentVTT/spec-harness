@@ -36,6 +36,18 @@ where the branch names a brief no round can work under
   hook exited 1, `the hook input names no event or tool`, and now exits 0;
   a configuration's unknown key is refused with `turnReport` among the keys
   it names.
+- **`init --block-on-failure` writes `"onFailure": "block"` on its hook
+  entries before and after a write and as a session starts**, and on those
+  an earlier run wrote, so that Claude Code 2.1.295 or later holds a write
+  where the hook cannot start, as in a worktree with no install, or runs
+  past its timeout. It is written only
+  where asked for, and the plugin does not carry it: no page says what an
+  older release does with the key. `doctor` advises it in a note, failing
+  nothing, for a line that guards without it where the Claude Code on
+  `PATH` reads the field
+  ([ADR-0012](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0012-one-way-into-claude-code.md)).
+  The entry at the end of a turn is left without it: it runs in the
+  background, where the hooks reference gives the field no effect.
 
 ### Changed
 
@@ -97,6 +109,17 @@ where the branch names a brief no round can work under
   Upgrading: a client that declares roots naming a worktree has its calls
   answered for that worktree; a script reading the tools' structured
   answers finds `workTree`.
+- **The hook says the guard is off with exit 0, where it exited 1.** A
+  question it cannot read and a line of its own that turns the guard off
+  (one it cannot read, a `--root` that is no directory) were one line on
+  stderr and exit 1, which Claude Code counts as a hook that failed: under
+  `"onFailure": "block"` that held every write of the session, the one
+  that mends the line among them. Each is now the same line to the person,
+  as `systemMessage`, and exit 0, and the write goes on as it did, so
+  `onFailure` holds only a hook that did not run
+  ([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
+  Upgrading: a script that read the hook's exit 1 or its stderr reads the
+  line as `systemMessage` on stdout, with exit 0.
 - **A write to `.spec-harness.json` itself goes on while it does not
   load.** Every write was held, exit 2, the one that mends the file among
   them, so a session could not mend a typo in it. Before a write to that
