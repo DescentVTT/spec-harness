@@ -202,7 +202,7 @@ const SHAPE = literal({
   audit: { options: ['brief', 'base', 'root', 'format', 'strict'], ...ONE_BRIEF },
   probe: { options: ['brief', 'base', 'root', 'format', 'id', 'at'], ...ONE_BRIEF },
   premises: { options: ['brief', 'root', 'format', 'strict'], ...NO_ARGUMENT },
-  init: { options: ['root', 'format', 'write', 'git-hook'], ...NO_ARGUMENT },
+  init: { options: ['root', 'format', 'write', 'git-hook', 'block-on-failure'], ...NO_ARGUMENT },
   mcp: { options: ['root'], ...NO_ARGUMENT },
   // A diagnosis says what is wrong with what it was given, where a command
   // that acts on it stops: a brief or a base that names nothing is a line of
@@ -234,7 +234,7 @@ function listed(options: readonly string[]): string {
  * every release, which this one cannot rewrite, and exit 2 from it holds
  * every write of a session, the write that would fix the line among them.
  * A line the parser cannot read is asked the same, and the hook says it
- * with exit 1 (cli.ts).
+ * to the person with exit 0 (cli.ts).
  */
 export function isClaudeHook(command: string | undefined, argument: string | undefined): boolean {
   return command === 'hook' && argument === 'claude';
@@ -255,7 +255,7 @@ export interface LineFault {
  * What Claude Code's hook does with its own line, as far as the line decides
  * it: it guards, in the root the line gives it where it gives one and under
  * the brief it names where it names one; or the guard is off, for a fault
- * the hook says with exit 1 and holds no write for; or every write is held,
+ * the hook says with exit 0 and holds no write for; or every write is held,
  * exit 2, for a brief the line names that is not one (ADR-0005). The hook
  * reads its line through the functions below, and `doctor` reads a line it
  * finds in Claude Code's settings through the same ones, so what it says of
@@ -299,9 +299,9 @@ export interface GuardOff {
   readonly state: 'off';
   readonly fault: LineFault;
   /**
-   * Set where the hook says nothing of the fault and exits 0, so that no
-   * run of it fails: a root outside any work tree, or in a work tree that
-   * does not hold the project. Every other fault it says, with exit 1.
+   * Set where the hook says nothing of the fault: a root outside any work
+   * tree, or in a work tree that does not hold the project. Every other
+   * fault it says, to the person, and every one with exit 0.
    */
   readonly silent?: true;
   /**

@@ -166,7 +166,7 @@ describe('the hook', () => {
     expect((await fresh(['hook', 'claude'], repo.root, { stdin: JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: 'ls' } }) })).loaded).toEqual([]);
     expect((await fresh(['hook', 'claude'], repo.root, { stdin: '{ not json' })).loaded).toEqual([]);
     const refused = await fresh(['hook', 'claude', '--nope'], repo.root, { stdin: question('PreToolUse', join(repo.root, 'a.txt'), repo.root) });
-    expect(refused.code).toBe(1);
+    expect(refused.code).toBe(0);
     expect(refused.loaded).toEqual([]);
   });
 });

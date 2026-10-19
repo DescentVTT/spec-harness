@@ -38,6 +38,7 @@ import {
   matchingUnder,
   measuresArchive,
   mergeClaudeSettings,
+  withOnFailure,
   withSessionStart,
   withTurnReport,
   reportsTurns,
@@ -46,6 +47,7 @@ import {
   mergeSpecBrief,
   mergeSpecGraph,
   missingGitHook,
+  ON_FAILURE_SINCE,
   ONE_STRING,
   patternReader,
   PLUGIN,
@@ -361,17 +363,32 @@ export async function plan(workspace: Workspace, options: Options, io: CliIO): P
     const atStart = 'a SessionStart hook says, as a session starts, what would hold every write of it';
     const atEnd = 'a Stop hook, in the background, tells Claude as each turn begins what the work tree held at the end of the last that the brief protects or that is outside its scope';
     const beside = [started === null ? null : atStart, turned === null ? null : atEnd].filter((part): part is string => part !== null);
-    if (merged === null) steps.push({ file: SETTINGS, action: broken ? 'advise' : 'keep', detail: left === '' ? 'the guard hooks are installed' : left });
-    else
+    // Asked for, onFailure "block" on init's own entries before and after a
+    // write and as a session starts, those it writes now and those a run
+    // before wrote, where it writes or keeps them: no page says what a
+    // Claude Code before 2.1.295 does with the key, so it is written only
+    // where asked for. The entry at the end of a turn runs in the
+    // background, where the hooks reference gives the field no effect, and
+    // is left without it (ADR-0012).
+    const blocked = options.blockOnFailure && (merged !== null || !broken) ? withOnFailure(merged ?? settings ?? {}) : null;
+    const written = blocked ?? merged;
+    const holds = `onFailure "block" on init's PreToolUse, PostToolUse and SessionStart entries, so that Claude Code ${ON_FAILURE_SINCE} or later holds a write where the hook cannot start or runs past its timeout`;
+    if (written === null) steps.push({ file: SETTINGS, action: broken ? 'advise' : 'keep', detail: left === '' ? 'the guard hooks are installed' : left });
+    else {
+      // What onFailure adds is said after what else is written, and alone where nothing else is.
+      const what =
+        merged === null
+          ? holds
+          : guarded === null
+            ? `beside the guard hooks, ${beside.join('; ')}`
+            : `the guard hooks, run with node from the project's install: a PreToolUse hook refuses writes to protected files; a PostToolUse hook warns about writes outside the scope${beside.map((part) => `; ${part}`).join('')}${left === '' ? '' : `; ${left}`}`;
       steps.push({
         file: SETTINGS,
         action: settings === null ? 'create' : 'update',
-        detail:
-          guarded === null
-            ? `beside the guard hooks, ${beside.join('; ')}`
-            : `the guard hooks, run with node from the project's install: a PreToolUse hook refuses writes to protected files; a PostToolUse hook warns about writes outside the scope${beside.map((part) => `; ${part}`).join('')}${left === '' ? '' : `; ${left}`}`,
-        apply: () => writeAtomic(settingsFile, stringify(merged)),
+        detail: blocked === null || merged === null ? what : `${what}; ${holds}`,
+        apply: () => writeAtomic(settingsFile, stringify(written)),
       });
+    }
   }
   // disableAllHooks turns off whatever hooks there are, and those init
   // writes with them: said of the file that holds the key, which is the

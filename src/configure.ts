@@ -385,6 +385,35 @@ export function withSessionStart(settings: Json, isHook: (words: readonly string
   return { ...settings, hooks: { ...hooks, [AT_START]: [...(Array.isArray(listed) ? listed : []), { hooks: [{ ...GUARD_HOOK, args: [...GUARD_ARGS] }] }] } };
 }
 
+/** The events init writes its own line under. */
+const INIT_EVENTS: readonly string[] = [BEFORE, AFTER, AT_START];
+
+/**
+ * Settings with `onFailure: "block"` on each of init's own entries, under
+ * the three events it writes them under, or `null` where each has it
+ * already: `init --block-on-failure`. Claude Code's hooks reference
+ * (https://code.claude.com/docs/en/hooks, Block the action when a hook
+ * fails, read 2026-10-19) has the field read by Claude Code 2.1.295 and
+ * later, and a failure under it, a hook that cannot start or that reaches
+ * its timeout among them, do what exit 2 does on its event: before a write,
+ * hold it. What a release before 2.1.295 does with the key is on no page, so
+ * init writes it only where it is asked to (ADR-0012). An entry a person
+ * wrote is theirs, and is left as it is.
+ */
+export function withOnFailure(settings: Json): Json | null {
+  const hooks = isObject(settings['hooks']) ? settings['hooks'] : {};
+  const unblocked = (hook: unknown): boolean => isGuard(hook) && (hook as Json)['onFailure'] !== 'block';
+  const next: Json = { ...hooks };
+  let changed = false;
+  for (const event of INIT_EVENTS) {
+    const groups = hooks[event];
+    if (!Array.isArray(groups) || !groups.some((group) => hooksOf(group).some(unblocked))) continue;
+    next[event] = groups.map((group) => (hooksOf(group).some(unblocked) ? { ...(group as Json), hooks: hooksOf(group).map((hook) => (unblocked(hook) ? { ...(hook as Json), onFailure: 'block' } : hook)) } : group));
+    changed = true;
+  }
+  return changed ? { ...settings, hooks: next } : null;
+}
+
 /**
  * Whether settings have Claude Code start the hook as a session starts: an
  * entry under `SessionStart` whose line is init's, or one `isHook` knows
@@ -641,16 +670,42 @@ export interface HookReport {
 
 /**
  * The release of Claude Code that reads `onFailure` on a hook's entry, by its
- * hooks reference (https://code.claude.com/docs/en/hooks, read 2026-10-12).
+ * hooks reference (https://code.claude.com/docs/en/hooks, Command hook
+ * fields, read 2026-10-19) and its changelog, which adds the field under it.
  */
-const ON_FAILURE_SINCE = '2.1.295';
+export const ON_FAILURE_SINCE = '2.1.295';
 
-/** What `onFailure: "block"` changes for a line, named by `where` it stands, or `null` where the entry does not set it. */
-function describeOnFailure(where: string, blocks: boolean, off: boolean): string | null {
+/** Whether the Claude Code doctor asked its release reads `onFailure`: one that was told, at {@link ON_FAILURE_SINCE} or later. */
+export function readsOnFailure(release: ClaudeCodeCheck | null): boolean {
+  // A release that was told is one whose version was read as one, and the
+  // constant is a version, so both parse.
+  return release !== null && release.state !== 'unknown' && meets(parseVersion(release.version)!, parseVersion(ON_FAILURE_SINCE)!);
+}
+
+/**
+ * What `onFailure: "block"` changes for a line, named by `where` it stands,
+ * or `null` where the entry does not set it. The hook fails for none of its
+ * own answers, a line of its own that turns the guard off among them, which
+ * it says with exit 0 (ADR-0005): what the field holds is a hook that does
+ * not run.
+ */
+function describeOnFailure(where: string, blocks: boolean): string | null {
   if (!blocks) return null;
-  const holds = `${where} sets onFailure to "block", so Claude Code ${ON_FAILURE_SINCE} or later holds a write when the hook fails`;
-  if (off) return `${holds}, which with this line is every write, the one that mends the line among them: mend it by hand`;
-  return `${holds}, where it lets the write go ahead without it: by its exit 1 for a question it cannot read, by not starting, or by running past its timeout`;
+  return `${where} sets onFailure to "block", so Claude Code ${ON_FAILURE_SINCE} or later holds a write when the hook fails, where it lets the write go ahead without it: by not starting, as where the script on its line is not there, or by running past its timeout`;
+}
+
+/**
+ * What is said of a line that guards and whose entries set no `onFailure`,
+ * where the Claude Code here reads the field: a hook that cannot start lets
+ * the write go ahead, and the field would hold it. Advice, which fails
+ * nothing: the file is read by every clone's Claude Code, and what a release
+ * before {@link ON_FAILURE_SINCE} does with the key is on no page. `own` is
+ * whether the entries are init's, in the file init writes, which
+ * `init --block-on-failure` gives the field.
+ */
+function adviseOnFailure(where: string, own: boolean): string {
+  const how = own ? 'spec-harness init --write --block-on-failure writes it on these entries' : 'it is written on each of its entries';
+  return `${where} sets no onFailure, so Claude Code lets a write go ahead where the hook cannot start, as where the script on its line is not there, or runs past its timeout: where every Claude Code that reads the file is ${ON_FAILURE_SINCE} or later, as the one here is, "onFailure": "block" holds the write instead, and ${how}`;
 }
 
 /** Names as a sentence lists them: one, two with "and", more with commas before it. Never asked of none. */
@@ -818,6 +873,7 @@ export function reportHooks(
   read: (words: readonly string[]) => HookLine | null,
   pattern: PatternReader = patternReader(),
   matching: Matching = TODAY,
+  onFailureHere = false,
 ): HookReport[] {
   const reading: Reading = { pattern, matching };
   return sources.flatMap(({ file, settings }) => {
@@ -848,7 +904,10 @@ export function reportHooks(
         return [{ ...unloaded, state: 'unstarted', detail: `${said}: the line is not started, and stood to be started for no write as it is, so no guard is switched off` }];
       }
       const written = { file, events: hook.events, line: hook.words, onFailure: hook.blocks ? 'block' : null, before, after, cover: describeCover(where, before, after, mine, reading) } satisfies Partial<HookReport>;
-      const note = describeOnFailure(where, hook.blocks, false);
+      const note = describeOnFailure(where, hook.blocks);
+      // Where the release here reads the field, a line that guards without it is advised it.
+      const own = file === PROJECT_SETTINGS && mine.every((entry) => isGuard(entry.hook));
+      const guards = (detail: string | null): HookReport => ({ ...written, state: 'guards', detail, note: note ?? (onFailureHere ? adviseOnFailure(where, own) : null) });
       if (hook.untyped !== null) {
         const detail = `${where} stands on an entry with ${hook.untyped}, where Claude Code's hooks reference has "type": "command" on an entry it runs as a command, so whether Claude Code runs it cannot be told here: give the entry "type": "command"`;
         return [{ ...written, state: 'unknown', detail, note }];
@@ -862,14 +921,12 @@ export function reportHooks(
       const waited = before === null || before.length > 0;
       if (handed.state === 'off') {
         const detail = `${where}: ${handed.fault.wrong}, so the guard is off and ${handed.unchecked ?? 'no write is checked'}; ${handed.fault.mend}`;
-        // A fault the hook says, it says with exit 1 after every write it is
-        // started for as well, so it is said wherever the line stands.
-        if (handed.silent !== true) return [{ ...written, state: 'off', detail, note: describeOnFailure(where, hook.blocks, true) }];
-        // A root outside any work tree, or in one that does not hold the
-        // project, of which the hook says nothing: no run of it fails
-        // there, so onFailure holds no write for it, and where the line is
-        // waited on before no write there is none it leaves unchecked.
-        return [waited ? { ...written, state: 'off', detail, note } : unstarted];
+        // A fault the hook says, it says after every write it is started for
+        // as well, so it is said wherever the line stands. A root outside
+        // any work tree, or in one that does not hold the project, it says
+        // nothing of, and where the line is waited on before no write there
+        // is none it leaves unchecked.
+        return [handed.silent !== true || waited ? { ...written, state: 'off', detail, note } : unstarted];
       }
       if (!waited) return [unstarted];
       if (handed.state === 'held') {
@@ -878,11 +935,11 @@ export function reportHooks(
       }
       if (before === null) return [{ ...written, state: 'unknown', detail: null, note }];
       // What a release wrote: its hook, and nothing after it.
-      if (sameStrings(hook.words, ['hook', 'claude'])) return [{ ...written, state: 'guards', detail: null, note }];
+      if (sameStrings(hook.words, ['hook', 'claude'])) return [guards(null)];
       const root = handed.root === undefined ? '' : `, and its root, ${handed.root}, is a directory`;
       // Whose briefs a write is checked by, where they are not the project's own.
       const holder = handed.holder === undefined ? '' : ` in ${namedTree(handed.holder)}, which holds this project: the hook checks a write here by that work tree's briefs and its branch, as a file under ${handed.holder.path}/ there`;
-      return [{ ...written, state: 'guards', detail: `${where} is more than init writes, and guards: the hook reads the line${root}${holder}`, note }];
+      return [guards(`${where} is more than init writes, and guards: the hook reads the line${root}${holder}`)];
     });
   });
 }

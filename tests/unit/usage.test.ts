@@ -20,7 +20,7 @@ const TAKES: Readonly<Record<string, readonly string[]>> = {
   audit: ['brief', 'base', 'root', 'format', 'strict'],
   probe: ['brief', 'base', 'root', 'format', 'id', 'at'],
   premises: ['brief', 'root', 'format', 'strict'],
-  init: ['root', 'format', 'write', 'git-hook'],
+  init: ['root', 'format', 'write', 'git-hook', 'block-on-failure'],
   mcp: ['root'],
   doctor: ['brief', 'base', 'root', 'format', 'strict'],
 };
@@ -34,6 +34,7 @@ const GIVEN: Readonly<Record<string, readonly string[]>> = {
   strict: ['--strict'],
   write: ['--write'],
   'git-hook': ['--git-hook'],
+  'block-on-failure': ['--block-on-failure'],
   path: ['--path', 'src/a.ts'],
   reason: ['--reason', 'why'],
   option: ['--option', 'Allow: one column'],
@@ -100,6 +101,8 @@ describe('the help', () => {
   it('gives each option that not every command reads to the commands that read it', () => {
     for (const option of ['brief', 'base', 'strict']) expect(said(option), option).toEqual(reading(option));
     expect(HELP).toContain('--root <dir>        Run from another directory, which must exist. For every command.\n');
+    expect(HELP).toContain(`--block-on-failure  onFailure "block" on init's entries but the one as a turn ends. For init.\n`);
+    expect(reading('block-on-failure')).toEqual(['init']);
     expect(reading('root')).toEqual(Object.keys(TAKES).sort());
     expect(HELP.replace(/\s+/g, ' ')).toContain('audit and premises also gitlab, sarif or github. For every command but hook and mcp.');
     expect(Object.keys(TAKES).filter((command) => !reading('format').includes(command))).toEqual(['hook', 'mcp']);
@@ -115,8 +118,9 @@ describe('the help', () => {
         'same value twice, as --root . --root ./, is read once, and on Windows a drive letter in',
         'either case. doctor says an empty --brief or --base in its report. hook claude reads its',
         'line as every release has, and says a line it cannot read, two values for one option or',
-        '--help beside a --root that is not a directory among them, and a --root that is not a',
-        'directory, with exit 1: it refuses nothing for either.',
+        '--help beside a --root that is not a directory among them, a --root that is not a',
+        'directory, and a question it cannot read, as a warning to the person with exit 0: it',
+        'refuses nothing for any of them.',
         '',
       ].join('\n'),
     );
@@ -140,7 +144,7 @@ describe('the help', () => {
 describe('an option a command does not read', () => {
   it('is refused by the command, with the options it does read', () => {
     expect(refused(['doctor', '--note', 'x'])).toBe('doctor does not take --note; its options are --brief, --base, --root, --format and --strict');
-    expect(refused(['init', '--base', 'main'])).toBe('init does not take --base; its options are --root, --format, --write and --git-hook');
+    expect(refused(['init', '--base', 'main'])).toBe('init does not take --base; its options are --root, --format, --write, --git-hook and --block-on-failure');
     expect(refused(['hook', 'git', '--strict'])).toBe('hook does not take --strict; its options are --brief, --base and --root');
     expect(refused(['mcp', '--brief', '012'])).toBe('mcp does not take --brief; its only option is --root');
   });

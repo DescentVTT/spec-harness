@@ -129,17 +129,15 @@ describe('the hook as a session starts', () => {
     expect(answer.hookSpecificOutput.additionalContext).toBe(answer.systemMessage);
   });
 
-  it('says nothing in no work tree, and reads a question it cannot read as before', async () => {
+  it('says nothing in no work tree, and says a question it cannot read as before a write', async () => {
     const outside = temp();
     expect(await cli(['hook', 'claude'], outside, { stdin: question(outside), env: { CLAUDE_PROJECT_DIR: outside } })).toEqual({ code: 0, stdout: '', stderr: '' });
     const repo = project();
-    expect(await cli(['hook', 'claude'], repo.root, { stdin: '{ not json' })).toEqual({ code: 1, stdout: '', stderr: 'spec-harness: the hook input is not JSON\n' });
+    expect(await cli(['hook', 'claude'], repo.root, { stdin: '{ not json' })).toEqual({ code: 0, stdout: `${JSON.stringify({ systemMessage: 'spec-harness: the hook input is not JSON, so nothing it asks about is checked' })}\n`, stderr: '' });
     // An event that names no tool, and is not a session's start, is no question the hook can read.
-    expect(await cli(['hook', 'claude'], repo.root, { stdin: JSON.stringify({ hook_event_name: 'UserPromptSubmit', cwd: repo.root }) })).toEqual({
-      code: 1,
-      stdout: '',
-      stderr: 'spec-harness: the hook input names no event or tool\n',
-    });
+    expect(await cli(['hook', 'claude'], repo.root, { stdin: JSON.stringify({ hook_event_name: 'UserPromptSubmit', cwd: repo.root }) })).toEqual(
+      { code: 0, stdout: `${JSON.stringify({ systemMessage: 'spec-harness: the hook input names no event or tool, so nothing it asks about is checked' })}\n`, stderr: '' },
+    );
   });
 });
 
