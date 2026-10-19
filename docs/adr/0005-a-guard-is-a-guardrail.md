@@ -1861,7 +1861,8 @@ NotebookEdit before the write unless the row says otherwise.
 | `a/up/../.spec-harness.json`, `up` a link to `src`: `a/.spec-harness.json` as written, the configuration on the disk (Linux) | exit 2 | the same |
 | `src-link/../.spec-harness.json`, `src-link` a link to `src`: the configuration both ways (Linux) | exit 2 | let through |
 | the configuration with a second name, by either name | exit 2 | the same |
-| the configuration a link to the protected file or to a file outside, or a second name of the protected file | exit 2 | the same |
+| the configuration a link to the protected file, or a second name of it | exit 2 | the same |
+| the configuration a link to a file outside every work tree (Linux) | exit 2 | exit 0, no word: a write outside every work tree (below) |
 | `.spec-harness.json` a directory: it, or a file in it; a named pipe (Linux) | exit 2 | the same |
 | the project's configuration does not load: its file, from the project or from a linked worktree | exit 2 | let through |
 | the same: the worktree's own `.spec-harness.json`, from either | exit 2 | the same |
@@ -1977,6 +1978,15 @@ So the claim holds, for each of the three.
   does not load, a `core.worktree`, `GIT_DIR` or `GIT_WORK_TREE`, under
   which git may name another work tree than its files do. No path is then
   known to be outside.
+- **A path with a `..` in it is not known to be outside.** The hook reads
+  a path's `..` before its links, where Linux and macOS write it after
+  them, as above: `/elsewhere/link/../README.md`, the link to a directory
+  of the work tree, reads as outside and is written inside (a test holds
+  it, on Linux and macOS). Such a path is held under the problem as every
+  write inside is. A path through a
+  link with no `..`, the configuration itself a link among them, is read
+  where the link leads, as the hook reads every path: one to a file
+  outside every work tree is outside, and one into the work tree inside.
 
 What was measured for this and left as it was: a file of a linked
 worktree that neither the question's `cwd` nor the root is in, where

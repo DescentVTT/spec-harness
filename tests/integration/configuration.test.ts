@@ -182,7 +182,8 @@ describe('a configuration that does not load', () => {
     // Both ways the root: the file.
     symlinkSync(join(repo.root, 'src'), join(repo.root, 'src-link'));
     expect(await ask(repo, { file_path: `${repo.root}/src-link/../.spec-harness.json` })).toEqual(mended(said, file));
-    // The configuration a link: to the protected file, and to a file outside, each read through it.
+    // The configuration a link, read through it: to the protected file, a write to which is held; and to a file outside
+    // every work tree, which is no file of the repository's, and is decided as one outside it is (outside.test.ts).
     rmSync(file);
     symlinkSync(join(repo.root, 'src', 'db', 'schema.ts'), file);
     await held(ask(repo, { file_path: file }), '.spec-harness.json is not valid JSON: ', 'a link to the protected file');
@@ -190,7 +191,7 @@ describe('a configuration that does not load', () => {
     const elsewhere = join(temp(), 'config.json');
     writeFileSync(elsewhere, text);
     symlinkSync(elsewhere, file);
-    await held(ask(repo, { file_path: file }), said, 'a link to a file outside');
+    expect(await ask(repo, { file_path: file })).toEqual({ code: 0, stdout: '', stderr: '' });
   });
 
   it('lets through the configuration of the work tree a write is decided in, and holds a write to that of another work tree', async () => {

@@ -10,8 +10,8 @@
  * a work tree of the repository, a linked worktree's among them.
  */
 
-import { rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { join, sep } from 'node:path';
 
 import { afterAll, describe, expect, it } from 'vitest';
 
@@ -120,6 +120,29 @@ describe('a write outside every work tree of the repository', () => {
     expect(await ask(moved, 'PreToolUse', { file_path: outside })).toEqual(PASSED);
     moved.git('config', 'core.worktree', moved.root);
     await held(ask(moved, 'PreToolUse', { file_path: outside }), broken.said, 'core.worktree');
+  });
+
+  it('holds a path with a `..` in it, which the hook reads before its links where Linux and macOS write it after', async () => {
+    const [, unknown] = PROBLEMS as [Problem, Problem];
+    const repo = repository(FILES);
+    unknown.make(repo);
+    const outside = temp();
+    mkdirSync(join(outside, 'sub'));
+    await held(ask(repo, 'PreToolUse', { file_path: [outside, 'sub', '..', 'notes.md'].join(sep) }), unknown.said, 'a `..` outside');
+    // One path of the call with a `..` in it is enough.
+    await held(ask(repo, 'PreToolUse', { file_path: join(outside, 'notes.md'), path: [outside, 'sub', '..', 'other.md'].join(sep) }), unknown.said, 'one of two');
+    expect(await ask(repo, 'PreToolUse', { file_path: join(outside, 'notes.md') })).toEqual(PASSED);
+  });
+
+  // Windows lets an account make a link to a directory as a junction, which Windows itself reads after a `..`.
+  it.skipIf(process.platform === 'win32')('holds a path outside whose `..` after a link leads into the work tree', async () => {
+    const [, unknown] = PROBLEMS as [Problem, Problem];
+    const repo = repository(FILES);
+    unknown.make(repo);
+    const outside = temp();
+    symlinkSync(join(repo.root, 'src'), join(outside, 'link'));
+    // As written it is outside; on the disk it is README.md of the work tree.
+    await held(ask(repo, 'PreToolUse', { file_path: `${outside}/link/../README.md` }), unknown.said, 'a link and `..`');
   });
 
   it('asks spec-brief nothing for it, and guard says it as outside the repository', async () => {

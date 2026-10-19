@@ -205,6 +205,11 @@ export function outsideEvery(paths: readonly string[], top: string, common: stri
   // is told with nothing of git's directory read; read anyway, `top` is
   // among the work trees, so the mutant without this test is equivalent.
   if (paths.some((path) => repositoryPath(path, top, cwd) !== null)) return false;
+  // A path is read here as the hook reads one, its `..` before its links,
+  // where Linux and macOS write it after: `/elsewhere/link/../a.ts`, the
+  // link to a directory of the work tree, reads as outside and is written
+  // inside. Such a path is not known to be outside.
+  if (paths.some((path) => path.split(/[\\/]/).includes('..'))) return false;
   const trees = workTrees(top, common);
   return trees !== null && paths.every((path) => trees.every((tree) => repositoryPath(path, tree, cwd) === null));
 }

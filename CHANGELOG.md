@@ -28,7 +28,7 @@ where the branch names a brief no round can work under
   held, to the person and to Claude. A file of that name elsewhere, a link
   to it, a second name of it and the configuration of another work tree
   are held as before, and so is a configuration that is a directory, a
-  link or a named pipe. As a session starts the hook says the same.
+  named pipe, or a link to a file of the repository. As a session starts the hook says the same.
   Upgrading: a brief that protects `.spec-harness.json` does not hold that
   write while the file does not load, since none of it is read; the audit
   and spec-brief's archive still measure the change.
@@ -47,7 +47,7 @@ where the branch names a brief no round can work under
   `guard` refused such a path, exit 2. Such a write passes as one outside
   the repository does, with no word, and spec-brief is not asked about it;
   one inside any work tree of the repository, a linked worktree's among
-  them, is held as before.
+  them, is held as before, and so is a path with a `..` in it.
   Upgrading: `guard` of a path outside the repository exits 0 under such
   a brief, where it exited 2.
 
