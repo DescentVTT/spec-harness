@@ -1855,7 +1855,8 @@ NotebookEdit before the write unless the row says otherwise.
 | --- | --- | --- |
 | `.spec-harness.json` by Edit, Write or NotebookEdit: absolute, relative to the question's `cwd`, or through `src/..` | exit 2, in the configuration's words | exit 0, no decision, and the line to the person and to Claude |
 | the same in upper case | exit 2 | on Windows, the same file: let through; on Linux, another: exit 2 |
-| `src/.spec-harness.json`, `.spec-harness.json.bak`, the protected file, a file in the scope, a file outside the repository | exit 2 | the same |
+| `src/.spec-harness.json`, `.spec-harness.json.bak`, the protected file, a file in the scope | exit 2 | the same |
+| a file outside every work tree of the repository | exit 2 | exit 0, no word: a write outside every work tree (below) |
 | a link to the configuration, absolute or relative (Linux) | exit 2 | the same |
 | `deep/../.spec-harness.json`, `deep` a link to `lib/x`: the configuration as the path is written, `lib/.spec-harness.json` on the disk (Linux) | exit 2 | the same |
 | `a/up/../.spec-harness.json`, `up` a link to `src`: `a/.spec-harness.json` as written, the configuration on the disk (Linux) | exit 2 | the same |
