@@ -15,6 +15,7 @@ import { join, sep } from 'node:path';
 
 import { afterAll, describe, expect, it } from 'vitest';
 
+import { outsideEvery } from '../../src/fs.js';
 import { brief, BRIEF_FILE, cleanup, cli, git, repository, siblings, temp, write, type Repository } from './helpers.js';
 
 afterAll(cleanup);
@@ -143,6 +144,13 @@ describe('a write outside every work tree of the repository', () => {
     symlinkSync(join(repo.root, 'src'), join(outside, 'link'));
     // As written it is outside; on the disk it is README.md of the work tree.
     await held(ask(repo, 'PreToolUse', { file_path: `${outside}/link/../README.md` }), unknown.said, 'a link and `..`');
+  });
+
+  it('is no write that names no path', () => {
+    const repo = repository(FILES);
+    const [top, common] = [repo.git('rev-parse', '--show-toplevel'), repo.git('rev-parse', '--path-format=absolute', '--git-common-dir')];
+    expect(outsideEvery([join(temp(), 'notes.md')], top, common, repo.root)).toBe(true);
+    expect(outsideEvery([], top, common, repo.root)).toBe(false);
   });
 
   it('asks spec-brief nothing for it, and guard says it as outside the repository', async () => {

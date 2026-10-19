@@ -179,12 +179,13 @@ export function workTrees(top: string, common: string): string[] | null {
   const main = mainWorkTree(common);
   if (main === null) return null;
   const kept = join(common, 'worktrees');
-  let names: string[];
+  let names: string[] = [];
   try {
     names = readdirSync(kept);
   } catch (error) {
-    // No such directory is no linked worktree.
-    return (error as NodeJS.ErrnoException).code === 'ENOENT' ? [top, main] : null;
+    // No such directory is no linked worktree, and anything else there is
+    // one that cannot be read.
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') return null;
   }
   const linked = names.map((name) => textOf(join(kept, name, 'gitdir')));
   if (linked.includes(null)) return null;
@@ -201,6 +202,9 @@ export function workTrees(top: string, common: string): string[] | null {
  * be named, a path is not known to be outside them, and this is `false`.
  */
 export function outsideEvery(paths: readonly string[], top: string, common: string, cwd: string): boolean {
+  // A write that names no path is no write outside: no caller asks of
+  // one, and a test holds the answer.
+  if (paths.length === 0) return false;
   // A path in the work tree that was opened, as nearly every write's is,
   // is told with nothing of git's directory read; read anyway, `top` is
   // among the work trees, so the mutant without this test is equivalent.
