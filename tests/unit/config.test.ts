@@ -96,7 +96,7 @@ describe('every refusal', () => {
 
   it('refuses an unknown key at every level, listing the keys there are', () => {
     expect(refusal({ outofscope: 'warn' })).toBe(
-      '.spec-harness.json: unknown key "outofscope"; the keys are $schema, branches, outOfScope, base, rulings, dependencies, context, assertions, probes, tools',
+      '.spec-harness.json: unknown key "outofscope"; the keys are $schema, branches, outOfScope, base, rulings, dependencies, context, assertions, probes, tools, turnReport',
     );
     expect(refusal({ rulings: { signers: 'x' } })).toBe('.spec-harness.json: "rulings": unknown key "signers"; the keys are section, allowedSigners');
     expect(refusal({ dependencies: { manifest: [] } })).toBe('.spec-harness.json: "dependencies": unknown key "manifest"; the keys are manifests');
@@ -159,5 +159,20 @@ describe('every refusal', () => {
     expect(refusal({ tools: { 'spec-guard': [] } })).toBe(
       '.spec-harness.json: "tools.spec-guard" must be a command as a list, such as ["node", "node_modules/@descent-vtt/spec-guard/bin/spec-guard.js"], or null',
     );
+  });
+});
+
+describe('the report at the end of a turn', () => {
+  it('is off unless the configuration turns it on', () => {
+    expect(DEFAULT_CONFIG.turnReport).toBe(false);
+    expect(parseConfig({}).turnReport).toBe(false);
+    expect(parseConfig({ turnReport: null }).turnReport).toBe(false);
+    expect(parseConfig({ turnReport: false }).turnReport).toBe(false);
+    expect(parseConfig({ turnReport: true }).turnReport).toBe(true);
+  });
+
+  it('is turned on by true alone', () => {
+    for (const value of ['true', 1, 0, 'yes', {}, []]) expect(refusal({ turnReport: value }), JSON.stringify(value)).toBe('.spec-harness.json: "turnReport" must be true or false');
+    expect(refusal({ turnreport: true })).toContain('the keys are $schema, branches, outOfScope, base, rulings, dependencies, context, assertions, probes, tools, turnReport');
   });
 });

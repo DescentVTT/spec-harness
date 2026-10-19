@@ -11,6 +11,25 @@ cannot turn a run red. The family's policy is
 
 ## Unreleased
 
+### Added
+
+- **A report at the end of a turn, where `.spec-harness.json` asks for
+  one.** With `"turnReport": true`, `hook claude` answers Claude Code's
+  `Stop`: with one `git status`, every path the work tree holds changed
+  that the brief protects or that is outside its scope, a shell's writes
+  among them, in the words a write of it is given, as one `systemMessage`,
+  exit 0, and never a field that has Claude go on. `init` writes the entry,
+  in the background, where the key is on, and Claude reads the report as the
+  next turn begins; the plugin carries none, and with it on `init` says
+  what to add
+  ([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md),
+  [ADR-0012](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0012-one-way-into-claude-code.md)).
+  Upgrading: off by default, so nothing changes until the key is turned on
+  and `spec-harness init --write` run again. A `Stop` entry aimed at the
+  hook exited 1, `the hook input names no event or tool`, and now exits 0;
+  a configuration's unknown key is refused with `turnReport` among the keys
+  it names.
+
 ### Changed
 
 - **A path is decided by the work tree that holds it.** A path in a work

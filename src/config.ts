@@ -48,6 +48,12 @@ export interface HarnessConfig {
   };
   /** The command for each sibling tool, or `null` to find it (ADR-0002). */
   readonly tools: Readonly<Record<SiblingName, readonly string[] | null>>;
+  /**
+   * Whether Claude Code's hook reports, at the end of each turn, the changed
+   * paths the brief protects or that are outside its scope; off by default,
+   * and `init` writes the entry that runs it only where it is on (ADR-0005).
+   */
+  readonly turnReport: boolean;
 }
 
 export type SiblingName = 'spec-brief' | 'spec-graph' | 'spec-guard';
@@ -81,6 +87,7 @@ export const DEFAULT_CONFIG: HarnessConfig = {
   assertions: { premises: ['The Defect, Measured', 'Premises', 'Preconditions'] },
   probes: { runs: 2, timeout: 600 },
   tools: { 'spec-brief': null, 'spec-graph': null, 'spec-guard': null },
+  turnReport: false,
 };
 
 export class ConfigError extends Error {
@@ -123,7 +130,7 @@ function nonEmpty(value: unknown, where: string): string {
 /** Validates a parsed configuration and fills in every default. */
 export function parseConfig(raw: unknown, file = CONFIG_FILE): HarnessConfig {
   if (!isObject(raw)) throw new ConfigError(`${file} must hold a JSON object`);
-  checkKeys(raw, ['$schema', 'branches', 'outOfScope', 'base', 'rulings', 'dependencies', 'context', 'assertions', 'probes', 'tools'], file);
+  checkKeys(raw, ['$schema', 'branches', 'outOfScope', 'base', 'rulings', 'dependencies', 'context', 'assertions', 'probes', 'tools', 'turnReport'], file);
 
   let branches = DEFAULT_CONFIG.branches;
   if (raw['branches'] !== undefined) {
@@ -222,5 +229,8 @@ export function parseConfig(raw: unknown, file = CONFIG_FILE): HarnessConfig {
     }
   }
 
-  return { branches, outOfScope, base, rulings, dependencies, context, assertions, probes, tools };
+  const turnReport = raw['turnReport'] ?? DEFAULT_CONFIG.turnReport;
+  if (typeof turnReport !== 'boolean') throw new ConfigError(`${file}: "turnReport" must be true or false`);
+
+  return { branches, outOfScope, base, rulings, dependencies, context, assertions, probes, tools, turnReport };
 }
