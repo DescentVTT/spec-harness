@@ -466,7 +466,7 @@ describe('a file read where a file is expected, and what stands there instead (A
     const other = repository({});
     rmSync(join(other.root, '.git', 'config'));
     fifo(join(other.root, '.git', 'config'));
-    expect(gitDirectories(other.root, {})).toEqual({ top: realSpelling(other.root), common: join(realSpelling(other.root), '.git'), exact: true });
+    expect(gitDirectories(other.root, {})).toEqual({ top: realSpelling(other.root), git: join(realSpelling(other.root), '.git'), common: join(realSpelling(other.root), '.git'), exact: true });
     const linked = repository({});
     const worktree = join(temp(), 'w');
     linked.git('worktree', 'add', '-q', '--detach', worktree);
