@@ -40,6 +40,9 @@ import {
   NO_SESSION_START,
   startsSessions,
   withSessionStart,
+  withTurnReport,
+  reportsTurns,
+  TURN_HOOK,
   mergeMcp,
   measuresArchive,
   mergeSpecBrief,
@@ -2017,6 +2020,44 @@ describe('the entry as a session starts (ADR-0012)', () => {
     expect(NO_SESSION_START).toBe(
       'note: no settings file has Claude Code start the hook as a session starts, so a configuration that does not load, or a brief named that spec-brief does not list, is said only at the first write, which it holds: spec-harness init --write adds the entry beside the two it wrote',
     );
+  });
+});
+
+describe('the entry as a turn ends (ADR-0012)', () => {
+  const END = { hooks: [{ ...HOOK, async: true }] };
+  const isHook = (words: readonly string[]): boolean => claudeHookLine(words, parseOptions, '/p', () => true) !== null;
+  const two = mergeClaudeSettings({}) as Record<string, unknown> & { hooks: Record<string, unknown> };
+
+  it('runs the hook\'s own line in the background', () => {
+    expect(TURN_HOOK).toEqual({ ...HOOK, async: true });
+  });
+
+  it('is added after what stands under the event, whatever else the file holds', () => {
+    expect(withTurnReport(two, isHook)).toEqual({ hooks: { ...two.hooks, Stop: [END] } });
+    expect(withTurnReport({}, isHook)).toEqual({ hooks: { Stop: [END] } });
+    expect(withTurnReport({ hooks: null }, isHook)).toEqual({ hooks: { Stop: [END] } });
+    const other = { hooks: [{ type: 'command', command: 'echo done' }] };
+    expect(withTurnReport({ model: 'x', hooks: { Stop: [other] } }, isHook)).toEqual({ model: 'x', hooks: { Stop: [other, END] } });
+    expect(withTurnReport({ hooks: { Stop: 'x' } }, isHook)).toEqual({ hooks: { Stop: [END] } });
+    // A copy: the line written is not init's own to change.
+    const added = withTurnReport(two, isHook) as { hooks: { Stop: { hooks: { args: string[] }[] }[] } };
+    added.hooks.Stop[0]?.hooks[0]?.args.push('--x');
+    expect(withTurnReport(two, isHook)).toEqual({ hooks: { ...two.hooks, Stop: [END] } });
+  });
+
+  it('is not added where a line of the hook stands under the event already, init\'s or a person\'s', () => {
+    for (const entry of [END, { hooks: [HOOK] }]) expect(withTurnReport({ hooks: { Stop: [entry] } }, isHook)).toBeNull();
+    const theirs = { hooks: [{ ...HOOK, args: [...HOOK.args, '--root', PROJECT_DIR] }] };
+    expect(withTurnReport({ hooks: { Stop: [theirs] } }, isHook)).toBeNull();
+    expect(reportsTurns({ hooks: { Stop: [theirs] } }, isHook)).toBe(true);
+    // Beside another group under the event, as well.
+    const other = { hooks: [{ type: 'command', command: 'echo done' }] };
+    expect(reportsTurns({ hooks: { Stop: [other, END] } }, isHook)).toBe(true);
+    expect(withTurnReport({ hooks: { Stop: [other, END] } }, isHook)).toBeNull();
+    // Known only by what the caller knows of a line.
+    expect(withTurnReport({ hooks: { Stop: [theirs] } }, () => false)).toEqual({ hooks: { Stop: [theirs, END] } });
+    expect(reportsTurns({ hooks: { Stop: [theirs] } }, () => false)).toBe(false);
+    for (const settings of [null, 'x', {}, { hooks: { Stop: {} } }, { hooks: { Stop: [{ hooks: 'x' }, { hooks: ['x'] }] } }, { hooks: { SessionStart: [END] } }]) expect(reportsTurns(settings, isHook), JSON.stringify(settings)).toBe(false);
   });
 });
 

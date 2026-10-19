@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { Decision, Verdict } from '../../src/guard.js';
-import { afterResponse, CALL_VARIABLES, callFile, callRecord, CALLABLE_TOOLS, claudeResponse, gitResponse, keptCall, parseClaudeHook, SESSION_START, sessionResponse, warningsKept, warningsOf, WRITING_TOOLS, type HookRequest } from '../../src/hooks.js';
+import { afterResponse, CALL_VARIABLES, callFile, callRecord, CALLABLE_TOOLS, claudeResponse, gitResponse, keptCall, parseClaudeHook, SESSION_START, sessionResponse, TURN_END, turnResponse, warningsKept, warningsOf, WRITING_TOOLS, type HookRequest } from '../../src/hooks.js';
 
 function hook(fields: Record<string, unknown>): string {
   return JSON.stringify({ session_id: 's', hook_event_name: 'PreToolUse', tool_name: 'Write', cwd: '/repo', ...fields });
@@ -172,7 +172,7 @@ describe('the hook as a session starts', () => {
     // A tool named beside it is read as named, and a file only a writing tool's.
     expect(parseClaudeHook(JSON.stringify({ hook_event_name: 'SessionStart', tool_name: 'Edit', tool_input: { file_path: '/repo/a.ts' } }))).toEqual({ event: 'SessionStart', tool: 'Edit', cwd: null, paths: ['/repo/a.ts'], session: null, call: null });
     expect(parseClaudeHook(JSON.stringify({ hook_event_name: 'SessionStart', tool_name: 7, tool_input: { file_path: '/repo/a.ts' } }))).toEqual({ event: 'SessionStart', tool: '', cwd: null, paths: [], session: null, call: null });
-    for (const event of ['UserPromptSubmit', 'sessionstart', 'Stop']) expect(parseClaudeHook(JSON.stringify({ hook_event_name: event })), event).toEqual({ error: 'the hook input names no event or tool' });
+    for (const event of ['UserPromptSubmit', 'sessionstart', 'stop', 'SubagentStop']) expect(parseClaudeHook(JSON.stringify({ hook_event_name: event })), event).toEqual({ error: 'the hook input names no event or tool' });
     expect(parseClaudeHook(JSON.stringify({ tool_name: 'Edit' }))).toEqual({ error: 'the hook input names no event or tool' });
   });
 
@@ -269,5 +269,23 @@ describe('what the run before a write keeps for the run after it', () => {
     }
     // What a warning holds besides its message and its next step is not read.
     expect(warningsKept(JSON.stringify({ record, warnings: [{ message: 'm', hint: 'h', verdict: 'deny' }] }), record)).toEqual([{ message: 'm', hint: 'h' }]);
+  });
+});
+
+describe('the hook as a turn ends', () => {
+  it('reads a Stop question, which names no tool and no file', () => {
+    expect(TURN_END).toBe('Stop');
+    expect(parseClaudeHook(JSON.stringify({ session_id: 's', hook_event_name: 'Stop', cwd: '/repo', stop_hook_active: false, last_assistant_message: 'Done.' }))).toEqual({ event: 'Stop', tool: '', cwd: '/repo', paths: [], session: 's', call: null });
+    expect(parseClaudeHook(JSON.stringify({ hook_event_name: 'Stop', tool_name: 7, tool_input: { file_path: '/repo/a.ts' } }))).toEqual({ event: 'Stop', tool: '', cwd: null, paths: [], session: null, call: null });
+  });
+
+  it('answers with the report alone, as a message, exit 0, and nothing where there is none', () => {
+    expect(turnResponse(null)).toEqual({ stdout: '', exitCode: 0 });
+    const said = turnResponse('spec-harness: one\n- two');
+    expect(said.exitCode).toBe(0);
+    expect(said.stdout.endsWith('}\n')).toBe(true);
+    expect(said.stdout.split('\n')).toHaveLength(2);
+    // No field that would have Claude go on: no decision, no context, no continue.
+    expect(JSON.parse(said.stdout)).toEqual({ systemMessage: 'spec-harness: one\n- two' });
   });
 });
