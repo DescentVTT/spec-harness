@@ -481,6 +481,7 @@ describe("doctor, of the hook's line in Claude Code's settings", () => {
     after: CALLABLE_TOOLS,
     cover: null,
     note: null,
+    timeout: null,
   };
   const read = (words: readonly string[]) => claudeHookLine(words, parseOptions, '/the/project', () => false);
 

@@ -2547,11 +2547,12 @@ written where it reads, its `..` first (`deep\..\schema.ts` made
 account may make no symbolic link there (`EPERM`). On GitHub's Windows
 runner (`windows-2025-vs2026`, Node 24.22.1, Git for Windows 2.56.0), where
 an account may, through the workflow of a branch of its own that measured
-and is not merged (`measure/b26-budget-on-windows`): a `..` after a link
-to a directory, absolute or named from its own directory, was written at
-the top, as through a junction; a link to a file was written through; and
-a link to a file that is not there made the file it names, as on Linux,
-which the written reading follows on Windows too, after its `..`.
+and is not merged (`measure/b26-budget-on-windows`, run 40102588740): a
+`..` after a link to a directory, absolute or named from its own
+directory, was written at the top, as through a junction; a link to a file
+was written through; and a link to a file that is not there made the file
+it names, as on Linux, which the written reading follows on Windows too,
+after its `..`.
 
 - **Two readings.** A path is read as before, its `..` first and then its
   links (`realSpelling`, `src/fs.ts`), and as the system writes it
