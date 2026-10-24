@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { OutOfScope } from '../../src/config.js';
-import { decide, heldBy, rooted, type GuardInput, type VerifiedRuling } from '../../src/guard.js';
+import { decide, decideWritten, heldBy, rooted, type GuardInput, type VerifiedRuling } from '../../src/guard.js';
 import type { BriefRow } from '../../src/types.js';
 import { row } from './helpers.js';
 
@@ -281,6 +281,52 @@ describe('a rooted pattern', () => {
 
   it('is not a pattern whose slashes follow a leading ./, which they go with', () => {
     for (const pattern of ['.//docs', '././/docs', './/{docs,src}', '{.//docs,src/**}', './{/docs,src/**}']) expect(rooted(pattern), pattern).toBeNull();
+  });
+});
+
+describe('a path a link has the system write as another file', () => {
+  const given = '/repo/deep/../schema.ts';
+  const input = (path: string | null, options: { rulings?: VerifiedRuling[]; outOfScope?: OutOfScope } = {}): GuardInput => ({ path, given, brief, rulings: options.rulings ?? [], outOfScope: options.outOfScope ?? 'warn' });
+  const both = (read: string | null, written: string | null, options: { rulings?: VerifiedRuling[]; outOfScope?: OutOfScope } = {}) => decideWritten(decide(input(read, options)), input(written, options));
+
+  it('is refused where the file it is written to is protected, however it reads, and says where the link leads', () => {
+    for (const read of ['notes/schema.ts', 'src/auth/login.ts', null, brief.file]) {
+      const decision = both(read, 'migrations/001.sql');
+      expect(decision, String(read)).toEqual({
+        path: 'migrations/001.sql',
+        verdict: 'deny',
+        reason: 'protected',
+        because: ['migrations/**'],
+        message: `${given} is written to migrations/001.sql through a link: brief 012 does not empower this round to change migrations/001.sql (protectedFiles: migrations/**)`,
+        hint: ESCALATE,
+      });
+    }
+  });
+
+  it('is asked about, or warned of, where the file it is written to is outside the scope and the path reads as in it', () => {
+    expect(both('src/auth/login.ts', 'notes/x.md', { outOfScope: 'ask' })).toMatchObject({ path: 'notes/x.md', verdict: 'ask', message: `${given} is written to notes/x.md through a link: notes/x.md is outside brief 012's scope, which covers src/auth/**, tests/auth/**` });
+    expect(both('src/auth/login.ts', 'notes/x.md')).toMatchObject({ path: 'notes/x.md', verdict: 'warn', reason: 'out-of-scope' });
+    expect(both(null, 'notes/x.md', { outOfScope: 'deny' })).toMatchObject({ path: 'notes/x.md', verdict: 'deny', reason: 'out-of-scope' });
+  });
+
+  it('is decided as it reads where that holds the write as much or more', () => {
+    // Protected as it reads, in the scope where it is written: refused as it reads, with no word of the link.
+    expect(both('src/db/schema.ts', 'src/auth/login.ts')).toEqual(check('src/db/schema.ts'));
+    // Two refusals, two questions, two warnings: the first stands.
+    expect(both('src/db/schema.ts', 'migrations/001.sql')).toEqual(check('src/db/schema.ts'));
+    expect(both('notes/a.md', 'notes/b.md', { outOfScope: 'ask' })).toEqual(check('notes/a.md', { outOfScope: 'ask' }));
+    expect(both('notes/a.md', 'notes/b.md')).toEqual(check('notes/a.md'));
+    // A question as it reads stands over a warning where it is written.
+    expect(decideWritten(check('notes/a.md', { outOfScope: 'ask' }), input('notes/b.md'))).toEqual(check('notes/a.md', { outOfScope: 'ask' }));
+    // In the scope both ways, or outside the repository where it is written.
+    expect(both('src/auth/a.ts', 'src/auth/b.ts')).toEqual(check('src/auth/a.ts'));
+    expect(both('src/auth/a.ts', null)).toEqual(check('src/auth/a.ts'));
+  });
+
+  it('is refused where it is written to a protected file a ruling does not cover, though one covers the file it reads as', () => {
+    const ruling: VerifiedRuling = { id: 'R-012-1', paths: ['src/db/schema.ts'], signer: 'p@example.com' };
+    expect(both('src/db/schema.ts', 'migrations/001.sql', { rulings: [ruling] })).toMatchObject({ verdict: 'deny', path: 'migrations/001.sql' });
+    expect(both('migrations/001.sql', 'src/db/schema.ts', { rulings: [ruling] })).toMatchObject({ verdict: 'deny', path: 'migrations/001.sql' });
   });
 });
 

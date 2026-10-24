@@ -203,6 +203,27 @@ export function decide(input: GuardInput): Decision {
 }
 
 /**
+ * The verdicts that hold a write, from the least to the most. `allow` holds
+ * nothing, and is read below each: `indexOf` has it at -1.
+ */
+const STRICTNESS: readonly Verdict[] = ['warn', 'ask', 'deny'];
+
+/**
+ * A path decided as it reads and as the system writes it, where a link has
+ * the two name two files (ADR-0005): `read` is the decision of the first,
+ * and `written` the input of the second. Which of the two Claude Code's
+ * tools write is not on its pages, so the stricter stands and no link makes
+ * a protected file read as another; where neither is stricter, the path is
+ * decided as it reads, as it was. The written decision is said with the
+ * path as it was given, which reads as another file.
+ */
+export function decideWritten(read: Decision, written: GuardInput): Decision {
+  const other = decide(written);
+  if (STRICTNESS.indexOf(other.verdict) <= STRICTNESS.indexOf(read.verdict)) return read;
+  return { ...other, message: `${written.given} is written to ${other.path} through a link: ${other.message}` };
+}
+
+/**
  * A path whose write the hook holds whatever the path is, but where it lies
  * outside every work tree of the repository: what names the brief names
  * none a round can work under, one spec-brief does not list or has
