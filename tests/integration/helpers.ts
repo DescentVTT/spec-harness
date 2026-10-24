@@ -227,6 +227,38 @@ export function siblings(): Record<string, string[]> {
   return { 'spec-brief': ['node', SPEC_BRIEF], 'spec-guard': ['node', SPEC_GUARD] };
 }
 
+/**
+ * spec-guard's JSON answer to `args`, asked in `root` of the copy the suite
+ * runs. How a release words a rule, or a directive it cannot read, is its
+ * own to choose, and the suite runs the lockfile's release and, in CI's
+ * `test (minimum siblings)`, the oldest this package runs: a test of what
+ * the harness does with those words reads them from here, and assumes no
+ * release's.
+ */
+function guardAnswer(root: string, args: readonly string[]): unknown {
+  const run = spawnSync(process.execPath, [SPEC_GUARD, ...args], { cwd: root, encoding: 'utf8' });
+  return JSON.parse(run.stdout);
+}
+
+/** The words spec-guard gives the rule at `line` of `document`, asked about `path` as the harness asks it. */
+export function guardRule(root: string, path: string, document: string, line: number): string {
+  const answer = guardAnswer(root, ['query', path, '--json']) as { results: { rules: { document: string; line: number; description: string }[] }[] };
+  const rule = answer.results.flatMap((result) => result.rules).find((each) => each.document === document && each.line === line);
+  if (rule === undefined) throw new Error(`spec-guard names no rule at ${document}:${line} over ${path}`);
+  return rule.description;
+}
+
+/**
+ * What spec-guard says of the directive it cannot read at `line` of `file`,
+ * run as the harness runs a brief's assertions.
+ */
+export function guardCannotRead(root: string, file: string, line: number): string {
+  const answer = guardAnswer(root, [file, '--ignore-status', '--json']) as { errors?: { message: string; spec?: { line?: number } }[] };
+  const error = (answer.errors ?? []).find((each) => each.spec?.line === line);
+  if (error === undefined) throw new Error(`spec-guard reads the directive at ${file}:${line}`);
+  return error.message;
+}
+
 export interface Captured {
   readonly code: number;
   readonly stdout: string;
