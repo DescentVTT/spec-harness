@@ -4,7 +4,7 @@ import type { DependencyChange, InstallScriptChange } from '../../src/manifests.
 import type { Finding } from '../../src/types.js';
 import { join } from 'node:path';
 
-import { brief, BRIEF_FILE, cleanup, cli, parsed, repository, siblings, SPEC_BRIEF, temp, write, type Repository } from './helpers.js';
+import { brief, BRIEF_FILE, cleanup, cli, guardCannotRead, parsed, repository, siblings, SPEC_BRIEF, temp, write, type Repository } from './helpers.js';
 
 afterAll(cleanup);
 
@@ -118,10 +118,10 @@ describe('audit of a round', () => {
     r.commit('work');
     const result = await cli(['audit', '--format', 'json'], r.root);
     const report = parsed<Report & { measured: { assertions: string; goals: unknown; unreadableAssertions: number } }>(result);
-    expect(report.findings.filter((f) => f.rule === 'assertion-unreadable').map((f) => [f.severity, f.line, f.message])).toEqual([
-      ['warning', 22, 'spec-guard cannot read an assertion in the brief, so nothing it states was run: @assert-absence requires a non-empty symbol="..." attribute.'],
-      ['warning', 23, 'spec-guard cannot read an assertion in the brief, so nothing it states was run: Attribute "min" must be a non-negative integer, got "abc".'],
-    ]);
+    // What is wrong with each directive is said in spec-guard's words, as the release installed here words it.
+    expect(report.findings.filter((f) => f.rule === 'assertion-unreadable').map((f) => [f.severity, f.line, f.message])).toEqual(
+      [22, 23].map((line) => ['warning', line, `spec-guard cannot read an assertion in the brief, so nothing it states was run: ${guardCannotRead(r.root, BRIEF_FILE, line)}`]),
+    );
     // Each is about the directive as written, which its fingerprint is made of.
     expect(report.findings.filter((f) => f.rule === 'assertion-unreadable').map((f) => f.subject)).toEqual([
       '<!-- @assert-absence target="src" -->',
