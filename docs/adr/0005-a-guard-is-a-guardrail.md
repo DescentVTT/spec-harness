@@ -2488,6 +2488,145 @@ An exit code that can change for a tree that passed is a minor release
 - **`doctor`'s words for `-h` and `-v`** are those for `--help` and
   `--version`: the line is shown above them as it was written.
 
+*Amended 2026-10-24.* **A path through a link is decided as it reads and
+as the system writes it, and the stricter answer stands.** The amendment of
+2026-10-19 that lets a configuration that does not load have a write to
+itself through measured a path with a `..` after a link, where the
+configuration loads, and left it. *Claimed* by round 25's agent F: the hook
+reads such a path's `..` first, `deep/../schema.ts` as `schema.ts`, where
+the system writes through the link, to `lib/schema.ts` when `deep` links
+into `lib/`; and whether Claude Code's tools hand the hook the path as
+given is on none of its pages.
+
+What Claude Code's documentation has, read 2026-10-24. The hooks reference
+(<https://code.claude.com/docs/en/hooks>, *PreToolUse input*) has
+`tool_input.file_path` always absolute for Write, Edit and Read, a `~` and
+a relative path expanded before a hook runs; it says nothing of a `..` in a
+path. The permissions page (<https://code.claude.com/docs/en/permissions>,
+*Symlinks*) has a path that goes through a link checked as the path asked
+for and as the file it resolves to, a deny rule applying where either
+matches; and under *Writes through a symlink*, Edit and Write refuse a
+write whose path is itself a link, while a write still passes through a
+link where a directory on the way is one. The errors reference
+(<https://code.claude.com/docs/en/errors>, *Refusing to read, write, or
+search a path*) has that refusal, `it is a symbolic link`, among those
+that do not appear before v2.1.251, where the hooks run under releases from
+2.1.139 (ADR-0012). No page says whether the file a path resolves to is
+read with its `..` before the link in front of it or after it, and none
+names NotebookEdit there. So which file a tool writes for such a path
+cannot be told from them, and the hook leans on no refusal of Claude
+Code's.
+
+*Measured* through the launcher of main (4227a6a) and of this change, in a
+Linux container as an ordinary account (`node:24-slim`, Node 24.22.1, git
+2.39.5) and on Windows 11 (Node 24.22.1, Git for Windows 2.55.0), in a
+project on brief 042's branch, the brief covering `src/app/**` and
+protecting `src/db/**` and `lib/**`: the hook handed an Edit, or a Write
+for a file not there, before the write and after it, `guard` and the
+server's `check_path` asked of the same path, and then the write made by
+Node, to see where it lands. On Linux:
+
+| The path, and its link | Where the system writes it | main | Now |
+| --- | --- | --- | --- |
+| `deep/../schema.ts`, `deep` a link to `lib/x` | `lib/schema.ts` | no word before it, a warning after it, of `schema.ts`; `guard` warns, `check_path` `warn` | refused, `lib/schema.ts`; `guard` exit 1, `check_path` `deny` |
+| `deep/../fresh.ts`, nothing at `lib/fresh.ts` | `lib/fresh.ts`, made | the same, of `fresh.ts` | the same as above |
+| `deep/../src/app/a.ts` | nowhere: `lib/src/app` is not there | passes, in the scope | refused, `lib/src/app/a.ts` |
+| `<outside>/into/../db/schema.ts`, `into` a link outside the repository to `src/app` | `src/db/schema.ts` | passes: outside the repository | refused |
+| `newlink`, a link to `src/db/new.sql`, which is not there | `src/db/new.sql`, made | no word before it, a warning after it, of `newlink` | refused, `src/db/new.sql` |
+| `<outside>/dang`, a link outside to `src/db/new2.sql`, not there | `src/db/new2.sql`, made | passes: outside | refused |
+| the same, the branch naming brief 999, which spec-brief does not list | the same | passes: a write outside every work tree | held, exit 2 |
+| `lib/up/../a.ts`, `up` a link to `src/app/sub` | `src/app/a.ts`, in the scope | refused, as `lib/a.ts` | the same |
+| `applink/new.ts`, `applink` a link to `src/app`; `alias.ts`, a link to the protected file; `src/app/../db/schema.ts`; a path through no link | where it reads | as it reads | the same |
+
+So the claim holds, and goes further: a path outside the work tree whose
+`..` after a link leads into it read as outside the repository, and a link
+to nothing read as the link, each passing a write that made a protected
+file. On Windows each path of the table that a junction can make was
+written where it reads, its `..` first (`deep\..\schema.ts` made
+`schema.ts` at the top), and main and this change answered each alike; the
+account may make no symbolic link there (`EPERM`), so a link to a file and
+a link named from its own directory were not measured on Windows.
+
+- **Two readings.** A path is read as before, its `..` first and then its
+  links (`realSpelling`, `src/fs.ts`), and as the system writes it
+  (`writtenSpelling`): its names walked from the root one by one, each link
+  replaced by what it names, a link to nothing among them, so that a `..`
+  is read from the directory the link before it leads to; on Windows its
+  `..` first, as Windows writes it. Each reading is decided by the work
+  tree of the repository that holds its file, and the stricter decision
+  stands, refused over asked, asked over warned, warned over passed
+  (`decideWritten`, `src/guard.ts`). Where the two are as strict, the path
+  is decided as it reads, as before; where the written one decides, it is
+  said with the path given and where it is written:
+  `<path> is written to lib/schema.ts through a link: brief 042 does not
+  empower this round to change lib/schema.ts (protectedFiles: lib/**)`.
+- **Everywhere a path is decided**: the hook before a write and after it,
+  `guard`, the server's `check_path`, git's hook, and the reading of a
+  write outside every work tree, which no brief holds (the amendment of
+  2026-10-19 that lets a configuration that does not load have a write to
+  itself through): a path is outside where both its files are.
+- **A link from one work tree into another** has its written reading
+  decided by the work tree it leads into, by that work tree's branch and
+  briefs, as the amendment of 2026-10-19 that has a path decided by the
+  work tree of the repository that holds it has every path decided; a test
+  holds it, before a write and after one.
+- **What each reading lets through.** Read only as it reads, every row of
+  the table that turned was let through. Read only as the system writes it,
+  `lib/up/../a.ts` would be, `src/app/a.ts` in the scope, where a tool that
+  takes the `..` out first writes `lib/a.ts`, which is protected. Read both
+  ways, no link makes a protected file read as another where the path
+  reaches the file by either reading. What is left: a link made or changed
+  between the hook's check and the write, as for every path; a path through
+  more than 40 links, past which Linux writes nothing and which is decided
+  as it reads (path_resolution(7), read 2026-10-24, has Linux follow at
+  most 40 in resolving a pathname); a directory the account may not look
+  into, which a write cannot pass either; and on Windows a symbolic link to
+  a file, which was not measured.
+- **macOS is read as Linux is**, a `..` after the link before it. That is
+  not measured here: the suite's macOS leg runs the test that writes
+  through a link and reads where the write landed, as the Linux legs do,
+  and fails where it lands elsewhere.
+- **What is unchanged.** A path through no link reads one way, as before,
+  and every answer for it is as it was. A path with a `..` in it outside
+  every work tree is still held where a problem holds every write inside,
+  though both its readings may now name a file outside: nothing measured
+  asked for it to pass, and it is left.
+
+The lines of the hook the amendments above measured, as a session starts,
+before ten writes and after each, as a turn ends, and git's hook, were run
+through the launchers of main and of this change taking turns, in a
+project whose configuration loads, in one with links, and in five where
+something holds every write or nothing names a brief
+(`b26-measure/hook-compare.mjs`): on Windows, 1,877 runs, every one the
+same; on Linux, 1,949 runs, of which 14 differ, each a path through a link
+in the project with links: the two lines of the hook that guard there,
+`hook claude` and `hook claude --root <repo>`, now refuse it before the
+write where main passed it, and say nothing after it where main warned of
+the file the path reads as. `tests/integration/released-lines.test.ts`
+holds.
+
+**What it costs**: an `lstat` of each name of the path, and a `readlink`
+of each link, with no process. Measured on the Windows workstation, the
+builds taking turns, ten rounds at the median with the 95th percentile
+between brackets, where starting node to do nothing took 68 ms beside them
+(`b26-measure/bench.mjs`):
+
+| The hook | main | This change |
+| --- | ---: | ---: |
+| before an Edit, no brief named | 206 ms (589) | 207 ms (512) |
+| before an Edit in the scope, on a brief's branch | 504 ms (1,286) | 503 ms (1,067) |
+| before an Edit of a protected file, which it refuses | 489 ms (1,729) | 501 ms (1,089) |
+| before an Edit through a junction, of a protected file | 485 ms (614) | 564 ms (703) |
+| as a session starts, on a brief's branch | 447 ms (594) | 427 ms (1,029) |
+
+A path is walked where the work tree that holds it is found and again
+where it is decided, each name from the root, and the names of a link that
+names an absolute path from the root again, which on Windows is most of
+what the row through a junction adds.
+
+A write that passed is refused, and `guard` exits 1 for it: a minor
+release (spec-core's ADR-0009).
+
 ## Consequences
 
 An agent that writes through a shell passes the guard and is caught at the

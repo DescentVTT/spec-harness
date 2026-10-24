@@ -3,9 +3,9 @@
  * directory outside the work tree, and paths as the filesystem spells them.
  */
 
-import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, statSync, type Stats } from 'node:fs';
+import { existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, realpathSync, statSync, type Stats } from 'node:fs';
 import { lstat, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, parse, relative, resolve, sep } from 'node:path';
 
 import type { BriefInputs } from './briefs.js';
 import { ConfigError, CONFIG_FILE, DEFAULT_CONFIG, parseConfig, type HarnessConfig } from './config.js';
@@ -143,6 +143,94 @@ export function realSpelling(path: string): string {
 }
 
 /**
+ * The most links the written reading of a path follows. Linux follows at
+ * most 40 in resolving a pathname, and fails the call with ELOOP past them
+ * (path_resolution(7)), so no write reaches a file through more.
+ */
+const MOST_LINKS = 40;
+
+/**
+ * A path's names, separated as the system separates them: Windows takes `/`
+ * as well as `\`, where Linux and macOS take a `\` for a character of a name.
+ * The sweep runs on Linux, where the mutants that read the pattern there, or
+ * change it, are equivalent; the suite's Windows leg holds them.
+ */
+function namesOf(path: string): string[] {
+  return path.split(sep === '/' ? '/' : /[\\/]/);
+}
+
+/**
+ * The real spelling of the file a write of `given` reaches, read from `cwd`
+ * where it is relative; `null` where it reaches none, through more links
+ * than the system follows or a loop of them. Linux reads a `..` after the
+ * link before it, and macOS is read so, so `deep/../schema.ts`, `deep` a
+ * link to `lib/x`, is written as `lib/schema.ts` (measured on Linux), where
+ * {@link realSpelling} reads the `..` first and names `schema.ts`; Windows
+ * reads the `..` first, as resolve does (measured, through a junction). And
+ * a link to nothing is followed, since a write opens the file it names and
+ * makes it there (measured on Linux), where `realSpelling` names the link.
+ * The names are walked one by one from the root, each link replaced by what
+ * it names, so the directory reached holds no link, and `join` reads a `.`,
+ * a `..` and an empty name from it as the system does; what is not there
+ * yet is made as written.
+ */
+export function writtenSpelling(given: string, cwd: string): string | null {
+  // On Linux, where the sweep runs, the mutant that reads every path as
+  // Windows does is caught, and the one that reads every path as Linux does
+  // is equivalent; the suite's Windows leg holds it. The root is taken off
+  // the names as it is off a link's, below.
+  const absolute = sep === '/' ? (isAbsolute(given) ? given : `${cwd}/${given}`) : resolve(cwd, given);
+  const root = parse(absolute).root;
+  const names = namesOf(absolute.slice(root.length));
+  let at = root;
+  let links = 0;
+  while (names.length > 0) {
+    const next = join(at, names.shift()!);
+    let target: string;
+    try {
+      if (!lstatSync(next).isSymbolicLink()) {
+        at = next;
+        continue;
+      }
+      target = readlinkSync(next);
+    } catch {
+      // Nothing there, or nothing the account may look into: a write makes
+      // what is not there as written, and reaches nothing past a directory
+      // it may not look into.
+      at = join(next, ...names);
+      break;
+    }
+    links += 1;
+    if (links > MOST_LINKS) return null;
+    // A link names a path from the directory it stands in, or from a root,
+    // which is taken off its names: on Linux and macOS the root is `/`,
+    // whose name is empty and read as none, so keeping it there is
+    // equivalent; on Windows it is the drive (a test holds it there).
+    const top = parse(target).root;
+    if (top !== '') at = top;
+    names.unshift(...namesOf(target.slice(top.length)));
+  }
+  // The walk spells what exists as given, links followed; where case is
+  // ignored, the entries' case is the real one. On Linux, where the sweep
+  // runs, the two are one, so the mutant that leaves this out is equivalent
+  // there (a test holds it on Windows and macOS).
+  return realSpelling(at);
+}
+
+/**
+ * Every file a write of `given` may reach, each by its real spelling: the
+ * one the path reads as ({@link realSpelling}), and the one the system
+ * writes ({@link writtenSpelling}) where that is another. The hook does not
+ * know which of the two a tool writes, so it decides both (ADR-0005). A
+ * path that reaches no file is read as it reads.
+ */
+export function reachedBy(given: string, cwd: string): string[] {
+  const read = realSpelling(resolve(cwd, given));
+  const written = writtenSpelling(given, cwd);
+  return written === null || written === read ? [read] : [read, written];
+}
+
+/**
  * Whether `directory` is the one git names as the top of a work tree: the
  * two spelled alike once the filesystem has spelled the directory, links
  * and short names resolved, as git spells a top. A spelling that differs is
@@ -215,10 +303,11 @@ export function workTrees(top: string, common: string): string[] | null {
 
 /**
  * Whether every path lies outside every work tree of the repository whose
- * top and common directory are given: such a path is no file of the
- * repository's, so no brief of its decides it, whatever is wrong with the
- * brief or the configuration (ADR-0005). Where the work trees cannot all
- * be named, a path is not known to be outside them, and this is `false`.
+ * top and common directory are given, as it reads and as the system writes
+ * it ({@link reachedBy}): such a path is no file of the repository's, so no
+ * brief of its decides it, whatever is wrong with the brief or the
+ * configuration (ADR-0005). Where the work trees cannot all be named, a
+ * path is not known to be outside them, and this is `false`.
  */
 export function outsideEvery(paths: readonly string[], top: string, common: string, cwd: string): boolean {
   // A write that names no path is no write outside: no caller asks of
@@ -228,13 +317,17 @@ export function outsideEvery(paths: readonly string[], top: string, common: stri
   // is told with nothing of git's directory read; read anyway, `top` is
   // among the work trees, so the mutant without this test is equivalent.
   if (paths.some((path) => repositoryPath(path, top, cwd) !== null)) return false;
-  // A path is read here as the hook reads one, its `..` before its links,
-  // where Linux and macOS write it after: `/elsewhere/link/../a.ts`, the
-  // link to a directory of the work tree, reads as outside and is written
-  // inside. Such a path is not known to be outside.
+  // A path with a `..` in it was held here when the hook read a path one
+  // way, its `..` before its links: `/elsewhere/link/../a.ts`, the link to
+  // a directory of the work tree, read as outside and was written inside.
+  // Both readings are read below, and such a path is held as it was all
+  // the same (ADR-0005).
   if (paths.some((path) => path.split(/[\\/]/).includes('..'))) return false;
+  // As a path reads and as the system writes it, a link to nothing among
+  // its links: the file it reaches is outside too, or the path is not.
+  const reached = paths.flatMap((path) => reachedBy(path, cwd));
   const trees = workTrees(top, common);
-  return trees !== null && paths.every((path) => trees.every((tree) => repositoryPath(path, tree, cwd) === null));
+  return trees !== null && reached.every((path) => trees.every((tree) => repositoryPath(path, tree, cwd) === null));
 }
 
 /**
