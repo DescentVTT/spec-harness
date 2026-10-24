@@ -7,6 +7,7 @@
  * become a command.
  */
 
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { execFile } from 'node:child_process';
 
 import type { FileChange, LocalBranch } from './types.js';
@@ -38,6 +39,27 @@ export const ANSWER_MS = 20_000;
  */
 export const WORK_MS = 600_000;
 
+/** The run a process is started in, where it has a budget: its length, and when it ends, as `performance.now()` reads it. */
+const budget = new AsyncLocalStorage<{ readonly ms: number; readonly end: number }>();
+
+/** Runs `work` with every process it starts given no more than what is left of `ms` from now. */
+export function withBudget<T>(ms: number, work: () => Promise<T>): Promise<T> {
+  return budget.run({ ms, end: performance.now() + ms }, work);
+}
+
+/**
+ * The time a process is given, `limit`, or what is left of the budget of
+ * the run it is started in where that is less, with the words that say
+ * which: the run's budget is said as such, so that a write held at it says
+ * why. A run with nothing left is given 0, and starts nothing.
+ */
+export function timeFor(limit: number): { readonly ms: number; readonly said: string } {
+  const run = budget.getStore();
+  const left = run === undefined ? limit : run.end - performance.now();
+  if (left >= limit) return { ms: limit, said: `${limit / 1000} seconds` };
+  return { ms: Math.max(0, Math.ceil(left)), said: `the ${run!.ms / 1000} seconds the hook's run is given` };
+}
+
 /**
  * Whether a process ended because the harness stopped it at its time
  * limit: Node kills it then and says so with `killed`. It kills one for
@@ -61,12 +83,14 @@ function subcommand(args: readonly string[]): string {
  * branch, under which the hook checks no write.
  */
 export function git(args: readonly string[], cwd: string, limit = ANSWER_MS): Promise<Run> {
+  const { ms, said } = timeFor(limit);
+  if (ms === 0) return Promise.reject(new GitError(`git ${subcommand(args)} was not started: ${said} had passed`));
   return new Promise((resolve, reject) => {
     // windowsHide only keeps a console window from flashing up on Windows,
     // and the sweep runs on Linux, where its mutant is equivalent.
-    execFile('git', [...args], { cwd, maxBuffer: 256 * 1024 * 1024, encoding: 'utf8', windowsHide: true, timeout: limit }, (error, stdout, stderr) => {
+    execFile('git', [...args], { cwd, maxBuffer: 256 * 1024 * 1024, encoding: 'utf8', windowsHide: true, timeout: ms }, (error, stdout, stderr) => {
       if (stoppedAtLimit(error)) {
-        reject(new GitError(`git ${subcommand(args)} did not answer within ${limit / 1000} seconds, and was stopped`));
+        reject(new GitError(`git ${subcommand(args)} did not answer within ${said}, and was stopped`));
         return;
       }
       // Every caller tells 0 from any other code, never one failure from

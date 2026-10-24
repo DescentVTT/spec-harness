@@ -71,6 +71,21 @@ export const SESSION_START = 'SessionStart';
  */
 export const TURN_END = 'Stop';
 
+/**
+ * How long a run of Claude Code's hook is given, every process it starts
+ * together (ADR-0002). Claude Code's hooks reference (Timeouts and Common
+ * fields, read 2026-10-24) has a command hook cancelled at its entry's
+ * `timeout`, 600 seconds where the entry gives none, and a PreToolUse hook
+ * it cancels blocks no tool call; init and the plugin give the entry 60.
+ * Each process asked a question keeps its 20 seconds (`ANSWER_MS`,
+ * git.ts), but several that answer slowly, none of them at that, passed the
+ * minute, and the write went ahead. So a run has this, from when the hook
+ * begins its work, and a process is given no more of it than is left;
+ * Node's start and the reading of the question, before it, are inside the
+ * margin to the minute.
+ */
+export const HOOK_BUDGET_MS = 45_000;
+
 /** The events that name no tool, which the hook answers of the session and not of a write. */
 const NO_TOOL: readonly string[] = [SESSION_START, TURN_END];
 

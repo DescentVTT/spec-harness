@@ -20,7 +20,7 @@ import { join } from 'node:path';
 import { inputsOf, parseBriefList, SiblingOutputError } from './briefs.js';
 import type { HarnessConfig, SiblingName } from './config.js';
 import { hasher, isFile, keepAnswer, keptAnswer, readsAsListed, type Hash } from './fs.js';
-import { ANSWER_MS, stoppedAtLimit, WORK_MS } from './git.js';
+import { ANSWER_MS, stoppedAtLimit, timeFor, WORK_MS } from './git.js';
 import type { BriefRow } from './types.js';
 import { checkVersion } from './versions.js';
 
@@ -104,6 +104,8 @@ export function declaredVersion(file: string): unknown {
 export function runSibling(name: string, command: readonly string[], args: readonly string[], root: string, limit = WORK_MS): Promise<SiblingRun> {
   const [first, ...rest] = command;
   const program = first === 'node' ? process.execPath : (first as string);
+  const { ms, said } = timeFor(limit);
+  if (ms === 0) return Promise.reject(new SiblingError(`${name} was not started: ${said} had passed`));
   return new Promise((resolve, reject) => {
     execFile(
       program,
@@ -115,13 +117,13 @@ export function runSibling(name: string, command: readonly string[], args: reado
         // Keeps a console window from opening on Windows; the sweep runs on
         // Linux, where the mutant is equivalent.
         windowsHide: true,
-        timeout: limit,
+        timeout: ms,
         shell: false,
         env: { ...process.env, NO_COLOR: '1', FORCE_COLOR: '0' },
       },
       (error, stdout, stderr) => {
         if (stoppedAtLimit(error)) {
-          reject(new SiblingError(`${name} did not answer within ${limit / 1000} seconds, and was stopped`));
+          reject(new SiblingError(`${name} did not answer within ${said}, and was stopped`));
           return;
         }
         const failure = error as (Error & { code?: unknown }) | null;
