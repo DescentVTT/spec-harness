@@ -856,7 +856,7 @@ page's, not measured here: no Claude Code was run.
 **What the budget leaves a run**, on GitHub's Windows runner
 (`windows-2025-vs2026`), thirty rounds, the two builds taking turns inside
 each, through a workflow of a branch of its own that measured and is not
-merged (`measure/b26-budget-on-windows`):
+merged (`measure/b26-budget-on-windows`, run 40102588740):
 
 | The run | main | This change |
 | --- | ---: | ---: |
