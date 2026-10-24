@@ -606,8 +606,9 @@ export function writtenHooks(settings: unknown): WrittenHook[] {
 type Line = Omit<WrittenHook, 'events'>;
 
 function sameLine(one: Line, other: Line): boolean {
+  // `shell` is not compared: it follows from whether a shell reads the
+  // launcher and from the words after it, which are.
   return (
-    one.shell === other.shell &&
     one.blocks === other.blocks &&
     one.untyped === other.untyped &&
     one.launcher.word === other.launcher.word &&

@@ -639,7 +639,9 @@ export async function diagnoseBrief(
   if (sibling.kind !== 'found') {
     // Under the flag or SPEC_BRIEF, a spec-brief that cannot be run is a row
     // of the report, with the reason. Under the branch it is the reason
-    // the hook holds every write, and said as one it could not ask.
+    // the hook holds every write, and said as one it could not ask. There
+    // `holds` fails doctor whatever `branch` says, and nothing else reads
+    // `branch`, so its `false` is equivalent to its mutant.
     return byBranch ? { id, problem: couldNotSay(id, sibling.reason), branch: false, holds: true } : { id, problem: null, branch: false, holds: false };
   }
   try {

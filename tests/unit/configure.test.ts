@@ -1490,6 +1490,8 @@ describe("the lines of Claude Code's hook in its settings, and what doctor says 
     expect(here(settings(exec('--brief', '001')))[0]?.note).toBe(`"hook claude --brief 001" in .claude/settings.json ${ADVICE}it is written on each of its entries`);
     expect(here(settings(HOOK), '.claude/settings.local.json')[0]?.note).toBe(`"hook claude" in .claude/settings.local.json ${ADVICE}it is written on each of its entries`);
     expect(here(settings(shell(LEGACY)))[0]?.note).toBe(`${W} ${ADVICE}it is written on each of its entries`);
+    // The same line by another node is one line, and not all init's: its entries are the person's to give the field.
+    expect(here(settings(HOOK, { ...HOOK, command: '/usr/local/bin/node' }))).toEqual([expect.objectContaining({ note: `${W} ${ADVICE}it is written on each of its entries` })]);
     // Beside 0.1's entry, which names the harness otherwise and is a line of its own, init's line is all init's.
     expect(here(settings(HOOK, shell(LEGACY))).map((each) => each.note)).toEqual([`${W} ${ADVICE}spec-harness init --write --block-on-failure writes it on these entries`, `${W} ${ADVICE}it is written on each of its entries`]);
     // A line that sets it is said as before.
