@@ -4,13 +4,13 @@
  */
 
 import { readFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join } from 'node:path';
 import { parseArgs, type ParseArgsOptionsConfig } from 'node:util';
 
 import { findActive, type ActiveBrief, type ActiveSource } from './briefs.js';
 import { briefIdFromBranch, ciBranch } from './branch.js';
 import type { HarnessConfig } from './config.js';
-import { holdsGit, isTop, loadConfig, mainWorkTree, realSpelling, repositoryPath } from './fs.js';
+import { holdsGit, isTop, loadConfig, mainWorkTree, reachedBy, realSpelling, repositoryPath } from './fs.js';
 import { commonDirectory, currentBranch, workTree, workTreeRoot, type WorkTree } from './git.js';
 import type { FindingFormat } from './formats.js';
 import { createSiblings, type Siblings } from './siblings.js';
@@ -429,8 +429,9 @@ function topAbove(path: string): string | null {
 
 /**
  * The innermost work tree of the repository the work tree `named` is one of
- * that holds a path, where it is not `named` itself: a linked worktree or the
- * main one, inside the project, beside it, or around it (ADR-0005). The
+ * that holds a file, given by its real spelling, where it is not `named`
+ * itself: a linked worktree or the main one, inside the project, beside it,
+ * or around it (ADR-0005). The
  * directories above the path are looked through, with no process, for each
  * that holds a `.git`; git is asked of each that is not `named`'s top, and
  * one that git names as no work tree of this repository's, a submodule's, a
@@ -439,10 +440,9 @@ function topAbove(path: string): string | null {
  * met is `named`, or none is: the path is decided by `named`, as before, a
  * path in no work tree of the repository among them.
  */
-async function treeHolding(named: Workspace, path: string, from: string): Promise<FoundTree | null> {
+async function treeHolding(named: Workspace, spelled: string): Promise<FoundTree | null> {
   const own = realSpelling(named.root);
-  // An absolute path, as Claude Code sends one, is what resolve leaves it.
-  for (let top = topAbove(realSpelling(resolve(from, path))); top !== null; top = topAbove(top)) {
+  for (let top = topAbove(spelled); top !== null; top = topAbove(top)) {
     if (top === own) return null;
     const tree = await otherTree(named, top);
     // git names a work tree whose top is not this directory where it reads
@@ -478,10 +478,19 @@ export async function writesBy(named: Workspace, cwd: string | null, paths: read
   // The parts in the order their work trees are first met, each with its
   // paths in the order they were named.
   for (const path of paths) {
-    const tree = await treeHolding(named, path, from);
-    const part = trees.find((other) => other.tree?.root === tree?.root);
-    if (part === undefined) trees.push({ tree, paths: [path] });
-    else part.paths.push(path);
+    // Each file the path reaches, as it reads and as the system writes it,
+    // by the work tree that holds that file: a link can lead from one work
+    // tree into another, and each decides the file it holds.
+    const held: (FoundTree | null)[] = [];
+    for (const spelled of reachedBy(path, from)) {
+      const tree = await treeHolding(named, spelled);
+      if (!held.some((other) => other?.root === tree?.root)) held.push(tree);
+    }
+    for (const tree of held) {
+      const part = trees.find((other) => other.tree?.root === tree?.root);
+      if (part === undefined) trees.push({ tree, paths: [path] });
+      else part.paths.push(path);
+    }
   }
   // The root's own last, as it was decided after the work tree Claude works in.
   const ordered = [...trees.filter((part) => part.tree !== null), ...trees.filter((part) => part.tree === null)];

@@ -51,9 +51,9 @@ import {
 } from './configure.js';
 import { readRules, renderContext, type CitedDocument, type ContextPacket, type Rules } from './context.js';
 import type { DocumentReader } from './document.js';
-import { isDirectory, isFile, readJsonObject, readText, repositoryPath, stateDirectory, writeAtomic } from './fs.js';
+import { isDirectory, isFile, reachedBy, readJsonObject, readText, repositoryPath, stateDirectory, writeAtomic } from './fs.js';
 import { blameLine, changes, commonDirectory, isUncommitted, mergeBase, remoteDefault, revision, show, verifyCommit, workTreeRoot } from './git.js';
-import { decide, type Decision, type VerifiedRuling } from './guard.js';
+import { decide, decideWritten, type Decision, type VerifiedRuling } from './guard.js';
 import { diffManifest, ecosystemOf, readManifestNames, type DependencyChange, type InstallScriptChange } from './manifests.js';
 import {
   addRulingRow,
@@ -182,9 +182,15 @@ export async function checkPaths(
   reader: DocumentReader | (() => Promise<DocumentReader>),
   baseFlag: string | undefined,
 ): Promise<Decision[]> {
-  const resolved = given.map((path) => ({ given: path, path: repositoryPath(path, workspace.root, cwd) }));
+  // Each path as it reads and as the system writes it, which a link can make
+  // two files: the last a path reaches is the one it is written to, or the
+  // one it reads as where that is all it reaches (ADR-0005).
+  const resolved = given.map((path) => ({ given: path, path: repositoryPath(path, workspace.root, cwd), written: repositoryPath(reachedBy(path, cwd).at(-1)!, workspace.root, cwd) }));
   const decideAll = (rulings: readonly VerifiedRuling[]): Decision[] =>
-    resolved.map(({ path, given: g }) => decide({ path, given: g, brief, noBrief, rulings, outOfScope: workspace.config.outOfScope }));
+    resolved.map(({ path, given: g, written }) => {
+      const input = { path, given: g, brief, noBrief, rulings, outOfScope: workspace.config.outOfScope };
+      return decideWritten(decide(input), { ...input, path: written });
+    });
   const first = decideAll([]);
   // Rulings cost the reader of a brief, and a blame and a signature check
   // each, so they are read only when a write reaches a protected file. Read
