@@ -9,6 +9,28 @@ only fixes, reports less or documents, so `^0.7.0` takes only releases that
 cannot turn a run red. The family's policy is
 [spec-core's ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
+## Unreleased
+
+### Changed
+
+- **`doctor` fails nothing for the branch that archived its brief, a
+  round's last commit.** A round archives its brief on its own branch
+  before the branch merges, and since 0.20.0 `doctor` exited 1 there, so a
+  CI job that runs it failed every round's last pull request. Where git
+  says the brief's archived file is in HEAD and not at the merge base of
+  the base and HEAD, `doctor` says so in a note and exits 0 for it; where
+  the file is at the merge base, a closed round's branch used again, it
+  exits 1 as before, and so where git cannot say. `--format json` has the
+  answer as `closedRound`. The hook holds every write on such a branch as
+  before, and says the round is archived and ends when the branch merges
+  ([ADR-0004](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0004-the-active-brief-is-named-not-guessed.md)).
+  Upgrading: a CI job that runs `doctor` fetches the base under the name it
+  is configured by, with its history (`git fetch origin main:main`, in a
+  clone that is not shallow); without it, a base that names no commit or a
+  shallow history, a round's last pull request still fails `doctor`. Run
+  `doctor` in CI without `--strict`, which fails where the release of
+  Claude Code cannot be told.
+
 ## 0.20.0
 
 The hook decides each path by the work tree that holds it, a third

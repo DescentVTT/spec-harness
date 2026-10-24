@@ -600,27 +600,33 @@ async function hookLineHere(words: readonly string[], root: string, io: CliIO): 
  * setup that holds every write, as a hook's line naming such a brief is
  * (ADR-0004). A name the flag gives is the question doctor was asked, and
  * holds no write of anyone's.
+ *
+ * `archived` is the brief the branch names where spec-brief has archived
+ * it, which doctor reads further in git: the branch that archived it waits
+ * to merge, and fails nothing (ADR-0004). It reads nothing else, and the
+ * problem is the one every write is held with, as before.
  */
 export async function diagnoseBrief(
   workspace: Workspace,
   options: Pick<Options, 'brief'>,
   env: CliIO['env'],
-): Promise<{ readonly id: string | null; readonly problem: string | null; readonly branch: boolean }> {
-  if (options.brief !== undefined && isBlank(options.brief)) return { id: null, problem: emptyValue('--brief', 'brief', options.brief), branch: false };
+): Promise<{ readonly id: string | null; readonly problem: string | null; readonly branch: boolean; readonly archived: BriefRow | null }> {
+  if (options.brief !== undefined && isBlank(options.brief)) return { id: null, problem: emptyValue('--brief', 'brief', options.brief), branch: false, archived: null };
   const id = namedId(workspace, options, env);
   // A spec-brief that cannot be run is a row of the report, with the reason.
-  if (workspace.siblings.locate('spec-brief').kind !== 'found') return { id, problem: null, branch: false };
+  if (workspace.siblings.locate('spec-brief').kind !== 'found') return { id, problem: null, branch: false, archived: null };
   try {
     // Where nothing names a brief, spec-brief is not asked (ADR-0004), and
     // there is no problem to state.
     const active = await activeBrief(workspace, options, env);
     const branch = (active.kind === 'unknown' || active.kind === 'archived') && active.source === 'branch';
-    return { id, problem: describeActive(active).problem, branch };
+    const archived = active.kind === 'archived' && active.source === 'branch' ? active.brief : null;
+    return { id, problem: describeActive(active).problem, branch, archived };
   } catch (error) {
     // Asking spec-brief throws nothing but this, so the check is equivalent
     // to its mutant; it keeps any other error the stack it needs.
     if (!(error instanceof SiblingError)) throw error;
-    return { id, problem: `spec-brief could not say whether it knows brief ${id}: ${error.message}`, branch: false };
+    return { id, problem: `spec-brief could not say whether it knows brief ${id}: ${error.message}`, branch: false, archived: null };
   }
 }
 

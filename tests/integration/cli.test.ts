@@ -692,17 +692,19 @@ describe('doctor on a brief or a base that names nothing', () => {
   it('fails for a branch that names a brief no round can work under, which holds every write, and says it in the words the hook holds a write with', async () => {
     // It said the brief and exited as it would have, where the hook held every write (ADR-0004).
     const named = repository({ [BRIEF_FILE]: brief(), 'briefs/archive/003_old.md': brief({ title: '003 - Old', status: 'archived' }) });
-    for (const [branch, line] of [
-      ['brief/999-nowhere', 'the branch names brief 999, and spec-brief knows no such brief'],
-      ['brief/003-old', 'the branch names brief 003, which is archived; a closed round writes nothing'],
-      ['fix/brief-list-order', 'the branch names brief list, and spec-brief knows no such brief'],
+    // Brief 003 was archived on main, before the branch: a closed round's
+    // branch used again, which closed-round.test.ts reads further.
+    for (const [branch, line, mend] of [
+      ['brief/999-nowhere', 'the branch names brief 999, and spec-brief knows no such brief', 'Fix the brief or the branch before writing.'],
+      ['brief/003-old', 'the branch names brief 003, which is archived; a closed round writes nothing', 'The round is archived and ends when this branch merges: write on the branch of a live brief.'],
+      ['fix/brief-list-order', 'the branch names brief list, and spec-brief knows no such brief', 'Fix the brief or the branch before writing.'],
     ] as const) {
       named.git('checkout', '-q', '-B', branch, 'main');
       const result = await cli(['doctor'], named.root);
       expect(result.code, branch).toBe(1);
       expect(briefLine(result.stdout), branch).toBe(`none: ${line}`);
       const write = JSON.stringify({ cwd: named.root, hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: join(named.root, 'src', 'a.ts') } });
-      expect(await cli(['hook', 'claude'], named.root, { stdin: write, env: { CLAUDE_PROJECT_DIR: named.root } }), branch).toEqual({ code: 2, stdout: '', stderr: `spec-harness: ${line}. Fix the brief or the branch before writing.\n` });
+      expect(await cli(['hook', 'claude'], named.root, { stdin: write, env: { CLAUDE_PROJECT_DIR: named.root } }), branch).toEqual({ code: 2, stdout: '', stderr: `spec-harness: ${line}. ${mend}\n` });
       // The flag is the question doctor was asked, and names the brief in the branch's place.
       expect((await cli(['doctor', '--brief', '1'], named.root)).code, branch).toBe(0);
     }

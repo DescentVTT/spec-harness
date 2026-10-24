@@ -301,6 +301,41 @@ export async function show(ref: string, path: string, cwd: string): Promise<stri
   return run.code === 0 ? run.stdout : null;
 }
 
+/**
+ * Whether a commit's tree holds `path`, a path from the top of the work tree
+ * read as written: `true` where git lists it, `false` where git lists
+ * nothing for it, and `null` where git could not say, for a commit it does
+ * not have among them. {@link show} answers `null` for a file that is not
+ * there and for a git that failed alike, which can only make an answer
+ * stricter; this tells the two apart, so that an answer may be loosened by a
+ * file that git says is not there.
+ *
+ * ls-tree reads its paths as patterns, from the directory it is started in
+ * (git-ls-tree(1), Description, as Git for Windows 2.55.0 has it, read
+ * 2026-10-24): `--full-tree` has it read them from the top, and
+ * `--literal-pathspecs` with no globbing and no magic (git(1), Options), so
+ * a name such as `:(top)x.md` names that file, where ls-tree would read it
+ * as `x.md`.
+ */
+export async function holdsPath(commit: string, path: string, cwd: string): Promise<boolean | null> {
+  const run = await git(['--literal-pathspecs', 'ls-tree', '-z', '--full-tree', '--name-only', commit, '--', path], cwd);
+  return run.code === 0 ? run.stdout !== '' : null;
+}
+
+/**
+ * Whether the history is cut short, as a clone or a fetch with `--depth`
+ * leaves it, where a merge base git finds can be an older commit than the
+ * one the whole history has; `null` where git could not say. rev-parse
+ * learned the question in 2.15.0 (its release notes), and prints `true` or
+ * `false` (git-rev-parse(1), Options for Files, read 2026-10-24); anything
+ * else is no answer.
+ */
+export async function isShallow(cwd: string): Promise<boolean | null> {
+  const answer = await value(['rev-parse', '--is-shallow-repository'], cwd);
+  if (answer === 'true') return true;
+  return answer === 'false' ? false : null;
+}
+
 /** Whether a commit id from {@link blameLine} is the all-zero one of a line nobody committed. */
 export function isUncommitted(sha: string): boolean {
   return /^0+$/.test(sha);
