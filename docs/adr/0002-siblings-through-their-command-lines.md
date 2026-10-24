@@ -771,6 +771,129 @@ and left as it was:
   whose file is a named pipe, so the hook holds the write as for a brief
   that is not there; that is spec-brief's to say better.
 
+*Amended 2026-10-24.* **A run of Claude Code's hook has one budget for
+every process it starts, below the timeout of its entry, and holds the
+write at it.** The amendment of 2026-10-19 that gave every process a time
+limit measured two things and left them. *Claimed* by round 25's agent B:
+each process the harness starts has 20 seconds, but several slow ones can
+together pass 60, and a person's own entry `timeout` below 20 seconds cuts
+the hook short.
+
+What Claude Code's hooks reference has, read 2026-10-24
+(<https://code.claude.com/docs/en/hooks>, *Common fields* and *Timeouts*).
+An entry's `timeout` is the seconds before Claude Code cancels the hook:
+600 by default for a command hook, and lower on events the harness does
+not answer (30 on `UserPromptSubmit`, 10 on `MessageDisplay`); it is not
+enforced on a command hook run with `async: true`. A hook cancelled at its
+timeout has its output discarded, and on `PreToolUse` it does not block the
+tool call unless its entry sets `onFailure: "block"`; the call goes on
+through the normal permission flow. `init` and the plugin give the hook's
+entries 60 (`GUARD_HOOK`, `src/configure.ts`, and `hooks/hooks.json`). So
+the default the decision names, the timeout Claude Code gives a command
+hook, is 600 seconds on the page as it reads today; the 60 the claim names
+is every release's own entry, and a budget below it is below both.
+
+*Measured* through the launcher of main (4227a6a) and of this change, in a
+Linux container as an ordinary account (`node:24-slim`, Node 24.22.1, git
+2.39.5), with a `git` in front of the real one on `PATH` that waits 15
+seconds before each start, and spec-brief named under `tools` by a script
+that waits 15 seconds before it lists the briefs, its own git as fast as
+ever (`b26-measure/b3.mjs`): in a project on brief 042's branch, whose
+brief protects `src/db/**` and has two rows of rulings that allow, with
+the allowed signers on the base; the hook handed the question as Claude
+Code's entry would.
+
+| The hook, each start of git and spec-brief's list 15 seconds | main | Now |
+| --- | --- | --- |
+| before an Edit of the protected file two rulings allow | 11 processes in 9 waves; refused at 137.3 seconds | held at 45.1: `cannot check this write: git rev-parse did not answer within the 45 seconds the hook's run is given, and was stopped` |
+| before an Edit of a worktree's protected file, `cwd` in the worktree | 13 processes; refused at 152.1 seconds | held at 45.1, by spec-brief in the same words |
+| before an Edit in the scope | 3 processes in 2 waves; nothing, at 31.8 seconds | the same, at 30.4 |
+| after an Edit outside the scope, with no run before it | a warning, at 31.8 seconds | the same, at 30.3 |
+| as a session starts, on a brief's branch | nothing, at 31.5 seconds | the same, at 30.3 |
+
+So the claim holds: a run whose every process answered inside its 20
+seconds took more than two minutes, and before a write Claude Code would
+have cancelled it at 60 and let the write go ahead, its refusal never
+given. That a person's own `timeout` below 20 cuts the hook short is the
+page's, not measured here: no Claude Code was run.
+
+- **One budget a run** (`HOOK_BUDGET_MS`, `src/hooks.ts`): 45 seconds for
+  every process a run of `hook claude` starts, together, counted from when
+  the hook begins its work, so that Node's start and the reading of the
+  question, before it, are inside the margin to the 60. Every event the
+  hook answers has it: before a write, after one, as a session starts and
+  as a turn ends.
+- **Each process is given what is left of it, and no more than its own
+  limit** (`timeFor`, `src/git.ts`): a question keeps its 20 seconds where
+  more of the budget than that is left, and is given what is left where
+  less is; work keeps its ten minutes the same way. The decision gave a
+  process what is left; a hang is then answered at the budget, 45 seconds,
+  where it was answered at 20, so a question keeps its 20 inside it.
+- **At the budget the write is held, in the time limit's words**: a process
+  that has not answered when the budget ends is stopped, and said as
+  `spec-brief did not answer within the 45 seconds the hook's run is given,
+  and was stopped`; one that would start after it is not started, `git
+  rev-parse was not started: the 45 seconds the hook's run is given had
+  passed`. Each is the `SiblingError` or `GitError` a process at its limit
+  gives: before a write `cannot check this write: ...`, exit 2, which holds
+  it; after a write exit 2 in the same words; as a session starts, the line
+  every write is held with; as a turn ends, the report's words for what
+  stopped it.
+- **`hook git`, `doctor` and every other command keep each process's limit
+  alone**: no entry of Claude Code's runs them, so nothing cancels them
+  short of it.
+- **`doctor` notes an entry whose `timeout` is below the budget**, by the
+  line and the event it stands under: `"hook claude" in .claude/settings.json
+  gives the hook 10 seconds under PreToolUse and 10 seconds under
+  PostToolUse, less than the 45 a run of it is given, so Claude Code
+  cancels a run that takes longer before it answers, and a write it would
+  have held goes ahead: give the entry 60, as init writes it, or no
+  timeout`. A note, which fails nothing: the timeout is the person's, and a
+  run that needs its budget is rare. A `timeout` that is no number is not
+  read. `--format json` has it as each line's `timeout`, `null` where there
+  is nothing to say, a field added, so no `schemaVersion` moves.
+
+**What the budget leaves a run**, on GitHub's Windows runner
+(`windows-2025-vs2026`), thirty rounds, the two builds taking turns inside
+each, through a workflow of a branch of its own that measured and is not
+merged (`measure/b26-budget-on-windows`):
+
+| The run | main | This change |
+| --- | ---: | ---: |
+| before an Edit in the scope, on a brief's branch | 325 ms (353), at most 598 | 330 ms (349), 412 |
+| before an Edit of a protected file two allow rulings name | 610 ms (674), 1,004 | 614 ms (682), 699 |
+| before an Edit of a worktree's protected file, `cwd` in the worktree | 666 ms (718), 718 | 661 ms (685), 877 |
+| as a session starts, on a brief's branch | 305 ms (320), 323 | 307 ms (330), 340 |
+| as a turn ends, `turnReport` on, two paths reported | 339 ms (358), 365 | 339 ms (375), 382 |
+
+at the median with the 95th percentile between brackets and the slowest
+of the thirty after them, where starting node to do nothing took 44 ms
+(50), one start of git 26 ms (27), and spec-brief's list 161 ms (172)
+(Node 24.22.1, Git for Windows 2.56.0).
+
+So the budget leaves the slowest run there, 1,004 ms, more than 44
+seconds: it is some forty-five times that run, and a process asked a
+question there took under a hundredth of its 20 seconds. On the Windows
+workstation one round of the same runs took 0.4 to 1.0 seconds each.
+
+Every answer the hook gives within the budget is the one it gave. The lines
+of the hook the amendments of ADR-0005 measured, as a session starts,
+before ten writes and after each, as a turn ends, and git's hook, were run
+through the launchers of main and of this change taking turns
+(`b26-measure/hook-compare.mjs`), in eight projects: on Windows 2,010
+runs and on Linux 2,082, every one the same.
+
+An answer that came after a minute and now holds the write at 45 seconds,
+and a note `doctor` adds: a minor release (spec-core's ADR-0009). What was
+measured for this and left as it was:
+
+- **The time before the hook begins its work**: Node's start and the
+  loading of the command line. It is outside the budget, and was under a
+  second on the workstation and a tenth of one on the runner; a machine
+  that takes fifteen seconds to start Node would pass the 60 still.
+- **What the hook does between processes**, reading files and deciding,
+  is not cut by the budget: a process is what can wait without end.
+
 ## Consequences
 
 Each tool is released, pinned and dropped on its own, and the harness adds no

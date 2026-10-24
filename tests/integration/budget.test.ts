@@ -58,7 +58,10 @@ describe("a run of Claude Code's hook, which has one budget", () => {
     repo.git('worktree', 'add', '-q', '-b', 'brief/001-w', beside);
     // A write to a file of each work tree asks spec-brief of each, one after the other.
     const answer = await hook(repo, question(repo, 'PreToolUse', { file_path: join(beside, 'src', 'app', 'a.ts'), path: join(repo.root, 'src', 'app', 'a.ts') }));
-    expect(answer).toEqual({ code: 2, stdout: '', stderr: `spec-harness: cannot check this write: ${SPENT}\n` });
+    // Whichever process the budget ran out in, the second spec-brief where
+    // the first answered in time, is said by the budget.
+    expect({ code: answer.code, stdout: answer.stdout }).toEqual({ code: 2, stdout: '' });
+    expect(answer.stderr).toMatch(/^spec-harness: cannot check this write: .+ the 3 seconds the hook's run is given(, and was stopped| had passed)\n$/);
   });
 
   it('decides the write as before where the run ends inside it', async () => {
@@ -74,6 +77,20 @@ describe("a run of Claude Code's hook, which has one budget", () => {
     const said = `spec-harness: ${SPENT}, so every write of this session is held until it is mended; spec-harness doctor says more`;
     expect(await hook(repo, question(repo, 'SessionStart'))).toEqual({ code: 0, stdout: `${JSON.stringify({ systemMessage: said, hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: said } })}\n`, stderr: '' });
     expect(await hook(repo, question(repo, 'Stop'))).toEqual({ code: 0, stdout: `${JSON.stringify({ systemMessage: `spec-harness: ${SPENT}, so what the work tree holds is not reported` })}\n`, stderr: '' });
+  });
+
+  it("is said by doctor of an entry whose timeout is below it, and of none that gives it as much", async () => {
+    const repo = project(0);
+    const entry = (timeout: number) => ({ matcher: 'Edit|Write|MultiEdit|NotebookEdit', hooks: [{ type: 'command', command: 'node', args: ['${CLAUDE_PROJECT_DIR}/node_modules/@descent-vtt/spec-harness/bin/spec-harness.js', 'hook', 'claude'], timeout }] });
+    const settings = (before: number, after: number) => repo.write('.claude/settings.json', `${JSON.stringify({ hooks: { PreToolUse: [entry(before)], PostToolUse: [entry(after)] } }, null, 2)}\n`);
+    settings(2, 60);
+    const noted = await cli(['doctor'], repo.root);
+    expect(noted.stdout).toContain('\n        "hook claude" in .claude/settings.json gives the hook 2 seconds under PreToolUse, less than the 3 a run of it is given, so Claude Code cancels a run that takes longer before it answers, and a write it would have held goes ahead: give the entry 60, as init writes it, or no timeout\n');
+    settings(3, 60);
+    const plain = await cli(['doctor'], repo.root);
+    expect(plain.stdout).not.toContain('a run of it is given');
+    // A note, which fails nothing.
+    expect(noted.code).toBe(plain.code);
   });
 
   it("is no budget of git's hook, of guard, or of doctor, which no entry of Claude Code's runs", async () => {
