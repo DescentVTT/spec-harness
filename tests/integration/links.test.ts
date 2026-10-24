@@ -77,6 +77,23 @@ describe('the file a write reaches', () => {
     expect(readFileSync(join(root, 'lib', 'new.sql'), 'utf8')).toBe('made');
   });
 
+  it('follows a symbolic link to a file that is not there to what it names, which a write makes, where the account may make one', () => {
+    const root = realSpelling(temp());
+    mkdirSync(join(root, 'lib'));
+    try {
+      symlinkSync(join(root, 'lib', 'new.sql'), join(root, 'dangling'), 'file');
+    } catch (error) {
+      // Windows lets an account make a symbolic link only with a privilege it
+      // may not have; GitHub's Windows runner has it.
+      expect((error as NodeJS.ErrnoException).code).toBe('EPERM');
+      return;
+    }
+    expect(writtenSpelling(join(root, 'dangling'), root)).toBe(join(root, 'lib', 'new.sql'));
+    expect(reachedBy(join(root, 'dangling'), root)).toEqual([join(root, 'dangling'), join(root, 'lib', 'new.sql')]);
+    writeFileSync(join(root, 'dangling'), 'made');
+    expect(readFileSync(join(root, 'lib', 'new.sql'), 'utf8')).toBe('made');
+  });
+
   it.skipIf(windows)('reads a backslash as a character of a name on Linux and macOS', () => {
     const root = realSpelling(temp());
     mkdirSync(join(root, 'a\\b'));

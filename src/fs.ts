@@ -168,7 +168,8 @@ function namesOf(path: string): string[] {
  * {@link realSpelling} reads the `..` first and names `schema.ts`; Windows
  * reads the `..` first, as resolve does (measured, through a junction). And
  * a link to nothing is followed, since a write opens the file it names and
- * makes it there (measured on Linux), where `realSpelling` names the link.
+ * makes it there (measured on Linux and on GitHub's Windows runner), where
+ * `realSpelling` names the link.
  * The names are walked one by one from the root, each link replaced by what
  * it names, so the directory reached holds no link, and `join` reads a `.`,
  * a `..` and an empty name from it as the system does; what is not there

@@ -2544,8 +2544,14 @@ to nothing read as the link, each passing a write that made a protected
 file. On Windows each path of the table that a junction can make was
 written where it reads, its `..` first (`deep\..\schema.ts` made
 `schema.ts` at the top), and main and this change answered each alike; the
-account may make no symbolic link there (`EPERM`), so a link to a file and
-a link named from its own directory were not measured on Windows.
+account may make no symbolic link there (`EPERM`). On GitHub's Windows
+runner (`windows-2025-vs2026`, Node 24.22.1, Git for Windows 2.56.0), where
+an account may, through the workflow of a branch of its own that measured
+and is not merged (`measure/b26-budget-on-windows`): a `..` after a link
+to a directory, absolute or named from its own directory, was written at
+the top, as through a junction; a link to a file was written through; and
+a link to a file that is not there made the file it names, as on Linux,
+which the written reading follows on Windows too, after its `..`.
 
 - **Two readings.** A path is read as before, its `..` first and then its
   links (`realSpelling`, `src/fs.ts`), and as the system writes it
@@ -2579,9 +2585,8 @@ a link named from its own directory were not measured on Windows.
   between the hook's check and the write, as for every path; a path through
   more than 40 links, past which Linux writes nothing and which is decided
   as it reads (path_resolution(7), read 2026-10-24, has Linux follow at
-  most 40 in resolving a pathname); a directory the account may not look
-  into, which a write cannot pass either; and on Windows a symbolic link to
-  a file, which was not measured.
+  most 40 in resolving a pathname); and a directory the account may not
+  look into, which a write cannot pass either.
 - **macOS is read as Linux is**, a `..` after the link before it. That is
   not measured here: the suite's macOS leg runs the test that writes
   through a link and reads where the write landed, as the Linux legs do,
