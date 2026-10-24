@@ -18,7 +18,7 @@ import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 
 import { answerKey } from '../../src/siblings.js';
-import { brief, BRIEF_FILE, cleanup, cli, install, repository, temp, type Repository } from './helpers.js';
+import { brief, BRIEF_FILE, cleanup, cli, install, repository, SPEC_BRIEF, temp, type Repository } from './helpers.js';
 
 afterAll(cleanup);
 
@@ -237,17 +237,27 @@ describe("spec-brief's answer, kept for a session", () => {
     }
   });
 
-  it('starts spec-brief 0.8.0, which names no inputs, for every write, and keeps nothing of it', async () => {
+  it('keeps the answer of the spec-brief installed here where its own list says it may, and none where it does not, whatever its release', async () => {
+    // The release is the lockfile's, or in CI's `test (minimum siblings)` the
+    // oldest this package runs: spec-brief names its inputs from 0.10.0 on,
+    // and an older one names none. So what it says is read, not assumed.
     const repo = repository(FILES, null);
     install(repo.root, 'spec-brief');
     repo.git('checkout', '-q', '-b', 'brief/001-rotate');
+    const listed = JSON.parse(execFileSync(process.execPath, [SPEC_BRIEF, 'list', '--archived', '--format', 'json', '--no-color'], { cwd: repo.root, encoding: 'utf8' })) as { inputs?: { keep?: unknown } };
     expect(await before(repo, 'src/db/schema.ts')).toBe('refused');
-    // Taken away, a spec-brief that answered once is not answered for.
+    expect(await before(repo, 'src/db/schema.ts')).toBe('refused');
+    expect(answers(repo)).toHaveLength(listed.inputs?.keep === true ? 1 : 0);
+  });
+
+  it('gives no answer it kept once spec-brief is taken away: the write waits, as where none was ever installed', async () => {
+    const repo = project();
+    expect(await before(repo, 'src/db/schema.ts')).toBe('refused');
+    expect(answers(repo)).toHaveLength(1);
     rmSync(spec(repo.root), { recursive: true, force: true });
     const run = await cli(['hook', 'claude'], repo.root, { stdin: question(repo, 'src/db/schema.ts', 'session-1'), env: { CLAUDE_PROJECT_DIR: repo.root } });
     expect(run.code).toBe(2);
     expect(run.stderr).toMatch(/^spec-harness: cannot check this write: spec-brief is not installed here/);
-    expect(answers(repo)).toEqual([]);
   });
 
   it('answers no other session, no other work tree, and no question that names no session', async () => {
