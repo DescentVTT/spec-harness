@@ -10,7 +10,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { briefIdFromBranch } from '../../src/branch.js';
 import { DEFAULT_CONFIG } from '../../src/config.js';
 import specHarnessPlugin, { waive } from '../../src/plugin.js';
-import { brief, BRIEF_FILE, cleanup, cli, parsed, repository, SPEC_BRIEF, temp, write } from './helpers.js';
+import { brief, BRIEF_FILE, cleanup, cli, guardCannotRead, parsed, repository, SPEC_BRIEF, temp, write } from './helpers.js';
 
 afterAll(cleanup);
 
@@ -263,9 +263,10 @@ describe('a premise spec-guard cannot read', () => {
     const repo = repository({ [BRIEF_FILE]: brief({ affected: ['src/**'], body }), 'src/a.ts': 'legacyCall();\n' });
     const result = await cli(['premises'], repo.root);
     expect(result.code).toBe(0);
+    // What is wrong with the directive is said in spec-guard's words, as the release installed here words it.
     expect(result.stdout).toBe(
       [
-        `warning  ${BRIEF_FILE}:23  spec-guard cannot read a premise of brief 001, so whether it still holds is not checked: @assert-count requires a non-empty symbol="..." attribute.`,
+        `warning  ${BRIEF_FILE}:23  spec-guard cannot read a premise of brief 001, so whether it still holds is not checked: ${guardCannotRead(repo.root, BRIEF_FILE, 23)}`,
         `         fix the directive in ${BRIEF_FILE}; until spec-guard can read it, nothing checks what it states`,
         "1 premise(s) in 1 live brief(s), 0 no longer hold; 1 premise(s) spec-guard cannot read, so not checked",
         '',
