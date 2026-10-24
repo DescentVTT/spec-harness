@@ -289,6 +289,8 @@ async function namedBrief(workspace: Workspace, env: CliIO['env'], id: string | 
  */
 async function asTheHook(workspace: Workspace, env: CliIO['env'], id: string | undefined, paths: readonly string[], cwd: string, base: string | undefined): Promise<Decision[]> {
   const outside = paths.map((path) => outsideEvery([path], workspace.root, workspace.commonDir, cwd));
+  // Paths all outside ask about no brief, and are answered as with none
+  // named: the empty list is equivalent to its mutant, as in namedBrief.
   const { brief, note, problem } = describeActive(outside.every((each) => each) ? findActive([], {}) : await namedBrief(workspace, env, id), '"brief"');
   if (problem === null) return checkPaths(workspace, brief, note, paths, cwd, reader, base);
   // Decided by no brief, a path outside is decided as outside the

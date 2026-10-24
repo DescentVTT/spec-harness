@@ -173,6 +173,7 @@ describe('the tools', () => {
     expect(await tool('check_path').call({ paths: ['a'], brief: 1 })).toEqual({ text: '"brief" must be a string.', isError: true });
     expect(await tool('check_path').call({ paths: ['a'], base: 1 })).toEqual({ text: '"base" must be a string.', isError: true });
     expect(await tool('start_round').call({ base: ['main'] })).toEqual({ text: '"base" must be a string.', isError: true });
+    expect(await tool('start_round').call({ brief: 1 })).toEqual({ text: '"brief" must be a string.', isError: true });
     expect(await tool('start_round').call({ at: 'main' })).toEqual({ text: 'Unknown argument "at"; this tool takes brief, base and directory.', isError: true });
     // Said of the argument that named it: a tool call has no flag. A path
     // inside is held for it, as the hook holds a write of it.
