@@ -26,6 +26,21 @@ cannot turn a run red. The family's policy is
   ([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
   Upgrading: nothing to change. A write through a link to a file the brief
   protects, which passed, is refused, and `guard` exits 1 for it.
+- **A run of the hook has one budget, 45 seconds, for every process it
+  starts, and holds the write at it.** Each process the hook asked a
+  question of had 20 seconds, and several that answered slowly, none of
+  them at that, passed the 60 seconds `init` and the plugin give the
+  hook's entry, where Claude Code cancels the hook and lets the write go
+  ahead. A process is now given its 20 seconds or what is left of the
+  run's 45, whichever is less, and one stopped at the budget says so:
+  `cannot check this write: spec-brief did not answer within the 45
+  seconds the hook's run is given, and was stopped`, exit 2. `doctor`
+  notes an entry of the hook whose `timeout` is below the 45 seconds, and
+  `--format json` has the note as each line's `timeout`
+  ([ADR-0002](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0002-siblings-through-their-command-lines.md)).
+  Upgrading: nothing to change where the hook's entry has the 60 seconds
+  `init` writes, or no timeout; an entry below 45 is noted, and fails
+  nothing.
 - **The server's `check_path` answers each path as the hook decides a
   write of it.** A file outside every work tree of the repository is
   outside the repository whatever names the brief, where a brief that

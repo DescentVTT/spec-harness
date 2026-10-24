@@ -22,6 +22,8 @@ import {
   show,
   stagedChanges,
   stoppedAtLimit,
+  timeFor,
+  withBudget,
   WORK_MS,
   workTree,
   workTreeRoot,
@@ -405,6 +407,31 @@ describe('a process the harness starts, at its time limit (ADR-0002)', () => {
     await expect(waiting).rejects.toThrow(/^git hash-object did not answer within 0\.3 seconds, and was stopped$/);
     // One that answers in time answers as before.
     expect((await runGit(['rev-parse', '--is-inside-work-tree'], repo.root, 60_000)).stdout.trim()).toBe('true');
+  });
+
+  it("gives a process no more than is left of the budget of the run it is started in, says the budget where it stops one, and starts none where nothing is left", async () => {
+    const repo = repository({});
+    // Outside a run that has one, a process has its limit.
+    expect(timeFor(20_000)).toEqual({ ms: 20_000, said: '20 seconds' });
+    await withBudget(60_000, async () => expect(timeFor(20_000)).toEqual({ ms: 20_000, said: '20 seconds' }));
+    await withBudget(5_000, async () => {
+      const { ms, said } = timeFor(20_000);
+      expect(ms).toBeGreaterThan(4_000);
+      expect(ms).toBeLessThanOrEqual(5_000);
+      expect(said).toBe("the 5 seconds the hook's run is given");
+    });
+    // git reads its input until the input ends, which the harness never closes.
+    await withBudget(300, async () => {
+      await expect(runGit(['-c', 'core.quotepath=false', 'hash-object', '--stdin'], repo.root)).rejects.toThrow(/^git hash-object did not answer within the 0\.3 seconds the hook's run is given, and was stopped$/);
+    });
+    await withBudget(0, async () => {
+      expect(timeFor(20_000)).toEqual({ ms: 0, said: "the 0 seconds the hook's run is given" });
+      await expect(runGit(['rev-parse', '--is-inside-work-tree'], repo.root)).rejects.toThrow(/^git rev-parse was not started: the 0 seconds the hook's run is given had passed$/);
+      await expect(runSibling('a sibling', ['node', '-e', '0'], [], temp())).rejects.toThrow(/^a sibling was not started: the 0 seconds the hook's run is given had passed$/);
+    });
+    // The budget is the run's: once it is over, a process has its limit again.
+    expect(timeFor(20_000)).toEqual({ ms: 20_000, said: '20 seconds' });
+    expect((await runGit(['rev-parse', '--is-inside-work-tree'], repo.root)).stdout.trim()).toBe('true');
   });
 
   it('tells a process the harness stopped at its limit from one that failed, and from one stopped for its output', () => {
