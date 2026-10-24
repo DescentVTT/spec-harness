@@ -38,6 +38,7 @@ import {
   readsOnFailure,
   registersServer,
   reportHooks,
+  reportsTurns,
   SPEC_BRIEF_CONFIGS,
   startsSessions,
   wiringState,
@@ -501,8 +502,14 @@ export async function claudeSettings(root: string, env: CliIO['env']): Promise<C
  * the release, so it says that it does not report it, and it is asked only
  * where a line turns on it: where what is read of the lines differs between
  * a release that cannot be told and the newest.
+ *
+ * `doctor` also looks for the script each line runs in `places`, each
+ * directory `${CLAUDE_PROJECT_DIR}` can name as a session starts, and says
+ * a line whose script is in none as a guard that is off (reportHooks).
+ * `init` gives none: it writes the line that names the project's install,
+ * which may come after it.
  */
-export async function claudeCodeWiring(root: string, io: CliIO, pattern: PatternReader = patternReader(), reported = true): Promise<ClaudeCodeWiring> {
+export async function claudeCodeWiring(root: string, io: CliIO, pattern: PatternReader = patternReader(), reported = true, places: readonly string[] | null = null): Promise<ClaudeCodeWiring> {
   const sources = await claudeSettings(root, io.env);
   // Each line is read once, before any is reported: what the brief on one
   // names is spec-brief's to say, and the report itself asks nothing.
@@ -523,15 +530,16 @@ export async function claudeCodeWiring(root: string, io: CliIO, pattern: Pattern
   // equivalent.
   const isHook = (words: readonly string[]): boolean => claudeHookLine(words, parseOptions, root, (path) => isDirectory(resolve(root, path))) !== null;
   const sessionStart = sources.some(({ settings }) => startsSessions(settings, isHook));
+  const turnEnd = sources.some(({ settings }) => reportsTurns(settings, isHook));
   // init writes its hooks into the project's file alone, and none where an array unloads it.
   const unloaded = arrayMatcher(sources.find(({ file }) => file === PROJECT_SETTINGS)!.settings);
   const under = (release: ClaudeCodeCheck | null): ClaudeCodeWiring => {
-    const lines = reportHooks(sources, root, (words) => read.get(JSON.stringify(words))!, pattern, matchingUnder(release), readsOnFailure(release));
+    const lines = reportHooks(sources, root, (words) => read.get(JSON.stringify(words))!, pattern, matchingUnder(release), readsOnFailure(release), places === null ? null : { projects: places, isFile });
     // A line Claude Code starts for no write, before one or after, is in no
     // one's way: it is said, and the file is not counted for it.
     const hooks = sources.map(({ file }) => file).filter((file) => lines.some((line) => line.file === file && (isStarted(line.before) || isStarted(line.after))));
     // In the order a document has them, which a script may compare by the byte.
-    return { plugin, presence, hooksOff: hooksDisabled(sources), hooks, lines, server, sessionStart, release, unloaded };
+    return { plugin, presence, hooksOff: hooksDisabled(sources), hooks, lines, server, sessionStart, turnEnd, release, unloaded };
   };
   const untold = under(null);
   const asked = reported ? wiringState(untold) !== 'none' : JSON.stringify(untold.lines) !== JSON.stringify(reportHooks(sources, root, (words) => read.get(JSON.stringify(words))!, pattern));
@@ -584,8 +592,13 @@ async function hookLineHere(words: readonly string[], root: string, io: CliIO): 
   }
   if (line.brief === undefined) return told;
   const workspace = await openWorkspace({ root: line.root === undefined ? root : resolve(root, line.root) }, io);
-  const { problem } = await diagnoseBrief(workspace, { brief: line.brief }, io.env);
-  return problem === null ? told : heldHookLine(problem);
+  const { id, problem } = await diagnoseBrief(workspace, { brief: line.brief }, io.env);
+  if (problem !== null) return heldHookLine(problem);
+  // A spec-brief that cannot be run is no problem of a name given as a
+  // flag, and the hook holds every write all the same: it asks spec-brief
+  // about the brief its line names before each one.
+  const sibling = workspace.siblings.locate('spec-brief');
+  return sibling.kind === 'found' ? told : heldHookLine(couldNotSay(id, sibling.reason));
 }
 
 /**
@@ -600,28 +613,46 @@ async function hookLineHere(words: readonly string[], root: string, io: CliIO): 
  * setup that holds every write, as a hook's line naming such a brief is
  * (ADR-0004). A name the flag gives is the question doctor was asked, and
  * holds no write of anyone's.
+ *
+ * `holds` is whether the branch names a brief and spec-brief cannot answer
+ * for it: not installed, too old, or failing as it is asked. The hook asks
+ * spec-brief before every write under the name, and holds each write it
+ * cannot ask about, so that too is a setup that holds every write.
  */
 export async function diagnoseBrief(
   workspace: Workspace,
   options: Pick<Options, 'brief'>,
   env: CliIO['env'],
-): Promise<{ readonly id: string | null; readonly problem: string | null; readonly branch: boolean }> {
-  if (options.brief !== undefined && isBlank(options.brief)) return { id: null, problem: emptyValue('--brief', 'brief', options.brief), branch: false };
+): Promise<{ readonly id: string | null; readonly problem: string | null; readonly branch: boolean; readonly holds: boolean }> {
+  if (options.brief !== undefined && isBlank(options.brief)) return { id: null, problem: emptyValue('--brief', 'brief', options.brief), branch: false, holds: false };
   const id = namedId(workspace, options, env);
-  // A spec-brief that cannot be run is a row of the report, with the reason.
-  if (workspace.siblings.locate('spec-brief').kind !== 'found') return { id, problem: null, branch: false };
+  // Neither the flag nor SPEC_BRIEF names it, so the name is the branch's,
+  // where something names one. A flag given only blanks was answered above.
+  const byBranch = id !== null && options.brief === undefined && isBlank(env['SPEC_BRIEF'] ?? '');
+  const sibling = workspace.siblings.locate('spec-brief');
+  if (sibling.kind !== 'found') {
+    // Under the flag or SPEC_BRIEF, a spec-brief that cannot be run is a row
+    // of the report, with the reason. Under the branch it is the reason
+    // the hook holds every write, and said as one it could not ask.
+    return byBranch ? { id, problem: couldNotSay(id, sibling.reason), branch: false, holds: true } : { id, problem: null, branch: false, holds: false };
+  }
   try {
     // Where nothing names a brief, spec-brief is not asked (ADR-0004), and
     // there is no problem to state.
     const active = await activeBrief(workspace, options, env);
     const branch = (active.kind === 'unknown' || active.kind === 'archived') && active.source === 'branch';
-    return { id, problem: describeActive(active).problem, branch };
+    return { id, problem: describeActive(active).problem, branch, holds: false };
   } catch (error) {
     // Asking spec-brief throws nothing but this, so the check is equivalent
     // to its mutant; it keeps any other error the stack it needs.
     if (!(error instanceof SiblingError)) throw error;
-    return { id, problem: `spec-brief could not say whether it knows brief ${id}: ${error.message}`, branch: false };
+    return { id, problem: couldNotSay(id, error.message), branch: false, holds: byBranch };
   }
+}
+
+/** What is said of a brief spec-brief could not be asked about, and why. */
+function couldNotSay(id: string | null, why: string): string {
+  return `spec-brief could not say whether it knows brief ${id}: ${why}`;
 }
 
 async function archiveReasons(workspace: Workspace, brief: BriefRow, base: Base): Promise<{ blocking: ArchiveReason[]; warnings: ArchiveReason[] } | { unavailable: string }> {

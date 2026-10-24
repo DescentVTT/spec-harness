@@ -20,7 +20,7 @@ import { join } from 'node:path';
 
 import { afterAll, describe, expect, it, vi } from 'vitest';
 
-import { brief, BRIEF_FILE, cleanup, repository, temp, type Captured, type Repository } from './helpers.js';
+import { brief, BRIEF_FILE, cleanup, installHarness, repository, temp, type Captured, type Repository } from './helpers.js';
 
 const seen = {
   /** The modules asked for since the command line was last loaded, in the order they were. */
@@ -212,7 +212,10 @@ describe('the command line', () => {
     expect(bare).toMatchObject({ code: 0, stderr: '' });
     expect(bare.stdout).not.toContain('claude is on PATH');
     expect(bare.loaded).not.toContain('host');
-    const wired = await fresh(['doctor'], repository({ '.claude/settings.json': WIRED }).root, { env });
+    // With the install init's line names, so that the line guards.
+    const project = repository({ '.claude/settings.json': WIRED });
+    installHarness(project.root);
+    const wired = await fresh(['doctor'], project.root, { env });
     expect(wired).toMatchObject({ code: 0, stderr: '' });
     expect(wired.stdout).toContain('cannot be told: no claude is on PATH');
     expect(wired.loaded).toContain('host');

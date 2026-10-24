@@ -198,6 +198,47 @@ An exit code that can change for a tree that passed is a minor release
   that names 999 fails `doctor` though no write is held (measured: the hook
   refuses the protected file under 042).
 
+*Amended 2026-10-24.* **A brief the branch names that spec-brief cannot be
+asked about fails `doctor`.** The amendment of 2026-10-19 above left a
+spec-brief that cannot list the briefs, or is not installed, where the
+branch names a brief, to the sibling's row, and failed neither. *Claimed*
+by round 25's agents B, F and H: there every write is held, and `doctor`
+exits 0. *Measured* through the launcher of main (84cb6d7) and of this
+change, taking turns (Windows 11, Node 24.22.1, Git for Windows), in a
+project whose brief 001 protects `src/db/**`, with spec-brief 0.8.0 and
+spec-guard 0.28.0 installed unless the row says otherwise:
+
+| Setup | The hook, before a write | `doctor` on main | `doctor` now |
+| --- | --- | --- | --- |
+| `brief/001-rotate`, spec-brief not installed | exit 2: `cannot check this write: spec-brief is not installed here: ...` | `brief   001`, and spec-brief `absent`; exit 0 | `brief   none: spec-brief could not say whether it knows brief 001: spec-brief is not installed here: ...`; exit 1 |
+| the same, spec-brief 0.1.0 | exit 2 | `brief   001`, and spec-brief `outdated`; exit 1 | the brief line as above, with the minimum; exit 1 |
+| the same, a spec-brief that exits 2 | exit 2: `cannot check this write: spec-brief could not list the briefs: no briefs directory` | `brief   none: spec-brief could not say whether it knows brief 001: ...`; exit 0 | the same line; exit 1 |
+| the same, one that prints no JSON, or cannot be started | exit 2 | the line says it; exit 0 | the same line; exit 1 |
+| `main`, spec-brief not installed or exiting 2 | no brief named, no write held | exit 0 | exit 0 |
+| `main` with `SPEC_BRIEF=001` or `--brief 001`, spec-brief exiting 2 | | the line says it; exit 0 | the same |
+| the branch names archived 003 or unknown 404; detached, with and without `GITHUB_HEAD_REF` naming 003; `SPEC_BRIEF=001` or `--brief 1` beside 003 | | | each report and exit byte for byte main's |
+
+So the claim holds.
+
+- **The branch's name, where spec-brief cannot answer for it.** The hook
+  asks spec-brief before every write under a name the branch gives, and
+  holds each write it cannot ask about: spec-brief not installed, older
+  than this release runs, or failing as it lists the briefs. That is a
+  setup that holds every write, and `doctor` exits 1 for it. It says why on
+  its `brief` line, in the words a failing spec-brief already had there;
+  one not installed or too old is said there as well where the branch
+  names a brief, as one it could not ask, and its row says it as before.
+- **The flag and the variable fail nothing, as before**, for the reasons
+  of the amendment above; under them a spec-brief that cannot be run is
+  still its row's to say, and the `brief` line gives the id.
+- **Where nothing names a brief, spec-brief is asked nothing**, and none
+  of this applies.
+- **A branch that names an archived or an unknown brief** is not touched by
+  this change.
+
+An exit code that can change for a tree that passed is a minor release
+(spec-core's ADR-0009).
+
 ## Consequences
 
 No file records the active brief, so no file can record it wrongly, and two

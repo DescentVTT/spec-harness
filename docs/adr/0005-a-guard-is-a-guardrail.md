@@ -2488,6 +2488,99 @@ An exit code that can change for a tree that passed is a minor release
 - **`doctor`'s words for `-h` and `-v`** are those for `--help` and
   `--version`: the line is shown above them as it was written.
 
+*Amended 2026-10-24.* **What `doctor` checks of a line: whether its script
+is there, and whether spec-brief can be asked about the brief it names;
+and a report at the end of a turn that nothing runs.** *Claimed* by round
+25's agents B, F and H: `doctor` does not check that the script the hook's
+line names exists, so a line whose script is not there is reported as
+guarding; and it says nothing where `turnReport` is on and no entry runs
+the report. *Measured* through the launcher of main (84cb6d7) and of this
+change, taking turns (Windows 11, Node 24.22.1, a `claude.cmd` on `PATH`
+that `doctor` reads as Claude Code 2.1.300 and never starts), in a project
+on its brief's branch with spec-brief 0.8.0 and spec-guard 0.28.0
+installed, the hook's entry under `PreToolUse` and `PostToolUse` with
+`init`'s matcher:
+
+| The line, and what stands | main | now |
+| --- | --- | --- |
+| `init`'s line, the project's install there | guards; exit 0 | the same |
+| `init`'s line, no install | guards, and the advice of `onFailure`; exit 0 | `the script it runs, <project>/node_modules/@descent-vtt/spec-harness/bin/spec-harness.js, is not there, so the hook cannot start, the guard is off ...`; exit 1 |
+| the same, a directory where the script would be | guards; exit 0 | off, the same words; exit 1 |
+| the same, `"onFailure": "block"` | guards, and the note of `onFailure`; exit 0 | holds every write: `... and Claude Code holds every write it is started for before, since the entry sets onFailure to "block"`; exit 1 |
+| an absolute path of its own, not there | guards; exit 0 | off; exit 1 |
+| a shell's line, `node "$CLAUDE_PROJECT_DIR"/node_modules/...`, no install | guards; exit 0 | the same |
+| a relative path, no install | guards; exit 0 | the same |
+| `npx --no-install @descent-vtt/spec-harness`, no install | guards; exit 0 | the same |
+| a linked worktree with no install, the main checkout's there | guards, and the note of each release; exit 0 | the same |
+| a linked worktree with no install, nor the main checkout | guards; exit 0 | `the script it runs is in neither place ${CLAUDE_PROJECT_DIR} can name, ...`; exit 1 |
+| `hook claude --brief 001` on `main`, spec-brief not installed | `is more than init writes, and guards`; exit 0 | `spec-brief could not say whether it knows brief 001: spec-brief is not installed here: ..., so the hook holds every write until the line is mended ...`; exit 1 |
+| `hook claude --brief 001`, spec-brief exiting 2 | holds every write; exit 1 | the same |
+| `"turnReport": true`, no entry under `Stop` | nothing; exit 0 | `note: "turnReport" is on, and no settings file has Claude Code start the hook as a turn ends, so no turn's end is reported: ...`; exit 0 |
+| the same with `init`'s entry under `Stop`, or `turnReport` off | nothing; exit 0 | the same |
+| the plugin turned on and on the machine, no install | brings the guard hooks; exit 0 | the same |
+
+So each claim holds. The hook answers alike through both launchers, 80
+answers each, for the line `init` and the plugin write, before a write,
+after it, as a session starts and as a turn ends, on a brief's branch,
+`main`, an archived brief's and an unknown brief's branch, and with
+spec-brief exiting 2, named by its script alone, or not installed: this
+changes `doctor` alone.
+
+- **A line whose script is not there is a guard that is off.** Claude
+  Code's hooks reference (<https://code.claude.com/docs/en/hooks>, *Block
+  the action when a hook fails*, read 2026-10-24) counts a command hook
+  that fails to start, "for example because the script or executable
+  doesn't exist", as a failure, after which the action goes ahead on most
+  events; with `"onFailure": "block"` a failure does what exit 2 does on
+  the event, which before a tool call blocks it (*Exit code 2 behavior per
+  event*). So such a line is said as off, naming the script and how to
+  install it, and exits 1. Where its entry sets `onFailure: "block"`, it
+  is waited on before a write and the Claude Code on `PATH` reads the
+  field, it holds every write instead, and exits 1 as well.
+- **Where the script is looked for.** `${CLAUDE_PROJECT_DIR}` is filled in
+  by Claude Code in either form of entry (*Exec form and shell form*,
+  *Reference scripts by path*), and names the project root where the
+  session started. In a linked worktree that is the worktree in a session
+  started there, and the main checkout in a worktree session of the
+  desktop app, where hook commands run in the main checkout's root and the
+  placeholder points at it (the worktrees page,
+  <https://code.claude.com/docs/en/worktrees>, *What worktrees share with
+  the main checkout*, read 2026-10-24). So the script is looked for in the
+  work tree `doctor` runs in and, in a linked worktree, in the main
+  checkout too, and is not there only where it is in neither.
+- **What is not looked for.** A relative path is read from the directory
+  the hook is started in, which by the hooks reference (*Hook handler
+  fields*) is the session's
+  current directory, and moves with it; a name npx or `PATH` resolves is
+  that program's to find; and in a line a shell reads, a word with
+  anything a shell rewrites is the shell's, the filled-in project among
+  them, as a backslash in a Windows path is. Each is said as it was.
+- **Entries that name the harness in two ways are two lines**, by two
+  scripts, or with a shell and without one: one may be there where the
+  other is not. `claudeCode.lines` has a line for each, where entries with
+  the same words after the harness were one.
+- **A line that names a brief where spec-brief cannot be run** holds every
+  write: the hook asks spec-brief about it before each, and holds the write
+  it cannot ask about. It is said in the words of a line whose brief
+  spec-brief could not be asked about, and exits 1.
+- **A report at the end of a turn that nothing runs is a note.** With
+  `"turnReport": true`, where no settings file has an entry under `Stop`
+  that runs the hook, and the plugin brings none, no turn's end is
+  reported: `doctor` says so, fails nothing, and `--format json` has
+  `claudeCode.turnEnd`.
+- **`init` does not look for the script**: it writes the line that names
+  the project's install, which a project may install after it, and what
+  it says of a line is as before.
+
+An exit code that can change for a tree that passed is a minor release
+(spec-core's ADR-0009). What was measured for this and left as it was:
+
+- **The plugin's line.** Every release of the plugin from 0.1.2 on runs
+  `${CLAUDE_PROJECT_DIR}/node_modules/@descent-vtt/spec-harness/bin/spec-harness.js`,
+  so with the plugin on and no install in the project its hooks cannot
+  start either. Its hooks are not read (ADR-0012), and `doctor` says it
+  brings the guard hooks, exit 0.
+
 ## Consequences
 
 An agent that writes through a shell passes the guard and is caught at the

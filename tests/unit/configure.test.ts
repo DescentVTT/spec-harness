@@ -68,6 +68,7 @@ import {
   writtenHooks,
   type Matching,
   type PatternReader,
+  type ScriptPlaces,
 } from '../../src/configure.js';
 import { claudeHookLine, elsewhereHookLine, heldHookLine, holderHookLine, outsideHookLine, type HookLine } from '../../src/usage.js';
 import { parseOptions } from '../../src/workspace.js';
@@ -816,7 +817,7 @@ describe('an entry Claude Code runs as a command, and one it may not (ADR-0005)'
   });
 
   it('keeps an entry with no type, or with a word the reference does not list, and says what it has for one', () => {
-    expect(writtenHooks(under({ type: 'command', command: 'node', args: ARGS }))).toEqual([{ events: ['PreToolUse', 'PostToolUse'], words: ['hook', 'claude'], shell: false, blocks: false, untyped: null }]);
+    expect(writtenHooks(under({ type: 'command', command: 'node', args: ARGS }))).toEqual([{ events: ['PreToolUse', 'PostToolUse'], words: ['hook', 'claude'], shell: false, blocks: false, untyped: null, launcher: { word: SCRIPT, shell: false } }]);
     const cases: readonly (readonly [unknown, string])[] = [
       [undefined, 'no "type"'],
       ['Command', 'the "type" "Command"'],
@@ -827,7 +828,7 @@ describe('an entry Claude Code runs as a command, and one it may not (ADR-0005)'
     ];
     for (const [type, said] of cases) {
       const entry = type === undefined ? { command: 'node', args: ARGS } : { type, command: 'node', args: ARGS };
-      expect(writtenHooks(under(entry)), said).toEqual([{ events: ['PreToolUse', 'PostToolUse'], words: ['hook', 'claude'], shell: false, blocks: false, untyped: said }]);
+      expect(writtenHooks(under(entry)), said).toEqual([{ events: ['PreToolUse', 'PostToolUse'], words: ['hook', 'claude'], shell: false, blocks: false, untyped: said, launcher: { word: SCRIPT, shell: false } }]);
     }
     // The same words on an entry with a type and on one without are two lines.
     expect(writtenHooks(under({ type: 'command', command: 'node', args: ARGS }, { command: 'node', args: ARGS })).map((line) => line.untyped)).toEqual([null, 'no "type"']);
@@ -1169,7 +1170,8 @@ describe("the lines of Claude Code's hook in its settings, and what doctor says 
   const TOOLS = ['Edit', 'Write', 'NotebookEdit'];
   /** Started before every tool that writes and after each, as init's own entries are: nothing to say of it. */
   const EVERY = { before: TOOLS, after: TOOLS, cover: null };
-  const line = (words: string[], more: { shell?: boolean; blocks?: boolean; events?: string[] } = {}) => ({ events: more.events ?? BOTH, words, shell: more.shell ?? false, blocks: more.blocks ?? false, untyped: null });
+  // Which word names the harness is a test of its own, below.
+  const line = (words: string[], more: { shell?: boolean; blocks?: boolean; events?: string[] } = {}) => ({ events: more.events ?? BOTH, words, shell: more.shell ?? false, blocks: more.blocks ?? false, untyped: null, launcher: expect.anything() });
 
   it('knows the harness by its command, the script or the name at the end of a path, and gives what follows it', () => {
     expect(writtenHooks(settings(HOOK))).toEqual([line(['hook', 'claude'])]);
@@ -1236,6 +1238,24 @@ describe("the lines of Claude Code's hook in its settings, and what doctor says 
     expect(writtenHooks(settings(exec('--root', '$PWD'), shell(`${LEGACY} --root $PWD`)))).toEqual([line(['hook', 'claude', '--root', '$PWD']), line(['hook', 'claude', '--root', '$PWD'], { shell: true })]);
   });
 
+  it('reads the word that names the harness as written, and has entries that name it two ways as two lines', () => {
+    const named = (hooks: unknown) => writtenHooks(hooks).map((each) => [each.launcher, each.events]);
+    expect(named(settings(HOOK))).toEqual([[{ word: SCRIPT, shell: false }, BOTH]]);
+    expect(named(settings(shell(`node "${SCRIPT}" hook claude`)))).toEqual([[{ word: `"${SCRIPT}"`, shell: true }, BOTH]]);
+    expect(named(settings(shell(LEGACY)))).toEqual([[{ word: 'spec-harness', shell: true }, BOTH]]);
+    expect(named(settings({ type: 'command', command: '${CLAUDE_PROJECT_DIR}/node_modules/.bin/spec-harness', args: ['hook', 'claude'] }))).toEqual([[{ word: '${CLAUDE_PROJECT_DIR}/node_modules/.bin/spec-harness', shell: false }, BOTH]]);
+    // Another script, or the same one for a shell and for none, is another line, whose script may be there where the first's is not.
+    const other = { ...HOOK, args: ['/elsewhere/spec-harness.js', 'hook', 'claude'] };
+    expect(named({ hooks: { PreToolUse: [{ hooks: [HOOK, other] }], PostToolUse: [{ hooks: [other] }] } })).toEqual([
+      [{ word: SCRIPT, shell: false }, ['PreToolUse']],
+      [{ word: '/elsewhere/spec-harness.js', shell: false }, BOTH],
+    ]);
+    expect(named(settings(HOOK, shell(`node ${SCRIPT} hook claude`)))).toEqual([
+      [{ word: SCRIPT, shell: false }, BOTH],
+      [{ word: SCRIPT, shell: true }, BOTH],
+    ]);
+  });
+
   const PROJECT = '/the/project';
   const DIRECTORIES = [PROJECT, `${PROJECT}/packages/app`];
   /** The hook's own reading, in a session started at the project. */
@@ -1243,6 +1263,70 @@ describe("the lines of Claude Code's hook in its settings, and what doctor says 
   const reported = (hooks: unknown, file = FILE) => reportHooks([{ file, settings: hooks }], PROJECT, read);
   const OFF = "so the guard is off and no write is checked; mend it in Claude Code's settings, where init writes \"hook claude\" and nothing after it";
   const NO_ROOT = "so the guard is off and no write is checked; give the hook's line a directory that exists, or leave --root out for the project Claude Code names";
+
+  describe('where the script the line runs is not there', () => {
+    const W = '"hook claude" in .claude/settings.json';
+    const MEND = 'install spec-harness in the project, npm install --save-dev @descent-vtt/spec-harness, or name its script where it is';
+    const INSTALLED = `${PROJECT}/node_modules/@descent-vtt/spec-harness/bin/spec-harness.js`;
+    /** Where a session's project may be, and the files that stand there. */
+    const looked = (files: readonly string[], projects: readonly string[] = [PROJECT]): ScriptPlaces => ({ projects, isFile: (path) => files.includes(path) });
+    const at = (scripts: ScriptPlaces, hooks: unknown, onFailureHere = false) => reportHooks([{ file: FILE, settings: hooks }], PROJECT, read, undefined, undefined, onFailureHere, scripts);
+    const off = (script: string, where = W) => `${where}: the script it runs, ${script}, is not there, so the hook cannot start, the guard is off and Claude Code lets each write it is started for go ahead without it; ${MEND}`;
+
+    it('is a guard that is off, said with the script, and one that guards where the script is there or nothing is looked for', () => {
+      expect(at(looked([]), settings(HOOK))).toEqual([{ file: FILE, events: BOTH, line: ['hook', 'claude'], state: 'off', onFailure: null, detail: off(INSTALLED), ...EVERY, note: null }]);
+      expect(at(looked([INSTALLED]), settings(HOOK))).toEqual([{ file: FILE, events: BOTH, line: ['hook', 'claude'], state: 'guards', onFailure: null, detail: null, ...EVERY, note: null }]);
+      // init asks nothing of the script, which the project installs after it.
+      expect(reported(settings(HOOK))[0]).toMatchObject({ state: 'guards', detail: null });
+      // By a path of its own, with or without a shell, and with a space in the project's.
+      expect(at(looked([]), settings({ ...HOOK, args: ['/opt/tools/spec-harness.js', 'hook', 'claude'] }))[0]).toMatchObject({ state: 'off', detail: off('/opt/tools/spec-harness.js') });
+      expect(at(looked([]), settings(shell(`node ${SCRIPT} hook claude`)))[0]).toMatchObject({ state: 'off', detail: off(INSTALLED) });
+      expect(at({ projects: ['/the project'], isFile: () => false }, settings(HOOK))[0]).toMatchObject({ state: 'off', detail: off('/the project/node_modules/@descent-vtt/spec-harness/bin/spec-harness.js') });
+      // Before what the hook would do with the words, which it never reads.
+      expect(at(looked([]), settings(exec('--nope')))[0]).toMatchObject({ state: 'off', detail: off(INSTALLED, '"hook claude --nope" in .claude/settings.json') });
+    });
+
+    it('holds every write where the entry sets onFailure "block" and the Claude Code here reads it, before a write', () => {
+      const blocking = settings({ ...HOOK, onFailure: 'block' });
+      expect(at(looked([]), blocking, true)[0]).toMatchObject({
+        state: 'held',
+        detail: `${W}: the script it runs, ${INSTALLED}, is not there, so the hook cannot start, and Claude Code holds every write it is started for before, since the entry sets onFailure to "block"; ${MEND}`,
+      });
+      // A release that does not read the field lets the write go ahead, and so does one that reads it on an entry without it; after a write there is none to hold.
+      expect(at(looked([]), blocking, false)[0]).toMatchObject({ state: 'off', detail: off(INSTALLED) });
+      expect(at(looked([]), settings(HOOK), true)[0]).toMatchObject({ state: 'off', detail: off(INSTALLED) });
+      expect(at(looked([]), { hooks: { PostToolUse: [{ matcher: GUARD.matcher, hooks: [{ ...HOOK, onFailure: 'block' }] }] } }, true)[0]).toMatchObject({ state: 'off', detail: off(INSTALLED, `${W} (under PostToolUse alone)`) });
+    });
+
+    it('is off where it is started after a write alone, and is no guard where it is started for none', () => {
+      expect(at(looked([]), { hooks: { PostToolUse: [GUARD] } })[0]).toMatchObject({ state: 'off', detail: off(INSTALLED, `${W} (under PostToolUse alone)`) });
+      expect(at(looked([]), both('Bash'))[0]).toMatchObject({ state: 'unstarted', detail: null });
+    });
+
+    it('is looked for in each place the project can be, and is not there only where it is in none', () => {
+      const MAIN = '/the/main';
+      const theirs = `${MAIN}/node_modules/@descent-vtt/spec-harness/bin/spec-harness.js`;
+      expect(at(looked([theirs], [PROJECT, MAIN]), settings(HOOK))[0]).toMatchObject({ state: 'guards', detail: null });
+      expect(at(looked([], [PROJECT, MAIN]), settings(HOOK))[0]).toMatchObject({
+        state: 'off',
+        detail: `${W}: the script it runs is in neither place \${CLAUDE_PROJECT_DIR} can name, ${INSTALLED} or ${theirs}, so the hook cannot start, the guard is off and Claude Code lets each write it is started for go ahead without it; ${MEND}`,
+      });
+      // A path of its own is one place, however many the project can be.
+      expect(at(looked([], [PROJECT, MAIN]), settings({ ...HOOK, args: ['/opt/tools/spec-harness.js', 'hook', 'claude'] }))[0]).toMatchObject({ detail: off('/opt/tools/spec-harness.js') });
+    });
+
+    it('says nothing of a script whose place it cannot tell: a relative path, a name a program finds, a word a shell reads', () => {
+      for (const hook of [
+        { ...HOOK, args: ['node_modules/@descent-vtt/spec-harness/bin/spec-harness.js', 'hook', 'claude'] },
+        { type: 'command', command: 'npx', args: ['--no-install', '@descent-vtt/spec-harness', 'hook', 'claude'] },
+        shell(LEGACY),
+        shell(`node "${SCRIPT}" hook claude`),
+        shell(`node ${PROJECT}/node_modules/*/spec-harness/bin/spec-harness.js hook claude`),
+      ]) {
+        expect(at(looked([]), settings(hook))[0], JSON.stringify(hook)).toMatchObject({ state: 'guards', detail: null });
+      }
+    });
+  });
 
   it('has nothing to say of the line a release wrote, which guards', () => {
     const released = { file: FILE, events: BOTH, line: ['hook', 'claude'], state: 'guards', onFailure: null, detail: null, ...EVERY, note: null };
@@ -1406,8 +1490,8 @@ describe("the lines of Claude Code's hook in its settings, and what doctor says 
     expect(here(settings(exec('--brief', '001')))[0]?.note).toBe(`"hook claude --brief 001" in .claude/settings.json ${ADVICE}it is written on each of its entries`);
     expect(here(settings(HOOK), '.claude/settings.local.json')[0]?.note).toBe(`"hook claude" in .claude/settings.local.json ${ADVICE}it is written on each of its entries`);
     expect(here(settings(shell(LEGACY)))[0]?.note).toBe(`${W} ${ADVICE}it is written on each of its entries`);
-    // Beside 0.1's entry, which init would not give the field, the line is not all init's.
-    expect(here(settings(HOOK, shell(LEGACY)))[0]?.note).toBe(`${W} ${ADVICE}it is written on each of its entries`);
+    // Beside 0.1's entry, which names the harness otherwise and is a line of its own, init's line is all init's.
+    expect(here(settings(HOOK, shell(LEGACY))).map((each) => each.note)).toEqual([`${W} ${ADVICE}spec-harness init --write --block-on-failure writes it on these entries`, `${W} ${ADVICE}it is written on each of its entries`]);
     // A line that sets it is said as before.
     expect(here(settings({ ...HOOK, onFailure: 'block' }))[0]?.note).toContain('sets onFailure to "block"');
     // Nothing for a line that is no guard: off, holding every write, waited on before no write, or one whose reading cannot be told.

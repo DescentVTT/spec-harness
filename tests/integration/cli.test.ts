@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { HELP, run } from '../../src/cli.js';
 import { mergeClaudeSettings, mergeMcp, reportHooks } from '../../src/configure.js';
-import { BIN, brief, BRIEF_FILE, claudeOf, cleanup, cli, git, installFake, installHarness, installPlugin, parsed, repository, ROOT, siblings, SPEC_BRIEF, spawnBin, temp, write, type Repository } from './helpers.js';
+import { BIN, brief, BRIEF_FILE, claudeOf, cleanup, cli, git, installFake, installHarness, installPlugin, parsed, repository, repository as aRepository, ROOT, siblings, SPEC_BRIEF, spawnBin, temp, write, type Repository } from './helpers.js';
 
 afterAll(cleanup);
 
@@ -531,6 +531,7 @@ describe('the siblings', () => {
       '.claude/settings.local.json': local,
       '.mcp.json': JSON.stringify(mergeMcp({})),
     });
+    installHarness(repo.root);
     const pretty = await cli(['doctor'], repo.root);
     expect(pretty.code).toBe(1);
     expect(pretty.stdout).toContain(
@@ -710,6 +711,29 @@ describe('doctor on a brief or a base that names nothing', () => {
     expect(await cli(['doctor'], named.root)).toMatchObject({ code: 0, stderr: '' });
   });
 
+  it('fails where the branch names a brief spec-brief cannot be asked about, which the hook holds every write for, and for the flag, SPEC_BRIEF or another branch fails nothing', async () => {
+    // It said why and exited 0, where the hook held every write (ADR-0004).
+    const directory = temp();
+    write(directory, 'sibling.js', "process.stderr.write('no briefs directory'); process.exit(2);");
+    const failing = repository({ [BRIEF_FILE]: brief() }, { tools: { 'spec-brief': ['node', join(directory, 'sibling.js')] } });
+    const bare = repository({ [BRIEF_FILE]: brief() }, { tools: { 'spec-guard': siblings()['spec-guard'] } });
+    const NOT_HERE = 'spec-brief is not installed here: npm install --save-dev @descent-vtt/spec-brief, or name its command under "tools" in .spec-harness.json';
+    for (const [repo, why] of [[failing, 'spec-brief could not list the briefs: no briefs directory'], [bare, NOT_HERE]] as const) {
+      repo.git('checkout', '-q', '-b', 'brief/001-rotate');
+      const result = await cli(['doctor'], repo.root);
+      expect(result.code, why).toBe(1);
+      expect(briefLine(result.stdout), why).toBe(`none: spec-brief could not say whether it knows brief 001: ${why}`);
+      const question = JSON.stringify({ cwd: repo.root, hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: join(repo.root, 'src', 'a.ts') } });
+      expect(await cli(['hook', 'claude'], repo.root, { stdin: question, env: { CLAUDE_PROJECT_DIR: repo.root } }), why).toEqual({ code: 2, stdout: '', stderr: `spec-harness: cannot check this write: ${why}\n` });
+      // The flag and SPEC_BRIEF are the question doctor was asked, and name the brief in the branch's place.
+      expect((await cli(['doctor', '--brief', '1'], repo.root)).code, why).toBe(0);
+      expect((await cli(['doctor'], repo.root, { env: { SPEC_BRIEF: '1' } })).code, why).toBe(0);
+      // A branch that names no brief has the hook ask spec-brief nothing.
+      repo.git('checkout', '-q', 'main');
+      expect((await cli(['doctor'], repo.root)).code, why).toBe(0);
+    }
+  });
+
   it('says nothing of a brief that is one, by the id it was named with', async () => {
     const known = await cli(['doctor', '--brief', '1', '--format', 'json'], repo.root);
     expect(parsed(known)).toMatchObject({ brief: '1', briefProblem: null });
@@ -736,7 +760,12 @@ describe('doctor on a brief or a base that names nothing', () => {
 });
 
 describe('doctor on the Claude Code that runs the guard (ADR-0012)', () => {
-  const wired = (): Repository => repository({ '.claude/settings.json': JSON.stringify(mergeClaudeSettings({})) });
+  // With the install init's line names, so that the line guards.
+  const wired = (): Repository => {
+    const repo = repository({ '.claude/settings.json': JSON.stringify(mergeClaudeSettings({})) });
+    installHarness(repo.root);
+    return repo;
+  };
 
   /** A directory holding a `claude` that prints `output` for --version: a shell script, which Windows cannot run without a shell. */
   function claude(output: string): string {
@@ -832,6 +861,13 @@ describe('doctor on the Claude Code that runs the guard (ADR-0012)', () => {
 });
 
 describe("doctor on the line of Claude Code's hook in its settings (ADR-0005)", () => {
+  // Each project here installs spec-harness, whose script the lines name and
+  // doctor looks for: a line whose script is not there is a test of its own.
+  const repository = (...args: Parameters<typeof aRepository>): Repository => {
+    const repo = aRepository(...args);
+    installHarness(repo.root);
+    return repo;
+  };
   const SCRIPT = '${CLAUDE_PROJECT_DIR}/node_modules/@descent-vtt/spec-harness/bin/spec-harness.js';
   const hook = (rest: readonly string[], more: Readonly<Record<string, unknown>> = {}) => ({ type: 'command', command: 'node', args: [SCRIPT, 'hook', 'claude', ...rest], timeout: 60, ...more });
   /** The hooks under both events with the matcher given, which is the one init writes unless a test is about another. */
@@ -870,6 +906,96 @@ describe("doctor on the line of Claude Code's hook in its settings (ADR-0005)", 
     const result = await cli(['doctor', '--strict'], repo.root, { env });
     expect(result.code).toBe(0);
     expect(result.stdout).toContain(`\nclaude  init's entries: the guard hooks in .claude/settings.json\n        ${detail}\n        Claude Code 2.1.294 `);
+  });
+
+  it('fails for a line whose script is not there, which Claude Code cannot start, and passes once the project installs it', async () => {
+    // It said the line guarded, where every write it was started for went ahead without it.
+    const repo = aRepository({ '.claude/settings.json': settings([hook([])]) });
+    const env = newEnough();
+    const doctor = parsed<{ root: string; claudeCode: { lines: { state: string; detail: string | null }[] } }>(await cli(['doctor', '--format', 'json'], repo.root, { env }));
+    const MEND = 'install spec-harness in the project, npm install --save-dev @descent-vtt/spec-harness, or name its script where it is';
+    const script = `${doctor.root}/node_modules/@descent-vtt/spec-harness/bin/spec-harness.js`;
+    const detail = `"hook claude" in .claude/settings.json: the script it runs, ${script}, is not there, so the hook cannot start, the guard is off and Claude Code lets each write it is started for go ahead without it; ${MEND}`;
+    expect(doctor.claudeCode.lines).toMatchObject([{ state: 'off', detail }]);
+    const result = await cli(['doctor'], repo.root, { env });
+    expect(result.code).toBe(1);
+    expect(result.stdout).toContain(`\n        ${detail}\n`);
+    // Under onFailure "block", which the Claude Code here reads, it holds every write instead.
+    repo.write('.claude/settings.json', settings([hook([], { onFailure: 'block' })]));
+    const held = parsed<{ claudeCode: { lines: { state: string; detail: string | null }[] } }>(await cli(['doctor', '--format', 'json'], repo.root, { env: newEnough('2.1.295') }));
+    expect(held.claudeCode.lines).toMatchObject([{ state: 'held', detail: `"hook claude" in .claude/settings.json: the script it runs, ${script}, is not there, so the hook cannot start, and Claude Code holds every write it is started for before, since the entry sets onFailure to "block"; ${MEND}` }]);
+    expect((await cli(['doctor'], repo.root, { env: newEnough('2.1.295') })).code).toBe(1);
+    installHarness(repo.root);
+    expect((await cli(['doctor', '--strict'], repo.root, { env: newEnough('2.1.295') })).code).toBe(0);
+  });
+
+  it('looks for the script, in a linked worktree, where a session there finds it and where a worktree session of the desktop app does, and fails only where it is in neither', async () => {
+    const repo = aRepository({ '.claude/settings.json': settings([hook([])]) });
+    installHarness(repo.root);
+    const tree = join(temp(), 'w');
+    repo.git('worktree', 'add', '-q', '-b', 'w', tree);
+    const env = newEnough();
+    const at = async (): Promise<{ code: number; root: string; lines: { state: string; detail: string | null }[] }> => {
+      const result = await cli(['doctor', '--format', 'json'], tree, { env });
+      const json = parsed<{ root: string; claudeCode: { lines: { state: string; detail: string | null }[] } }>(result);
+      return { code: result.code, root: json.root, lines: json.claudeCode.lines };
+    };
+    // The main checkout's install is the one a worktree session of the desktop app runs: the line guards there, and the note says this work tree has none.
+    expect(await at()).toMatchObject({ code: 0, lines: [{ state: 'guards' }] });
+    rmSync(join(repo.root, 'node_modules', '@descent-vtt', 'spec-harness'), { recursive: true, force: true });
+    const main = repo.git('rev-parse', '--show-toplevel');
+    const neither = await at();
+    const where = (top: string): string => `${top}/node_modules/@descent-vtt/spec-harness/bin/spec-harness.js`;
+    expect(neither).toMatchObject({ code: 1, lines: [{ state: 'off', detail: expect.stringContaining(`: the script it runs is in neither place \${CLAUDE_PROJECT_DIR} can name, ${where(neither.root)} or ${where(main)}, so the hook cannot start`) }] });
+    // A repository that keeps its git directory apart names no main work tree: the project is the one place to look.
+    const apart = temp();
+    git(apart, 'init', '-q', '-b', 'main', `--separate-git-dir=${join(temp(), 'kept.git')}`);
+    write(apart, '.spec-harness.json', JSON.stringify({ base: 'main', tools: siblings() }));
+    write(apart, '.claude/settings.json', settings([hook([])]));
+    git(apart, 'add', '-A');
+    git(apart, 'commit', '-q', '-m', 'base');
+    const kept = await cli(['doctor', '--format', 'json'], apart, { env });
+    const json = parsed<{ root: string; claudeCode: { lines: { state: string; detail: string | null }[] } }>(kept);
+    expect(kept.code).toBe(1);
+    expect(json.claudeCode.lines).toMatchObject([{ state: 'off', detail: expect.stringContaining(`: the script it runs, ${where(json.root)}, is not there, so the hook cannot start`) }]);
+  });
+
+  it('fails for a line that names a brief where spec-brief cannot be run, which the hook holds every write for, and passes once it can', async () => {
+    const repo = repository({ [BRIEF_FILE]: brief(), '.claude/settings.json': settings([hook(['--brief', '001'])]) }, { tools: { 'spec-guard': siblings()['spec-guard'] } });
+    const env = newEnough();
+    const NOT_HERE = 'spec-brief is not installed here: npm install --save-dev @descent-vtt/spec-brief, or name its command under "tools" in .spec-harness.json';
+    const result = await cli(['doctor'], repo.root, { env });
+    expect(result.code).toBe(1);
+    expect(result.stdout).toContain(
+      `\n        "hook claude --brief 001" in .claude/settings.json: spec-brief could not say whether it knows brief 001: ${NOT_HERE}, so the hook holds every write until the line is mended: name a brief spec-brief lists, or take --brief off the line\n`,
+    );
+    const question = JSON.stringify({ cwd: repo.root, hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: join(repo.root, 'src', 'a.ts') } });
+    expect(await cli(['hook', 'claude', '--brief', '001'], repo.root, { stdin: question, env: { CLAUDE_PROJECT_DIR: repo.root } })).toEqual({ code: 2, stdout: '', stderr: `spec-harness: cannot check this write: ${NOT_HERE}\n` });
+    repo.write('.spec-harness.json', `${JSON.stringify({ base: 'main', tools: siblings() })}\n`);
+    expect((await cli(['doctor'], repo.root, { env })).code).toBe(0);
+  });
+
+  it('notes a report at the end of a turn that the configuration asks for and no settings file has Claude Code start, and fails nothing for it', async () => {
+    const NOTE = `note: "turnReport" is on, and no settings file has Claude Code start the hook as a turn ends, so no turn's end is reported: spec-harness init --write adds the entry beside init's, and says where it goes where the plugin brings the guard hooks`;
+    const repo = repository({ '.claude/settings.json': settings([hook([])]) }, { turnReport: true });
+    const env = newEnough();
+    const said = async (): Promise<{ code: number; noted: boolean; turnEnd: boolean }> => {
+      const text = await cli(['doctor', '--strict'], repo.root, { env });
+      const json = parsed<{ claudeCode: { turnEnd: boolean } }>(await cli(['doctor', '--format', 'json'], repo.root, { env }));
+      return { code: text.code, noted: text.stdout.includes(`\n        ${NOTE}\n`), turnEnd: json.claudeCode.turnEnd };
+    };
+    expect(await said()).toEqual({ code: 0, noted: true, turnEnd: false });
+    // init's entry at the end of a turn runs it.
+    const guarded = JSON.parse(settings([hook([])])) as { hooks: Record<string, unknown> };
+    repo.write('.claude/settings.json', JSON.stringify({ hooks: { ...guarded.hooks, Stop: [{ hooks: [{ ...hook([]), async: true }] }] } }));
+    expect(await said()).toEqual({ code: 0, noted: false, turnEnd: true });
+    // With the report off, nothing is asked for, and with no settings at all it is noted as well.
+    repo.write('.claude/settings.json', settings([hook([])]));
+    repo.write('.spec-harness.json', `${JSON.stringify({ base: 'main', tools: siblings(), turnReport: false })}\n`);
+    expect(await said()).toEqual({ code: 0, noted: false, turnEnd: false });
+    rmSync(join(repo.root, '.claude'), { recursive: true, force: true });
+    repo.write('.spec-harness.json', `${JSON.stringify({ base: 'main', tools: siblings(), turnReport: true })}\n`);
+    expect((await cli(['doctor'], repo.root, { env })).stdout).toContain(`\n        ${NOTE}\n`);
   });
 
   it('fails for a line that turns the guard off, says each in the hook\'s words with what onFailure makes of it, and passes once they are mended', async () => {
@@ -958,7 +1084,10 @@ describe("doctor on the line of Claude Code's hook in its settings (ADR-0005)", 
     const repo = repository({ '.claude/settings.json': settings([hook([])]) });
     const tree = join(temp(), 'w');
     repo.git('worktree', 'add', '-q', '-b', 'w', tree);
-    const release = (at: string, version: string): void => write(at, 'node_modules/@descent-vtt/spec-harness/package.json', JSON.stringify({ name: '@descent-vtt/spec-harness', version }));
+    const release = (at: string, version: string): void => {
+      write(at, 'node_modules/@descent-vtt/spec-harness/package.json', JSON.stringify({ name: '@descent-vtt/spec-harness', version }));
+      write(at, 'node_modules/@descent-vtt/spec-harness/bin/spec-harness.js', '');
+    };
     release(repo.root, '0.18.0');
     release(tree, '0.19.0');
     const main = repo.git('rev-parse', '--show-toplevel');
@@ -1264,11 +1393,12 @@ describe("doctor on the line of Claude Code's hook in its settings (ADR-0005)", 
         // No brief is asked about under such a root: the hook reads none there.
         ['off', off(`--brief 404 --root ${outside}`)],
       ]);
-      // With those lines gone the file passes. And a line that names no brief is asked about none, whatever the branch names: a branch that names one spec-brief does not know holds every write for every line, which is said of the brief, not of the line.
+      // With those lines gone the file passes. And a line that names no brief is asked about none, whatever the branch names: a branch whose brief spec-brief cannot be asked about, with no briefs/ here, holds every write for every line, which is said of the brief and fails, not of the line.
       repo.write('.claude/settings.json', JSON.stringify(under(hook(['--root', 'packages/app']))));
+      expect((await wiring(repo, {})).code).toBe(0);
       repo.git('checkout', '-q', '-b', 'brief/404-nowhere');
       const mended = await wiring(repo, {});
-      expect(mended.code).toBe(0);
+      expect(mended.code).toBe(1);
       expect(mended.lines.map((line) => line.state)).toEqual(['guards']);
     });
 
@@ -1289,6 +1419,7 @@ describe("doctor on the line of Claude Code's hook in its settings (ADR-0005)", 
       const outer = repository({ [BRIEF_FILE]: brief({ affected: ['packages/**'], protected: ['packages/app/src/db/**'] }), '.gitignore': 'packages/\n' });
       const root = join(outer.root, 'packages', 'app');
       at(root, { 'src/db/schema.ts': 'table;\n', '.gitignore': 'vendor/\nlinked/\n' });
+      installHarness(root);
       const nested = join(root, 'vendor', 'lib');
       const nestedTop = at(nested, { [BRIEF_FILE]: INNER, 'src/db/schema.ts': 'table;\n' });
       const linked = join(root, 'linked');

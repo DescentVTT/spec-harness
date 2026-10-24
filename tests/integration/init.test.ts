@@ -456,6 +456,8 @@ describe('init', () => {
 
     it('is said as a directory git stops every commit at, fails doctor as git fails the commit, and has init write nothing over it', async () => {
       const repo = repository({});
+      // The install init's lines name, so that what doctor fails for is the hook git runs alone.
+      installHarness(repo.root);
       const directory = join(repo.root, '.git', 'hooks', 'pre-commit');
       mkdirSync(directory, { recursive: true });
       const stops = STOPS('.git/hooks/pre-commit');

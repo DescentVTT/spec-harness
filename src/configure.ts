@@ -460,6 +460,13 @@ export const NO_SESSION_START =
   'note: no settings file has Claude Code start the hook as a session starts, so a configuration that does not load, or a brief named that spec-brief does not list, is said only at the first write, which it holds: spec-harness init --write adds the entry beside the two it wrote';
 
 /**
+ * What doctor notes where `turnReport` is on and no settings file has Claude
+ * Code start the hook as a turn ends: the report the configuration asks for
+ * is made at no turn's end. The plugin brings no entry for it (ADR-0012).
+ */
+export const NO_TURN_END = `note: "turnReport" is on, and no settings file has Claude Code start the hook as a turn ends, so no turn's end is reported: spec-harness init --write adds the entry beside init's, and says where it goes where the plugin brings the guard hooks`;
+
+/**
  * What doctor notes, run in a linked worktree, of the spec-harness the
  * hook's line runs: the one installed where `${CLAUDE_PROJECT_DIR}` points,
  * which is this work tree in a session started in it, and the main
@@ -530,6 +537,12 @@ export interface WrittenHook {
   /** Whether the entry sets `onFailure` to `"block"`. */
   readonly blocks: boolean;
   /**
+   * The word that names the harness, its script's path or its name, as
+   * written, and whether a shell reads it first: an entry with no `args`.
+   * Entries that name the harness in two ways are two lines.
+   */
+  readonly launcher: { readonly word: string; readonly shell: boolean };
+  /**
    * What the entry has for `type` where that is not `"command"`, as it is
    * said of the line: none at all, or a word the reference does not list.
    * Whether Claude Code runs such an entry cannot be told. `null` for an
@@ -570,7 +583,7 @@ function writtenHook(hook: Json): Line | null {
   if (at === -1) return null;
   const words = line.slice(at + 1);
   const untyped = type === 'command' ? null : type === undefined ? 'no "type"' : `the "type" ${JSON.stringify(type)}`;
-  return { words, shell: shell && words.some((word) => SHELL_READS.test(word)), blocks: hook['onFailure'] === 'block', untyped };
+  return { words, shell: shell && words.some((word) => SHELL_READS.test(word)), blocks: hook['onFailure'] === 'block', untyped, launcher: { word: line[at]!, shell } };
 }
 
 /**
@@ -581,10 +594,10 @@ function writtenHook(hook: Json): Line | null {
  * alone.
  */
 export function writtenHooks(settings: unknown): WrittenHook[] {
-  const found: { events: string[]; words: readonly string[]; shell: boolean; blocks: boolean; untyped: string | null }[] = [];
-  for (const { event, words, shell, blocks, untyped } of harnessEntries(settings)) {
-    const same = found.find((other) => sameLine(other, { words, shell, blocks, untyped }));
-    if (same === undefined) found.push({ events: [event], words, shell, blocks, untyped });
+  const found: { events: string[]; words: readonly string[]; shell: boolean; blocks: boolean; untyped: string | null; launcher: WrittenHook['launcher'] }[] = [];
+  for (const { event, words, shell, blocks, untyped, launcher } of harnessEntries(settings)) {
+    const same = found.find((other) => sameLine(other, { words, shell, blocks, untyped, launcher }));
+    if (same === undefined) found.push({ events: [event], words, shell, blocks, untyped, launcher });
     else if (!same.events.includes(event)) same.events.push(event);
   }
   return found;
@@ -593,7 +606,38 @@ export function writtenHooks(settings: unknown): WrittenHook[] {
 type Line = Omit<WrittenHook, 'events'>;
 
 function sameLine(one: Line, other: Line): boolean {
-  return one.shell === other.shell && one.blocks === other.blocks && one.untyped === other.untyped && sameStrings(one.words, other.words);
+  return (
+    one.shell === other.shell &&
+    one.blocks === other.blocks &&
+    one.untyped === other.untyped &&
+    one.launcher.word === other.launcher.word &&
+    one.launcher.shell === other.launcher.shell &&
+    sameStrings(one.words, other.words)
+  );
+}
+
+/**
+ * Where doctor looks for the script a line runs: each directory
+ * `${CLAUDE_PROJECT_DIR}` can name as a session starts, which Claude Code
+ * fills in, in either form, and how a file is told to stand at a path.
+ */
+export interface ScriptPlaces {
+  readonly projects: readonly string[];
+  readonly isFile: (path: string) => boolean;
+}
+
+/**
+ * What is said of the script a line runs where it is in none of the places
+ * it can name, `null` where it is in one, and `null` where that cannot be
+ * told here: a relative path, which is read from wherever the session
+ * stands as the hook starts, a name a program finds by itself (npx's
+ * package, a command on `PATH`), and a word a shell reads before it runs
+ * anything.
+ */
+function absentScript(launcher: WrittenHook['launcher'], places: ScriptPlaces): string | null {
+  const paths = [...new Set(places.projects.map((project) => launcher.word.split(PROJECT_DIR).join(project)))];
+  if (paths.some((path) => (launcher.shell && SHELL_READS.test(path)) || !isAbsolute(path) || places.isFile(path))) return null;
+  return paths.length === 1 ? `the script it runs, ${paths[0]}, is not there` : `the script it runs is in neither place \${CLAUDE_PROJECT_DIR} can name, ${paths.join(' or ')}`;
 }
 
 /** An entry that runs the harness: its line, where it stands, and what decides whether Claude Code starts it there. */
@@ -648,8 +692,11 @@ export interface HookReport {
    * checks it. `off`: the hook checks no write, for a line it cannot read, a
    * root that is no directory, or a root that is a directory outside any
    * work tree; or it is never started, in a file an array for a matcher
-   * keeps Claude Code from loading the hooks of. `held`: the hook holds every write, for a
-   * brief the line names that is not one. `unstarted`: Claude Code waits on
+   * keeps Claude Code from loading the hooks of, or it cannot start, its
+   * script not there. `held`: the hook holds every write, for a brief the
+   * line names that is not one or that spec-brief cannot be asked about;
+   * or Claude Code does, for a hook that cannot start under `onFailure:
+   * "block"`. `unstarted`: Claude Code waits on
    * the line before no write, so it is not the guard. `unknown`: what the
    * hook is handed, which writes it is started for, or whether Claude Code
    * runs the entry at all, cannot be told here.
@@ -866,6 +913,12 @@ export function handedLines(sources: readonly ClaudeSettings[], project: string)
  * `PermissionRequest` has none of its hooks loaded ({@link arrayMatcher}):
  * each line of the hook there is started for no write, and one that stood
  * to be started for a write is a guard that is off.
+ *
+ * `scripts` is where a caller that says whether the script a line runs is
+ * there looks for it; with none it is not asked. A line whose script is
+ * not there is a hook Claude Code cannot start, which it lets each write
+ * go ahead without, or holds every write for where the entry sets
+ * `onFailure` to `"block"` and the release here reads it.
  */
 export function reportHooks(
   sources: readonly ClaudeSettings[],
@@ -874,6 +927,7 @@ export function reportHooks(
   pattern: PatternReader = patternReader(),
   matching: Matching = TODAY,
   onFailureHere = false,
+  scripts: ScriptPlaces | null = null,
 ): HookReport[] {
   const reading: Reading = { pattern, matching };
   return sources.flatMap(({ file, settings }) => {
@@ -919,6 +973,21 @@ export function reportHooks(
       // What the hook would do with a line it is never asked on before a write is not what guards.
       const unstarted: HookReport = { ...written, state: 'unstarted', detail: null, note };
       const waited = before === null || before.length > 0;
+      // Whatever the hook would do with the words, it never reads them where
+      // its script is not there. By the hooks reference
+      // (https://code.claude.com/docs/en/hooks, Block the action when a hook
+      // fails, read 2026-10-24) a command hook that cannot start, as where
+      // its script does not exist, has failed, and the action goes ahead
+      // unless the entry sets onFailure to "block", which holds it.
+      const absent = scripts === null ? null : absentScript(hook.launcher, scripts);
+      if (absent !== null) {
+        if (!waited && !isStarted(after)) return [unstarted];
+        const mend = 'install spec-harness in the project, npm install --save-dev @descent-vtt/spec-harness, or name its script where it is';
+        if (hook.blocks && onFailureHere && waited) {
+          return [{ ...written, state: 'held', detail: `${where}: ${absent}, so the hook cannot start, and Claude Code holds every write it is started for before, since the entry sets onFailure to "block"; ${mend}`, note }];
+        }
+        return [{ ...written, state: 'off', detail: `${where}: ${absent}, so the hook cannot start, the guard is off and Claude Code lets each write it is started for go ahead without it; ${mend}`, note }];
+      }
       if (handed.state === 'off') {
         const detail = `${where}: ${handed.fault.wrong}, so the guard is off and ${handed.unchecked ?? 'no write is checked'}; ${handed.fault.mend}`;
         // A fault the hook says, it says after every write it is started for
@@ -1190,6 +1259,8 @@ export interface ClaudeCodeWiring {
   readonly server: boolean;
   /** Whether a settings file has Claude Code start the hook as a session starts (startsSessions). */
   readonly sessionStart: boolean;
+  /** Whether a settings file has Claude Code start the hook as a turn ends (reportsTurns): the plugin brings no such entry. */
+  readonly turnEnd: boolean;
   /**
    * The release of the Claude Code on `PATH`, where it was asked: a matcher
    * that lists names with a comma is read as that release reads it
