@@ -2,6 +2,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { runInNewContext } from 'node:vm';
 import { chmodSync, copyFileSync, cpSync, existsSync, linkSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -637,6 +638,37 @@ describe('the siblings', () => {
     expect(result.stderr).toBe(
       'spec-harness: spec-brief exited -1 without JSON: cannot start "no-such-program-for-spec-harness": name the tool\'s script, such as ["node", "node_modules/@descent-vtt/<tool>/bin/<tool>.js"]\n',
     );
+  });
+
+  it('says to name a script, in the same words on every host, for a program that cannot be started: a script without node, a .cmd, a directory', async () => {
+    // Windows refused the first two before a process was made, which Node
+    // throws, and each command ended on `unexpected error: Error: spawn
+    // EFTYPE` or `EINVAL` and a stack trace; the hook held the write in
+    // those words. Linux and macOS refuse each as a file that may not be
+    // run, EACCES, which was said as an exit of -1 and nothing more. The
+    // script runs the real spec-brief and is written as a file is, with no
+    // mode to run it: an install gives its own script that mode, which
+    // starts there with no node before it.
+    const directory = temp();
+    write(directory, 'spec-brief.mjs', `await import(${JSON.stringify(pathToFileURL(SPEC_BRIEF).href)});\n`);
+    write(directory, 'spec-brief.cmd', '@echo {}');
+    for (const program of [join(directory, 'spec-brief.mjs'), join(directory, 'spec-brief.cmd'), directory]) {
+      const said = `cannot start "${program}": name the tool's script, such as ["node", "node_modules/@descent-vtt/<tool>/bin/<tool>.js"]`;
+      const repo = repository({ [BRIEF_FILE]: brief({ affected: ['src/**'], protected: ['src/db/**'] }) }, { tools: { ...siblings(), 'spec-brief': [program] } });
+      expect(await cli(['guard', 'src/db/schema.ts', '--brief', '1'], repo.root), program).toEqual({ code: 2, stdout: '', stderr: `spec-harness: spec-brief exited -1 without JSON: ${said}\n` });
+      // The hook holds the write, before it and after it, in those words.
+      repo.git('checkout', '-q', '-b', 'brief/001-x');
+      for (const [event, held] of [['PreToolUse', 'cannot check this write: '], ['PostToolUse', '']] as const) {
+        const stdin = JSON.stringify({ session_id: 's', cwd: repo.root, hook_event_name: event, tool_name: 'Edit', tool_input: { file_path: join(repo.root, 'src', 'auth', 'a.ts') } });
+        expect(await cli(['hook', 'claude'], repo.root, { stdin, env: { CLAUDE_PROJECT_DIR: repo.root } }), `${program} ${event}`).toEqual({ code: 2, stdout: '', stderr: `spec-harness: ${held}spec-brief exited -1 without JSON: ${said}\n` });
+      }
+      // Named with node before it, the same script is run, and the write in the scope goes on.
+      if (program.endsWith('.mjs')) {
+        repo.write('.spec-harness.json', `${JSON.stringify({ base: 'main', tools: { ...siblings(), 'spec-brief': ['node', program] } })}\n`);
+        const stdin = JSON.stringify({ session_id: 's', cwd: repo.root, hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: join(repo.root, 'src', 'auth', 'a.ts') } });
+        expect(await cli(['hook', 'claude'], repo.root, { stdin, env: { CLAUDE_PROJECT_DIR: repo.root } })).toEqual({ code: 0, stdout: '', stderr: '' });
+      }
+    }
   });
 
   it('stops with exit 2, not a stack trace, when the brief spec-brief names cannot be read', async () => {

@@ -42,6 +42,17 @@ cannot turn a run red. The family's policy is
   `init` writes, or no timeout; an entry below 45 is noted, and fails
   nothing.
 
+### Fixed
+
+- **A `tools` command that cannot be started is said in one way on every
+  host**: `cannot start "<command>": name the tool's script, such as
+  ["node", ...]`, the words a name no program has was given. On Windows a
+  script with no `node` before it, or a `.cmd`, ended a command on
+  `unexpected error: Error: spawn EFTYPE` (or `EINVAL`) and a stack trace,
+  and on Linux a file that may not be run was `exited -1` and nothing more;
+  the hook holds the write as it did
+  ([ADR-0002](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0002-siblings-through-their-command-lines.md)).
+
 ## 0.20.0
 
 The hook decides each path by the work tree that holds it, a third
