@@ -508,6 +508,8 @@ describe('init', () => {
     // An account that may do anything may read the file too.
     it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)('says a hook file the account may not read, where it ended both on EACCES and a stack, by what git does with it', async () => {
       const repo = repository({});
+      // The install init's lines name, so that what doctor fails for is the hook git runs alone.
+      installHarness(repo.root);
       const hook = join(repo.root, '.git', 'hooks', 'pre-commit');
       mkdirSync(join(repo.root, '.git', 'hooks'), { recursive: true });
       writeFileSync(hook, `#!/bin/sh\nexec node ${'node_modules/@descent-vtt/spec-harness/bin/spec-harness.js'} hook git\n`);
