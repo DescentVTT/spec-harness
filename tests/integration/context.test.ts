@@ -7,11 +7,19 @@ import { tools } from '../../src/server.js';
 import { declaredVersion } from '../../src/siblings.js';
 import { meets, parseVersion } from '../../src/versions.js';
 import { openWorkspace, parseOptions } from '../../src/workspace.js';
-import { brief, BRIEF_FILE, cleanup, cli, parsed, repository, ROOT, SPEC_BRIEF, temp, write, type Repository } from './helpers.js';
+import { brief, BRIEF_FILE, cleanup, cli, guardRule, parsed, repository, ROOT, SPEC_BRIEF, temp, write, type Repository } from './helpers.js';
 
 afterAll(cleanup);
 
 const ADR = '---\nstatus: accepted\n---\n\n# ADR-0001: Sessions\n\nNo legacy gateway.\n\n<!-- @assert-absence target="src/auth" symbol="LegacyGateway" reason="the gateway is gone" -->\n';
+
+/**
+ * The ADR's rule as a packet lists it. Its line and its reason are the
+ * ADR's; the words that state the rule are spec-guard's to choose, so they
+ * are read from the release installed here (guardRule), as the harness is
+ * given them.
+ */
+let RULE = '';
 
 let repo: Repository;
 
@@ -38,6 +46,7 @@ beforeAll(() => {
     'src/db/schema.ts': 'table;\n',
   });
   repo.git('checkout', '-q', '-b', 'brief/001-rotate');
+  RULE = `### docs/adr/0001-sessions.md\n\n- line 9: ${guardRule(repo.root, 'src/auth', 'docs/adr/0001-sessions.md', 9)} - the gateway is gone\n`;
 });
 
 describe('context', () => {
@@ -53,7 +62,7 @@ describe('context', () => {
     expect(text).toContain('Rulings in force:\n- none\n');
     // spec-brief reports dependencies as the front matter spells them; 2 is brief 002.
     expect(text).toContain('## Depends on\n\n- 002 Still going: still draft\n- 003 Done: archived, done\n- 9 (no such brief): still unknown\n');
-    expect(text).toContain('### docs/adr/0001-sessions.md\n\n- line 9: "LegacyGateway" must not appear in src/auth - the gateway is gone');
+    expect(text).toContain(RULE);
     expect(text).toContain('### `docs/design.md` - The design (draft)\n\n````markdown\n---\nstatus: draft\n---\n\n# The design\n\nTokens rotate.\n````');
     expect(text).toContain('### `docs/adr/0001-sessions.md` - ADR-0001: Sessions (accepted)');
     expect(text).toContain('Cited but not found in the repository:\n- `docs/gone.md`\n');
@@ -132,7 +141,7 @@ describe('context', () => {
     });
     const result = await cli(['context', '1'], braces.root);
     expect(result.code).toBe(0);
-    expect(result.stdout).toContain('### docs/adr/0001-sessions.md\n\n- line 9: "LegacyGateway" must not appear in src/auth - the gateway is gone\n');
+    expect(result.stdout).toContain(RULE);
     expect(result.stdout).not.toContain('lib is frozen');
   });
 
@@ -155,7 +164,7 @@ describe('context', () => {
     const braced = await rules('1');
     expect(braced).toBe(await rules('2'));
     expect(braced).not.toContain('outside the root');
-    expect(braced).toContain('### docs/adr/0001-sessions.md\n\n- line 9: "LegacyGateway" must not appear in src/auth - the gateway is gone\n');
+    expect(braced).toContain(RULE);
     const scope = (await cli(['context', '1'], rooted.root)).stdout;
     expect(scope).toContain(
       "May write:\n- `{/docs,src/**}`, an alternative of which a leading `/` roots at the filesystem's root: that alternative puts no path in the scope, and spec-guard is not asked about it\n",
@@ -282,7 +291,7 @@ describe('context', () => {
           '',
         ].join('\n'),
       );
-      expect(packet.markdown).toContain('### docs/adr/0001-sessions.md\n\n- line 9: "LegacyGateway" must not appear in src/auth - the gateway is gone\n');
+      expect(packet.markdown).toContain(RULE);
       expect(packet.markdown).not.toContain('lib is frozen');
       expect(packet.markdown).not.toContain('The scope could not be read');
     });
@@ -328,10 +337,14 @@ describe('context', () => {
   });
 
   it('passes on what spec-guard said when it could not read its specs, and gives the rest of the packet', async () => {
-    const broken = repository({ [BRIEF_FILE]: brief({ affected: ['src/**'] }), 'package.json': JSON.stringify({ specGuard: { bogus: 1 } }), 'docs/adr/0001.md': ADR });
+    // A spec-guard of the test's own, which refuses as one refuses a
+    // configuration it cannot read: what it says is its own words.
+    const fake = temp();
+    write(fake, 'guard.js', "console.error('spec-guard: package.json: no such option as bogus'); process.exit(2);");
+    const broken = repository({ [BRIEF_FILE]: brief({ affected: ['src/**'] }), 'docs/adr/0001.md': ADR }, { tools: { 'spec-brief': ['node', SPEC_BRIEF], 'spec-guard': ['node', join(fake, 'guard.js')] } });
     const result = await cli(['context', '1'], broken.root);
     expect(result.code).toBe(0);
-    expect(result.stdout).toContain('The rules spec-guard holds this code to could not be read: spec-guard exited 2 without JSON: spec-guard: package.json: unknown option "bogus"');
+    expect(result.stdout).toContain('The rules spec-guard holds this code to could not be read: spec-guard exited 2 without JSON: spec-guard: package.json: no such option as bogus');
     expect(result.stdout).toContain('. Treat every ADR as binding until they can.');
     expect(result.stdout).toContain('## The contract');
   });
@@ -344,7 +357,6 @@ describe('context', () => {
     // `test (minimum siblings)` the oldest this package runs (ADR-0011).
     const installed = parseVersion(String(declaredVersion(join(ROOT, 'node_modules', '@descent-vtt', 'spec-guard', 'package.json'))));
     const names = installed !== null && meets(installed, { major: 0, minor: 22, patch: 0, prerelease: false });
-    const RULE = '### docs/adr/0001-sessions.md\n\n- line 9: "LegacyGateway" must not appear in src/auth - the gateway is gone\n';
     const SAID = "spec-guard's pattern `rfcs/*.md` matched no spec file, so a rule kept under it is not listed here; remove the pattern from spec-guard's `specs`.";
     let renamed: Repository;
 
