@@ -127,6 +127,26 @@ describe('check_path and the hook', () => {
     expect(answers).toEqual(expected);
   });
 
+  it('reads the brief the argument names where nothing else names one, as the hook reads its line\'s', async () => {
+    const repo = repository(FILES);
+    const call = async (brief: string): Promise<string> => {
+      const lines = [
+        { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 't', version: '1' } } },
+        { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'check_path', arguments: { paths: ['src/db/schema.ts'], brief } } },
+      ];
+      const served = await cli(['mcp'], repo.root, { stdin: lines.map((line) => JSON.stringify(line)).join('\n'), env: { CLAUDE_PROJECT_DIR: repo.root } });
+      return (JSON.parse(served.stdout.split('\n').filter((line) => line !== '')[1]!) as { result: { content: { text: string }[] } }).result.content[0]!.text;
+    };
+    // On main, which names no brief, the argument alone names one.
+    expect(await call('001')).toMatch(/^deny: brief 001 does not empower this round to change src\/db\/schema\.ts/);
+    expect(await call('404')).toBe('deny: "brief" names brief 404, and spec-brief knows no such brief. Next: fix the brief or the branch before writing');
+    const byLine = await cli(['hook', 'claude', '--brief', '404'], repo.root, {
+      stdin: JSON.stringify({ session_id: 's', tool_use_id: 'toolu_1', cwd: repo.root, hook_event_name: 'PreToolUse', tool_name: 'Write', tool_input: { file_path: join(repo.root, 'src', 'db', 'schema.ts'), content: 'x' } }),
+      env: { CLAUDE_PROJECT_DIR: repo.root },
+    });
+    expect(byLine).toEqual({ code: 2, stdout: '', stderr: 'spec-harness: the flag names brief 404, and spec-brief knows no such brief. Fix the brief or the branch before writing.\n' });
+  });
+
   it('holds a path inside in the words the hook holds a write with, and passes one outside in the same call', async () => {
     const repo = onBranch({}, 'brief/999-nowhere')();
     const outside = join(temp(), 'notes.md');

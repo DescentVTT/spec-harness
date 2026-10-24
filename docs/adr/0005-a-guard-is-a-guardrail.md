@@ -2488,6 +2488,25 @@ An exit code that can change for a tree that passed is a minor release
 - **`doctor`'s words for `-h` and `-v`** are those for `--help` and
   `--version`: the line is shown above them as it was written.
 
+*Amended 2026-10-24.* **The report at the end of a turn says what is held
+as the hook holds it.** Where the branch, the line or `SPEC_BRIEF` names a
+brief no round can work under, the report the first amendment of
+2026-10-19 added says `..., so what the work tree holds is not reported,
+and every write is held`. *Claimed* by round 25's agent F: beside the
+amendment of 2026-10-19 that has a write outside every work tree held by
+no brief, those words are too broad. *Measured* through the launcher of
+main (4227a6a) and of this change (Windows 11, Node 24.22.1;
+`b26-measure/b2.mjs`), `turnReport` on, the branch naming brief 999: the
+report said every write is held, and a write of a file outside every work
+tree passed with no word. It now says `..., and every write is held but one
+to a file outside every work tree of the repository; spec-harness doctor
+says more`. Every other answer of the hook, the session's start among
+them, is as it was.
+
+What was measured for this and left as it was: **the line as a session
+starts**, `..., so every write of this session is held until it is
+mended`, is as broad, and was not decided here.
+
 ## Consequences
 
 An agent that writes through a shell passes the guard and is caught at the

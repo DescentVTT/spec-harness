@@ -9,6 +9,25 @@ only fixes, reports less or documents, so `^0.7.0` takes only releases that
 cannot turn a run red. The family's policy is
 [spec-core's ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
+## Unreleased
+
+### Changed
+
+- **The server's `check_path` answers each path as the hook decides a
+  write of it.** A file outside every work tree of the repository is
+  outside the repository whatever names the brief, where a brief that
+  spec-brief does not list or has archived failed the call; a path inside
+  that such a brief holds is `deny`, with the reason `held` and the
+  hook's words; and with no brief named each path is answered as no
+  brief's, where the call was a tool error. spec-brief is asked only where
+  a brief is named and a path is inside. The report at the end of a turn
+  says that every write is held but one to a file outside every work tree
+  ([ADR-0008](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0008-one-server-for-rounds.md),
+  [ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
+  Upgrading: a client that read a tool error from `check_path` for a
+  brief's problem or for no brief named reads an answer for each path, and
+  `held` is a new `reason` of a decision.
+
 ## 0.20.0
 
 The hook decides each path by the work tree that holds it, a third

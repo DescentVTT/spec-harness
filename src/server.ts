@@ -16,8 +16,8 @@ import { findActive, type ActiveBrief } from './briefs.js';
 import { briefIdFromBranch } from './branch.js';
 import { titleOf } from './context.js';
 import { createReader } from './reader.js';
-import { outsideEvery, realSpelling, repositoryPath } from './fs.js';
-import { decide, heldBy, type Decision } from './guard.js';
+import { outsideEvery, realSpelling } from './fs.js';
+import { heldBy, type Decision } from './guard.js';
 import { buildContext, checkPaths, raiseEscalation, runAudit } from './round.js';
 import type { EscalationOption } from './rulings.js';
 import type { BriefRow } from './types.js';
@@ -291,9 +291,10 @@ async function asTheHook(workspace: Workspace, env: CliIO['env'], id: string | u
   const outside = paths.map((path) => outsideEvery([path], workspace.root, workspace.commonDir, cwd));
   const { brief, note, problem } = describeActive(outside.every((each) => each) ? findActive([], {}) : await namedBrief(workspace, env, id), '"brief"');
   if (problem === null) return checkPaths(workspace, brief, note, paths, cwd, reader, base);
-  return paths.map((path, at) =>
-    outside[at] ? decide({ path: null, given: path, brief: null, rulings: [], outOfScope: workspace.config.outOfScope }) : heldBy(repositoryPath(path, workspace.root, cwd) ?? path, problem),
-  );
+  // Decided by no brief, a path outside is decided as outside the
+  // repository, and one inside is held, named as the repository names it.
+  const decided = await checkPaths(workspace, null, undefined, paths, cwd, reader, base);
+  return decided.map((decision, at) => (outside[at] ? decision : heldBy(decision.path, problem)));
 }
 
 export function tools(workspace: Workspace, env: CliIO['env'], roots: Roots = NO_ROOTS): ToolDefinition[] {
