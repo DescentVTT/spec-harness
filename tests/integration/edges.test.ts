@@ -653,6 +653,15 @@ describe('finding the siblings', () => {
     });
   });
 
+  it('answers a sibling a signal ended before its limit with -1, where it has no exit code', async () => {
+    // Node names a process a signal ended with no exit code, null, so -1
+    // stands for one. Since a program that cannot start is answered apart,
+    // this is the one run the sweep, on Linux, reaches -1 by. Windows has no
+    // such signal: there the process ended with 1, as measured.
+    const run = await runSibling('a sibling', ['node', '-e', 'process.kill(process.pid, "SIGKILL")'], [], temp());
+    expect(run).toEqual({ code: process.platform === 'win32' ? 1 : -1, stdout: '', stderr: '' });
+  });
+
   it('answers a program that cannot be started in one way on every host: a directory, a script with no node before it, a .cmd, a name with a NUL in it', async () => {
     // Linux and macOS refuse the first three as a file that may not be run,
     // EACCES, which was answered as -1 with nothing said. Windows finds no
