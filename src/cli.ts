@@ -21,9 +21,9 @@
 import { SiblingOutputError, type ActiveBrief } from './briefs.js';
 import { CONFIG_FILE, ConfigError, SIBLINGS, SPEC_BRIEF_CONFIGS } from './config.js';
 import type { ClaudeCodeWiring } from './configure.js';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join } from 'node:path';
 
-import { gitDirectories, isDirectory, keepCall, loadConfig, mainWorkTree, outsideEvery, StateError, takeCall, writesOnly } from './fs.js';
+import { gitDirectories, isDirectory, keepCall, loadConfig, mainWorkTree, outsideEvery, reachedBy, StateError, takeCall, writesOnly } from './fs.js';
 import { changedPaths, GitError, holdsPath, isShallow, show, stagedChanges } from './git.js';
 import type { DocumentReader } from './document.js';
 import type { Decision } from './guard.js';
@@ -421,8 +421,9 @@ async function answeredAfter(root: string, record: CallRecord | null, cwd: strin
     if (warnings !== null) return afterResponse(warnings);
   }
   // A path in another work tree than the one this configuration is read
-  // from may be decided by another's, which may warn.
-  if (!found.exact || (cwd !== null && mayBeElsewhere(cwd, found.top)) || paths.some((path) => mayBeElsewhere(resolve(cwd ?? io.cwd, path), found.top))) return null;
+  // from may be decided by another's, which may warn, and so may the file a
+  // link has a path written to.
+  if (!found.exact || (cwd !== null && mayBeElsewhere(cwd, found.top)) || paths.some((path) => reachedBy(path, cwd ?? io.cwd).some((spelled) => mayBeElsewhere(spelled, found.top)))) return null;
   try {
     return (await loadConfig(found.top)).config.outOfScope === 'warn' ? null : afterResponse([]);
   } catch {
