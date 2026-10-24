@@ -11,7 +11,7 @@
 import { isAbsolute, join } from 'node:path';
 import { runInNewContext } from 'node:vm';
 
-import { CALLABLE_TOOLS } from './hooks.js';
+import { CALLABLE_TOOLS, HOOK_BUDGET_MS } from './hooks.js';
 import { literal } from './literal.js';
 import type { AllowedSigner } from './signers.js';
 import type { LocalBranch } from './types.js';
@@ -666,6 +666,8 @@ export interface HookReport {
   readonly cover: string | null;
   /** What `onFailure` changes, where the entry sets it to `"block"`. */
   readonly note: string | null;
+  /** What is said of an entry whose `timeout` is below what a run of the hook is given, or `null`. */
+  readonly timeout: string | null;
 }
 
 /**
@@ -692,6 +694,24 @@ export function readsOnFailure(release: ClaudeCodeCheck | null): boolean {
 function describeOnFailure(where: string, blocks: boolean): string | null {
   if (!blocks) return null;
   return `${where} sets onFailure to "block", so Claude Code ${ON_FAILURE_SINCE} or later holds a write when the hook fails, where it lets the write go ahead without it: by not starting, as where the script on its line is not there, or by running past its timeout`;
+}
+
+/**
+ * What is said of a line whose entries give the hook less time than a run
+ * of it is given ({@link HOOK_BUDGET_MS}), or `null`. Claude Code's hooks
+ * reference (Timeouts, read 2026-10-24) has a command hook cancelled at its
+ * entry's `timeout`, and a PreToolUse hook it cancels blocks no tool call:
+ * a run that needs its budget, which holds the write at the end of it, is
+ * cut short there, and the write goes ahead. A note, which fails nothing:
+ * the timeout is the person's. One that is no number is not read.
+ */
+function describeTimeout(where: string, entries: readonly HarnessEntry[]): string | null {
+  const short = entries.flatMap((entry) => {
+    const seconds = entry.hook['timeout'];
+    return typeof seconds === 'number' && seconds * 1000 < HOOK_BUDGET_MS ? [`${seconds} seconds under ${entry.event}`] : [];
+  });
+  if (short.length === 0) return null;
+  return `${where} gives the hook ${named(short)}, less than the ${HOOK_BUDGET_MS / 1000} a run of it is given, so Claude Code cancels a run that takes longer before it answers, and a write it would have held goes ahead: give the entry 60, as init writes it, or no timeout`;
 }
 
 /**
@@ -896,14 +916,14 @@ export function reportHooks(
         // someone meant a matcher, is a guard set up that checks nothing;
         // one that stood to be started for none leaves no write unchecked
         // that it was ever asked about.
-        const unloaded = { file, events: hook.events, line: hook.words, onFailure: hook.blocks ? 'block' : null, before: [], after: [], cover: null, note: null } satisfies Partial<HookReport>;
+        const unloaded = { file, events: hook.events, line: hook.words, onFailure: hook.blocks ? 'block' : null, before: [], after: [], cover: null, note: null, timeout: null } satisfies Partial<HookReport>;
         const said = `${where}: ${describeArrayMatcher(file, array)}`;
         if (isStarted(before) || isStarted(after) || mine.some((entry) => Array.isArray(entry.matcher))) {
           return [{ ...unloaded, state: 'off', detail: `${said}, so the guard is off and no write is checked; ${ONE_STRING}` }];
         }
         return [{ ...unloaded, state: 'unstarted', detail: `${said}: the line is not started, and stood to be started for no write as it is, so no guard is switched off` }];
       }
-      const written = { file, events: hook.events, line: hook.words, onFailure: hook.blocks ? 'block' : null, before, after, cover: describeCover(where, before, after, mine, reading) } satisfies Partial<HookReport>;
+      const written = { file, events: hook.events, line: hook.words, onFailure: hook.blocks ? 'block' : null, before, after, cover: describeCover(where, before, after, mine, reading), timeout: describeTimeout(where, mine) } satisfies Partial<HookReport>;
       const note = describeOnFailure(where, hook.blocks);
       // Where the release here reads the field, a line that guards without it is advised it.
       const own = file === PROJECT_SETTINGS && mine.every((entry) => isGuard(entry.hook));

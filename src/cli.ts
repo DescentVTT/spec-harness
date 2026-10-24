@@ -24,10 +24,10 @@ import type { ClaudeCodeWiring } from './configure.js';
 import { dirname, join } from 'node:path';
 
 import { gitDirectories, isDirectory, keepCall, loadConfig, mainWorkTree, outsideEvery, reachedBy, StateError, takeCall, writesOnly } from './fs.js';
-import { changedPaths, GitError, holdsPath, isShallow, show, stagedChanges } from './git.js';
+import { changedPaths, GitError, holdsPath, isShallow, show, stagedChanges, withBudget } from './git.js';
 import type { DocumentReader } from './document.js';
 import type { Decision } from './guard.js';
-import { afterResponse, callFile, callRecord, claudeResponse, gitResponse, keptCall, mendResponse, NONE, parseClaudeHook, SESSION_START, sessionOf, sessionResponse, TURN_END, turnResponse, warningResponse, warningsKept, warningsOf, type CallRecord, type HookRequest, type HookResponse } from './hooks.js';
+import { afterResponse, callFile, callRecord, claudeResponse, gitResponse, HOOK_BUDGET_MS, keptCall, mendResponse, NONE, parseClaudeHook, SESSION_START, sessionOf, sessionResponse, TURN_END, turnResponse, warningResponse, warningsKept, warningsOf, type CallRecord, type HookRequest, type HookResponse } from './hooks.js';
 import type { Base } from './round.js';
 import type { BriefRow } from './types.js';
 import { declaredVersion, SiblingError } from './siblings.js';
@@ -442,7 +442,17 @@ function cannotCheck(io: CliIO, error: unknown): number {
   return EXIT_ERROR;
 }
 
-async function hookCommand(options: Options, io: CliIO): Promise<number> {
+/**
+ * `hook claude` within one budget for every process it starts, below the
+ * timeout Claude Code gives its entry, so that a run of slow processes ends
+ * with its own answer and not the cancelling of it (ADR-0002); `hook git`
+ * as it was, which no entry of Claude Code's runs.
+ */
+function hookCommand(options: Options, io: CliIO): Promise<number> {
+  return options.positionals[0] === 'claude' ? withBudget(HOOK_BUDGET_MS, () => answerHook(options, io)) : answerHook(options, io);
+}
+
+async function answerHook(options: Options, io: CliIO): Promise<number> {
   const kind = options.positionals[0];
   if (kind === 'claude') {
     const request = await writeAsked(io);
@@ -695,7 +705,7 @@ async function doctorCommand(options: Options, io: CliIO): Promise<number> {
   // guard off or holds every write, one only a shell can read, the writes
   // Claude Code starts it for where they are not all of them, and what
   // onFailure changes.
-  const lineNotes = wiring.lines.flatMap((line) => [line.detail, line.cover, line.note]).filter((note): note is string => note !== null);
+  const lineNotes = wiring.lines.flatMap((line) => [line.detail, line.cover, line.note, line.timeout]).filter((note): note is string => note !== null);
   // What stands over every line: a plugin that is turned on and is not on
   // this machine, or cannot be told to be, and disableAllHooks, which
   // switches off whatever hooks there are.
