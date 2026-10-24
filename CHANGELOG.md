@@ -11,6 +11,22 @@ cannot turn a run red. The family's policy is
 
 ## Unreleased
 
+### Changed
+
+- **A path through a link is decided as it reads and as the system writes
+  it, and the stricter answer stands.** On Linux and macOS a `..` after a
+  link is written after the link: `deep/../schema.ts`, `deep` a link to
+  `lib/x`, reads as `schema.ts` and is written to `lib/schema.ts`, and the
+  hook, `guard` and the server's `check_path` decided it as `schema.ts`.
+  A link to nothing was decided as the link, where a write makes the file
+  it names, and a path outside the repository whose `..` after a link
+  leads into it as outside. Each such path is now decided both ways, each
+  file by the work tree that holds it, and a refusal says where the link
+  leads. On Windows, which reads the `..` first, no answer changes
+  ([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
+  Upgrading: nothing to change. A write through a link to a file the brief
+  protects, which passed, is refused, and `guard` exits 1 for it.
+
 ### Fixed
 
 - **A `tools` command that cannot be started is said in one way on every
