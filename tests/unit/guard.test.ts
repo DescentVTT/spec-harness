@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { OutOfScope } from '../../src/config.js';
-import { decide, rooted, type GuardInput, type VerifiedRuling } from '../../src/guard.js';
+import { decide, heldBy, rooted, type GuardInput, type VerifiedRuling } from '../../src/guard.js';
 import type { BriefRow } from '../../src/types.js';
 import { row } from './helpers.js';
 
@@ -281,5 +281,18 @@ describe('a rooted pattern', () => {
 
   it('is not a pattern whose slashes follow a leading ./, which they go with', () => {
     for (const pattern of ['.//docs', '././/docs', './/{docs,src}', '{.//docs,src/**}', './{/docs,src/**}']) expect(rooted(pattern), pattern).toBeNull();
+  });
+});
+
+describe('a path held for what names the brief', () => {
+  it('is refused in the words the hook holds a write with, and its next step', () => {
+    expect(heldBy('src/db/schema.ts', 'the branch names brief 999, and spec-brief knows no such brief')).toEqual({
+      path: 'src/db/schema.ts',
+      verdict: 'deny',
+      reason: 'held',
+      because: [],
+      message: 'the branch names brief 999, and spec-brief knows no such brief',
+      hint: 'fix the brief or the branch before writing',
+    });
   });
 });

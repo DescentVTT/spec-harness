@@ -23,7 +23,8 @@ export type Reason =
   | 'ruled'
   | 'unreadable-protection'
   | 'in-scope'
-  | 'out-of-scope';
+  | 'out-of-scope'
+  | 'held';
 
 export interface Decision {
   /** Repository-relative, or the path as given when it lies outside. */
@@ -199,4 +200,16 @@ export function decide(input: GuardInput): Decision {
         ? `add it to affectedFiles in ${brief.file} if the round needs it, which is a change the person who approved the brief must see; or ${ESCALATE}`
         : `if the round needs it, say so in ${brief.file} and add it to affectedFiles; the archive reports every file outside the scope`,
   };
+}
+
+/**
+ * A path whose write the hook holds whatever the path is, but where it lies
+ * outside every work tree of the repository: what names the brief names
+ * none a round can work under, one spec-brief does not list or has
+ * archived (ADR-0004). Refused, in the words the hook holds the write with
+ * and its next step, so that the server's `check_path` answers the path as
+ * the hook decides a write of it (ADR-0008).
+ */
+export function heldBy(path: string, problem: string): Decision {
+  return { path, verdict: 'deny', reason: 'held', because: [], message: problem, hint: 'fix the brief or the branch before writing' };
 }
