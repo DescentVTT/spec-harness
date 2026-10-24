@@ -771,6 +771,46 @@ and left as it was:
   whose file is a named pipe, so the hook holds the write as for a brief
   that is not there; that is spec-brief's to say better.
 
+*Amended 2026-10-24.* **A command that cannot be started is said in one
+way on every host.** *Claimed* by round 25's agent B: on Windows a `tools`
+entry that names a `.js` script with no `"node"` before it makes
+`runSibling` reject with a raw `spawn EFTYPE`, because `execFile` throws
+before any callback, so the `cannot start "..."` answer written for that
+mistake never appears. *Measured* through the launcher of main (84cb6d7)
+and of this change on Windows 11 (Node 24.22.1; `runSibling` alone on
+22.16.0 as well), and `runSibling` of each build in a container (Linux,
+Node 24.22.1), in a project on a brief's branch:
+
+| `tools` names | main | now |
+| --- | --- | --- |
+| a `.js` with no `node` before it, Windows | `guard`, `doctor`, `context`: `unexpected error: Error: spawn EFTYPE` and a stack, exit 2; the hook: `cannot check this write: spawn EFTYPE` before a write and the stack after it, exit 2 | `spec-brief exited -1 without JSON: cannot start "<the script>": name the tool's script, ...`: exit 2 from `guard` and from the hook before a write and after it; `doctor` and `context` say it and go on |
+| a `.cmd`, Windows | the same, `EINVAL` | the same answer |
+| a `.js` of mode 644, a `.cmd`, a directory, Linux | code -1 and nothing on stderr: `exited -1 without JSON` | the same answer |
+| a `.js` of mode 755 with a `#!` line, Linux | runs | runs |
+| a name with a NUL in it, either | rejected with `ERR_INVALID_ARG_VALUE` | the same answer |
+| a name no program has, Windows and Linux; a directory, Windows | the answer | the answer |
+
+So the claim holds, and Linux said less than it could as well.
+
+- **What Node does, as measured.** On both releases of Node measured,
+  `execFile` throws, before a process is made, for a script and a `.cmd`
+  on Windows and for a NUL on every host. For the rest of the programs it
+  cannot start it calls back with an error that names the system call it
+  failed in, `spawn` and the program; a process that ran and failed has an
+  exit code there instead, and one stopped at its limit was answered
+  before.
+- **One answer.** A command `execFile` throws for, and one whose error
+  names that call, are answered `cannot start "<its first word>": name the
+  tool's script, such as ["node", ...]` with code -1, as a name no program
+  has was. The hook holds the write as it held it, exit 2 before a write
+  and after one, and says why as a session starts; it answers `allow` for
+  none. `doctor` says it on its brief line, as it said a name no program
+  has.
+- **A script that has the mode to run.** On Linux a script with that mode
+  and a `#!` line starts with no `node` before it, and is run as before;
+  the example the answer gives starts with `node`, which works on every
+  host.
+
 ## Consequences
 
 Each tool is released, pinned and dropped on its own, and the harness adds no

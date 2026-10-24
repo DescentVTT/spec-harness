@@ -93,9 +93,11 @@ export function declaredVersion(file: string): unknown {
  *
  * Never through a shell: an argument is a path or a brief id, and a shell
  * would read it as syntax. `node` as a command's first word is this Node, so
- * `["node", "path/to/bin.js"]` works on every host; a Windows `.cmd` shim such
- * as `npx` cannot be started without a shell, and the error says to name the
- * script instead.
+ * `["node", "path/to/bin.js"]` works on every host. A program that cannot be
+ * started is answered on every host in one way, code -1 and a line that says
+ * to name the tool's script: one not found, a script named without `node`,
+ * a Windows `.cmd` shim such as `npx`, which cannot be started without a
+ * shell, a directory or a file the account may not run.
  *
  * A sibling that does not answer within `limit` is stopped, and rejected as
  * a `SiblingError` that names it: what it was asked waits on it, the hook
@@ -104,39 +106,54 @@ export function declaredVersion(file: string): unknown {
 export function runSibling(name: string, command: readonly string[], args: readonly string[], root: string, limit = WORK_MS): Promise<SiblingRun> {
   const [first, ...rest] = command;
   const program = first === 'node' ? process.execPath : (first as string);
+  const unstarted: SiblingRun = {
+    code: -1,
+    stdout: '',
+    stderr: `cannot start "${first}": name the tool's script, such as ["node", "node_modules/@descent-vtt/<tool>/bin/<tool>.js"]`,
+  };
   return new Promise((resolve, reject) => {
-    execFile(
-      program,
-      [...rest, ...args],
-      {
-        cwd: root,
-        maxBuffer: 256 * 1024 * 1024,
-        encoding: 'utf8',
-        // Keeps a console window from opening on Windows; the sweep runs on
-        // Linux, where the mutant is equivalent.
-        windowsHide: true,
-        timeout: limit,
-        shell: false,
-        env: { ...process.env, NO_COLOR: '1', FORCE_COLOR: '0' },
-      },
-      (error, stdout, stderr) => {
-        if (stoppedAtLimit(error)) {
-          reject(new SiblingError(`${name} did not answer within ${limit / 1000} seconds, and was stopped`));
-          return;
-        }
-        const failure = error as (Error & { code?: unknown }) | null;
-        if (failure !== null && failure.code === 'ENOENT') {
-          resolve({
-            code: -1,
-            stdout: '',
-            stderr: `cannot start "${first}": name the tool's script, such as ["node", "node_modules/@descent-vtt/<tool>/bin/<tool>.js"]`,
-          });
-          return;
-        }
-        const code = failure === null ? 0 : typeof failure.code === 'number' ? failure.code : -1;
-        resolve({ code, stdout, stderr });
-      },
-    );
+    try {
+      execFile(
+        program,
+        [...rest, ...args],
+        {
+          cwd: root,
+          maxBuffer: 256 * 1024 * 1024,
+          encoding: 'utf8',
+          // Keeps a console window from opening on Windows; the sweep runs on
+          // Linux, where the mutant is equivalent.
+          windowsHide: true,
+          timeout: limit,
+          shell: false,
+          env: { ...process.env, NO_COLOR: '1', FORCE_COLOR: '0' },
+        },
+        (error, stdout, stderr) => {
+          if (stoppedAtLimit(error)) {
+            reject(new SiblingError(`${name} did not answer within ${limit / 1000} seconds, and was stopped`));
+            return;
+          }
+          const failure = error as (Error & { code?: unknown; syscall?: unknown }) | null;
+          // Of what reaches here, only the error of a process that was never
+          // made names the system call that failed, `spawn` and the program:
+          // ENOENT, and on Linux and macOS EACCES for a directory or a file
+          // that may not be run. One that ran has its exit code, and one
+          // stopped at its limit was answered above.
+          if (failure !== null && typeof failure.syscall === 'string') {
+            resolve(unstarted);
+            return;
+          }
+          const code = failure === null ? 0 : typeof failure.code === 'number' ? failure.code : -1;
+          resolve({ code, stdout, stderr });
+        },
+      );
+    } catch {
+      // Some programs are refused before a process is made, and Node throws
+      // that rather than pass it to the callback: on Windows a script, as
+      // EFTYPE, and a `.cmd` or `.bat`, as EINVAL; on every host a NUL in a
+      // word of the command. The options are this function's own, so what
+      // execFile throws is a command it could not start.
+      resolve(unstarted);
+    }
   });
 }
 

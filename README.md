@@ -423,7 +423,7 @@ The first thing to run when a hook refuses something unexpectedly. It reports:
 
 - **The siblings**: which are installed, at which versions, and how each is run.
   - A sibling older than this release needs is `outdated`, with the minimum and the command that installs a newer one, and exit 1.
-  - A command named under `tools` is run as named, and its version is not checked.
+  - A command named under `tools` is run as named, with no shell, and its version is not checked. One that cannot be started is said in one way on every host, `cannot start "<command>": name the tool's script, such as ["node", ...]`: a name no program has, a directory, a `.cmd` such as `npx.cmd`, and a script with no `node` before it, which Windows does not run and Linux runs only where it has the mode to run and a `#!` line ([ADR-0002](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0002-siblings-through-their-command-lines.md)).
   - In a linked worktree with no install of its own, the siblings are the main work tree's, as git's hook runs them there, and each such row says whose install it is: `(0.8.0, the install of /work/app: this work tree has none of its own)`. `--format json` has it as `elsewhere`, `null` for a sibling of the work tree's own.
 - **The repository**: its root, the branch, and the brief the flag, `SPEC_BRIEF` or the branch names.
   - A brief no round can work under is said on that line, with why: `brief   none: the flag names brief 999, and spec-brief knows no such brief`. So is one spec-brief has archived, an empty `--brief`, and a spec-brief that could not list the briefs. The guard holds every write while it stands, which is often why `doctor` is being run.
