@@ -345,7 +345,7 @@ async function turnReport(options: Options, io: CliIO, root: string, cwd: string
     const workspace = found === null ? named : await openFound(found, io, () => [named.root]);
     if (!workspace.config.turnReport) return null;
     const { brief, problem } = describeActive(await activeBrief(workspace, options, io.env));
-    if (problem !== null) return `spec-harness: ${heldHookLine(problem).wrong}, so what the work tree holds is not reported, and every write is held; spec-harness doctor says more`;
+    if (problem !== null) return `spec-harness: ${heldHookLine(problem).wrong}, so what the work tree holds is not reported, and every write is held but one to a file outside every work tree of the repository; spec-harness doctor says more`;
     if (brief === null) return null;
     const [changed, { decide }] = await Promise.all([changedPaths(workspace.root), import('./guard.js')]);
     const outOfScope = workspace.config.outOfScope;

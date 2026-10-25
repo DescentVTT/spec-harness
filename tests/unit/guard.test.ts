@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { OutOfScope } from '../../src/config.js';
-import { decide, decideWritten, rooted, type GuardInput, type VerifiedRuling } from '../../src/guard.js';
+import { decide, decideWritten, heldBy, rooted, type GuardInput, type VerifiedRuling } from '../../src/guard.js';
 import type { BriefRow } from '../../src/types.js';
 import { row } from './helpers.js';
 
@@ -327,5 +327,18 @@ describe('a path a link has the system write as another file', () => {
     const ruling: VerifiedRuling = { id: 'R-012-1', paths: ['src/db/schema.ts'], signer: 'p@example.com' };
     expect(both('src/db/schema.ts', 'migrations/001.sql', { rulings: [ruling] })).toMatchObject({ verdict: 'deny', path: 'migrations/001.sql' });
     expect(both('migrations/001.sql', 'src/db/schema.ts', { rulings: [ruling] })).toMatchObject({ verdict: 'deny', path: 'migrations/001.sql' });
+  });
+});
+
+describe('a path held for what names the brief', () => {
+  it('is refused in the words the hook holds a write with, and its next step', () => {
+    expect(heldBy('src/db/schema.ts', 'the branch names brief 999, and spec-brief knows no such brief')).toEqual({
+      path: 'src/db/schema.ts',
+      verdict: 'deny',
+      reason: 'held',
+      because: [],
+      message: 'the branch names brief 999, and spec-brief knows no such brief',
+      hint: 'fix the brief or the branch before writing',
+    });
   });
 });

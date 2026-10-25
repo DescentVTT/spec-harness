@@ -146,7 +146,7 @@ describe('the hook as a turn ends', () => {
 
   it('says what holds every write where the brief named is none, and what is wrong with its own line', async () => {
     const repo = project({ turnReport: true }, 'brief/999-nowhere');
-    expect(report(await stop(repo))).toEqual(['spec-harness: the branch names brief 999, and spec-brief knows no such brief, so what the work tree holds is not reported, and every write is held; spec-harness doctor says more']);
+    expect(report(await stop(repo))).toEqual(['spec-harness: the branch names brief 999, and spec-brief knows no such brief, so what the work tree holds is not reported, and every write is held but one to a file outside every work tree of the repository; spec-harness doctor says more']);
     const named = project();
     expect(report(await stop(named, { line: ['--root', 'nowhere'] }))).toEqual([expect.stringMatching(/^spec-harness: --root is "nowhere", .*, so the guard is off and no write of this session is checked; /)]);
     expect(report(await stop(named, { line: ['--nope'] }))).toEqual([expect.stringMatching(/so the guard is off and no write of this session is checked; /)]);
