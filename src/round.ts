@@ -624,13 +624,18 @@ async function hookLineHere(words: readonly string[], root: string, io: CliIO): 
  * for it: not installed, too old, or failing as it is asked. The hook asks
  * spec-brief before every write under the name, and holds each write it
  * cannot ask about, so that too is a setup that holds every write.
+ *
+ * `archived` is the brief the branch names where spec-brief has archived
+ * it, which doctor reads further in git: the branch that archived it waits
+ * to merge, and fails nothing (ADR-0004). It reads nothing else, and the
+ * problem is the one every write is held with, as before.
  */
 export async function diagnoseBrief(
   workspace: Workspace,
   options: Pick<Options, 'brief'>,
   env: CliIO['env'],
-): Promise<{ readonly id: string | null; readonly problem: string | null; readonly branch: boolean; readonly holds: boolean }> {
-  if (options.brief !== undefined && isBlank(options.brief)) return { id: null, problem: emptyValue('--brief', 'brief', options.brief), branch: false, holds: false };
+): Promise<{ readonly id: string | null; readonly problem: string | null; readonly branch: boolean; readonly holds: boolean; readonly archived: BriefRow | null }> {
+  if (options.brief !== undefined && isBlank(options.brief)) return { id: null, problem: emptyValue('--brief', 'brief', options.brief), branch: false, holds: false, archived: null };
   const id = namedId(workspace, options, env);
   // Neither the flag nor SPEC_BRIEF names it, so the name is the branch's,
   // where something names one. A flag given only blanks was answered above.
@@ -642,19 +647,20 @@ export async function diagnoseBrief(
     // the hook holds every write, and said as one it could not ask. There
     // `holds` fails doctor whatever `branch` says, and nothing else reads
     // `branch`, so its `false` is equivalent to its mutant.
-    return byBranch ? { id, problem: couldNotSay(id, sibling.reason), branch: false, holds: true } : { id, problem: null, branch: false, holds: false };
+    return byBranch ? { id, problem: couldNotSay(id, sibling.reason), branch: false, holds: true, archived: null } : { id, problem: null, branch: false, holds: false, archived: null };
   }
   try {
     // Where nothing names a brief, spec-brief is not asked (ADR-0004), and
     // there is no problem to state.
     const active = await activeBrief(workspace, options, env);
     const branch = (active.kind === 'unknown' || active.kind === 'archived') && active.source === 'branch';
-    return { id, problem: describeActive(active).problem, branch, holds: false };
+    const archived = active.kind === 'archived' && active.source === 'branch' ? active.brief : null;
+    return { id, problem: describeActive(active).problem, branch, holds: false, archived };
   } catch (error) {
     // Asking spec-brief throws nothing but this, so the check is equivalent
     // to its mutant; it keeps any other error the stack it needs.
     if (!(error instanceof SiblingError)) throw error;
-    return { id, problem: couldNotSay(id, error.message), branch: false, holds: byBranch };
+    return { id, problem: couldNotSay(id, error.message), branch: false, holds: byBranch, archived: null };
   }
 }
 

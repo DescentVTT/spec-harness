@@ -198,7 +198,95 @@ An exit code that can change for a tree that passed is a minor release
   that names 999 fails `doctor` though no write is held (measured: the hook
   refuses the protected file under 042).
 
-*Amended 2026-10-24.* **A brief the branch names that spec-brief cannot be
+*Amended 2026-10-24.* **The branch that archived its brief fails nothing
+in `doctor`.** The amendment of 2026-10-19 has `doctor` exit 1 where the
+branch names a brief spec-brief has archived, and accepted "the branch of a
+round once its brief is archived" among those on the premise that CI of the
+family's documents runs `premises`, not `doctor`. *Claimed* by a consumer
+of the family, and evaluated in round 26: a round archives its brief on its
+own branch before the branch merges, since a ruling's signature verifies
+only on its original commit (ADR-0006), so the head of a round's last pull
+request is its archive commit, on a branch that names an archived brief; a
+consumer runs `doctor` in CI, and from 0.20.0 every round's last pull
+request failed it. *Measured* through the launcher of main (84cb6d7) and of
+this change, taking turns (Windows 11, Node 24.22.1, Git for Windows
+2.55.0), in a project with spec-brief 0.10.0, whose rounds were archived
+with spec-brief's own `archive --base main` on the round's branch before it
+merged, as step 10 of spec-core's tutorial does; the hook handed an Edit
+inside the brief's scope:
+
+| The branch, and the checkout | The hook, before the write | `doctor` on main | `doctor` now |
+| --- | --- | --- | --- |
+| `brief/020-compute` at round 020's archive commit, named, or detached with `GITHUB_HEAD_REF`, `CI_MERGE_REQUEST_SOURCE_BRANCH_NAME` or `CI_COMMIT_BRANCH` naming it | exit 2 | exit 1 | exit 0, and a note: archived on this branch, which waits to merge |
+| the same, after main is merged into it; and brief 022, written and archived on its branch | exit 2 | exit 1 | exit 0, the same note |
+| `brief/007-old`, round 007 merged and its branch used again | exit 2 | exit 1 | exit 1, and a note: archived before this branch |
+| `brief/020-compute`, `--base nowhere` | | exit 1 | exit 1, and a note: cannot tell, the base names no commit |
+| `brief/020-compute`, the head fetched alone, `main` naming no commit; and a clone of depth 1 | exit 2 | exit 1 | exit 1, cannot tell |
+| `brief/021-ahead`, before brief 021 exists, and `fix/brief-list-order` | exit 2 | exit 1 | exit 1, as before |
+| `SPEC_BRIEF=020` or `--brief 020` on `brief/020-compute` | exit 2, under `SPEC_BRIEF` | exit 0 | exit 0, and no note |
+
+Every hook's answer is as it was but its words, below: the lines `init`
+and the plugin write, before a write and after it, as a session starts and
+as a turn ends, and the server's tools, 676 runs, of which the 172 that
+differ differ by those words alone, and two by the order the server
+answered in. `doctor` on the archive commit took 466 ms, the median of ten,
+where main's took 389 (`node -e 0`: 60).
+
+- **What tells the two apart is git, after the base resolves.** Where the
+  branch names a brief spec-brief lists as archived, `doctor` asks git
+  whether the brief's archived file, its `file` in spec-brief's row, is in
+  HEAD and at the merge base of the base and HEAD. In HEAD and not at the
+  merge base, the branch archived it, and the round waits to merge: a note,
+  and exit 0 for it. At the merge base, the brief was archived before the
+  branch, a closed round's branch used again: exit 1 as before. A file
+  spec-brief lists that is not in HEAD is an archive not committed, or a
+  path git does not name so: neither is this branch's archive. This returns
+  to the amendment of 2026-10-11's reading for `premises`, of the branch of
+  a round once the round has archived its brief: "the last commit of every
+  round, whose own CI run must not fail for it".
+- **Any doubt is exit 1, and says it cannot tell.** A base that names no
+  commit, or shares no history with HEAD; a history that is shallow, where
+  a merge base git finds can be older than the true one, at which the file
+  may be absent; a git that cannot read either tree, or cannot say whether
+  the history is shallow. `git show`, which answers no file for a file that
+  is not there and for a git that failed alike, is not what loosens an exit
+  code: a question of its own tells the two apart (`git ls-tree`, read from
+  the top, its path as written). A CI job that runs `doctor` fetches the
+  base under the name it is configured by, with its history; one that
+  fetches the head alone, or `origin/main` alone where the base is `main`,
+  fails a round's last pull request as 0.20.0 did.
+- **What passes that arguably should not.** A second branch for the same
+  id, cut from the round's archive commit before it merged, has the archive
+  after its merge base as well, and passes. It is accepted: telling it from
+  the round's own branch would need more of the history than one merge base,
+  and the hook holds every write on it.
+- **The hook holds every write as before.** Nothing it shares with
+  `doctor` changes: the brief named, read and refused as it was, and the
+  problem every write is held with. Reading the brief as it stood at the
+  merge base, where it was live, would have the hook guard by the closed
+  round's scope and pass the writes inside it. Its words change on a closed
+  round's branch, where there is nothing to fix: before a write, `The round
+  is archived and ends when this branch merges: write on the branch of a
+  live brief.`, where it said `Fix the brief or the branch before writing.`;
+  as a session starts and as a turn ends, the same in their places. Exit 2
+  is kept. A brief the flag or the variable names is said as before.
+- **A brief spec-brief does not list fails as before.** A branch named
+  ahead of its brief, or a round's first commit before its brief is
+  written, holds every write, and no round's last commit names one: its
+  brief is listed by then, archived.
+- `--format json` adds `closedRound`: `null` where the branch names no
+  brief spec-brief has archived, and otherwise its `state`
+  (`waiting-to-merge`, `archived-before` or `unknown`), the `file`, the
+  `mergeBase`, `null` where it is not known, and the note as `detail`. The
+  field is added, so no `schemaVersion` moves. `doctor --strict` in CI
+  fails all the same where `init`'s hooks are in the settings and no
+  `claude` is on `PATH`, since Claude Code's release cannot be told; CI runs
+  `doctor` without it.
+
+An exit code that changes for a tree that failed is a minor release
+(spec-core's ADR-0009).
+
+*Amended again 2026-10-24.* **A brief the branch names that spec-brief cannot be
 asked about fails `doctor`.** The amendment of 2026-10-19 above left a
 spec-brief that cannot list the briefs, or is not installed, where the
 branch names a brief, to the sibling's row, and failed neither. *Claimed*
