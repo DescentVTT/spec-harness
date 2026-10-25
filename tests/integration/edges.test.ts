@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import { afterAll, describe, expect, it } from 'vitest';
 
@@ -15,6 +16,8 @@ import {
   currentBranch,
   git as runGit,
   GitError,
+  holdsPath,
+  isShallow,
   localBranches,
   mergeBase,
   remoteDefault,
@@ -363,6 +366,32 @@ describe('git', () => {
     expect(await mergeBase('HEAD', 'no-such-ref', repo.root)).toBeNull();
     await expect(changes('no-such-ref', 'HEAD', repo.root)).rejects.toBeInstanceOf(GitError);
     await expect(stagedChanges(outside)).rejects.toBeInstanceOf(GitError);
+  });
+
+  it('tells a path a commit does not hold from a git that cannot say, reading the path from the top and as written', async () => {
+    const repo = repository({ 'a.txt': 'a\n', 'dir/b.txt': 'b\n' });
+    expect(await holdsPath('HEAD', 'a.txt', repo.root)).toBe(true);
+    expect(await holdsPath('HEAD', 'missing.txt', repo.root)).toBe(false);
+    // Started below the top, git reads the path from the top all the same.
+    expect(await holdsPath('HEAD', 'dir/b.txt', join(repo.root, 'dir'))).toBe(true);
+    expect(await holdsPath('HEAD', 'b.txt', join(repo.root, 'dir'))).toBe(false);
+    // A name pathspec magic would read as another file's is that name.
+    expect(await holdsPath('HEAD', ':(top)a.txt', repo.root)).toBe(false);
+    // A commit git does not have is no answer, where show reads it as no file.
+    expect(await holdsPath('0'.repeat(40), 'a.txt', repo.root)).toBeNull();
+    expect(await show('0'.repeat(40), 'a.txt', repo.root)).toBeNull();
+    expect(await holdsPath('HEAD', 'a.txt', temp())).toBeNull();
+  });
+
+  it('says whether the history is cut short, and no answer where git cannot say', async () => {
+    const repo = repository({ 'a.txt': 'a\n' });
+    repo.write('a.txt', 'b\n');
+    repo.commit('second');
+    expect(await isShallow(repo.root)).toBe(false);
+    const clone = join(temp(), 'clone');
+    git(temp(), 'clone', '-q', '--depth', '1', pathToFileURL(repo.root).href, clone);
+    expect(await isShallow(clone)).toBe(true);
+    expect(await isShallow(temp())).toBeNull();
   });
 
   it('says which git command failed, and what git said, on one line', async () => {

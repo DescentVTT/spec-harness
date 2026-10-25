@@ -18,13 +18,13 @@
  * line and exit 2, as every error does.
  */
 
-import { SiblingOutputError } from './briefs.js';
+import { SiblingOutputError, type ActiveBrief } from './briefs.js';
 import { CONFIG_FILE, ConfigError, SIBLINGS, SPEC_BRIEF_CONFIGS } from './config.js';
 import type { ClaudeCodeWiring } from './configure.js';
 import { dirname, join } from 'node:path';
 
 import { gitDirectories, isDirectory, keepCall, loadConfig, mainWorkTree, outsideEvery, reachedBy, StateError, takeCall, writesOnly } from './fs.js';
-import { changedPaths, GitError, show, stagedChanges, withBudget } from './git.js';
+import { changedPaths, GitError, holdsPath, isShallow, show, stagedChanges, withBudget } from './git.js';
 import type { DocumentReader } from './document.js';
 import type { Decision } from './guard.js';
 import { afterResponse, callFile, callRecord, claudeResponse, gitResponse, HOOK_BUDGET_MS, keptCall, mendResponse, NONE, parseClaudeHook, SESSION_START, sessionOf, sessionResponse, TURN_END, turnResponse, warningResponse, warningsKept, warningsOf, type CallRecord, type HookRequest, type HookResponse } from './hooks.js';
@@ -97,11 +97,13 @@ Commands:
                       when a sibling is older than this release needs, the guard is
                       installed twice, its hook's line turns it off or holds every
                       write, the branch names a brief spec-brief does not list or
-                      has archived, disableAllHooks or an array for a matcher
-                      switches it off, the plugin that is turned on is not on this
-                      machine and nothing else guards, Claude Code is too old to
-                      run its hooks, or git stops every commit at what stands for
-                      its hook.
+                      has archived, but for the branch git says archived it, a
+                      round's last commit, which waits to merge (CI fetches the
+                      base with its history for git to say), disableAllHooks or
+                      an array for a matcher switches it off, the plugin that is
+                      turned on is not on this machine and nothing else guards,
+                      Claude Code is too old to run its hooks, or git stops every
+                      commit at what stands for its hook.
 
 Options:
   --brief <id>        The brief the round works on. Otherwise SPEC_BRIEF, then the branch.
@@ -149,6 +151,20 @@ function keptFor(workspace: Workspace, session: string | null): Workspace {
   return session === null ? workspace : { ...workspace, siblings: workspace.siblings.keeping(workspace.commonDir, session) };
 }
 
+/**
+ * Whether the brief the branch names is one spec-brief has archived: a
+ * closed round's branch, whose every write is held as under any name that is
+ * no brief's, and in words of its own, since nothing on it is to be mended:
+ * its round ends when the branch merges (ADR-0004).
+ */
+function closesRound(active: ActiveBrief): boolean {
+  return active.kind === 'archived' && active.source === 'branch';
+}
+
+/** What the hook says after what holds the write: how to mend it, or that a closed round's branch has nothing to mend. */
+const MEND = 'Fix the brief or the branch before writing.';
+const CLOSED = 'The round is archived and ends when this branch merges: write on the branch of a live brief.';
+
 async function decisionsFor(
   workspace: Workspace,
   options: Options,
@@ -156,7 +172,7 @@ async function decisionsFor(
   given: readonly string[],
   cwd: string,
   session: string | null = null,
-): Promise<{ readonly decisions: Decision[]; readonly brief: BriefRow | null } | { readonly problem: string }> {
+): Promise<{ readonly decisions: Decision[]; readonly brief: BriefRow | null } | { readonly problem: string; readonly closed: boolean }> {
   // A path outside every work tree of the repository is decided as one
   // outside it, whichever brief is named and whatever is wrong with the
   // name: the problem held every write, a file outside the repository
@@ -165,7 +181,8 @@ async function decisionsFor(
   const outside = outsideEvery(given, workspace.root, workspace.commonDir, cwd);
   const active = outside ? null : await activeBrief(keptFor(workspace, session), options, io.env);
   const { brief, note, problem } = active === null ? { brief: null, note: undefined, problem: null } : describeActive(active);
-  if (problem !== null) return { problem };
+  // A problem is said only of a brief something names, so `active` is one.
+  if (problem !== null) return { problem, closed: closesRound(active!) };
   const { checkPaths } = await import('./round.js');
   return { decisions: await checkPaths(workspace, brief, note, given, cwd, reader, options.base), brief };
 }
@@ -304,8 +321,11 @@ async function sessionProblem(options: Options, io: CliIO, root: string, cwd: st
     // there, and so is the check (ADR-0005).
     const found = cwd === null ? null : await otherTree(named, cwd);
     const workspace = found === null ? named : await openFound(found, io, () => [named.root]);
-    const { problem } = describeActive(await activeBrief(keptFor(workspace, session), options, io.env));
-    return problem === null ? null : `${heldHookLine(problem).wrong}, ${held}: fix the brief or the branch before writing; spec-harness doctor says more`;
+    const active = await activeBrief(keptFor(workspace, session), options, io.env);
+    const { problem } = describeActive(active);
+    if (problem === null) return null;
+    if (closesRound(active)) return `${heldHookLine(problem).wrong}, so every write of this session is held: the round is archived and ends when this branch merges, so write on the branch of a live brief; spec-harness doctor says more`;
+    return `${heldHookLine(problem).wrong}, ${held}: fix the brief or the branch before writing; spec-harness doctor says more`;
   } catch (error) {
     // A session in no work tree has nothing to guard, as a write there has
     // not. Anything else that stops the check stops a write's as well, which
@@ -343,8 +363,12 @@ async function turnReport(options: Options, io: CliIO, root: string, cwd: string
     const found = cwd === null ? null : await otherTree(named, cwd);
     const workspace = found === null ? named : await openFound(found, io, () => [named.root]);
     if (!workspace.config.turnReport) return null;
-    const { brief, problem } = describeActive(await activeBrief(workspace, options, io.env));
-    if (problem !== null) return `spec-harness: ${heldHookLine(problem).wrong}, so what the work tree holds is not reported, and every write is held but one to a file outside every work tree of the repository; spec-harness doctor says more`;
+    const active = await activeBrief(workspace, options, io.env);
+    const { brief, problem } = describeActive(active);
+    if (problem !== null) {
+      const ends = closesRound(active) ? ': the round is archived and ends when this branch merges' : '';
+      return `spec-harness: ${heldHookLine(problem).wrong}, so what the work tree holds is not reported, and every write is held but one to a file outside every work tree of the repository${ends}; spec-harness doctor says more`;
+    }
     if (brief === null) return null;
     const [changed, { decide }] = await Promise.all([changedPaths(workspace.root), import('./guard.js')]);
     const outOfScope = workspace.config.outOfScope;
@@ -477,7 +501,7 @@ async function answerHook(options: Options, io: CliIO): Promise<number> {
           // Exit 2 blocks the tool call, and its stderr reaches the model. Where
           // the name stands on the hook's own line, what is wrong with it is
           // `doctor`'s to say as well, in the same words (usage.ts).
-          io.stderr.write(`spec-harness: ${heldHookLine(decided.problem).wrong}. Fix the brief or the branch before writing.\n`);
+          io.stderr.write(`spec-harness: ${heldHookLine(decided.problem).wrong}. ${decided.closed ? CLOSED : MEND}\n`);
           return EXIT_ERROR;
         }
         // A line of the answer for each path, by the work tree that decided it.
@@ -545,6 +569,49 @@ async function baseAndSigners(
   // anyway reads as no file, and that mutant is equivalent.
   const signersText = base.kind === 'resolved' ? await show(base.sha, signersFile, workspace.root) : null;
   return { base, signersText };
+}
+
+/**
+ * What a branch that names a brief spec-brief has archived is, as git tells
+ * it: the branch that archived the brief, whose round waits to merge, where
+ * the brief's archived file is in HEAD and not at the merge base of the base
+ * and HEAD; a branch whose brief was archived before it, where the file is
+ * at the merge base already; and cannot tell wherever git does not say,
+ * which fails doctor as such a branch did (ADR-0004).
+ */
+type ClosedRound =
+  | { readonly state: 'waiting-to-merge' | 'archived-before'; readonly brief: BriefRow; readonly ref: string; readonly mergeBase: string }
+  | { readonly state: 'unknown'; readonly brief: BriefRow; readonly reason: string };
+
+async function closedRound(workspace: Workspace, base: Base, brief: BriefRow): Promise<ClosedRound> {
+  if (base.kind === 'unresolved') {
+    return { state: 'unknown', brief, reason: `the base cannot be resolved (${base.reason}): fetch it under that name, with its history, as git fetch origin main:main fetches main` };
+  }
+  const [shallow, atBase, atHead] = await Promise.all([isShallow(workspace.root), holdsPath(base.mergeBase, brief.file, workspace.root), holdsPath(base.head, brief.file, workspace.root)]);
+  // A merge base read in a history cut short can be older than the one the
+  // whole history has, and a file absent from it present at the true one.
+  if (shallow !== false) {
+    return { state: 'unknown', brief, reason: 'the history is shallow, or git cannot say that it is not, and a merge base found in it may be older than the one the whole history has: fetch the whole history' };
+  }
+  if (atBase === null || atHead === null) return { state: 'unknown', brief, reason: `git could not list ${brief.file} at the merge base with ${base.ref}, or at HEAD` };
+  if (atBase) return { state: 'archived-before', brief, ref: base.ref, mergeBase: base.mergeBase };
+  // Absent from HEAD as well, the archive is not committed, or the file is
+  // not the one git names: neither is the archive this branch committed.
+  if (!atHead) return { state: 'unknown', brief, reason: `${brief.file} is not committed at HEAD; commit the archive` };
+  return { state: 'waiting-to-merge', brief, ref: base.ref, mergeBase: base.mergeBase };
+}
+
+/** The note on doctor's `brief` line for a branch that names a brief spec-brief has archived. */
+function describeClosedRound(closed: ClosedRound): string {
+  const { id, file } = closed.brief;
+  switch (closed.state) {
+    case 'waiting-to-merge':
+      return `brief ${id} was archived on this branch, which waits to merge: ${file} is in HEAD and not at the merge base with ${closed.ref}, ${closed.mergeBase.slice(0, 12)}, so this fails nothing; the hook holds every write on the branch all the same`;
+    case 'archived-before':
+      return `brief ${id} was archived before this branch: ${file} is at the merge base with ${closed.ref}, ${closed.mergeBase.slice(0, 12)}, so the branch is a closed round's, used again, and every write on it is held`;
+    case 'unknown':
+      return `whether brief ${id} was archived on this branch, which waits to merge, cannot be told: ${closed.reason}`;
+  }
 }
 
 /**
@@ -616,6 +683,11 @@ async function doctorCommand(options: Options, io: CliIO): Promise<number> {
   // A ruling counts only by a signature checked against the allowed signers
   // on the base, and only once spec-brief's archive asks the plugin about it.
   const { base, signersText } = answerOf(baseAsked);
+  // A branch that names a brief spec-brief has archived holds every write,
+  // and fails doctor, but for the branch that archived it: the last commit
+  // of every round, whose own CI run must not fail for it. git tells the
+  // two apart by the base, so they are told once it is resolved (ADR-0004).
+  const closed = named.archived === null ? null : await closedRound(workspace, base, named.archived);
   const onBase = base.kind === 'resolved' ? signersText !== null : null;
   const signers = describeSigners(signersFile, base.kind === 'resolved' ? base.ref : null, onBase === true);
   // Which keys sign, as notes: a key that is not FIDO2 can still be one the
@@ -659,6 +731,10 @@ async function doctorCommand(options: Options, io: CliIO): Promise<number> {
         branchSource: workspace.branchSource ?? null,
         brief: named.id,
         briefProblem: named.problem,
+        closedRound:
+          closed === null
+            ? null
+            : { state: closed.state, file: closed.brief.file, mergeBase: closed.state === 'unknown' ? null : closed.mergeBase, detail: describeClosedRound(closed) },
         base: base.kind === 'resolved' ? { ref: base.ref, source: base.source, mergeBase: base.mergeBase } : { unresolved: base.reason },
         allowedSigners: {
           file: signersFile,
@@ -689,6 +765,7 @@ async function doctorCommand(options: Options, io: CliIO): Promise<number> {
         `root    ${workspace.root}`,
         `branch  ${branch}`,
         `brief   ${named.problem === null ? (named.id ?? '(none named)') : `none: ${named.problem}`}`,
+        ...more(closed === null ? [] : [describeClosedRound(closed)]),
         `base    ${describeBase(base)}`,
         `signers ${signers}`,
         ...more(signerNotes),
@@ -711,7 +788,8 @@ async function doctorCommand(options: Options, io: CliIO): Promise<number> {
   // install is a problem too, where no Claude Code wiring at all is a choice,
   // and so are a hook whose own line turns the guard off or holds every
   // write, a branch that names a brief no round can work under, which holds
-  // every write as well (ADR-0004), guard hooks that disableAllHooks
+  // every write as well, but for the branch that archived its brief and
+  // waits to merge (ADR-0004), guard hooks that disableAllHooks
   // switches off, a plugin that is turned on and is not on this machine
   // where no hook of init's stands in for it, a Claude Code too old to run
   // the hooks, and something at the path of git's pre-commit hook that git
@@ -727,12 +805,13 @@ async function doctorCommand(options: Options, io: CliIO): Promise<number> {
   const missing = wiring.presence?.state === 'absent' && wiring.hooks.length === 0;
   const tooOld = release?.state === 'outdated';
   const stopped = hook.state === 'stops';
+  const unworkable = named.branch && closed?.state !== 'waiting-to-merge';
   // Only an unreadable hook has `runs`, so the test of its state is the
   // compiler's, and its mutant is equivalent.
   const untold =
     options.strict &&
     (release?.state === 'unknown' || wiring.lines.some((line) => line.state === 'unknown') || wiring.presence?.state === 'unknown' || (hook.state === 'unreadable' && hook.runs) || hook.state === 'unknown');
-  return outdated || !usable || claude === 'both' || off || named.branch || switchedOff || missing || tooOld || stopped || untold ? EXIT_FAILED : EXIT_OK;
+  return outdated || !usable || claude === 'both' || off || unworkable || switchedOff || missing || tooOld || stopped || untold ? EXIT_FAILED : EXIT_OK;
 }
 
 /* ---------------------------------------------------------------- dispatch */

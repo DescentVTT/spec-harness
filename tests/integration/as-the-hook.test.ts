@@ -35,7 +35,9 @@ async function hook(repo: Repository, file: string, env: Readonly<Record<string,
   if (answer.code === 2) {
     const cannot = 'spec-harness: cannot check this write: ';
     if (answer.stderr.startsWith(cannot)) return { as: 'cannot check', words: answer.stderr.slice(cannot.length).trim() };
-    const held = /^spec-harness: (.*)\. Fix the brief or the branch before writing\.\n$/.exec(answer.stderr);
+    // What holds the write, before what the hook says to do about it: a
+    // closed round's branch has nothing to fix (ADR-0004).
+    const held = /^spec-harness: (.*)\. (?:Fix the brief or the branch before writing|The round is archived and ends when this branch merges: write on the branch of a live brief)\.\n$/.exec(answer.stderr);
     return { as: 'held', words: held?.[1] ?? answer.stderr };
   }
   expect({ code: answer.code, stderr: answer.stderr }, file).toEqual({ code: 0, stderr: '' });
