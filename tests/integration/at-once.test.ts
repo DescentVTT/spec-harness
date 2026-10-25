@@ -23,7 +23,7 @@ import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { mergeClaudeSettings } from '../../src/configure.js';
 import { openWorkspace } from '../../src/workspace.js';
-import { brief, BRIEF_FILE, cleanup, cli, parsed, repository, temp, withEnvironment, type Repository } from './helpers.js';
+import { brief, BRIEF_FILE, cleanup, cli, installHarness, parsed, repository, temp, withEnvironment, type Repository } from './helpers.js';
 
 /** An answer kept back until something else is asked. */
 interface Kept {
@@ -146,8 +146,15 @@ const line = (...rest: string[]): unknown => ({ type: 'command', command: 'node'
 
 /** A repository on the branch of its one brief, so that spec-brief is asked which brief the branch names. */
 function onBrief(files: Readonly<Record<string, string>> = {}): Repository {
-  const repo = repository({ [BRIEF_FILE]: brief({ affected: ['src/**'], protected: ['src/db/**'] }), ...files });
+  const repo = installed({ [BRIEF_FILE]: brief({ affected: ['src/**'], protected: ['src/db/**'] }), ...files });
   repo.git('checkout', '-q', '-b', 'brief/001-rotate');
+  return repo;
+}
+
+/** A repository with this checkout installed in it, as the hook's line names it and doctor looks for it. */
+function installed(files: Readonly<Record<string, string>>): Repository {
+  const repo = repository(files);
+  installHarness(repo.root);
   return repo;
 }
 
@@ -182,7 +189,7 @@ describe('doctor', () => {
     // HEAD's commit is kept back until Claude Code is asked: asked only
     // after git's last answer, as it was, it would not be asked in time.
     seen.kept = { answer: HEAD, nth: 1, until: RELEASE };
-    const result = await cli(['doctor'], repository({ '.claude/settings.json': WIRED }).root, { env });
+    const result = await cli(['doctor'], installed({ '.claude/settings.json': WIRED }).root, { env });
     expect(result.code).toBe(0);
     expect(result.stdout).toContain(`cannot be told: claude --version printed "${process.version}", which is not a version`);
     expect(when('asked', RELEASE)).toBeLessThan(when('answered', HEAD));
@@ -435,7 +442,7 @@ describe('a matcher that is a pattern', () => {
         PostToolUse: [entry(idle), entry(some, '--base', 'main'), entry(idle)],
       },
     };
-    const repo = repository({ '.claude/settings.json': JSON.stringify(held) });
+    const repo = installed({ '.claude/settings.json': JSON.stringify(held) });
     const env = { PATH: temp() };
     const doctor = await cli(['doctor', '--format', 'json'], repo.root, { env });
     expect(parsed<{ claudeCode: { lines: { state: string; before: string[] }[] } }>(doctor).claudeCode.lines.map((said) => [said.state, said.before])).toEqual([

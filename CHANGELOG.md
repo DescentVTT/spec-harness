@@ -72,6 +72,33 @@ cannot turn a run red. The family's policy is
   shallow history, a round's last pull request still fails `doctor`. Run
   `doctor` in CI without `--strict`, which fails where the release of
   Claude Code cannot be told.
+- **`doctor` fails for a line of Claude Code's hook whose script is not
+  there**, which Claude Code cannot start and lets every write past: a
+  guard that is off, or, under `"onFailure": "block"` that the Claude
+  Code on `PATH` reads, one that holds every write. The script is looked
+  for where `${CLAUDE_PROJECT_DIR}` can point, a linked worktree's main
+  checkout among them; a relative path, npx's package and a word a shell
+  reads are not
+  ([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
+  Upgrading: a project whose hook's line names an install that is not
+  there has `doctor` exit 1 where it exited 0: install
+  `@descent-vtt/spec-harness`, or mend the line. `claudeCode.lines` has a
+  line for each way an entry names the harness.
+- **`doctor` fails where the branch names a brief spec-brief cannot be
+  asked about**, not installed, too old, or failing as it lists the
+  briefs, since the hook holds every write there, and says why on its
+  `brief` line; a hook's line that names a brief where spec-brief cannot
+  be run is said as one that holds every write
+  ([ADR-0004](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0004-the-active-brief-is-named-not-guessed.md)).
+  Upgrading: exit 1 where it was 0; the flag and `SPEC_BRIEF` still fail
+  nothing.
+
+### Added
+
+- **`doctor` notes a report at the end of a turn that nothing runs**:
+  `"turnReport"` on, and no settings file starting the hook as a turn
+  ends. It fails nothing; `--format json` has `claudeCode.turnEnd`
+  ([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
 
 ### Fixed
 

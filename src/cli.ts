@@ -96,14 +96,15 @@ Commands:
                       named, how Claude Code runs the guard, and git's hook. Exit 1
                       when a sibling is older than this release needs, the guard is
                       installed twice, its hook's line turns it off or holds every
-                      write, the branch names a brief spec-brief does not list or
-                      has archived, but for the branch git says archived it, a
-                      round's last commit, which waits to merge (CI fetches the
-                      base with its history for git to say), disableAllHooks or
-                      an array for a matcher switches it off, the plugin that is
-                      turned on is not on this machine and nothing else guards,
-                      Claude Code is too old to run its hooks, or git stops every
-                      commit at what stands for its hook.
+                      write or runs a script that is not there, the branch names a
+                      brief spec-brief does not list, cannot be asked about, or has
+                      archived, but for the branch git says archived it, a round's
+                      last commit, which waits to merge (CI fetches the base with its
+                      history for git to say), disableAllHooks or an array for a
+                      matcher switches it off, the plugin that is turned on is not on
+                      this machine and nothing else guards, Claude Code is too old to
+                      run its hooks, or git stops every commit at what stands for its
+                      hook.
 
 Options:
   --brief <id>        The brief the round works on. Otherwise SPEC_BRIEF, then the branch.
@@ -631,14 +632,16 @@ function harnessRelease(root: string): string | null {
  * write through unguarded. `null` where it was not asked. The wiring asks
  * it itself, since which writes a line is started for can turn on the
  * release as well (round.ts); the two are told apart here for the report,
- * which has a place of its own for the release.
+ * which has a place of its own for the release. The script each line runs
+ * is looked for in `places`, where `${CLAUDE_PROJECT_DIR}` can point.
  */
 async function wiringAndRelease(
   { claudeCodeWiring }: Pick<typeof import('./round.js'), 'claudeCodeWiring'>,
   root: string,
   io: CliIO,
+  places: readonly string[],
 ): Promise<{ readonly wiring: Omit<ClaudeCodeWiring, 'release'>; readonly release: ClaudeCodeCheck | null }> {
-  const { release, ...wiring } = await claudeCodeWiring(root, io);
+  const { release, ...wiring } = await claudeCodeWiring(root, io, undefined, true, places);
   return { wiring, release };
 }
 
@@ -646,7 +649,7 @@ async function doctorCommand(options: Options, io: CliIO): Promise<number> {
   // What doctor alone runs of them, loaded before anything is asked: the
   // five things below are asked at once, and none waits on a module.
   const [configure, round, setup, signing] = await Promise.all([import('./configure.js'), import('./round.js'), import('./setup.js'), import('./signers.js')]);
-  const { describeBase, describeClaudeCode, describeClaudeRelease, describeGitHook, describeHooksOff, describeInstalls, describePlugin, describePresence, describeSignerKeys, describeSignerProblem, describeSigners, guardSwitchedOff, guardWired, NO_SESSION_START, wiringState } = configure;
+  const { describeBase, describeClaudeCode, describeClaudeRelease, describeGitHook, describeHooksOff, describeInstalls, describePlugin, describePresence, describeSignerKeys, describeSignerProblem, describeSigners, guardSwitchedOff, guardWired, NO_SESSION_START, NO_TURN_END, wiringState } = configure;
   const { diagnoseBrief, specBriefPlugin } = round;
   const { gitHook } = setup;
   const { notFido2, readAllowedSigners } = signing;
@@ -672,11 +675,17 @@ async function doctorCommand(options: Options, io: CliIO): Promise<number> {
   // once, and read below in the order they were asked in before: where more
   // than one fails, the first of that order is the one thrown, whichever
   // failed first by the clock (ADR-0002).
+  // In a linked worktree, `${CLAUDE_PROJECT_DIR}` names it in a session
+  // started there and the main checkout in a worktree session of the desktop
+  // app (https://code.claude.com/docs/en/worktrees, What worktrees share with
+  // the main checkout, read 2026-10-24): the hook's script is looked for in
+  // both, and is not there only where it is in neither.
+  const main = mainWorkTree(workspace.commonDir);
   const [briefAsked, baseAsked, pluginAsked, claudeAsked, hookAsked] = await Promise.allSettled([
     diagnoseBrief(workspace, options, io.env),
     baseAndSigners(round, workspace, options.base, signersFile),
     specBriefPlugin(workspace.root),
-    wiringAndRelease(round, workspace.root, io),
+    wiringAndRelease(round, workspace.root, io, main === null ? [workspace.root] : [workspace.root, main]),
     gitHook(workspace.root),
   ]);
   const named = answerOf(briefAsked);
@@ -713,10 +722,12 @@ async function doctorCommand(options: Options, io: CliIO): Promise<number> {
   // And whether the hook is started as a session starts, where settings hold
   // the guard: a note, failing nothing, and `sessionStart` in the document.
   const atStart = wiring.hooks.length > 0 && !wiring.sessionStart ? NO_SESSION_START : null;
+  // And whether the report the configuration asks for at a turn's end is
+  // made at all: a note, failing nothing, and `turnEnd` in the document.
+  const atEnd = workspace.config.turnReport && !wiring.turnEnd ? NO_TURN_END : null;
   // And, in a linked worktree where something wires the guard, the release
   // the hook's line runs where it is not this work tree's own: a note. In
   // the main work tree both are read from one install, and are one.
-  const main = mainWorkTree(workspace.commonDir);
   const installs = guardWired(wiring) && main !== null ? describeInstalls(main, harnessRelease(main), harnessRelease(workspace.root)) : null;
   const wiringNotes = [describePresence(wiring), wiring.hooksOff === null ? null : describeHooksOff(wiring.hooksOff, switchedOff), installs].filter((note): note is string => note !== null);
   // How the hook runs the harness is a note: one that goes through npx guards
@@ -775,6 +786,7 @@ async function doctorCommand(options: Options, io: CliIO): Promise<number> {
         ...more(lineNotes),
         ...more(release === null ? [] : [describeClaudeRelease(release)]),
         ...more(atStart === null ? [] : [atStart]),
+        ...more(atEnd === null ? [] : [atEnd]),
         `git     ${describeGitHook(hook)}`,
         ...more(hookNote === null ? [] : [hookNote]),
         '',
@@ -787,9 +799,11 @@ async function doctorCommand(options: Options, io: CliIO): Promise<number> {
   // a choice; with none installed, the harness can check nothing. A double
   // install is a problem too, where no Claude Code wiring at all is a choice,
   // and so are a hook whose own line turns the guard off or holds every
-  // write, a branch that names a brief no round can work under, which holds
-  // every write as well, but for the branch that archived its brief and
-  // waits to merge (ADR-0004), guard hooks that disableAllHooks
+  // write, or whose script is not there, a branch that names a brief no round
+  // can work under, which holds every write as well, but for the branch that
+  // archived its brief and waits to merge (ADR-0004), or one that names a
+  // brief spec-brief cannot be asked about, which the hook holds every write
+  // for too, guard hooks that disableAllHooks
   // switches off, a plugin that is turned on and is not on this machine
   // where no hook of init's stands in for it, a Claude Code too old to run
   // the hooks, and something at the path of git's pre-commit hook that git
@@ -811,7 +825,7 @@ async function doctorCommand(options: Options, io: CliIO): Promise<number> {
   const untold =
     options.strict &&
     (release?.state === 'unknown' || wiring.lines.some((line) => line.state === 'unknown') || wiring.presence?.state === 'unknown' || (hook.state === 'unreadable' && hook.runs) || hook.state === 'unknown');
-  return outdated || !usable || claude === 'both' || off || unworkable || switchedOff || missing || tooOld || stopped || untold ? EXIT_FAILED : EXIT_OK;
+  return outdated || !usable || claude === 'both' || off || unworkable || named.holds || switchedOff || missing || tooOld || stopped || untold ? EXIT_FAILED : EXIT_OK;
 }
 
 /* ---------------------------------------------------------------- dispatch */

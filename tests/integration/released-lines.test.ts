@@ -24,7 +24,7 @@ import { arrayMatcher, GIT_HOOK_LINE, GUARD_HOOK, matchingUnder, mcpServer, merg
 import { CALLABLE_TOOLS, WRITING_TOOLS } from '../../src/hooks.js';
 import { claudeHookLine, refusal, twoValues } from '../../src/usage.js';
 import { parseOptions } from '../../src/workspace.js';
-import { brief, BRIEF_FILE, cleanup, cli, parsed, repository, ROOT, temp, type Captured, type Repository } from './helpers.js';
+import { brief, BRIEF_FILE, cleanup, cli, installHarness, parsed, repository, ROOT, temp, type Captured, type Repository } from './helpers.js';
 
 afterAll(cleanup);
 
@@ -549,6 +549,8 @@ describe("doctor, of the hook's line in Claude Code's settings", () => {
       ['--help', '--root', 'nowhere'],
     ];
     repo.write('.claude/settings.json', JSON.stringify(held(...LINES.map((rest) => entry(['node', `${PROJECT_DIR}/${SCRIPT}`, 'hook', 'claude', ...rest])))));
+    // The install the lines name, whose script doctor looks for.
+    installHarness(repo.root);
     try {
       const doctor = parsed<{ root: string; claudeCode: { lines: { line: string[]; state: string; detail: string }[] } }>(await cli(['doctor', '--format', 'json'], repo.root));
       expect(doctor.claudeCode.lines.map((line) => [line.line.slice(2), line.state])).toEqual([
@@ -592,6 +594,7 @@ describe("doctor, of the hook's line in Claude Code's settings", () => {
       }
     } finally {
       rmSync(join(repo.root, '.claude'), { recursive: true, force: true });
+      rmSync(join(repo.root, 'node_modules', '@descent-vtt', 'spec-harness'), { recursive: true, force: true });
     }
   });
 });
