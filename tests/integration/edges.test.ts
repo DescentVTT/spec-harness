@@ -709,9 +709,33 @@ describe('finding the siblings', () => {
     });
   });
 
-  it.skipIf(process.platform === 'win32')('answers -1 for a sibling that cannot start for a reason of another kind, whose code is no exit code', async () => {
-    // A directory named as the program: Linux and macOS refuse it with EACCES, where Windows finds no such program.
-    expect(await runSibling('a sibling', [temp()], [], temp())).toEqual({ code: -1, stdout: '', stderr: '' });
+  it('answers a sibling a signal ended before its limit with -1, where it has no exit code', async () => {
+    // Node names a process a signal ended with no exit code, null, so -1
+    // stands for one. Since a program that cannot start is answered apart,
+    // this is the one run the sweep, on Linux, reaches -1 by. Windows has no
+    // such signal: there the process ended with 1, as measured.
+    const run = await runSibling('a sibling', ['node', '-e', 'process.kill(process.pid, "SIGKILL")'], [], temp());
+    expect(run).toEqual({ code: process.platform === 'win32' ? 1 : -1, stdout: '', stderr: '' });
+  });
+
+  it('answers a program that cannot be started in one way on every host: a directory, a script with no node before it, a .cmd, a name with a NUL in it', async () => {
+    // Linux and macOS refuse the first three as a file that may not be run,
+    // EACCES, which was answered as -1 with nothing said. Windows finds no
+    // such program for the directory, and refuses the script, EFTYPE, and
+    // the .cmd, EINVAL, before a process is made, where Node throws: the
+    // run was rejected with Node's error. A NUL is refused that way on
+    // every host, so the sweep, on Linux, reaches the answer to a throw.
+    const directory = temp();
+    writeFileSync(join(directory, 'tool.js'), "process.stdout.write('ran');");
+    writeFileSync(join(directory, 'tool.cmd'), '@echo ran');
+    for (const program of [directory, join(directory, 'tool.js'), join(directory, 'tool.cmd'), `tool${String.fromCharCode(0)}.js`]) {
+      // Raced, so that a run that never answers fails here rather than at the test's limit.
+      let timer: NodeJS.Timeout | undefined;
+      const unanswered = new Promise<string>((resolve) => (timer = setTimeout(() => resolve('no answer'), 10_000)));
+      const answered = await Promise.race([runSibling('a sibling', [program], [], temp()), unanswered]);
+      clearTimeout(timer);
+      expect(answered, program).toEqual({ code: -1, stdout: '', stderr: `cannot start "${program}": name the tool's script, such as ["node", "node_modules/@descent-vtt/<tool>/bin/<tool>.js"]` });
+    }
   });
 
   it("gives spec-brief's list the time a question is given, and the hook's write is held at it", async () => {
