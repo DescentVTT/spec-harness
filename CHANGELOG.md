@@ -56,6 +56,17 @@ cannot turn a run red. The family's policy is
   brief's problem or for no brief named reads an answer for each path, and
   `held` is a new `reason` of a decision.
 
+### Fixed
+
+- **A `tools` command that cannot be started is said in one way on every
+  host**: `cannot start "<command>": name the tool's script, such as
+  ["node", ...]`, the words a name no program has was given. On Windows a
+  script with no `node` before it, or a `.cmd`, ended a command on
+  `unexpected error: Error: spawn EFTYPE` (or `EINVAL`) and a stack trace,
+  and on Linux a file that may not be run was `exited -1` and nothing more;
+  the hook holds the write as it did
+  ([ADR-0002](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0002-siblings-through-their-command-lines.md)).
+
 ## 0.20.0
 
 The hook decides each path by the work tree that holds it, a third

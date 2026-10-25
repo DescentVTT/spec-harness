@@ -1122,3 +1122,30 @@ own and whose test gives that hook sixty seconds; this suite gives hooks
 and tests 300 (`vitest.config.ts`). On a workstation so loaded that
 `node -e 0` took five to nine seconds, its slowest test, seven runs of the
 script, took fifteen.
+
+*Amended 2026-10-24.* **`branch.ts`'s three survivors are decided by a
+clock, not by the order tests run in.** The record of 0.20.0 above has
+`j <= name.length` (line 50), `["Stryker was here"]` for the list of ends
+(57) and `true` for `end < name.length` (80) counted killed by 0.19.0's
+sweep, and decided by the order tests run in. *Measured* in the reports of
+the sweeps of 0.18.0 (run 38555334383) and 0.19.0 (run 39160139131), and
+of the thirty full sweeps that passed from 2026-10-19 on, the last of them
+0.20.0's (run 39334835801): no sweep counted any of the three killed by a
+test. Each survived in 0.18.0's and in 28 of the thirty, and timed out in
+0.19.0's and in two sweeps of one pull request
+(`feat/a-configuration-that-can-be-mended`, at dc74f8f and 05caf52). The
+fourth beside them, `end <= name.length` (80), survived in every one but
+dc74f8f's. The four are static mutants, and a static survivor runs every
+test file: it times out where that run passes its limit, which a slow
+runner reaches. So a clock decides them.
+
+Each is equivalent, as the comment beside it has said since #92. Written
+into the source one at a time, `tests/unit/branch.test.ts`,
+`tests/unit/workspace.test.ts` and `tests/integration/premises-cli.test.ts`
+pass, 69 tests, and the mutated `idFromBranch` answers as the original for
+each of 781 templates (up to four of `a`, `1`, `-`, `/` and `*` before
+`{id}`) and 37,449 names (up to five of `a`, `1`, `-`, `/`, `+`, `.`, `_`
+and `é`), where two mutants a test kills differ on 6,320,546 of the same
+pairs. No test can kill them, and none is added. Source written so that no
+such mutant is made would end the clock; that is a change of `src/` no
+decision asked for, and is left.
