@@ -9,7 +9,18 @@ only fixes, reports less or documents, so `^0.7.0` takes only releases that
 cannot turn a run red. The family's policy is
 [spec-core's ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
-## Unreleased
+## 0.21.0
+
+A path through a link is decided as it reads and as the system writes it,
+and the stricter answer stands; a run of the hook has one budget, 45
+seconds, for every process it starts; and the server's `check_path` answers
+each path as the hook decides a write of it. `doctor` passes the branch that
+archived its brief, a round's last commit, where git says the branch
+archived it, so a CI job that runs it passes a round's last pull request;
+and it fails for a hook's line whose script is not there and for a brief the
+branch names that spec-brief cannot be asked about
+([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md),
+[ADR-0004](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0004-the-active-brief-is-named-not-guessed.md)).
 
 ### Changed
 

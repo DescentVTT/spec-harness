@@ -189,6 +189,27 @@ of the release's seven pull requests that changed a source was swept before
 it merged, and each ended with every undetected mutant new against main's
 killed or said equivalent.
 
+For 0.21.0 the sweep of e8a2c5f (run 40157462678) read 97.81% over 11,973
+mutants, 97.06% with every timeout lost, in shards of 19m33s to 45m05s, and
+the `break` stays 95; the release's last commit, #128, moved the spec-brief
+the suite installs and no source, and was not swept. It has 402 mutants more
+than 0.20.0's sweep (run 39334835801, of 3a1dad8), in nine of the modules
+the release changed, `cli.ts` with 118 of them and `configure.ts` with 76,
+and 235 survivors and 27 without coverage to that sweep's 227 and 26. Of the
+9 undetected mutants new against it, 8 are of this release's own lines, each
+said equivalent beside its code, as the sweep of the pull request that
+brought it had named it before the merge: five of the reading of a path as
+the system writes it in `fs.ts`, equivalent on Linux, where the sweep runs,
+and killed by hand on Windows; the two empty lists `findActive` is given in
+`server.ts` where nothing names a brief or every path is outside; and
+`branch: false` in `round.ts` where spec-brief is not there under the
+branch's name, where `holds` fails `doctor` already. The ninth is
+`round.ts`'s `'hex'`, which the release did not change and its comment says
+is counted killed now and then. None of 0.20.0's is gone. Each of the
+release's seven pull requests that changed a source or the integration suite
+was swept before it merged, and each ended with every undetected mutant new
+against main's killed or said equivalent.
+
 One runner took 69 to 130 minutes for the full sweep. Before any sharded
 sweep ran, the report of eb39599 was cut into shards the way Stryker writes
 them and put back by the merge: all 7,507 verdicts came back with their
