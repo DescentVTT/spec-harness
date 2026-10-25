@@ -100,3 +100,69 @@ was:
   the round is read in the one the roots name; `directory` names the other.
 - **`list_rounds`** lists the server's briefs, which a worktree's branch may
   have added to.
+
+*Amended 2026-10-24.* **`check_path` answers each path as the hook decides
+a write of it.** *Claimed* by round 25's agent F: under a brief's problem
+`check_path` answers the problem for a path outside every work tree of the
+repository, where the hook passes it (ADR-0005, the amendment of 2026-10-19
+that has such a write held by no brief). *Measured* through the launcher
+of main (4227a6a) and of this change (Windows 11, Node 24.22.1, Git for
+Windows 2.55.0; `b26-measure/b2.mjs`), in a project on brief 042's branch,
+the brief covering `src/app/**` and protecting `src/db/**`: the hook handed
+a write of each path alone, and `check_path` asked of each alone and of
+all of them in one call.
+
+| The project, and the path | The hook | `check_path` on main | Now |
+| --- | --- | --- | --- |
+| a brief found: the protected file, one in the scope, one outside it, the brief, a file outside every work tree | refused; passes; passes, and warns after it; passes; passes | `deny`; `allow`; `warn`; `allow`; `allow` | the same |
+| the same, `outOfScope` `ask` or `deny`, the file outside the scope | asked; refused | `ask`; `deny` | the same |
+| no brief named, any path | passes | tool error: `no brief is named: ...` | `allow`: `no brief governs <path>: no brief is named: ...`, as `guard` says it |
+| the branch names brief 999, which spec-brief does not list, or 042, archived, or `SPEC_BRIEF=404`: a path inside | held, exit 2 | tool error, in the problem's words | `deny`, reason `held`: the problem's words, and `Next: fix the brief or the branch before writing` |
+| the same, a file outside every work tree | passes | tool error | `allow`: outside the repository |
+| the same, every path in one call | | tool error | each path as above |
+| a brief named, spec-brief not installed: a path inside | held: `cannot check this write: spec-brief is not installed here: ...` | tool error: `spec-harness failed: spec-brief is not installed here: ...` | the same |
+| the same, a file outside every work tree | passes | tool error | `allow` |
+| no brief named, spec-brief not installed | passes | tool error, the same | `allow`: no brief governs it |
+| a configuration that does not load | holds every write but one to the file itself | the server does not start, exit 2 | the same |
+
+So the claim holds, and goes further: with no brief named, and with no
+brief named and no spec-brief installed, `check_path` failed every call
+the hook would pass, since it asked spec-brief before anything else.
+
+- **Each path as the hook decides a write of it alone**, by the work tree
+  of the repository that holds it, as before. A path outside every work
+  tree of the repository, by the hook's own test (`outsideEvery`,
+  `src/fs.ts`), is outside the repository, with no brief asked about
+  whatever names one. The rest are decided by the brief the `brief`
+  argument, `SPEC_BRIEF` or the branch names, found as the hook finds it:
+  spec-brief is not asked where nothing names a brief, and is asked only
+  where a path is inside.
+- **A path held is refused, and says why**: `deny` with the reason `held`,
+  a reason added beside the others (`heldBy`, `src/guard.ts`), in the
+  hook's words for what names the brief, said of the argument where the
+  argument named it (`"brief" names brief 404, ...`), with the hook's next
+  step. A call that names a path inside and one outside answers each,
+  where the hook holds a write of both: a call asks of each path, and an
+  agent may then write the file outside alone.
+- **What failed a call for a path inside fails it still**: a spec-brief
+  that is not installed, cannot run or cannot list the briefs is a tool
+  error, as the hook's `cannot check this write` is its exit 2; a call of
+  paths that are all outside asks spec-brief nothing.
+- **Its description says so**: `check_path` answers as the guard hook
+  decides a write, a path held among what it refuses.
+- **One table holds the two** (`tests/integration/as-the-hook.test.ts`):
+  for each of nine states of a project, each of five paths is asked of the
+  hook and of `check_path`, and the two answers are held to one, refused,
+  asked, passed, held or not checked, in the same words.
+
+A tool error that is now an answer, and an answer of a new reason: a minor
+release (spec-core's ADR-0009). What was measured for this and left as it
+was:
+
+- **A configuration that does not load.** The server reads the project's
+  configuration as it starts, and does not start, where the hook lets a
+  write to the file itself through; a server that starts there and answers
+  as the hook does is another change than this one.
+- **`start_round`, `request_escalation` and `audit_round`** need a brief,
+  and answer a tool error where none is named, as before: each acts on a
+  round, not on a write.
