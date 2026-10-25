@@ -244,7 +244,7 @@ describe('doctor where nothing the branch names is archived', () => {
 describe('the turn report on a closed round\'s branch', () => {
   it('says that every write is held, and that the round ends when the branch merges', async () => {
     const repo = closedRound({ config: { turnReport: true } });
-    const said = `spec-harness: ${PROBLEM}, so what the work tree holds is not reported, and every write is held: the round is archived and ends when this branch merges; spec-harness doctor says more`;
+    const said = `spec-harness: ${PROBLEM}, so what the work tree holds is not reported, and every write is held but one to a file outside every work tree of the repository: the round is archived and ends when this branch merges; spec-harness doctor says more`;
     const stop = JSON.stringify({ session_id: 's', cwd: repo.root, hook_event_name: 'Stop', stop_hook_active: false });
     expect(await hook(repo, stop)).toEqual({ code: 0, stderr: '', stdout: `${JSON.stringify({ systemMessage: said })}\n` });
   });

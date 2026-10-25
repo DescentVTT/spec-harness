@@ -367,7 +367,7 @@ async function turnReport(options: Options, io: CliIO, root: string, cwd: string
     const { brief, problem } = describeActive(active);
     if (problem !== null) {
       const ends = closesRound(active) ? ': the round is archived and ends when this branch merges' : '';
-      return `spec-harness: ${heldHookLine(problem).wrong}, so what the work tree holds is not reported, and every write is held${ends}; spec-harness doctor says more`;
+      return `spec-harness: ${heldHookLine(problem).wrong}, so what the work tree holds is not reported, and every write is held but one to a file outside every work tree of the repository${ends}; spec-harness doctor says more`;
     }
     if (brief === null) return null;
     const [changed, { decide }] = await Promise.all([changedPaths(workspace.root), import('./guard.js')]);

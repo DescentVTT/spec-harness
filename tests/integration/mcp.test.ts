@@ -173,9 +173,11 @@ describe('the tools', () => {
     expect(await tool('check_path').call({ paths: ['a'], brief: 1 })).toEqual({ text: '"brief" must be a string.', isError: true });
     expect(await tool('check_path').call({ paths: ['a'], base: 1 })).toEqual({ text: '"base" must be a string.', isError: true });
     expect(await tool('start_round').call({ base: ['main'] })).toEqual({ text: '"base" must be a string.', isError: true });
+    expect(await tool('start_round').call({ brief: 1 })).toEqual({ text: '"brief" must be a string.', isError: true });
     expect(await tool('start_round').call({ at: 'main' })).toEqual({ text: 'Unknown argument "at"; this tool takes brief, base and directory.', isError: true });
-    // Said of the argument that named it: a tool call has no flag.
-    expect(await tool('check_path').call({ paths: ['a'], brief: '404' })).toEqual({ text: '"brief" names brief 404, and spec-brief knows no such brief', isError: true });
+    // Said of the argument that named it: a tool call has no flag. A path
+    // inside is held for it, as the hook holds a write of it.
+    expect((await tool('check_path').call({ paths: ['a'], brief: '404' })).text).toBe('deny: "brief" names brief 404, and spec-brief knows no such brief. Next: fix the brief or the branch before writing');
     expect(await tool('start_round').call({ brief: '3' })).toEqual({ text: '"brief" names brief 003, which is archived; a closed round writes nothing', isError: true });
   });
 
@@ -488,9 +490,10 @@ describe('the work tree a tool reads the round in (ADR-0008)', () => {
     ]);
     // A relative path is read from the work tree the round is read in.
     expect(await decided(['src/db/schema.ts'], async () => [tree])).toEqual([['src/db/schema.ts', 'deny']]);
-    // The project's own file under the project's branch, which names no brief: a round needs one.
+    // The project's own file under the project's branch, which names no
+    // brief: no brief governs it, as the hook passes a write of it.
     const own = await called('check_path', { paths: [join(project.root, 'src', 'db', 'schema.ts')] });
-    expect(own.isError).toBe(true);
+    expect((own.structured as { decisions: { reason: string }[] }).decisions.map((d) => d.reason)).toEqual(['no-brief']);
   });
 
   it("asks the client for its roots only where it declared them, by a request of its own, and reads the answer by that request's id", async () => {

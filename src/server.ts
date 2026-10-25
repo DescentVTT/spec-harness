@@ -12,11 +12,12 @@ import { Readable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 
 import { describeMeasured } from './audit.js';
-import { findActive } from './briefs.js';
+import { findActive, type ActiveBrief } from './briefs.js';
 import { briefIdFromBranch } from './branch.js';
 import { titleOf } from './context.js';
 import { createReader } from './reader.js';
-import { realSpelling } from './fs.js';
+import { outsideEvery, realSpelling } from './fs.js';
+import { heldBy, type Decision } from './guard.js';
 import { buildContext, checkPaths, raiseEscalation, runAudit } from './round.js';
 import type { EscalationOption } from './rulings.js';
 import type { BriefRow } from './types.js';
@@ -33,7 +34,7 @@ import {
   type ToolDefinition,
   type ToolOutcome,
 } from './vendor/spec-core/jsonrpc/index.js';
-import { describeActive, findTree, foundCommonDir, mayBeElsewhere, openFound, openWorkspace, version, writesBy, type CliIO, type Options, type Workspace } from './workspace.js';
+import { describeActive, findTree, foundCommonDir, mayBeElsewhere, namedId, openFound, openWorkspace, version, writesBy, type CliIO, type Options, type Workspace } from './workspace.js';
 
 const reader = createReader();
 
@@ -266,6 +267,38 @@ async function round(workspace: Workspace, env: CliIO['env'], id: unknown): Prom
   return { brief, briefs };
 }
 
+/**
+ * The brief the argument, `SPEC_BRIEF` or the branch names, as the hook
+ * finds it: where nothing names one, spec-brief is not asked, and the answer
+ * is no brief whatever spec-brief would say (ADR-0004), so the empty list is
+ * equivalent to its mutant.
+ */
+async function namedBrief(workspace: Workspace, env: CliIO['env'], id: string | undefined): Promise<ActiveBrief> {
+  if (namedId(workspace, { brief: id }, env) === null) return findActive([], {});
+  const briefs = await workspace.siblings.briefs();
+  return findActive(briefs, { argument: id, environment: env['SPEC_BRIEF'], branch: briefIdFromBranch(workspace.config.branches, workspace.branch) });
+}
+
+/**
+ * Each path as the hook decides a write of it alone (ADR-0005, ADR-0008): one
+ * outside every work tree of the repository as a file outside it, with no
+ * brief asked about, whatever names one; the rest by the brief named, with
+ * no brief where nothing names one, and held, in the hook's words, where
+ * what names it names none a round can work under. spec-brief is asked only
+ * where a path is inside, as the hook asks it.
+ */
+async function asTheHook(workspace: Workspace, env: CliIO['env'], id: string | undefined, paths: readonly string[], cwd: string, base: string | undefined): Promise<Decision[]> {
+  const outside = paths.map((path) => outsideEvery([path], workspace.root, workspace.commonDir, cwd));
+  // Paths all outside ask about no brief, and are answered as with none
+  // named: the empty list is equivalent to its mutant, as in namedBrief.
+  const { brief, note, problem } = describeActive(outside.every((each) => each) ? findActive([], {}) : await namedBrief(workspace, env, id), '"brief"');
+  if (problem === null) return checkPaths(workspace, brief, note, paths, cwd, reader, base);
+  // Decided by no brief, a path outside is decided as outside the
+  // repository, and one inside is held, named as the repository names it.
+  const decided = await checkPaths(workspace, null, undefined, paths, cwd, reader, base);
+  return decided.map((decision, at) => (outside[at] ? decision : heldBy(decision.path, problem)));
+}
+
 export function tools(workspace: Workspace, env: CliIO['env'], roots: Roots = NO_ROOTS): ToolDefinition[] {
   const readOnly = { readOnlyHint: true, idempotentHint: true, openWorldHint: false };
   // A tool writes nothing to the server's streams, so these are never
@@ -317,7 +350,7 @@ export function tools(workspace: Workspace, env: CliIO['env'], roots: Roots = NO
         name: 'check_path',
         title: 'May the round write these files',
         description:
-          'For each path: allowed (in scope, or covered by a signed ruling), outside the scope, or refused (protected by the brief). Works for files that do not exist yet.',
+          'For each path, as the guard hook decides a write of it: allowed (in scope, covered by a signed ruling, outside every work tree of the repository, or with no brief named), outside the scope, or refused (protected by the brief, or held where what names the brief names none a round can work under). Works for files that do not exist yet.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -344,13 +377,14 @@ export function tools(workspace: Workspace, env: CliIO['env'], roots: Roots = NO
         if ('text' in base) return base;
         const where = await chosen(workspace, io, roots, args['directory']);
         if ('text' in where) return where;
+        const id = args['brief'];
+        if (id !== undefined && typeof id !== 'string') return toolError('"brief" must be a string.');
+        if (id !== undefined && isBlank(id)) return namesNothing('brief', 'brief', id);
         // Each path by the work tree of this repository that holds it, as the
         // hook decides a write: the one read, another, or the server's own.
-        const decisions = [];
+        const decisions: Decision[] = [];
         for (const part of await writesBy(workspace, where.workspace.root, given.paths, io)) {
-          const found = await round(part.workspace, env, args['brief']);
-          if ('text' in found) return found;
-          decisions.push(...(await checkPaths(part.workspace, found.brief, undefined, part.paths, where.workspace.root, reader, base.base)));
+          decisions.push(...(await asTheHook(part.workspace, env, id, part.paths, where.workspace.root, base.base)));
         }
         const text = decisions.map((d) => `${d.verdict}: ${d.message}${d.verdict === 'allow' ? '' : `. Next: ${d.hint}`}`).join('\n');
         const { said, workTree } = readIn(where);
