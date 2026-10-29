@@ -34,7 +34,7 @@ function filesUnder(directory: string, prefix = ''): string[] {
 
 describe('the vendored spec-core', () => {
   it('names where it came from and lists modules', () => {
-    expect(manifest.source).toBe('https://github.com/DescentVTT/spec-core');
+    expect(manifest.source).toBe('https://github.com/spec-family/spec-core');
     expect(Object.keys(manifest.modules).length).toBeGreaterThan(0);
   });
 
