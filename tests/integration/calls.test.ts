@@ -57,8 +57,8 @@ const kept = (repo: Repository): string[] => {
 const WARNING = /^\{"hookSpecificOutput":\{"hookEventName":"PostToolUse","additionalContext":"spec-harness: README\.md is outside brief 001's scope, which covers src\/auth\/\*\*\. Next: /;
 
 /** spec-brief taken away, so that a run that asks it ends in exit 2. */
-const unInstall = (repo: Repository): void => rmSync(join(repo.root, 'node_modules', '@descent-vtt', 'spec-brief'), { recursive: true, force: true });
-const NOT_INSTALLED = 'spec-harness: spec-brief is not installed here: npm install --save-dev @descent-vtt/spec-brief, or name its command under "tools" in .spec-harness.json\n';
+const unInstall = (repo: Repository): void => rmSync(join(repo.root, 'node_modules', '@spec-family', 'spec-brief'), { recursive: true, force: true });
+const NOT_INSTALLED = 'spec-harness: spec-brief is not installed here: npm install --save-dev @spec-family/spec-brief, or name its command under "tools" in .spec-harness.json\n';
 
 /** Runs `work` with no git on PATH, so that a run that asks git finds none. */
 async function withoutGit<T>(work: () => Promise<T>): Promise<T> {

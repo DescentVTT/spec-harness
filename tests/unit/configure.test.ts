@@ -32,7 +32,11 @@ import {
   handedLines,
   hooksDisabled,
   HYPHEN_SINCE,
+  holdsEarlierGuard,
+  holdsEarlierServer,
+  isEarlierPreCommit,
   isStarted,
+  loadsEarlierPlugin,
   loadsPlugin,
   matchingUnder,
   mcpServer,
@@ -73,7 +77,7 @@ import {
 import { claudeHookLine, elsewhereHookLine, heldHookLine, holderHookLine, outsideHookLine, type HookLine } from '../../src/usage.js';
 import { parseOptions } from '../../src/workspace.js';
 
-const SCRIPT = '${CLAUDE_PROJECT_DIR}/node_modules/@descent-vtt/spec-harness/bin/spec-harness.js';
+const SCRIPT = '${CLAUDE_PROJECT_DIR}/node_modules/@spec-family/spec-harness/bin/spec-harness.js';
 
 describe('the file an exports target names for an import, as Node resolves it', () => {
   it('is a string that starts with ./, and nothing else', () => {
@@ -208,7 +212,7 @@ describe('Claude Code settings', () => {
   it("writes no line beside one of the hook's that Claude Code starts for a write, however a person wrote it", () => {
     for (const hook of [
       { type: 'command', command: 'node', args: [...HOOK.args, '--root', PROJECT_DIR] },
-      { type: 'command', command: 'node', args: ['node_modules/@descent-vtt/spec-harness/bin/spec-harness.js', 'hook', 'claude'] },
+      { type: 'command', command: 'node', args: ['node_modules/@spec-family/spec-harness/bin/spec-harness.js', 'hook', 'claude'] },
       { type: 'command', command: `node ${SCRIPT} hook claude --brief 404` },
       // A line the hook cannot read is its line all the same, and the person's to mend.
       { type: 'command', command: 'node', args: [...HOOK.args, '--nope'] },
@@ -280,13 +284,13 @@ describe('the MCP server registration', () => {
   it('runs the project\'s install with node, reading the project it names', () => {
     expect(PROJECT_DIR_OR_HERE).toBe('${CLAUDE_PROJECT_DIR:-.}');
     expect(mcpServer(PROJECT_DIR)).toEqual({ command: 'node', args: [SCRIPT, 'mcp', '--root', '${CLAUDE_PROJECT_DIR}'] });
-    expect(mcpServer('/p')).toEqual({ command: 'node', args: ['/p/node_modules/@descent-vtt/spec-harness/bin/spec-harness.js', 'mcp', '--root', '/p'] });
+    expect(mcpServer('/p')).toEqual({ command: 'node', args: ['/p/node_modules/@spec-family/spec-harness/bin/spec-harness.js', 'mcp', '--root', '/p'] });
   });
 
   it('registers the server beside those already there, with the default a project file needs', () => {
     const server = {
       command: 'node',
-      args: ['${CLAUDE_PROJECT_DIR:-.}/node_modules/@descent-vtt/spec-harness/bin/spec-harness.js', 'mcp', '--root', '${CLAUDE_PROJECT_DIR:-.}'],
+      args: ['${CLAUDE_PROJECT_DIR:-.}/node_modules/@spec-family/spec-harness/bin/spec-harness.js', 'mcp', '--root', '${CLAUDE_PROJECT_DIR:-.}'],
     };
     const current = { mcpServers: { other: { command: 'x' } }, extra: true };
     expect(mergeMcp(current)).toEqual({ mcpServers: { other: { command: 'x' }, 'spec-harness': server }, extra: true });
@@ -442,7 +446,7 @@ describe('the Claude Code plugin beside init\'s entries (ADR-0012)', () => {
 
 describe('spec-brief\'s plugins', () => {
   it('names the plugin by the subpath this package exports, and spec-brief\'s files in its order', () => {
-    expect(PLUGIN).toBe('@descent-vtt/spec-harness/spec-brief-plugin');
+    expect(PLUGIN).toBe('@spec-family/spec-harness/spec-brief-plugin');
     expect(SPEC_BRIEF_CONFIGS).toEqual(['.spec-brief.json', 'spec-brief.json']);
   });
 
@@ -451,7 +455,7 @@ describe('spec-brief\'s plugins', () => {
     expect(loadsPlugin({ plugins: ['./tools/x.mjs', { module: PLUGIN, options: {} }] })).toBe(true);
     expect(loadsPlugin({})).toBe(false);
     expect(loadsPlugin({ plugins: PLUGIN })).toBe(false);
-    expect(loadsPlugin({ plugins: ['@descent-vtt/spec-harness', { module: '@descent-vtt/spec-harness' }, null, { name: PLUGIN }] })).toBe(false);
+    expect(loadsPlugin({ plugins: ['@spec-family/spec-harness', { module: '@spec-family/spec-harness' }, null, { name: PLUGIN }] })).toBe(false);
   });
 
   it("reads a path spec-brief loads as the plugin when it names the plugin's file, and asks about nothing else", () => {
@@ -461,7 +465,7 @@ describe('spec-brief\'s plugins', () => {
       return path.endsWith('plugin.js');
     };
     // A path starts with a dot or is absolute, as spec-brief reads one, alone or as a module.
-    expect(loadsPlugin({ plugins: ['./node_modules/@descent-vtt/spec-harness/dist/plugin.js'] }, isPluginFile)).toBe(true);
+    expect(loadsPlugin({ plugins: ['./node_modules/@spec-family/spec-harness/dist/plugin.js'] }, isPluginFile)).toBe(true);
     expect(loadsPlugin({ plugins: [{ module: '../shared/plugin.js' }] }, isPluginFile)).toBe(true);
     expect(loadsPlugin({ plugins: ['/opt/spec-harness/dist/plugin.js'] }, isPluginFile)).toBe(true);
     expect(loadsPlugin({ plugins: ['./tools/other.mjs', { module: './x.mjs' }] }, isPluginFile)).toBe(false);
@@ -470,7 +474,7 @@ describe('spec-brief\'s plugins', () => {
     expect(loadsPlugin({ plugins: ['some-plugin.js', { module: '@scope/plugin.js' }, 7] }, isPluginFile)).toBe(false);
     expect(asked).toEqual([]);
     // Without a way to read the disk, a path is not the plugin.
-    expect(loadsPlugin({ plugins: ['./node_modules/@descent-vtt/spec-harness/dist/plugin.js'] })).toBe(false);
+    expect(loadsPlugin({ plugins: ['./node_modules/@spec-family/spec-harness/dist/plugin.js'] })).toBe(false);
     // And init adds no second one.
     expect(mergeSpecBrief({ plugins: ['./dist/plugin.js'] }, null, isPluginFile)).toBeNull();
     expect(mergeSpecBrief({ plugins: ['./dist/plugin.js'] })).toEqual({ plugins: ['./dist/plugin.js', PLUGIN] });
@@ -506,7 +510,7 @@ describe('spec-brief\'s plugins', () => {
       "spec-brief loads spec-harness's plugin (.spec-brief.json): its archive accepts a protected file a signed ruling allows",
     );
     expect(describePlugin({ kind: 'not-loaded', file: 'spec-brief.json' })).toBe(
-      'spec-brief does not load spec-harness\'s plugin, so its archive refuses a protected file whatever ruling is signed: add "@descent-vtt/spec-harness/spec-brief-plugin" to "plugins" in spec-brief.json, or run spec-harness init --write',
+      'spec-brief does not load spec-harness\'s plugin, so its archive refuses a protected file whatever ruling is signed: add "@spec-family/spec-harness/spec-brief-plugin" to "plugins" in spec-brief.json, or run spec-harness init --write',
     );
     expect(describePlugin({ kind: 'unreadable', file: '.spec-brief.json' })).toBe(
       ".spec-brief.json cannot be read as JSON, so whether spec-brief loads spec-harness's plugin is unknown",
@@ -605,7 +609,7 @@ describe("what doctor says of the keys, the Claude Code release and git's hook",
       '.githooks/pre-commit runs spec-harness, but is not executable, so git skips it: chmod +x .githooks/pre-commit',
     );
     expect(describeGitHook({ state: 'other', file: '.git/hooks/pre-commit' })).toBe(
-      '.git/hooks/pre-commit does not run spec-harness: add the line "node node_modules/@descent-vtt/spec-harness/bin/spec-harness.js hook git" to it',
+      '.git/hooks/pre-commit does not run spec-harness: add the line "node node_modules/@spec-family/spec-harness/bin/spec-harness.js hook git" to it',
     );
     expect(describeGitHook({ state: 'absent', file: '.git/hooks/pre-commit' })).toBe(missingGitHook('.git/hooks/pre-commit'));
     expect(missingGitHook('.git/hooks/pre-commit')).toBe(
@@ -638,7 +642,7 @@ describe("what doctor says of the keys, the Claude Code release and git's hook",
   });
 
   it('runs git\'s hook with node and the script in the project\'s install, as it runs Claude Code\'s, read from the top of the work tree', () => {
-    expect(GIT_HOOK_LINE).toBe('node node_modules/@descent-vtt/spec-harness/bin/spec-harness.js hook git');
+    expect(GIT_HOOK_LINE).toBe('node node_modules/@spec-family/spec-harness/bin/spec-harness.js hook git');
     // The script the Claude Code hooks name under the project, here under the directory git starts the hook in.
     expect(`${PROJECT_DIR}/${GIT_HOOK_LINE.split(' ')[1]}`).toBe(SCRIPT);
   });
@@ -651,7 +655,7 @@ describe("what doctor says of the keys, the Claude Code release and git's hook",
         "# git runs this at the top of the work tree it commits in, a linked worktree's",
         "# own, wherever the hook is kept: the project's install is read from there,",
         "# or, where a linked worktree has none, from the repository's main work tree.",
-        'bin=node_modules/@descent-vtt/spec-harness/bin/spec-harness.js',
+        'bin=node_modules/@spec-family/spec-harness/bin/spec-harness.js',
         'if [ ! -f "$bin" ]; then',
         '  common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)',
         '  if [ "${common##*/}" = .git ] && [ -f "${common%/.git}/$bin" ]; then',
@@ -666,7 +670,7 @@ describe("what doctor says of the keys, the Claude Code release and git's hook",
       ].join('\n'),
     );
     // What it runs is the line advised for a hook of the repository's own, the script by the name it checked.
-    expect(PRE_COMMIT.endsWith(`\nexec ${GIT_HOOK_LINE.replace('node_modules/@descent-vtt/spec-harness/bin/spec-harness.js', '"$bin"')}\n`)).toBe(true);
+    expect(PRE_COMMIT.endsWith(`\nexec ${GIT_HOOK_LINE.replace('node_modules/@spec-family/spec-harness/bin/spec-harness.js', '"$bin"')}\n`)).toBe(true);
     // doctor and init find the harness in it by name, and no npx.
     expect(PRE_COMMIT).toContain('spec-harness');
     expect(gitHookNote(PRE_COMMIT)).toBeNull();
@@ -675,13 +679,13 @@ describe("what doctor says of the keys, the Claude Code release and git's hook",
   describe('a hook that runs the harness through npx', () => {
     const NOTE =
       'it runs spec-harness through npx, which starts npm to start node on every commit, and under npm 12 prints two "npm notice run" lines each time: ' +
-      'to run it with node from the project\'s install, as Claude Code\'s hooks are, replace the npx command there with "node node_modules/@descent-vtt/spec-harness/bin/spec-harness.js hook git"';
+      'to run it with node from the project\'s install, as Claude Code\'s hooks are, replace the npx command there with "node node_modules/@spec-family/spec-harness/bin/spec-harness.js hook git"';
 
     it.each([
       ['the hook init wrote through 0.9.1', '#!/bin/sh\n# spec-harness: refuse a commit that changes what the active brief protects.\nexec npx --no-install spec-harness hook git\n'],
       ['the line init advised, in a hook of the repository\'s own', '#!/bin/sh\nnpm test || exit 1\nnpx --no-install spec-harness hook git\n'],
       ['npx without --no-install', '#!/bin/sh\nnpx spec-harness hook git\n'],
-      ['the package by its full name', '#!/bin/sh\nexec npx --no-install @descent-vtt/spec-harness hook git\n'],
+      ['the package by its full name', '#!/bin/sh\nexec npx --no-install @spec-family/spec-harness hook git\n'],
       ['a comment after the command', '#!/bin/sh\nnpx --no-install spec-harness hook git # the guard\n'],
       ['an indented line, and more spaces than one', '#!/bin/sh\nif true; then\n  npx  --no-install  spec-harness  hook  git\nfi\n'],
       ['Windows line endings', '#!/bin/sh\r\nexec npx --no-install spec-harness hook git\r\n'],
@@ -693,13 +697,13 @@ describe("what doctor says of the keys, the Claude Code release and git's hook",
     it.each([
       ['the hook init writes', PRE_COMMIT],
       ['the line init advises, in a hook of the repository\'s own', `#!/bin/sh\nnpm test || exit 1\n${GIT_HOOK_LINE}\n`],
-      ['a comment that names the npx command', '#!/bin/sh\n# was: npx --no-install spec-harness hook git\nexec node node_modules/@descent-vtt/spec-harness/bin/spec-harness.js hook git\n'],
-      ['npx running something else, and the harness run with node', '#!/bin/sh\nnpx --no-install lint-staged\nnode node_modules/@descent-vtt/spec-harness/bin/spec-harness.js hook git\n'],
+      ['a comment that names the npx command', '#!/bin/sh\n# was: npx --no-install spec-harness hook git\nexec node node_modules/@spec-family/spec-harness/bin/spec-harness.js hook git\n'],
+      ['npx running something else, and the harness run with node', '#!/bin/sh\nnpx --no-install lint-staged\nnode node_modules/@spec-family/spec-harness/bin/spec-harness.js hook git\n'],
       ['npx running the harness\'s other hook', '#!/bin/sh\nnpx --no-install spec-harness hook claude\n'],
       ['npx running another of its commands', '#!/bin/sh\nnpx --no-install spec-harness doctor\n'],
       ['another runner, which is the repository\'s to choose', '#!/bin/sh\npnpm exec spec-harness hook git\nyarn spec-harness hook git\nbunx spec-harness hook git\n'],
       ['a word that only holds npx', '#!/bin/sh\nmynpx spec-harness hook git\nnpxx spec-harness hook git\n'],
-      ['npx after the command', '#!/bin/sh\nnode node_modules/@descent-vtt/spec-harness/bin/spec-harness.js hook git || npx --no-install lint-staged\n'],
+      ['npx after the command', '#!/bin/sh\nnode node_modules/@spec-family/spec-harness/bin/spec-harness.js hook git || npx --no-install lint-staged\n'],
       ['a command whose name only starts as the hook\'s does', '#!/bin/sh\nnpx --no-install spec-harness hook gitlab\n'],
       ['a tool whose name only starts as the harness\'s does', '#!/bin/sh\nnpx --no-install spec-harness-hook git\nnpx --no-install spec-harnesshook git\n'],
       ['a tool whose name only ends as the harness\'s does', '#!/bin/sh\nnpx --no-install inspec-harness hook git\n'],
@@ -1180,9 +1184,9 @@ describe("the lines of Claude Code's hook in its settings, and what doctor says 
     expect(writtenHooks(settings(exec('--root', PROJECT_DIR, '--brief', '001')))).toEqual([line(['hook', 'claude', '--root', PROJECT_DIR, '--brief', '001'])]);
     for (const hook of [
       { type: 'command', command: '${CLAUDE_PROJECT_DIR}/node_modules/.bin/spec-harness', args: ['hook', 'claude', 'extra'] },
-      { type: 'command', command: 'npx', args: ['--no-install', '@descent-vtt/spec-harness', 'hook', 'claude', 'extra'] },
-      { type: 'command', command: 'C:\\Program Files\\nodejs\\node.exe', args: ['C:\\p\\node_modules\\@descent-vtt\\spec-harness\\bin\\spec-harness.js', 'hook', 'claude', 'extra'] },
-      { type: 'command', command: 'node', args: ['--no-warnings', 'node_modules/@descent-vtt/spec-harness/bin/spec-harness.js', 'hook', 'claude', 'extra'] },
+      { type: 'command', command: 'npx', args: ['--no-install', '@spec-family/spec-harness', 'hook', 'claude', 'extra'] },
+      { type: 'command', command: 'C:\\Program Files\\nodejs\\node.exe', args: ['C:\\p\\node_modules\\@spec-family\\spec-harness\\bin\\spec-harness.js', 'hook', 'claude', 'extra'] },
+      { type: 'command', command: 'node', args: ['--no-warnings', 'node_modules/@spec-family/spec-harness/bin/spec-harness.js', 'hook', 'claude', 'extra'] },
     ]) {
       expect(writtenHooks(settings(hook)), JSON.stringify(hook)).toEqual([line(['hook', 'claude', 'extra'])]);
     }
@@ -1268,8 +1272,8 @@ describe("the lines of Claude Code's hook in its settings, and what doctor says 
 
   describe('where the script the line runs is not there', () => {
     const W = '"hook claude" in .claude/settings.json';
-    const MEND = 'install spec-harness in the project, npm install --save-dev @descent-vtt/spec-harness, or name its script where it is';
-    const INSTALLED = `${PROJECT}/node_modules/@descent-vtt/spec-harness/bin/spec-harness.js`;
+    const MEND = 'install spec-harness in the project, npm install --save-dev @spec-family/spec-harness, or name its script where it is';
+    const INSTALLED = `${PROJECT}/node_modules/@spec-family/spec-harness/bin/spec-harness.js`;
     /** Where a session's project may be, and the files that stand there. */
     const looked = (files: readonly string[], projects: readonly string[] = [PROJECT]): ScriptPlaces => ({ projects, isFile: (path) => files.includes(path) });
     const at = (scripts: ScriptPlaces, hooks: unknown, onFailureHere = false) => reportHooks([{ file: FILE, settings: hooks }], PROJECT, read, undefined, undefined, onFailureHere, scripts);
@@ -1283,7 +1287,7 @@ describe("the lines of Claude Code's hook in its settings, and what doctor says 
       // By a path of its own, with or without a shell, and with a space in the project's.
       expect(at(looked([]), settings({ ...HOOK, args: ['/opt/tools/spec-harness.js', 'hook', 'claude'] }))[0]).toMatchObject({ state: 'off', detail: off('/opt/tools/spec-harness.js') });
       expect(at(looked([]), settings(shell(`node ${SCRIPT} hook claude`)))[0]).toMatchObject({ state: 'off', detail: off(INSTALLED) });
-      expect(at({ projects: ['/the project'], isFile: () => false }, settings(HOOK))[0]).toMatchObject({ state: 'off', detail: off('/the project/node_modules/@descent-vtt/spec-harness/bin/spec-harness.js') });
+      expect(at({ projects: ['/the project'], isFile: () => false }, settings(HOOK))[0]).toMatchObject({ state: 'off', detail: off('/the project/node_modules/@spec-family/spec-harness/bin/spec-harness.js') });
       // Before what the hook would do with the words, which it never reads.
       expect(at(looked([]), settings(exec('--nope')))[0]).toMatchObject({ state: 'off', detail: off(INSTALLED, '"hook claude --nope" in .claude/settings.json') });
     });
@@ -1307,7 +1311,7 @@ describe("the lines of Claude Code's hook in its settings, and what doctor says 
 
     it('is looked for in each place the project can be, and is not there only where it is in none', () => {
       const MAIN = '/the/main';
-      const theirs = `${MAIN}/node_modules/@descent-vtt/spec-harness/bin/spec-harness.js`;
+      const theirs = `${MAIN}/node_modules/@spec-family/spec-harness/bin/spec-harness.js`;
       expect(at(looked([theirs], [PROJECT, MAIN]), settings(HOOK))[0]).toMatchObject({ state: 'guards', detail: null });
       expect(at(looked([], [PROJECT, MAIN]), settings(HOOK))[0]).toMatchObject({
         state: 'off',
@@ -1319,8 +1323,8 @@ describe("the lines of Claude Code's hook in its settings, and what doctor says 
 
     it('says nothing of a script whose place it cannot tell: a relative path, a name a program finds, a word a shell reads', () => {
       for (const hook of [
-        { ...HOOK, args: ['node_modules/@descent-vtt/spec-harness/bin/spec-harness.js', 'hook', 'claude'] },
-        { type: 'command', command: 'npx', args: ['--no-install', '@descent-vtt/spec-harness', 'hook', 'claude'] },
+        { ...HOOK, args: ['node_modules/@spec-family/spec-harness/bin/spec-harness.js', 'hook', 'claude'] },
+        { type: 'command', command: 'npx', args: ['--no-install', '@spec-family/spec-harness', 'hook', 'claude'] },
         shell(LEGACY),
         shell(`node "${SCRIPT}" hook claude`),
         shell(`node ${PROJECT}/node_modules/*/spec-harness/bin/spec-harness.js hook claude`),
@@ -1336,7 +1340,7 @@ describe("the lines of Claude Code's hook in its settings, and what doctor says 
     expect(reported(settings(shell(LEGACY)))).toEqual([released]);
     expect(reported(mergeClaudeSettings({}))).toEqual([released]);
     // By another path to the script, or with another timeout, it is still that line.
-    expect(reported(settings({ type: 'command', command: 'node', args: ['node_modules/@descent-vtt/spec-harness/bin/spec-harness.js', 'hook', 'claude'], timeout: 90 }))).toEqual([released]);
+    expect(reported(settings({ type: 'command', command: 'node', args: ['node_modules/@spec-family/spec-harness/bin/spec-harness.js', 'hook', 'claude'], timeout: 90 }))).toEqual([released]);
   });
 
   it('notes an entry that gives the hook less time than a run of it is given, at which Claude Code cancels it, and none that gives as much or more', () => {
@@ -2156,7 +2160,9 @@ describe("the lines of Claude Code's hook in its settings, and what doctor says 
 describe('the entry as a session starts (ADR-0012)', () => {
   const START = { hooks: [HOOK] };
   const isHook = (words: readonly string[]): boolean => claudeHookLine(words, parseOptions, '/p', () => true) !== null;
-  const two = mergeClaudeSettings({}) as Record<string, unknown> & { hooks: Record<string, unknown> };
+  // The two init writes into empty settings, which a test above holds mergeClaudeSettings to, written
+  // out: merged here, a mutant of the merge that throws would stop this file loading, not fail a test.
+  const two: Record<string, unknown> & { hooks: Record<string, unknown> } = { hooks: { PreToolUse: [GUARD], PostToolUse: [GUARD] } };
 
   it('is added beside init\'s two lines, after what stands under the event, and to nothing else', () => {
     expect(withSessionStart(two, isHook)).toEqual({ hooks: { ...two.hooks, SessionStart: [START] } });
@@ -2206,7 +2212,9 @@ describe('the entry as a session starts (ADR-0012)', () => {
 describe('the entry as a turn ends (ADR-0012)', () => {
   const END = { hooks: [{ ...HOOK, async: true }] };
   const isHook = (words: readonly string[]): boolean => claudeHookLine(words, parseOptions, '/p', () => true) !== null;
-  const two = mergeClaudeSettings({}) as Record<string, unknown> & { hooks: Record<string, unknown> };
+  // The two init writes into empty settings, which a test above holds mergeClaudeSettings to, written
+  // out: merged here, a mutant of the merge that throws would stop this file loading, not fail a test.
+  const two: Record<string, unknown> & { hooks: Record<string, unknown> } = { hooks: { PreToolUse: [GUARD], PostToolUse: [GUARD] } };
 
   it('runs the hook\'s own line in the background', () => {
     expect(TURN_HOOK).toEqual({ ...HOOK, async: true });
@@ -2248,5 +2256,217 @@ describe('the install the hook\'s line runs, from a linked worktree', () => {
     expect(describeInstalls('/work/app', '0.18.0', '0.19.0')).toBe(`note: this is a linked worktree of /work/app, and the hook's line runs the spec-harness installed where \${CLAUDE_PROJECT_DIR} points: this work tree's, 0.19.0, in a session started here, and /work/app's, 0.18.0, in one started there, as a worktree session of the desktop app is`);
     expect(describeInstalls('/work/app', null, '0.19.0')).toBe(`note: this is a linked worktree of /work/app, and the hook's line runs the spec-harness installed where \${CLAUDE_PROJECT_DIR} points: this work tree's, 0.19.0, in a session started here, and /work/app's, none, in one started there, as a worktree session of the desktop app is`);
     expect(describeInstalls('/work/app', '0.19.0', null)).toBe(`note: this is a linked worktree of /work/app, and the hook's line runs the spec-harness installed where \${CLAUDE_PROJECT_DIR} points: this work tree's, none, in a session started here, and /work/app's, 0.19.0, in one started there, as a worktree session of the desktop app is`);
+  });
+});
+
+describe("the lines 0.21.0 and earlier wrote, with the script of the scope the family left on 2026-10-26 (spec-core's ADR-0005, Names)", () => {
+  const EARLIER_BIN = 'node_modules/@descent-vtt/spec-harness/bin/spec-harness.js';
+  const EARLIER = `\${CLAUDE_PROJECT_DIR}/${EARLIER_BIN}`;
+  const BIN = 'node_modules/@spec-family/spec-harness/bin/spec-harness.js';
+  const OLD = { type: 'command', command: 'node', args: [EARLIER, 'hook', 'claude'], timeout: 60 };
+  const MATCHER = GUARD.matcher;
+  /** Settings as 0.20.0 and 0.21.0 wrote them with turnReport on: the line under the four events, and `hook` in place of it where given. */
+  const released = (hook: Record<string, unknown> = OLD) => ({
+    hooks: { PreToolUse: [{ matcher: MATCHER, hooks: [hook] }], PostToolUse: [{ matcher: MATCHER, hooks: [hook] }], SessionStart: [{ hooks: [hook] }], Stop: [{ hooks: [{ ...hook, async: true }] }] },
+  });
+
+  describe("in Claude Code's settings", () => {
+    it("is rewritten under each event it stands under, where it stands, keeping the entry's other fields", () => {
+      const lint = { type: 'command', command: 'npm run lint' };
+      const blocking = { ...OLD, onFailure: 'block' };
+      const settings = { model: 'x', hooks: { ...released(blocking).hooks, PreToolUse: [{ matcher: MATCHER, hooks: [lint, blocking] }] } };
+      const now = { ...HOOK, onFailure: 'block' };
+      const merged = mergeClaudeSettings(settings);
+      expect(merged).toEqual({
+        model: 'x',
+        hooks: { PreToolUse: [{ matcher: MATCHER, hooks: [lint, now] }], PostToolUse: [{ matcher: MATCHER, hooks: [now] }], SessionStart: [{ hooks: [now] }], Stop: [{ hooks: [{ ...now, async: true }] }] },
+      });
+      // Once rewritten there is nothing more to do, and the settings given are as they were.
+      expect(mergeClaudeSettings(merged ?? {})).toBeNull();
+      expect(settings.hooks.PreToolUse[0]?.hooks[1]).toBe(blocking);
+    });
+
+    it('is rewritten as a session starts and as a turn ends where the two before and after a write are init\'s line already, and nothing else is touched', () => {
+      const pre = [GUARD];
+      const post = [GUARD];
+      const merged = mergeClaudeSettings({ hooks: { PreToolUse: pre, PostToolUse: post, SessionStart: [{ hooks: [OLD] }] } });
+      expect(merged).toEqual({ hooks: { PreToolUse: [GUARD], PostToolUse: [GUARD], SessionStart: [{ hooks: [HOOK] }] } });
+      const hooks = merged?.['hooks'] as Record<string, unknown>;
+      expect(hooks['PreToolUse']).toBe(pre);
+      expect(hooks['PostToolUse']).toBe(post);
+      expect(mergeClaudeSettings({ hooks: { PreToolUse: [GUARD], PostToolUse: [GUARD], Stop: [{ hooks: [{ ...OLD, async: true }] }] } })).toEqual({
+        hooks: { PreToolUse: [GUARD], PostToolUse: [GUARD], Stop: [{ hooks: [{ ...HOOK, async: true }] }] },
+      });
+      // Beside another group under the event, which is left as it is.
+      const other = { hooks: [{ type: 'command', command: 'echo hi' }] };
+      const started = mergeClaudeSettings({ hooks: { PreToolUse: [GUARD], PostToolUse: [GUARD], SessionStart: [other, { hooks: [OLD] }] } });
+      expect(started).toEqual({ hooks: { PreToolUse: [GUARD], PostToolUse: [GUARD], SessionStart: [other, { hooks: [HOOK] }] } });
+      expect(((started?.['hooks'] as Record<string, unknown[]>)['SessionStart'] ?? [])[0]).toBe(other);
+      // init's line under all four already: nothing to write.
+      expect(mergeClaudeSettings(released(HOOK))).toBeNull();
+    });
+
+    it("is not rewritten where it is not the line a release wrote: another command, other words, more on it, or 0.1's npx command as a session starts", () => {
+      const similar = { hooks: [{ ...OLD, command: 'nodejs' }, { ...OLD, args: [EARLIER, 'hook', 'git'] }, { ...OLD, args: [`/opt/${EARLIER_BIN}`, 'hook', 'claude'] }] };
+      expect(mergeClaudeSettings({ hooks: { PreToolUse: [similar], PostToolUse: [similar] } })).toEqual({ hooks: { PreToolUse: [similar, GUARD], PostToolUse: [similar, GUARD] } });
+      // A line of the earlier script with more on it, which the hook's reading knows, is a person's, and init writes nothing beside it.
+      const theirs = { ...OLD, args: [EARLIER, 'hook', 'claude', '--brief', '001'] };
+      const isHook = (words: readonly string[]): boolean => words[0] === 'hook' && words[1] === 'claude';
+      expect(mergeClaudeSettings(released(theirs), isHook)).toBeNull();
+      // But the line a release wrote, known the same way, is init's, and is rewritten.
+      expect(mergeClaudeSettings(released(), isHook)).toEqual(released(HOOK));
+      // 0.1 wrote nothing as a session starts.
+      const npx = { hooks: [{ type: 'command', command: LEGACY }] };
+      expect(mergeClaudeSettings({ hooks: { PreToolUse: [GUARD], PostToolUse: [GUARD], SessionStart: [npx], Stop: [npx] } })).toBeNull();
+    });
+
+    it('is said to stand in settings under any event init writes one under, and in none other', () => {
+      expect(holdsEarlierGuard(released())).toBe(true);
+      expect(holdsEarlierGuard({ hooks: { PreToolUse: [GUARD, { hooks: [OLD] }] } })).toBe(true);
+      for (const event of ['PreToolUse', 'PostToolUse', 'SessionStart', 'Stop']) {
+        expect(holdsEarlierGuard({ hooks: { Notification: [{ hooks: [OLD] }], [event]: [{ hooks: [{ type: 'command', command: 'x' }, OLD] }] } }), event).toBe(true);
+      }
+      for (const settings of [released(HOOK), { hooks: { Notification: [{ hooks: [OLD] }] } }, { hooks: { PreToolUse: [{ hooks: [{ ...OLD, command: 'nodejs' }] }] } }, { hooks: { PreToolUse: 'x' } }, {}, null, 'x']) {
+        expect(holdsEarlierGuard(settings), JSON.stringify(settings)).toBe(false);
+      }
+    });
+  });
+
+  describe("in a project's .mcp.json", () => {
+    const SERVER = { command: 'node', args: [`\${CLAUDE_PROJECT_DIR:-.}/${EARLIER_BIN}`, 'mcp', '--root', '${CLAUDE_PROJECT_DIR:-.}'] };
+
+    it('is rewritten, keeping its other fields and the servers beside it', () => {
+      const merged = mergeMcp({ mcpServers: { other: { command: 'x' }, 'spec-harness': { type: 'stdio', ...SERVER, env: { A: '1' } } }, extra: true });
+      expect(merged).toEqual({ mcpServers: { other: { command: 'x' }, 'spec-harness': { type: 'stdio', env: { A: '1' }, ...mcpServer(PROJECT_DIR_OR_HERE) } }, extra: true });
+      expect(mergeMcp(merged ?? {})).toBeNull();
+      expect(holdsEarlierServer({ mcpServers: { 'spec-harness': SERVER } })).toBe(true);
+      expect(holdsEarlierServer(merged)).toBe(false);
+    });
+
+    it("is kept where it is not the entry init wrote: the plugin's line, another command, other words", () => {
+      for (const server of [{ command: 'node', args: [EARLIER, 'mcp', '--root', '${CLAUDE_PROJECT_DIR}'] }, { ...SERVER, command: 'bun' }, { command: 'node', args: SERVER.args.slice(0, 2) }]) {
+        expect(mergeMcp({ mcpServers: { 'spec-harness': server } }), JSON.stringify(server)).toBeNull();
+        expect(holdsEarlierServer({ mcpServers: { 'spec-harness': server } }), JSON.stringify(server)).toBe(false);
+      }
+      expect(holdsEarlierServer({ mcpServers: { other: SERVER } })).toBe(false);
+      for (const mcp of [{}, { mcpServers: null }, null]) expect(holdsEarlierServer(mcp), JSON.stringify(mcp)).toBe(false);
+    });
+  });
+
+  describe("in spec-brief's plugins", () => {
+    const NAME = '@descent-vtt/spec-harness/spec-brief-plugin';
+
+    it('names the plugin by its name now, where the earlier name stood and with its options', () => {
+      expect(mergeSpecBrief({ briefs: 'b', plugins: ['./x.mjs', NAME, './y.mjs'] })).toEqual({ briefs: 'b', plugins: ['./x.mjs', PLUGIN, './y.mjs'] });
+      expect(mergeSpecBrief({ plugins: [{ module: NAME, options: { a: 1 } }, null] })).toEqual({ plugins: [{ module: PLUGIN, options: { a: 1 } }, null] });
+      expect(mergeSpecBrief({ plugins: [NAME] }, 'main')).toEqual({ plugins: [PLUGIN], archiving: { base: 'main' } });
+      expect(mergeSpecBrief(mergeSpecBrief({ plugins: [NAME] }) ?? {})).toBeNull();
+    });
+
+    it('takes the earlier name out beside the name now, since spec-brief refuses two plugins of one name, and leaves a name only like it', () => {
+      expect(mergeSpecBrief({ plugins: [PLUGIN, NAME, { module: NAME }] })).toEqual({ plugins: [PLUGIN] });
+      expect(mergeSpecBrief({ plugins: ['@descent-vtt/spec-harness', { module: '@descent-vtt/spec-harness/other' }] })).toEqual({
+        plugins: ['@descent-vtt/spec-harness', { module: '@descent-vtt/spec-harness/other' }, PLUGIN],
+      });
+    });
+
+    it('is said as the earlier name where no entry names the plugin by its name now', () => {
+      expect(loadsEarlierPlugin({ plugins: [NAME] })).toBe(true);
+      expect(loadsEarlierPlugin({ plugins: [null, { module: NAME }] })).toBe(true);
+      for (const config of [{}, { plugins: NAME }, { plugins: [PLUGIN, { name: NAME }, '@descent-vtt/spec-harness'] }]) expect(loadsEarlierPlugin(config), JSON.stringify(config)).toBe(false);
+      expect(describePlugin({ kind: 'earlier', file: '.spec-brief.json' })).toBe(
+        `.spec-brief.json names spec-harness's plugin "${NAME}", by the name of this package's releases up to 0.21.0: spec-brief loads it from @descent-vtt/spec-harness while that is installed, and once it is not, its lint and its archive stop at exit 2, the plugin not loaded. spec-harness init --write names "${PLUGIN}" in its place`,
+      );
+    });
+  });
+
+  describe("in git's pre-commit hook", () => {
+    /** The hook 0.19.0 to 0.21.0 wrote: init's now, with the earlier script. */
+    const HOOK_19 = PRE_COMMIT.split(BIN).join(EARLIER_BIN);
+    /** The hook 0.10.0 to 0.18.0 wrote, as their tags have it. */
+    const HOOK_10 = "#!/bin/sh\n# spec-harness: refuse a commit that changes what the active brief protects.\n# git runs this at the top of the work tree it commits in, a linked worktree's\n# own, wherever the hook is kept: the project's install is read from there.\nbin=node_modules/@descent-vtt/spec-harness/bin/spec-harness.js\nif [ ! -f \"$bin\" ]; then\n  printf '%s\\n' \"spec-harness: $bin is not in $PWD, the work tree git commits in: install the project's dependencies there, as with npm ci, and commit again\" >&2\n  exit 2\nfi\nexec node \"$bin\" hook git\n";
+    const NOTE = `it runs ${EARLIER_BIN}, the script of @descent-vtt/spec-harness, the name of this package's releases up to 0.21.0, which is not there once that package is uninstalled`;
+    const NPX =
+      'it runs spec-harness through npx, which starts npm to start node on every commit, and under npm 12 prints two "npm notice run" lines each time: ' +
+      `to run it with node from the project's install, as Claude Code's hooks are, replace the npx command there with "node ${BIN} hook git"`;
+
+    it('is known as one init wrote, byte for byte, and no other is', () => {
+      expect(HOOK_19).not.toBe(PRE_COMMIT);
+      expect(isEarlierPreCommit(HOOK_19)).toBe(true);
+      expect(isEarlierPreCommit(HOOK_10)).toBe(true);
+      for (const text of [PRE_COMMIT, `${HOOK_19}npm test\n`, HOOK_10.split('\n').join('\r\n'), HOOK_10.trimEnd(), '']) expect(isEarlierPreCommit(text), JSON.stringify(text)).toBe(false);
+    });
+
+    it('is noted with how to move it: init writes its own hook again, and a hook of the repository\'s own names this package\'s script', () => {
+      const again = `${NOTE}: it is the hook an earlier release of init wrote, and spec-harness init --git-hook --write writes it again to run ${BIN}`;
+      expect(gitHookNote(HOOK_19)).toBe(again);
+      expect(gitHookNote(HOOK_10)).toBe(again);
+      const own = `#!/bin/sh\nnpm test || exit 1\nnode ${EARLIER_BIN} hook git # the guard\n`;
+      expect(gitHookNote(own)).toBe(`${NOTE}: name ${BIN} there in its place`);
+      // Beside an npx line, both are said.
+      expect(gitHookNote(`#!/bin/sh\nnpx --no-install spec-harness hook git\nnode ${EARLIER_BIN} hook git\n`)).toBe(`${NPX}; ${NOTE}: name ${BIN} there in its place`);
+      // What a comment names runs nothing, and neither does another package's script.
+      for (const text of [`#!/bin/sh\n# was: node ${EARLIER_BIN} hook git\nexec node ${BIN} hook git\n`, PRE_COMMIT, '#!/bin/sh\nnode node_modules/@descent-vtt/spec-guard/bin/spec-guard.js\n']) {
+        expect(gitHookNote(text), text).toBeNull();
+      }
+    });
+  });
+
+  describe('as doctor reads it', () => {
+    const PROJECT = '/p';
+    const FILE = '.claude/settings.json';
+    const BOTH = ['PreToolUse', 'PostToolUse'];
+    const TOOLS = ['Edit', 'Write', 'NotebookEdit'];
+    const THERE = `${PROJECT}/${EARLIER_BIN}`;
+    const read = (words: readonly string[]) => claudeHookLine(words, parseOptions, PROJECT, () => true);
+    const looked = (files: readonly string[]): ScriptPlaces => ({ projects: [PROJECT], isFile: (path) => files.includes(path) });
+    const at = (hooks: unknown, scripts: ScriptPlaces | null, file = FILE) => reportHooks([{ file, settings: hooks }], PROJECT, read, undefined, undefined, false, scripts);
+    const both = (hook: unknown) => ({ hooks: { PreToolUse: [{ matcher: MATCHER, hooks: [hook] }], PostToolUse: [{ matcher: MATCHER, hooks: [hook] }] } });
+    const W = '"hook claude" in .claude/settings.json';
+    const INIT = `spec-harness init --write rewrites the line an earlier release wrote to run ${BIN}, which npm install --save-dev @spec-family/spec-harness installs`;
+    const BY_HAND = `name ${BIN}, which npm install --save-dev @spec-family/spec-harness installs, on the line in its place`;
+    const runs = (where: string, script = EARLIER) => `${where} runs ${script}, the script of @descent-vtt/spec-harness, the name of this package's releases up to 0.21.0: it guards while that package is installed, and once it is uninstalled the hook cannot start and Claude Code lets each write go ahead without it`;
+    const off = (where: string, mend: string) => `${where}: the script it runs, ${THERE}, is not there, so the hook cannot start, the guard is off and Claude Code lets each write it is started for go ahead without it; ${mend}`;
+
+    it('guards where the script is there, and says how init moves it; is off where it is not, with the same', () => {
+      const report = { file: FILE, events: BOTH, line: ['hook', 'claude'], onFailure: null, before: TOOLS, after: TOOLS, cover: null, note: null, timeout: null };
+      expect(at(both(OLD), looked([THERE]))).toEqual([{ ...report, state: 'guards', detail: `${runs(W)}; ${INIT}` }]);
+      expect(at(both(OLD), looked([]))).toEqual([{ ...report, state: 'off', detail: off(W, INIT) }]);
+      // init asks of no script, and rewrites the line: nothing is said of it there.
+      expect(at(both(OLD), null)).toEqual([{ ...report, state: 'guards', detail: null }]);
+      // Nor of this package's script, wherever it is looked for.
+      expect(at(both(HOOK), looked([`${PROJECT}/${BIN}`]))).toEqual([{ ...report, state: 'guards', detail: null }]);
+    });
+
+    it('says to mend by hand a line init did not write: in another settings file, with more on it, or by another path to the script', () => {
+      const local = '"hook claude" in .claude/settings.local.json';
+      expect(at(both(OLD), looked([THERE]), '.claude/settings.local.json')[0]).toMatchObject({ state: 'guards', detail: `${runs(local)}; ${BY_HAND}` });
+      expect(at(both(OLD), looked([]), '.claude/settings.local.json')[0]).toMatchObject({ state: 'off', detail: off(local, BY_HAND) });
+      const more = '"hook claude --brief 001" in .claude/settings.json';
+      expect(at(both({ ...OLD, args: [...OLD.args, '--brief', '001'] }), looked([THERE]))[0]).toMatchObject({ state: 'guards', detail: `${more} is more than init writes, and guards: the hook reads the line; ${runs(more)}; ${BY_HAND}` });
+      // The line a release wrote under one event and, under the other, the same words run by another program: init rewrites the one.
+      expect(at({ hooks: { PreToolUse: [{ matcher: MATCHER, hooks: [OLD] }], PostToolUse: [{ matcher: MATCHER, hooks: [{ ...OLD, command: 'nodejs' }] }] } }, looked([THERE]))[0]).toMatchObject({
+        events: BOTH,
+        state: 'guards',
+        detail: `${runs(W)}; ${BY_HAND}`,
+      });
+      // A Windows path, which the earlier script ends just as well, and is no line a release wrote.
+      const windows = `C:\\p\\node_modules\\@descent-vtt\\spec-harness\\bin\\spec-harness.js`;
+      expect(at(both({ ...OLD, args: [windows, 'hook', 'claude'] }), looked([windows]))[0]).toMatchObject({ state: 'guards', detail: `${runs(W, windows)}; ${BY_HAND}` });
+    });
+
+    it('says, where nothing is looked for, as init reads it, nothing of a line init rewrites and how to move one it leaves', () => {
+      expect(at(both(OLD), null)[0]).toMatchObject({ state: 'guards', detail: null });
+      const local = '"hook claude" in .claude/settings.local.json';
+      expect(at(both(OLD), null, '.claude/settings.local.json')[0]).toMatchObject({ state: 'guards', detail: `${runs(local)}; ${BY_HAND}` });
+      const more = '"hook claude --brief 001" in .claude/settings.json';
+      expect(at(both({ ...OLD, args: [...OLD.args, '--brief', '001'] }), null)[0]).toMatchObject({ state: 'guards', detail: `${more} is more than init writes, and guards: the hook reads the line; ${runs(more)}; ${BY_HAND}` });
+    });
+
+    it('says nothing of a script that only looks like it', () => {
+      for (const script of [`${PROJECT}/node_modules/@other/spec-harness/bin/spec-harness.js`, `${PROJECT}/descent-vtt/spec-harness/bin/spec-harness.js`, `${PROJECT}/node_modules/@descent-vtt/spec-harness/spec-harness.js`]) {
+        expect(at(both({ ...OLD, args: [script, 'hook', 'claude'] }), looked([script]))[0], script).toMatchObject({ state: 'guards', detail: null });
+      }
+    });
   });
 });

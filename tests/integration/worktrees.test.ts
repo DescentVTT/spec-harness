@@ -107,7 +107,7 @@ describe('a session in a linked worktree, with the project Claude Code names on 
     expect(await hook(repo.root, 'PreToolUse', tree, { file_path: file(tree, 'src/db/schema.ts') })).toEqual({
       code: 2,
       stdout: '',
-      stderr: 'spec-harness: cannot check this write: spec-brief 0.1.0 is installed here; spec-harness needs 0.2.0 or later: npm install --save-dev @descent-vtt/spec-brief@latest\n',
+      stderr: 'spec-harness: cannot check this write: spec-brief 0.1.0 is installed here; spec-harness needs 0.12.0 or later: npm install --save-dev @spec-family/spec-brief@latest\n',
     });
     // Neither has one: the write waits, as it did.
     const bare = repository(FILES, null);
@@ -115,7 +115,7 @@ describe('a session in a linked worktree, with the project Claude Code names on 
     expect(await hook(bare.root, 'PreToolUse', elsewhere, { file_path: file(elsewhere, 'src/db/schema.ts') })).toEqual({
       code: 2,
       stdout: '',
-      stderr: 'spec-harness: cannot check this write: spec-brief is not installed here: npm install --save-dev @descent-vtt/spec-brief, or name its command under "tools" in .spec-harness.json\n',
+      stderr: 'spec-harness: cannot check this write: spec-brief is not installed here: npm install --save-dev @spec-family/spec-brief, or name its command under "tools" in .spec-harness.json\n',
     });
   });
 });

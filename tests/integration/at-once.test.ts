@@ -141,7 +141,7 @@ const BRANCHES = 'for-each-ref';
 const RELEASE = 'claude --version';
 
 const WIRED = JSON.stringify(mergeClaudeSettings({}));
-const SCRIPT = '${CLAUDE_PROJECT_DIR}/node_modules/@descent-vtt/spec-harness/bin/spec-harness.js';
+const SCRIPT = '${CLAUDE_PROJECT_DIR}/node_modules/@spec-family/spec-harness/bin/spec-harness.js';
 const line = (...rest: string[]): unknown => ({ type: 'command', command: 'node', args: [SCRIPT, 'hook', 'claude', ...rest], timeout: 60 });
 
 /** A repository on the branch of its one brief, so that spec-brief is asked which brief the branch names. */

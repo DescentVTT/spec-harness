@@ -475,7 +475,7 @@ describe('the siblings', () => {
       '\nclaude  neither the spec-harness plugin nor the hooks init writes, so Claude Code guards no write: run spec-harness init --write, or install the plugin\n',
     );
     expect(pretty.stdout).toContain(`found     spec-brief  node ${SPEC_BRIEF} (named in .spec-harness.json; its version is not checked)`);
-    expect(pretty.stdout).toContain('absent    spec-graph  spec-graph is not installed here: npm install --save-dev @descent-vtt/spec-graph, or name its command under "tools" in .spec-harness.json');
+    expect(pretty.stdout).toContain('absent    spec-graph  spec-graph is not installed here: npm install --save-dev @spec-family/spec-graph, or name its command under "tools" in .spec-harness.json');
     const json = parsed<{
       root: string;
       branch: string;
@@ -492,9 +492,9 @@ describe('the siblings', () => {
     expect(json.plugin).toMatchObject({ state: 'unconfigured', file: null });
     expect(json.claudeCode).toMatchObject({ state: 'none', plugin: null, hooks: [], server: false });
     expect(json.siblings.map((s) => [s.tool, s.state, s.version, s.minimum])).toEqual([
-      ['spec-brief', 'found', null, '0.2.0'],
-      ['spec-graph', 'absent', null, '0.9.0'],
-      ['spec-guard', 'found', null, '0.12.0'],
+      ['spec-brief', 'found', null, '0.12.0'],
+      ['spec-graph', 'absent', null, '0.21.0'],
+      ['spec-guard', 'found', null, '0.30.0'],
     ]);
     const bare = repository({}, null);
     bare.git('checkout', '-q', '--detach');
@@ -562,19 +562,19 @@ describe('the siblings', () => {
 
   it('reports a sibling older than this release runs as a problem, naming the minimum', async () => {
     const repo = repository({}, null);
-    const bin = installFake(repo.root, 'spec-brief', JSON.stringify({ version: '0.2.1' }));
-    installFake(repo.root, 'spec-guard', JSON.stringify({ version: '0.11.0' }));
+    const bin = installFake(repo.root, 'spec-brief', JSON.stringify({ version: '0.12.1' }));
+    installFake(repo.root, 'spec-guard', JSON.stringify({ version: '0.29.0' }));
     const pretty = await cli(['doctor'], repo.root);
     expect(pretty.code).toBe(1);
-    expect(pretty.stdout).toContain(`found     spec-brief  ${process.execPath} ${bin} (0.2.1)`);
+    expect(pretty.stdout).toContain(`found     spec-brief  ${process.execPath} ${bin} (0.12.1)`);
     expect(pretty.stdout).toContain(
-      'outdated  spec-guard  spec-guard 0.11.0 is installed here; spec-harness needs 0.12.0 or later: npm install --save-dev @descent-vtt/spec-guard@latest',
+      'outdated  spec-guard  spec-guard 0.29.0 is installed here; spec-harness needs 0.30.0 or later: npm install --save-dev @spec-family/spec-guard@latest',
     );
     const json = parsed<{ siblings: { tool: string; state: string; version: string | null; minimum: string }[] }>(await cli(['doctor', '--format', 'json'], repo.root));
     expect(json.siblings.map((s) => [s.tool, s.state, s.version, s.minimum])).toEqual([
-      ['spec-brief', 'found', '0.2.1', '0.2.0'],
-      ['spec-graph', 'absent', null, '0.9.0'],
-      ['spec-guard', 'outdated', '0.11.0', '0.12.0'],
+      ['spec-brief', 'found', '0.12.1', '0.12.0'],
+      ['spec-graph', 'absent', null, '0.21.0'],
+      ['spec-guard', 'outdated', '0.29.0', '0.30.0'],
     ]);
   });
 
@@ -585,7 +585,7 @@ describe('the siblings', () => {
     expect(refused.code).toBe(2);
     expect(refused.stdout).toBe('');
     expect(refused.stderr.trimEnd()).toBe(
-      'spec-harness: spec-brief 0.1.0 is installed here; spec-harness needs 0.2.0 or later: npm install --save-dev @descent-vtt/spec-brief@latest',
+      'spec-harness: spec-brief 0.1.0 is installed here; spec-harness needs 0.12.0 or later: npm install --save-dev @spec-family/spec-brief@latest',
     );
   });
 
@@ -594,7 +594,7 @@ describe('the siblings', () => {
     const result = await cli(['guard', 'a.ts', '--brief', '1'], repo.root);
     expect(result.code).toBe(2);
     expect(result.stderr).toBe(
-      'spec-harness: spec-brief is not installed here: npm install --save-dev @descent-vtt/spec-brief, or name its command under "tools" in .spec-harness.json\n',
+      'spec-harness: spec-brief is not installed here: npm install --save-dev @spec-family/spec-brief, or name its command under "tools" in .spec-harness.json\n',
     );
   });
 
@@ -637,7 +637,7 @@ describe('the siblings', () => {
     const result = await cli(['guard', 'a.ts', '--brief', '1'], repo.root);
     expect(result.code).toBe(2);
     expect(result.stderr).toBe(
-      'spec-harness: spec-brief exited -1 without JSON: cannot start "no-such-program-for-spec-harness": name the tool\'s script, such as ["node", "node_modules/@descent-vtt/<tool>/bin/<tool>.js"]\n',
+      'spec-harness: spec-brief exited -1 without JSON: cannot start "no-such-program-for-spec-harness": name the tool\'s script, such as ["node", "node_modules/@spec-family/<tool>/bin/<tool>.js"]\n',
     );
   });
 
@@ -654,7 +654,7 @@ describe('the siblings', () => {
     write(directory, 'spec-brief.mjs', `await import(${JSON.stringify(pathToFileURL(SPEC_BRIEF).href)});\n`);
     write(directory, 'spec-brief.cmd', '@echo {}');
     for (const program of [join(directory, 'spec-brief.mjs'), join(directory, 'spec-brief.cmd'), directory]) {
-      const said = `cannot start "${program}": name the tool's script, such as ["node", "node_modules/@descent-vtt/<tool>/bin/<tool>.js"]`;
+      const said = `cannot start "${program}": name the tool's script, such as ["node", "node_modules/@spec-family/<tool>/bin/<tool>.js"]`;
       const repo = repository({ [BRIEF_FILE]: brief({ affected: ['src/**'], protected: ['src/db/**'] }) }, { tools: { ...siblings(), 'spec-brief': [program] } });
       expect(await cli(['guard', 'src/db/schema.ts', '--brief', '1'], repo.root), program).toEqual({ code: 2, stdout: '', stderr: `spec-harness: spec-brief exited -1 without JSON: ${said}\n` });
       // The hook holds the write, before it and after it, in those words.
@@ -751,7 +751,7 @@ describe('doctor on a brief or a base that names nothing', () => {
     write(directory, 'sibling.js', "process.stderr.write('no briefs directory'); process.exit(2);");
     const failing = repository({ [BRIEF_FILE]: brief() }, { tools: { 'spec-brief': ['node', join(directory, 'sibling.js')] } });
     const bare = repository({ [BRIEF_FILE]: brief() }, { tools: { 'spec-guard': siblings()['spec-guard'] } });
-    const NOT_HERE = 'spec-brief is not installed here: npm install --save-dev @descent-vtt/spec-brief, or name its command under "tools" in .spec-harness.json';
+    const NOT_HERE = 'spec-brief is not installed here: npm install --save-dev @spec-family/spec-brief, or name its command under "tools" in .spec-harness.json';
     for (const [repo, why] of [[failing, 'spec-brief could not list the briefs: no briefs directory'], [bare, NOT_HERE]] as const) {
       repo.git('checkout', '-q', '-b', 'brief/001-rotate');
       const result = await cli(['doctor'], repo.root);
@@ -902,7 +902,7 @@ describe("doctor on the line of Claude Code's hook in its settings (ADR-0005)", 
     installHarness(repo.root);
     return repo;
   };
-  const SCRIPT = '${CLAUDE_PROJECT_DIR}/node_modules/@descent-vtt/spec-harness/bin/spec-harness.js';
+  const SCRIPT = '${CLAUDE_PROJECT_DIR}/node_modules/@spec-family/spec-harness/bin/spec-harness.js';
   const hook = (rest: readonly string[], more: Readonly<Record<string, unknown>> = {}) => ({ type: 'command', command: 'node', args: [SCRIPT, 'hook', 'claude', ...rest], timeout: 60, ...more });
   /** The hooks under both events with the matcher given, which is the one init writes unless a test is about another. */
   const settings = (hooks: readonly unknown[], matcher = 'Edit|Write|MultiEdit|NotebookEdit'): string => JSON.stringify({ hooks: { PreToolUse: [{ matcher, hooks }], PostToolUse: [{ matcher, hooks }] } });
@@ -947,8 +947,8 @@ describe("doctor on the line of Claude Code's hook in its settings (ADR-0005)", 
     const repo = aRepository({ '.claude/settings.json': settings([hook([])]) });
     const env = newEnough();
     const doctor = parsed<{ root: string; claudeCode: { lines: { state: string; detail: string | null }[] } }>(await cli(['doctor', '--format', 'json'], repo.root, { env }));
-    const MEND = 'install spec-harness in the project, npm install --save-dev @descent-vtt/spec-harness, or name its script where it is';
-    const script = `${doctor.root}/node_modules/@descent-vtt/spec-harness/bin/spec-harness.js`;
+    const MEND = 'install spec-harness in the project, npm install --save-dev @spec-family/spec-harness, or name its script where it is';
+    const script = `${doctor.root}/node_modules/@spec-family/spec-harness/bin/spec-harness.js`;
     const detail = `"hook claude" in .claude/settings.json: the script it runs, ${script}, is not there, so the hook cannot start, the guard is off and Claude Code lets each write it is started for go ahead without it; ${MEND}`;
     expect(doctor.claudeCode.lines).toMatchObject([{ state: 'off', detail }]);
     const result = await cli(['doctor'], repo.root, { env });
@@ -976,10 +976,10 @@ describe("doctor on the line of Claude Code's hook in its settings (ADR-0005)", 
     };
     // The main checkout's install is the one a worktree session of the desktop app runs: the line guards there, and the note says this work tree has none.
     expect(await at()).toMatchObject({ code: 0, lines: [{ state: 'guards' }] });
-    rmSync(join(repo.root, 'node_modules', '@descent-vtt', 'spec-harness'), { recursive: true, force: true });
+    rmSync(join(repo.root, 'node_modules', '@spec-family', 'spec-harness'), { recursive: true, force: true });
     const main = repo.git('rev-parse', '--show-toplevel');
     const neither = await at();
-    const where = (top: string): string => `${top}/node_modules/@descent-vtt/spec-harness/bin/spec-harness.js`;
+    const where = (top: string): string => `${top}/node_modules/@spec-family/spec-harness/bin/spec-harness.js`;
     expect(neither).toMatchObject({ code: 1, lines: [{ state: 'off', detail: expect.stringContaining(`: the script it runs is in neither place \${CLAUDE_PROJECT_DIR} can name, ${where(neither.root)} or ${where(main)}, so the hook cannot start`) }] });
     // A repository that keeps its git directory apart names no main work tree: the project is the one place to look.
     const apart = temp();
@@ -997,7 +997,7 @@ describe("doctor on the line of Claude Code's hook in its settings (ADR-0005)", 
   it('fails for a line that names a brief where spec-brief cannot be run, which the hook holds every write for, and passes once it can', async () => {
     const repo = repository({ [BRIEF_FILE]: brief(), '.claude/settings.json': settings([hook(['--brief', '001'])]) }, { tools: { 'spec-guard': siblings()['spec-guard'] } });
     const env = newEnough();
-    const NOT_HERE = 'spec-brief is not installed here: npm install --save-dev @descent-vtt/spec-brief, or name its command under "tools" in .spec-harness.json';
+    const NOT_HERE = 'spec-brief is not installed here: npm install --save-dev @spec-family/spec-brief, or name its command under "tools" in .spec-harness.json';
     const result = await cli(['doctor'], repo.root, { env });
     expect(result.code).toBe(1);
     expect(result.stdout).toContain(
@@ -1119,8 +1119,8 @@ describe("doctor on the line of Claude Code's hook in its settings (ADR-0005)", 
     const tree = join(temp(), 'w');
     repo.git('worktree', 'add', '-q', '-b', 'w', tree);
     const release = (at: string, version: string): void => {
-      write(at, 'node_modules/@descent-vtt/spec-harness/package.json', JSON.stringify({ name: '@descent-vtt/spec-harness', version }));
-      write(at, 'node_modules/@descent-vtt/spec-harness/bin/spec-harness.js', '');
+      write(at, 'node_modules/@spec-family/spec-harness/package.json', JSON.stringify({ name: '@spec-family/spec-harness', version }));
+      write(at, 'node_modules/@spec-family/spec-harness/bin/spec-harness.js', '');
     };
     release(repo.root, '0.18.0');
     release(tree, '0.19.0');
@@ -1597,7 +1597,7 @@ describe('doctor on the rest of what a ruling and a commit need', () => {
     other.git('config', 'core.hooksPath', '.githooks');
     other.write('.githooks/pre-commit', '#!/bin/sh\nnpm test\n');
     expect((await cli(['doctor'], other.root)).stdout).toContain(
-      '\ngit     .githooks/pre-commit does not run spec-harness: add the line "node node_modules/@descent-vtt/spec-harness/bin/spec-harness.js hook git" to it\n',
+      '\ngit     .githooks/pre-commit does not run spec-harness: add the line "node node_modules/@spec-family/spec-harness/bin/spec-harness.js hook git" to it\n',
     );
   });
 
@@ -1628,25 +1628,25 @@ describe('doctor on the rest of what a ruling and a commit need', () => {
   });
 
   it('reads a spec-brief plugin loaded by a path to this package\'s plugin as loaded', async () => {
-    const repo = repository({ '.spec-brief.json': JSON.stringify({ plugins: [{ module: './node_modules/@descent-vtt/spec-harness/plugin.js' }] }) });
+    const repo = repository({ '.spec-brief.json': JSON.stringify({ plugins: [{ module: './node_modules/@spec-family/spec-harness/plugin.js' }] }) });
     installHarness(repo.root);
     expect((await cli(['doctor'], repo.root)).stdout).toContain("\nplugin  spec-brief loads spec-harness's plugin (.spec-brief.json)");
     // As the package ships its export, under conditions: the file for an import is the default one.
-    const manifest = { name: '@descent-vtt/spec-harness', type: 'module', exports: { './spec-brief-plugin': { types: './plugin.d.ts', default: './plugin.js' } } };
-    repo.write('node_modules/@descent-vtt/spec-harness/package.json', JSON.stringify(manifest));
+    const manifest = { name: '@spec-family/spec-harness', type: 'module', exports: { './spec-brief-plugin': { types: './plugin.d.ts', default: './plugin.js' } } };
+    repo.write('node_modules/@spec-family/spec-harness/package.json', JSON.stringify(manifest));
     expect((await cli(['doctor'], repo.root)).stdout).toContain("\nplugin  spec-brief loads spec-harness's plugin (.spec-brief.json)");
     // Absolute, and to this checkout's own build.
     repo.write('.spec-brief.json', JSON.stringify({ plugins: [join(ROOT, 'dist', 'plugin.js')] }));
     expect((await cli(['doctor'], repo.root)).stdout).toContain("\nplugin  spec-brief loads spec-harness's plugin (.spec-brief.json)");
-    repo.write('.spec-brief.json', JSON.stringify({ plugins: ['./node_modules/@descent-vtt/spec-harness/package.json', './missing.js'] }));
+    repo.write('.spec-brief.json', JSON.stringify({ plugins: ['./node_modules/@spec-family/spec-harness/package.json', './missing.js'] }));
     expect((await cli(['doctor'], repo.root)).stdout).toContain("\nplugin  spec-brief does not load spec-harness's plugin");
   });
 
   it('reads the plugin\'s file under the import or the node condition, and no missing file as it', async () => {
-    const repo = repository({ '.spec-brief.json': JSON.stringify({ plugins: ['./node_modules/@descent-vtt/spec-harness/plugin.js'] }) });
+    const repo = repository({ '.spec-brief.json': JSON.stringify({ plugins: ['./node_modules/@spec-family/spec-harness/plugin.js'] }) });
     installHarness(repo.root);
     const exported = (target: unknown): void =>
-      repo.write('node_modules/@descent-vtt/spec-harness/package.json', JSON.stringify({ name: '@descent-vtt/spec-harness', type: 'module', exports: { './spec-brief-plugin': target } }));
+      repo.write('node_modules/@spec-family/spec-harness/package.json', JSON.stringify({ name: '@spec-family/spec-harness', type: 'module', exports: { './spec-brief-plugin': target } }));
     for (const conditions of [{ import: './plugin.js' }, { node: './plugin.js' }]) {
       exported(conditions);
       expect((await cli(['doctor'], repo.root)).stdout, JSON.stringify(conditions)).toContain("\nplugin  spec-brief loads spec-harness's plugin (.spec-brief.json)");

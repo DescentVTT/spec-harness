@@ -11,16 +11,19 @@
  * every write of a session (ADR-0005, ADR-0012).
  *
  * The lines are data, read from the tags: `src/setup.ts`, `src/configure.ts`,
- * `hooks/hooks.json` and `.mcp.json` at v0.1.0 to v0.13.0. A line is added
- * here when a release changes what it writes, and none is taken out.
+ * `hooks/hooks.json` and `.mcp.json` at v0.1.0 to v0.21.0. A line is added
+ * here when a release changes what it writes, and none is taken out: 0.22.0
+ * names the script under the scope the family moved to on 2026-10-26, so the
+ * lines with the earlier scope's stay, beside those it writes.
  */
 
-import { readFileSync, rmSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { chmodSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { arrayMatcher, GIT_HOOK_LINE, GUARD_HOOK, matchingUnder, mcpServer, mergeClaudeSettings, PRE_COMMIT, PROJECT_DIR, PROJECT_DIR_OR_HERE, reportHooks, TURN_HOOK, withSessionStart, withTurnReport } from '../../src/configure.js';
+import { arrayMatcher, GIT_HOOK_LINE, GUARD_HOOK, matchingUnder, mcpServer, mergeClaudeSettings, PLUGIN, PRE_COMMIT, PROJECT_DIR, PROJECT_DIR_OR_HERE, reportHooks, TURN_HOOK, withSessionStart, withTurnReport } from '../../src/configure.js';
 import { CALLABLE_TOOLS, WRITING_TOOLS } from '../../src/hooks.js';
 import { claudeHookLine, refusal, twoValues } from '../../src/usage.js';
 import { parseOptions } from '../../src/workspace.js';
@@ -47,7 +50,10 @@ function warned(result: Captured): string | null {
   }
 }
 
-const SCRIPT = 'node_modules/@descent-vtt/spec-harness/bin/spec-harness.js';
+const SCRIPT = 'node_modules/@spec-family/spec-harness/bin/spec-harness.js';
+
+/** The script as 0.1.2 to 0.21.0 wrote it, the package's name before the family moved to `@spec-family` (spec-core's ADR-0005, Names). */
+const EARLIER = 'node_modules/@descent-vtt/spec-harness/bin/spec-harness.js';
 
 interface Written {
   /** The releases whose `init` wrote the line, or whose plugin shipped it. */
@@ -70,17 +76,22 @@ const MATCHER = 'Edit|Write|MultiEdit|NotebookEdit';
 
 const WRITTEN: readonly Written[] = [
   { releases: '0.1.0 to 0.1.1', where: HOOKS, line: 'npx --no-install spec-harness hook claude' },
-  { releases: '0.1.2 to 0.13.0', where: HOOKS, line: ['node', `\${CLAUDE_PROJECT_DIR}/${SCRIPT}`, 'hook', 'claude'] },
+  { releases: '0.1.2 to 0.21.0', where: HOOKS, line: ['node', `\${CLAUDE_PROJECT_DIR}/${EARLIER}`, 'hook', 'claude'] },
+  { releases: '0.22.0 on', where: HOOKS, line: ['node', `\${CLAUDE_PROJECT_DIR}/${SCRIPT}`, 'hook', 'claude'] },
   { releases: '0.1.0 to 0.1.1', where: "the server init registered in .mcp.json, and the plugin's .mcp.json", line: ['npx', '--no-install', 'spec-harness', 'mcp'] },
-  { releases: '0.1.2 to 0.13.0', where: 'the server init registered in .mcp.json', line: ['node', `\${CLAUDE_PROJECT_DIR:-.}/${SCRIPT}`, 'mcp', '--root', '${CLAUDE_PROJECT_DIR:-.}'] },
-  { releases: '0.1.2 to 0.13.0', where: "the plugin's .mcp.json", line: ['node', `\${CLAUDE_PROJECT_DIR}/${SCRIPT}`, 'mcp', '--root', '${CLAUDE_PROJECT_DIR}'] },
+  { releases: '0.1.2 to 0.21.0', where: 'the server init registered in .mcp.json', line: ['node', `\${CLAUDE_PROJECT_DIR:-.}/${EARLIER}`, 'mcp', '--root', '${CLAUDE_PROJECT_DIR:-.}'] },
+  { releases: '0.22.0 on', where: 'the server init registers in .mcp.json', line: ['node', `\${CLAUDE_PROJECT_DIR:-.}/${SCRIPT}`, 'mcp', '--root', '${CLAUDE_PROJECT_DIR:-.}'] },
+  { releases: '0.1.2 to 0.21.0', where: "the plugin's .mcp.json", line: ['node', `\${CLAUDE_PROJECT_DIR}/${EARLIER}`, 'mcp', '--root', '${CLAUDE_PROJECT_DIR}'] },
+  { releases: '0.22.0 on', where: "the plugin's .mcp.json", line: ['node', `\${CLAUDE_PROJECT_DIR}/${SCRIPT}`, 'mcp', '--root', '${CLAUDE_PROJECT_DIR}'] },
   {
     releases: '0.1.0 to 0.9.1',
     where: "the pre-commit hook init --git-hook wrote, and the line init and doctor gave for a hook of the repository's own",
     line: 'npx --no-install spec-harness hook git',
   },
-  { releases: '0.10.0 to 0.13.0', where: 'the pre-commit hook init --git-hook wrote, with bin set to the script', line: 'node "$bin" hook git' },
-  { releases: '0.10.0 to 0.13.0', where: "the line init and doctor give for a hook of the repository's own", line: `node ${SCRIPT} hook git` },
+  // The hook's last line is the same under either scope: what it runs is `bin`, set above it.
+  { releases: '0.10.0 on', where: 'the pre-commit hook init --git-hook wrote, with bin set to the script', line: 'node "$bin" hook git' },
+  { releases: '0.10.0 to 0.21.0', where: "the line init and doctor gave for a hook of the repository's own", line: `node ${EARLIER} hook git` },
+  { releases: '0.22.0 on', where: "the line init and doctor give for a hook of the repository's own", line: `node ${SCRIPT} hook git` },
 ];
 
 /** The words of a line, as a shell splits one that holds no space inside a word. */
@@ -207,12 +218,12 @@ describe('the lines the releases wrote', () => {
     // started in. No line here was ever handed it and ran: the placeholder
     // that would leave the root empty leaves the script without its path.
     const rooted = WRITTEN.filter((written) => wordsOf(written.line).includes('--root'));
-    expect(rooted).toHaveLength(2);
+    expect(rooted).toHaveLength(4);
     for (const written of rooted) {
       const words = wordsOf(written.line);
       const root = words[words.indexOf('--root') + 1] as string;
       expect(root).toMatch(/^\$\{CLAUDE_PROJECT_DIR(?::-\.)?\}$/);
-      expect(words[1]).toBe(`${root}/${SCRIPT}`);
+      expect([`${root}/${SCRIPT}`, `${root}/${EARLIER}`]).toContain(words[1]);
     }
   });
 
@@ -220,7 +231,7 @@ describe('the lines the releases wrote', () => {
     // Claude Code's hook says a root that is not there, with exit 0. Every
     // line a release wrote for a hook is still handed to it without one.
     const hooks = WRITTEN.filter((written) => wordsOf(written.line).includes('hook'));
-    expect(hooks.map((written) => wordsOf(written.line).at(-1))).toEqual(['claude', 'claude', 'git', 'git', 'git']);
+    expect(hooks.map((written) => wordsOf(written.line).at(-1))).toEqual(['claude', 'claude', 'claude', 'git', 'git', 'git', 'git']);
     for (const written of hooks) expect(wordsOf(written.line), written.releases).not.toContain('--root');
   });
 });
@@ -487,7 +498,7 @@ describe("doctor, of the hook's line in Claude Code's settings", () => {
 
   it('reads each line a release wrote for the hook as the guard, with nothing more to say of it', () => {
     const hooks = WRITTEN.filter((written) => wordsOf(written.line).at(-1) === 'claude');
-    expect(hooks).toHaveLength(2);
+    expect(hooks).toHaveLength(3);
     for (const written of hooks) {
       const said = reportHooks([{ file: '.claude/settings.json', settings: held(entry(written.line)) }], '/the/project', read);
       expect(said, written.releases).toEqual([RELEASED]);
@@ -594,7 +605,7 @@ describe("doctor, of the hook's line in Claude Code's settings", () => {
       }
     } finally {
       rmSync(join(repo.root, '.claude'), { recursive: true, force: true });
-      rmSync(join(repo.root, 'node_modules', '@descent-vtt', 'spec-harness'), { recursive: true, force: true });
+      rmSync(join(repo.root, 'node_modules', '@spec-family', 'spec-harness'), { recursive: true, force: true });
     }
   });
 });
@@ -633,5 +644,150 @@ describe("Claude Code's hook, whatever is on its line", () => {
         if (rest === LINES[0] && path === 'src/db/schema.ts') expect(JSON.parse(result.stdout)).toMatchObject({ hookSpecificOutput: { permissionDecision: 'deny' } });
       }
     }
+  });
+});
+
+describe('the lines 0.1.2 to 0.21.0 wrote, once the package is @spec-family/spec-harness', () => {
+  // A project that ran init with 0.21.0 and then installed this release
+  // beside it: the Upgrading line's first step. Its lines name the earlier
+  // scope's script, which runs while that package is installed and starts
+  // nothing once it is not, and Claude Code then lets each write go ahead.
+  const OLD = { type: 'command', command: 'node', args: [`\${CLAUDE_PROJECT_DIR}/${EARLIER}`, 'hook', 'claude'], timeout: 60 };
+  const SETTINGS = {
+    hooks: { PreToolUse: [{ matcher: MATCHER, hooks: [OLD] }], PostToolUse: [{ matcher: MATCHER, hooks: [OLD] }], SessionStart: [{ hooks: [OLD] }], Stop: [{ hooks: [{ ...OLD, async: true }] }] },
+  };
+  const SERVER = { command: 'node', args: [`\${CLAUDE_PROJECT_DIR:-.}/${EARLIER}`, 'mcp', '--root', '${CLAUDE_PROJECT_DIR:-.}'] };
+  const NAME = '@descent-vtt/spec-harness/spec-brief-plugin';
+  const HOOK_19 = PRE_COMMIT.split(SCRIPT).join(EARLIER);
+
+  /** A project on brief 001's branch with what 0.21.0's init wrote, this release installed, and the earlier package as well where `earlier`. */
+  function moving(earlier: boolean, settings: unknown = SETTINGS): Repository {
+    const project = repository({ [BRIEF_FILE]: brief({ affected: ['src/auth/**'], protected: ['src/db/**'] }), 'src/db/schema.ts': 'table;\n', 'src/auth/a.ts': 'auth;\n' });
+    project.git('checkout', '-q', '-b', 'brief/001-rotate');
+    project.write('.claude/settings.json', `${JSON.stringify(settings, null, 2)}\n`);
+    project.write('.mcp.json', `${JSON.stringify({ mcpServers: { other: { command: 'x' }, 'spec-harness': SERVER } }, null, 2)}\n`);
+    project.write('.spec-brief.json', `${JSON.stringify({ plugins: [NAME] }, null, 2)}\n`);
+    project.write('.git/hooks/pre-commit', HOOK_19);
+    chmodSync(join(project.root, '.git', 'hooks', 'pre-commit'), 0o755);
+    installHarness(project.root);
+    // doctor asks only whether the earlier script is a file.
+    if (earlier) project.write(EARLIER, '');
+    return project;
+  }
+
+  /** What doctor says of each line of the hook, of the plugin spec-brief loads and of git's hook, and its exit. */
+  async function doctor(project: Repository) {
+    const result = await cli(['doctor', '--format', 'json'], project.root);
+    const said = parsed<{ root: string; claudeCode: { lines: { events: string[]; state: string; detail: string | null }[] }; plugin: { state: string }; gitHook: { state: string; note: string | null } }>(result);
+    return { code: result.code, root: said.root, lines: said.claudeCode.lines.map(({ events, state, detail }) => ({ events, state, detail })), plugin: said.plugin.state, gitHook: { state: said.gitHook.state, note: said.gitHook.note } };
+  }
+
+  const INIT = `spec-harness init --write rewrites the line an earlier release wrote to run ${SCRIPT}, which npm install --save-dev @spec-family/spec-harness installs`;
+  const WHERE = '"hook claude" in .claude/settings.json';
+
+  it('is a line doctor says guards while the earlier package is installed, with how to move it, and is off once it is not', async () => {
+    const both = await doctor(moving(true));
+    expect(both.code).toBe(0);
+    expect(both.lines).toEqual([
+      {
+        events: ['PreToolUse', 'PostToolUse'],
+        state: 'guards',
+        detail: `${WHERE} runs \${CLAUDE_PROJECT_DIR}/${EARLIER}, the script of @descent-vtt/spec-harness, the name of this package's releases up to 0.21.0: it guards while that package is installed, and once it is uninstalled the hook cannot start and Claude Code lets each write go ahead without it; ${INIT}`,
+      },
+    ]);
+    expect(both.plugin).toBe('earlier');
+    expect(both.gitHook.state).toBe('runs');
+    expect(both.gitHook.note).toBe(
+      `it runs ${EARLIER}, the script of @descent-vtt/spec-harness, the name of this package's releases up to 0.21.0, which is not there once that package is uninstalled: it is the hook an earlier release of init wrote, and spec-harness init --git-hook --write writes it again to run ${SCRIPT}`,
+    );
+    const off = await doctor(moving(false));
+    expect(off.code).toBe(1);
+    expect(off.lines).toEqual([
+      {
+        events: ['PreToolUse', 'PostToolUse'],
+        state: 'off',
+        detail: `${WHERE}: the script it runs, ${off.root}/${EARLIER}, is not there, so the hook cannot start, the guard is off and Claude Code lets each write it is started for go ahead without it; ${INIT}`,
+      },
+    ]);
+  });
+
+  it('is rewritten by init --write where it stands, with the server and the plugin, and by init --git-hook --write in git\'s hook, whichever package is still there', async () => {
+    for (const earlier of [true, false]) {
+      const project = moving(earlier);
+      const steps = parsed<{ steps: { file: string; action: string; detail: string }[] }>(await cli(['init', '--write', '--format', 'json'], project.root)).steps;
+      // The last step for a file is what is written there: spec-brief's has one that says what is kept first.
+      const step = (file: string) => steps.filter((found) => found.file === file).at(-1);
+      expect(step('.claude/settings.json')?.action).toBe('update');
+      expect(step('.claude/settings.json')?.detail.startsWith(`the entries an earlier release wrote, which ran ${EARLIER}, run ${SCRIPT}, where they stand; the guard hooks`)).toBe(true);
+      expect(step('.mcp.json')?.action).toBe('update');
+      expect(step('.mcp.json')?.detail.startsWith(`the entry an earlier release wrote, which ran ${EARLIER}, runs ${SCRIPT}: the spec-harness MCP server`)).toBe(true);
+      expect(step('.spec-brief.json')).toMatchObject({ action: 'update', detail: expect.stringContaining(`name spec-harness's plugin "${PLUGIN}" where an earlier release wrote "${NAME}"`) });
+      // git's hook is written only where asked for, and kept with a note until then.
+      expect(step('.git/hooks/pre-commit')).toMatchObject({ action: 'keep', detail: expect.stringContaining('spec-harness init --git-hook --write writes it again') });
+      expect(project.read('.git/hooks/pre-commit')).toBe(HOOK_19);
+      const now = { ...GUARD_HOOK };
+      expect(JSON.parse(project.read('.claude/settings.json'))).toEqual({
+        hooks: { PreToolUse: [{ matcher: MATCHER, hooks: [now] }], PostToolUse: [{ matcher: MATCHER, hooks: [now] }], SessionStart: [{ hooks: [now] }], Stop: [{ hooks: [TURN_HOOK] }] },
+      });
+      expect(JSON.parse(project.read('.mcp.json'))).toEqual({ mcpServers: { other: { command: 'x' }, 'spec-harness': mcpServer(PROJECT_DIR_OR_HERE) } });
+      expect(JSON.parse(project.read('.spec-brief.json'))['plugins']).toEqual([PLUGIN]);
+      const hooked = parsed<{ steps: { file: string; action: string; detail: string }[] }>(await cli(['init', '--git-hook', '--write', '--format', 'json'], project.root)).steps;
+      expect(hooked.find((found) => found.file === '.git/hooks/pre-commit')).toEqual({
+        file: '.git/hooks/pre-commit',
+        action: 'update',
+        detail: `the hook an earlier release of init wrote, which runs ${EARLIER}, written again to run ${SCRIPT}`,
+      });
+      expect(project.read('.git/hooks/pre-commit')).toBe(PRE_COMMIT);
+      if (process.platform !== 'win32') expect(statSync(join(project.root, '.git', 'hooks', 'pre-commit')).mode & 0o777).toBe(0o755);
+      // And doctor has nothing more to say of any of them.
+      expect(await doctor(project)).toEqual({ code: 0, root: expect.any(String), lines: [{ events: ['PreToolUse', 'PostToolUse'], state: 'guards', detail: null }], plugin: 'loaded', gitHook: { state: 'runs', note: null } });
+    }
+  });
+
+  it('starts, once rewritten, the hook of this package, which refuses the write the brief protects and lets the one it empowers through, never with allow', async () => {
+    const project = moving(false);
+    await cli(['init', '--write'], project.root);
+    const settings = JSON.parse(project.read('.claude/settings.json')) as { hooks: Record<string, { hooks: { command: string; args: string[] }[] }[]> };
+    for (const event of ['PreToolUse', 'PostToolUse']) {
+      const entry = settings.hooks[event]?.[0]?.hooks[0];
+      if (entry === undefined) throw new Error(`no entry under ${event}`);
+      // As Claude Code starts it: the placeholder filled, node the one running here.
+      const args = entry.args.map((arg) => arg.split('${CLAUDE_PROJECT_DIR}').join(project.root));
+      const run = (path: string) =>
+        spawnSync(process.execPath, args, { cwd: project.root, encoding: 'utf8', env: { ...process.env, SPEC_BRIEF: '' }, input: JSON.stringify({ session_id: 's', cwd: project.root, hook_event_name: event, tool_name: 'Write', tool_input: { file_path: join(project.root, ...path.split('/')), content: 'x' } }) });
+      const refused = run('src/db/schema.ts');
+      expect(refused.status, refused.stderr).toBe(0);
+      if (event === 'PreToolUse') expect(JSON.parse(refused.stdout)).toMatchObject({ hookSpecificOutput: { permissionDecision: 'deny' } });
+      const passed = run('src/auth/a.ts');
+      expect({ status: passed.status, stderr: passed.stderr }).toEqual({ status: 0, stderr: '' });
+      expect(passed.stdout).not.toContain('permissionDecision');
+      expect(`${refused.stdout}${passed.stdout}`).not.toContain('"allow"');
+    }
+  });
+
+  // On Windows git runs whatever stands at the path, so no hook is one it skips.
+  it.skipIf(process.platform === 'win32')('is left, in git\'s hook, where git skips it for not being executable, as any such hook is', async () => {
+    const project = moving(true);
+    chmodSync(join(project.root, '.git', 'hooks', 'pre-commit'), 0o644);
+    const steps = parsed<{ steps: { file: string; action: string; detail: string }[] }>(await cli(['init', '--git-hook', '--write', '--format', 'json'], project.root)).steps;
+    expect(steps.find((found) => found.file === '.git/hooks/pre-commit')).toEqual({
+      file: '.git/hooks/pre-commit',
+      action: 'advise',
+      detail: '.git/hooks/pre-commit runs spec-harness, but is not executable, so git skips it: chmod +x .git/hooks/pre-commit',
+    });
+    expect(project.read('.git/hooks/pre-commit')).toBe(HOOK_19);
+  });
+
+  it("is left where a person wrote it: more on the line, or a hook of the repository's own", async () => {
+    const theirs = { ...OLD, args: [...OLD.args, '--brief', '001'] };
+    const project = moving(true, { hooks: { PreToolUse: [{ matcher: MATCHER, hooks: [theirs] }], PostToolUse: [{ matcher: MATCHER, hooks: [theirs] }] } });
+    const own = `#!/bin/sh\nnpm test || exit 1\nnode ${EARLIER} hook git\n`;
+    project.write('.git/hooks/pre-commit', own);
+    const before = project.read('.claude/settings.json');
+    const steps = parsed<{ steps: { file: string; action: string; detail: string }[] }>(await cli(['init', '--git-hook', '--write', '--format', 'json'], project.root)).steps;
+    expect(steps.find((found) => found.file === '.claude/settings.json')).toMatchObject({ action: 'keep', detail: expect.stringContaining(`name ${SCRIPT}, which npm install --save-dev @spec-family/spec-harness installs, on the line in its place`) });
+    expect(project.read('.claude/settings.json')).toBe(before);
+    expect(steps.find((found) => found.file === '.git/hooks/pre-commit')).toMatchObject({ action: 'keep', detail: expect.stringContaining(`name ${SCRIPT} there in its place`) });
+    expect(project.read('.git/hooks/pre-commit')).toBe(own);
   });
 });

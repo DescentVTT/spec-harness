@@ -362,7 +362,7 @@ describe('the archive', () => {
 
   it('says a protected file a verified ruling covers is refused because spec-brief does not load the plugin', () => {
     const { findings } = audit(input({ archive: { blocking: [refused('src/db/schema.ts'), refused('src/api.ts')], warnings: [] }, verifiedRulings: signed, pluginLoaded: false }));
-    const loadIt = 'but spec-brief does not load spec-harness\'s plugin, which is how its archive learns of signed rulings: add "@descent-vtt/spec-harness/spec-brief-plugin" to "plugins" in its configuration, or run spec-harness init --write';
+    const loadIt = 'but spec-brief does not load spec-harness\'s plugin, which is how its archive learns of signed rulings: add "@spec-family/spec-harness/spec-brief-plugin" to "plugins" in its configuration, or run spec-harness init --write';
     expect(findings).toEqual([
       { rule: 'archive/protected-file', severity: 'error', message: 'the round changed src/db/schema.ts, which this brief protects', hint: `ruling R-012-1, signed by person@example.com, allows it, ${loadIt}`, file: FILE, line: 7, subject: 'src/db/schema.ts' },
       { rule: 'archive/protected-file', severity: 'error', message: 'the round changed src/api.ts, which this brief protects', hint: `ruling R-012-2, signed by other@example.com, allows it, ${loadIt}`, file: FILE, line: 7, subject: 'src/api.ts' },

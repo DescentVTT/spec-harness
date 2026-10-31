@@ -109,13 +109,13 @@ describe('the hook as a session starts', () => {
     );
     const missing = project('brief/001-rotate', false);
     expect(await start(missing)).toEqual(
-      said(`spec-brief is not installed here: npm install --save-dev @descent-vtt/spec-brief, or name its command under "tools" in .spec-harness.json, ${HELD}; spec-harness doctor says more`),
+      said(`spec-brief is not installed here: npm install --save-dev @spec-family/spec-brief, or name its command under "tools" in .spec-harness.json, ${HELD}; spec-harness doctor says more`),
     );
     // With no brief named, no write runs spec-brief, and there is nothing to say.
     expect(await start(project('main', false))).toEqual({ code: 0, stdout: '', stderr: '' });
     const old = project('brief/001-rotate', false);
     installFake(old.root, 'spec-brief', JSON.stringify({ version: '0.1.0' }));
-    expect(await start(old)).toEqual(said(`spec-brief 0.1.0 is installed here; spec-harness needs 0.2.0 or later: npm install --save-dev @descent-vtt/spec-brief@latest, ${HELD}; spec-harness doctor says more`));
+    expect(await start(old)).toEqual(said(`spec-brief 0.1.0 is installed here; spec-harness needs 0.12.0 or later: npm install --save-dev @spec-family/spec-brief@latest, ${HELD}; spec-harness doctor says more`));
   });
 
   it("says what is wrong with the hook's own line, in the words it says it with before a write, and exits 0", async () => {
@@ -145,7 +145,7 @@ describe('the hook as a session starts', () => {
 });
 
 describe('doctor, of the hook as a session starts', () => {
-  const LINE = { type: 'command', command: 'node', args: ['${CLAUDE_PROJECT_DIR}/node_modules/@descent-vtt/spec-harness/bin/spec-harness.js', 'hook', 'claude'], timeout: 60 };
+  const LINE = { type: 'command', command: 'node', args: ['${CLAUDE_PROJECT_DIR}/node_modules/@spec-family/spec-harness/bin/spec-harness.js', 'hook', 'claude'], timeout: 60 };
   const TWO = { PreToolUse: [{ matcher: 'Edit|Write|MultiEdit|NotebookEdit', hooks: [LINE] }], PostToolUse: [{ matcher: 'Edit|Write|MultiEdit|NotebookEdit', hooks: [LINE] }] };
   const NOTE =
     'note: no settings file has Claude Code start the hook as a session starts, so a configuration that does not load, or a brief named that spec-brief does not list, is said only at the first write, which it holds: spec-harness init --write adds the entry beside the two it wrote';

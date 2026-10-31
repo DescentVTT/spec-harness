@@ -16,7 +16,7 @@ dependencies are not installed in this work tree - a fresh clone, a new
 worktree - or you are not at its root. Install them there, as with `npm ci`,
 and run the command again; if that fails, stop and tell the person.
 
-Never work around it by dropping `--no-install` or the `@descent-vtt/` in
+Never work around it by dropping `--no-install` or the `@spec-family/` in
 front of the name. Without the scope the names are not these tools: on npm
 `spec-harness` is another publisher's package, and `npx` would fetch it and
 run it.
@@ -27,7 +27,7 @@ Work on a branch named after the brief, `brief/<id>-<topic>`, or pass
 `--brief <id>`. Then:
 
 ```bash
-npx --no-install @descent-vtt/spec-harness context <id>
+npx --no-install @spec-family/spec-harness context <id>
 ```
 
 It gives you the brief in full, the scope as the guard reads it, the rulings
@@ -38,13 +38,13 @@ scope's code to, and the documents the brief cites. Read it before the code.
 
 - Write the files in `affectedFiles`. If the hook is installed, every edit is
   checked; otherwise ask first:
-  `npx --no-install @descent-vtt/spec-harness guard <path>`.
+  `npx --no-install @spec-family/spec-harness guard <path>`.
 - A protected file is not yours to change. If the round cannot be finished
   without it, stop and escalate - do not work around it, do not edit through
   a shell to avoid the hook:
 
   ```bash
-  npx --no-install @descent-vtt/spec-harness escalate --path <file> --reason "<why the round needs it>" \
+  npx --no-install @spec-family/spec-harness escalate --path <file> --reason "<why the round needs it>" \
     --option "<option>: <what it costs>" --option "<other option>: <cost>" \
     --recommend "<which, and why>"
   ```

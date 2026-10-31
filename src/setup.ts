@@ -29,11 +29,17 @@ import {
   describeSkipped,
   GIT_HOOK_LINE,
   gitHookNote,
+  GUARD_MOVED,
+  holdsEarlierGuard,
+  holdsEarlierServer,
+  HOOK_MOVED,
+  isEarlierPreCommit,
   type GitHookState,
   graphReadsBriefs,
   GUARD_HOOK,
   guardSwitchedOff,
   isStarted,
+  loadsEarlierPlugin,
   loadsPlugin,
   matchingUnder,
   measuresArchive,
@@ -51,10 +57,12 @@ import {
   ONE_STRING,
   patternReader,
   PLUGIN,
+  PLUGIN_MOVED,
   PRE_COMMIT,
   PROJECT_SETTINGS,
   PROTECT_RULE_FILES,
   registersServer,
+  SERVER_MOVED,
   SPEC_BRIEF_CONFIGS,
   SPEC_GRAPH_CONFIGS,
 } from './configure.js';
@@ -85,9 +93,9 @@ function stringify(value: unknown): string {
 
 const PLUGIN_DETAIL = `load spec-harness's plugin, "${PLUGIN}": spec-brief's archive asks it whether a signed ruling allows a protected file, and refuses the file without it`;
 
-/** What init adds to spec-brief's configuration, said once for the plan. */
-function specBriefDetail(plugin: boolean, base: string | null): string {
-  const parts = plugin ? [PLUGIN_DETAIL] : [];
+/** What init adds to spec-brief's configuration, said once for the plan: the plugin added, named in place of its earlier name, or neither. */
+function specBriefDetail(plugin: 'add' | 'rename' | null, base: string | null): string {
+  const parts = plugin === 'add' ? [PLUGIN_DETAIL] : plugin === 'rename' ? [PLUGIN_MOVED] : [];
   if (base !== null) parts.push(`measure the archive from ${base}, as spec-harness does: without a base, spec-brief's archive warns that the scope went unmeasured and checks no protected file`);
   return parts.join('; ');
 }
@@ -140,7 +148,7 @@ function standing(path: string): Stats | null {
  * would have kept it from ever coming back. A file the account may not read
  * ended it on EACCES and a stack: it is said with what git does with it.
  */
-export async function gitHook(root: string): Promise<{ readonly hook: GitHookState; readonly path: string | null; readonly note: string | null }> {
+export async function gitHook(root: string): Promise<{ readonly hook: GitHookState; readonly path: string | null; readonly note: string | null; readonly earlier?: boolean }> {
   const where = await hookPath('pre-commit', root);
   if ('refused' in where) return { hook: { state: 'unknown', reason: `git rev-parse --git-path hooks/pre-commit failed: ${where.refused}` }, path: null, note: null };
   const { path } = where;
@@ -159,7 +167,7 @@ export async function gitHook(root: string): Promise<{ readonly hook: GitHookSta
     return { hook: { state: 'unreadable', file, runs, reason: (error as Error).message }, path, note: null };
   }
   if (!text.includes('spec-harness')) return { hook: { state: 'other', file }, path, note: null };
-  return { hook: { state: runs ? 'runs' : 'inert', file }, path, note: gitHookNote(text) };
+  return { hook: { state: runs ? 'runs' : 'inert', file }, path, note: gitHookNote(text), earlier: isEarlierPreCommit(text) };
 }
 
 export async function plan(workspace: Workspace, options: Options, io: CliIO): Promise<Step[]> {
@@ -214,7 +222,7 @@ export async function plan(workspace: Workspace, options: Options, io: CliIO): P
       steps.push({
         file: '.spec-brief.json',
         action: 'update',
-        detail: specBriefDetail(true, base),
+        detail: specBriefDetail('add', base),
         apply: async () => {
           const written = await readJson(created);
           if (written === null || written === 'unreadable') throw new Error('spec-brief init wrote no configuration JSON can read');
@@ -249,7 +257,8 @@ export async function plan(workspace: Workspace, options: Options, io: CliIO): P
         const from = measured ? `, and the archive is measured from ${String((archiving as Json)['base'])}` : '';
         steps.push({ file: briefConfig, action: 'keep', detail: `spec-harness's plugin is loaded${from}` });
       } else {
-        const detail = specBriefDetail(!loadsPlugin(config, isPluginFile), measured ? null : base);
+        const plugin = loadsEarlierPlugin(config) ? 'rename' : loadsPlugin(config, isPluginFile) ? null : 'add';
+        const detail = specBriefDetail(plugin, measured ? null : base);
         steps.push({ file: briefConfig, action: 'update', detail, apply: () => writeAtomic(file, stringify(merged)) });
       }
     }
@@ -381,7 +390,7 @@ export async function plan(workspace: Workspace, options: Options, io: CliIO): P
           ? holds
           : guarded === null
             ? `beside the guard hooks, ${beside.join('; ')}`
-            : `the guard hooks, run with node from the project's install: a PreToolUse hook refuses writes to protected files; a PostToolUse hook warns about writes outside the scope${beside.map((part) => `; ${part}`).join('')}${left === '' ? '' : `; ${left}`}`;
+            : `${holdsEarlierGuard(settings) ? `${GUARD_MOVED}; ` : ''}the guard hooks, run with node from the project's install: a PreToolUse hook refuses writes to protected files; a PostToolUse hook warns about writes outside the scope${beside.map((part) => `; ${part}`).join('')}${left === '' ? '' : `; ${left}`}`;
       steps.push({
         file: SETTINGS,
         action: settings === null ? 'create' : 'update',
@@ -409,7 +418,7 @@ export async function plan(workspace: Workspace, options: Options, io: CliIO): P
       steps.push({
         file: '.mcp.json',
         action: mcp === null ? 'create' : 'update',
-        detail: 'the spec-harness MCP server, run with node from the project\'s install: start_round, check_path, request_escalation, audit_round, list_rounds',
+        detail: `${holdsEarlierServer(mcp) ? `${SERVER_MOVED}: ` : ''}the spec-harness MCP server, run with node from the project's install: start_round, check_path, request_escalation, audit_round, list_rounds`,
         apply: () => writeAtomic(mcpFile, stringify(merged)),
       });
   }
@@ -418,11 +427,25 @@ export async function plan(workspace: Workspace, options: Options, io: CliIO): P
   // a linked worktree's shared hooks. It is the guard for a write the agent's
   // hooks never see, one through a shell, so it is advised when not asked
   // for; it is configuration outside the tree, so it is written only then.
-  const { hook, path: hookFile, note: hookNote } = answerOf(hookAsked);
+  const { hook, path: hookFile, note: hookNote, earlier } = answerOf(hookAsked);
   // git cannot name its hook where core.hooksPath names a file, and says so,
   // which is said here as doctor says it; git then commits with no hook.
   if (hook.state === 'unknown') {
     steps.push({ file: 'pre-commit', action: 'advise', detail: describeGitHook(hook) });
+  } else if (hook.state === 'runs' && options.gitHook && earlier === true) {
+    // The hook an earlier release of init wrote, which runs the earlier
+    // scope's script and stops every commit once that package is gone, is
+    // init's own, and is written again where asked for, as one is created.
+    const target = hookFile!;
+    steps.push({
+      file: hook.file,
+      action: 'update',
+      detail: HOOK_MOVED,
+      apply: async () => {
+        await writeAtomic(target, PRE_COMMIT);
+        await chmod(target, 0o755);
+      },
+    });
   } else if (hook.state === 'runs') {
     // A hook that runs it through npx is kept, as any hook that exists is,
     // with the line that runs it as init writes the hook now.

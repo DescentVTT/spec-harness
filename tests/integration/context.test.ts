@@ -355,7 +355,7 @@ describe('context', () => {
     // An older one answers as if the pattern were not written, exit 0. The
     // suite runs against either: the lockfile's release, and in CI's
     // `test (minimum siblings)` the oldest this package runs (ADR-0011).
-    const installed = parseVersion(String(declaredVersion(join(ROOT, 'node_modules', '@descent-vtt', 'spec-guard', 'package.json'))));
+    const installed = parseVersion(String(declaredVersion(join(ROOT, 'node_modules', '@spec-family', 'spec-guard', 'package.json'))));
     const names = installed !== null && meets(installed, { major: 0, minor: 22, patch: 0, prerelease: false });
     const SAID = "spec-guard's pattern `rfcs/*.md` matched no spec file, so a rule kept under it is not listed here; remove the pattern from spec-guard's `specs`.";
     let renamed: Repository;

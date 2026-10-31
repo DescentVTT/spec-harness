@@ -16,10 +16,10 @@
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
-const SCOPE = '@descent-vtt/';
+const SCOPE = '@spec-family/';
 
 export interface Minimum {
-  /** The package, `@descent-vtt/spec-brief`. */
+  /** The package, `@spec-family/spec-brief`. */
   readonly name: string;
   readonly version: string;
 }

@@ -82,35 +82,37 @@ describe('meeting a minimum', () => {
 
 describe('an installed sibling', () => {
   it('runs at its minimum or later', () => {
-    expect(checkVersion('spec-brief', '0.2.0')).toEqual({ ok: true, version: '0.2.0' });
-    expect(checkVersion('spec-guard', '0.12.4')).toEqual({ ok: true, version: '0.12.4' });
+    expect(checkVersion('spec-brief', '0.12.0')).toEqual({ ok: true, version: '0.12.0' });
+    expect(checkVersion('spec-guard', '0.30.4')).toEqual({ ok: true, version: '0.30.4' });
     expect(checkVersion('spec-graph', '1.0.0')).toEqual({ ok: true, version: '1.0.0' });
   });
 
   it('below its minimum is refused, naming the minimum and how to reach it', () => {
-    expect(checkVersion('spec-brief', '0.1.0')).toEqual({
+    expect(checkVersion('spec-brief', '0.11.0')).toEqual({
       ok: false,
-      version: '0.1.0',
-      reason: 'spec-brief 0.1.0 is installed here; spec-harness needs 0.2.0 or later: npm install --save-dev @descent-vtt/spec-brief@latest',
+      version: '0.11.0',
+      reason: 'spec-brief 0.11.0 is installed here; spec-harness needs 0.12.0 or later: npm install --save-dev @spec-family/spec-brief@latest',
     });
-    expect(checkVersion('spec-guard', '0.12.0-rc.1')).toEqual({
+    expect(checkVersion('spec-guard', '0.30.0-rc.1')).toEqual({
       ok: false,
-      version: '0.12.0-rc.1',
-      reason: 'spec-guard 0.12.0-rc.1 is installed here; spec-harness needs 0.12.0 or later: npm install --save-dev @descent-vtt/spec-guard@latest',
+      version: '0.30.0-rc.1',
+      reason: 'spec-guard 0.30.0-rc.1 is installed here; spec-harness needs 0.30.0 or later: npm install --save-dev @spec-family/spec-guard@latest',
     });
+    // The placeholder that holds each name under the scope, which has no code.
+    expect(checkVersion('spec-graph', '0.0.0')).toMatchObject({ ok: false, version: '0.0.0' });
   });
 
   it('with a version that cannot be read is refused as an old one is', () => {
     expect(checkVersion('spec-graph', undefined)).toEqual({
       ok: false,
       version: null,
-      reason: 'the spec-graph installed here declares no version; spec-harness needs 0.9.0 or later: npm install --save-dev @descent-vtt/spec-graph@latest',
+      reason: 'the spec-graph installed here declares no version; spec-harness needs 0.21.0 or later: npm install --save-dev @spec-family/spec-graph@latest',
     });
     expect(checkVersion('spec-graph', 9)).toMatchObject({ ok: false, version: null });
     expect(checkVersion('spec-graph', 'latest')).toEqual({
       ok: false,
       version: 'latest',
-      reason: 'the spec-graph installed here declares "latest", which is not a version; spec-harness needs 0.9.0 or later: npm install --save-dev @descent-vtt/spec-graph@latest',
+      reason: 'the spec-graph installed here declares "latest", which is not a version; spec-harness needs 0.21.0 or later: npm install --save-dev @spec-family/spec-graph@latest',
     });
   });
 

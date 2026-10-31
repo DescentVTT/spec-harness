@@ -51,16 +51,16 @@ describe('dependencies', () => {
 
   it('asks npm for the siblings at the minimums the code holds them to, spec-brief alone required', () => {
     const pkg = json('package.json');
-    expect(pkg['peerDependencies']).toEqual(Object.fromEntries(SIBLINGS.map((name) => [`@descent-vtt/${name}`, `>=${MINIMUM_VERSIONS[name]}`])));
+    expect(pkg['peerDependencies']).toEqual(Object.fromEntries(SIBLINGS.map((name) => [`@spec-family/${name}`, `>=${MINIMUM_VERSIONS[name]}`])));
     // A missing spec-graph or spec-guard is reported, never required (ADR-0002).
-    expect(pkg['peerDependenciesMeta']).toEqual({ '@descent-vtt/spec-graph': { optional: true }, '@descent-vtt/spec-guard': { optional: true } });
+    expect(pkg['peerDependenciesMeta']).toEqual({ '@spec-family/spec-graph': { optional: true }, '@spec-family/spec-guard': { optional: true } });
   });
 
   it('has a minimum for each sibling the suite installs, for CI to run the suite at (ADR-0011)', () => {
     // spec-brief and spec-guard are run for real. spec-graph is a script that
     // stands in for it in every test, so there is none to install at either end.
     expect(minimumsOf(json('package.json')['devDependencies'] as Record<string, string>, MINIMUM_VERSIONS)).toEqual(
-      (['spec-brief', 'spec-guard'] as const).map((name) => ({ name: `@descent-vtt/${name}`, version: MINIMUM_VERSIONS[name] })),
+      (['spec-brief', 'spec-guard'] as const).map((name) => ({ name: `@spec-family/${name}`, version: MINIMUM_VERSIONS[name] })),
     );
   });
 
@@ -80,7 +80,7 @@ describe('dependencies', () => {
 
   it('never imports a sibling tool, which it runs through its command line', () => {
     const everywhere = [...walk('src'), ...walk('tests')].filter((path) => /\.(?:ts|js|mjs)$/.test(path));
-    const offenders = everywhere.filter((path) => importsOf(path).some((specifier) => specifier.includes('@descent-vtt/')));
+    const offenders = everywhere.filter((path) => importsOf(path).some((specifier) => specifier.includes('@spec-family/')));
     expect(offenders).toEqual([]);
   });
 
@@ -200,6 +200,18 @@ describe('the plugin', () => {
     const marketplace = json('.claude-plugin/marketplace.json') as { plugins: { name: string; source: string; version: string }[] };
     expect(marketplace.plugins).toHaveLength(1);
     expect(marketplace.plugins[0]).toMatchObject({ name: 'spec-harness', source: './', version });
+  });
+
+  it('names what a project installs for it as the harness finds it, at the minimum, and the family as its home', () => {
+    // The hooks it brings run the project's install of this package, and spec-brief is found under the same scope alone.
+    const plugin = json('.claude-plugin/plugin.json') as { description: string; author: { name: string; url: string }; homepage: string };
+    expect(plugin.description).toContain(`@spec-family/spec-harness and @spec-family/spec-brief ${MINIMUM_VERSIONS['spec-brief']} or later installed in the project`);
+    expect(plugin.author).toEqual({ name: 'spec-family', url: 'https://github.com/spec-family' });
+    expect(plugin.homepage).toBe('https://github.com/spec-family/spec-harness');
+    const marketplace = json('.claude-plugin/marketplace.json') as { name: string; owner: unknown };
+    // The marketplace's name is half of the plugin's install id, spec-harness@spec-tools, which stays.
+    expect(marketplace.name).toBe('spec-tools');
+    expect(marketplace.owner).toEqual({ name: 'spec-family', url: 'https://github.com/spec-family' });
   });
 
   it('runs exactly the hooks init installs, before and after every writing tool, and as every session starts', () => {
@@ -338,7 +350,7 @@ describe('the README', () => {
     const written = documents.flatMap((document) => {
       // A command with the lines that continue it, as a shell joins them.
       const joined = text(document).replace(/ \\\n\s*/g, ' ');
-      const commands = [...joined.matchAll(/npx --no-install @descent-vtt\/spec-harness ([^`\n]+)/g), ...joined.matchAll(/`spec-harness ([^`\n]+)`/g), ...joined.matchAll(/spec-harness\.js ([^`\n]+)`/g)];
+      const commands = [...joined.matchAll(/npx --no-install @spec-family\/spec-harness ([^`\n]+)/g), ...joined.matchAll(/`spec-harness ([^`\n]+)`/g), ...joined.matchAll(/spec-harness\.js ([^`\n]+)`/g)];
       return commands.map((match) => ({ document, line: (match[1] as string).trim() }));
     });
     // Seventeen across the README and three of the skills; fewer would mean this no longer reads them.

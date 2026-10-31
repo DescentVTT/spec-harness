@@ -18,7 +18,7 @@ dependencies are not installed in this work tree - a fresh clone, a new
 worktree - or you are not at its root. Install them there, as with `npm ci`,
 and run the command again; if that fails, stop and tell the person.
 
-Never work around it by dropping `--no-install` or the `@descent-vtt/` in
+Never work around it by dropping `--no-install` or the `@spec-family/` in
 front of the name. Without the scope the names are not these tools: on npm
 `spec-harness` is another publisher's package, and `npx` would fetch it and
 run it.
@@ -37,8 +37,8 @@ run it.
 ## 2. Let the tools place the waves
 
 ```bash
-npx --no-install @descent-vtt/spec-brief schedule --format json     # if this version has it
-npx --no-install @descent-vtt/spec-brief matrix --all-waves         # otherwise: which pairs collide
+npx --no-install @spec-family/spec-brief schedule --format json     # if this version has it
+npx --no-install @spec-family/spec-brief matrix --all-waves         # otherwise: which pairs collide
 ```
 
 A wave may run in parallel only if no two of its briefs can name the same
@@ -48,7 +48,7 @@ narrowing a scope, by adding a `dependsOn`, or by moving a brief to a later
 wave - never by leaving it for merge time.
 
 ```bash
-npx --no-install @descent-vtt/spec-brief lint --format json         # no cycles, waves in dependency order
+npx --no-install @spec-family/spec-brief lint --format json         # no cycles, waves in dependency order
 ```
 
 ## 3. Present the plan

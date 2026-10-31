@@ -621,7 +621,7 @@ function describeClosedRound(closed: ClosedRound): string {
  * `node_modules`; `null` where none is, or its manifest gives no version.
  */
 function harnessRelease(root: string): string | null {
-  const version = declaredVersion(join(root, 'node_modules', '@descent-vtt', 'spec-harness', 'package.json'));
+  const version = declaredVersion(join(root, 'node_modules', '@spec-family', 'spec-harness', 'package.json'));
   return typeof version === 'string' ? version : null;
 }
 

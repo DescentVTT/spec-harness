@@ -1445,7 +1445,7 @@ was:
 Claude Code on this machine reads it, and no command ends on a stack or
 fails to come back for what stands where a file is read. The first and the
 third amendments of 2026-10-14 measured five things and left them.
-*Claimed* again from them (DescentVTT/spec-harness#101 and #102, "Found and
+*Claimed* again from them (spec-family/spec-harness#101 and #102, "Found and
 not fixed"): a hyphenated name in a matcher before Claude Code 2.1.195 may
 be read otherwise than `doctor` reads it; a pre-commit hook the account may
 not read, and a state directory under the git directory that is a file,
@@ -1819,7 +1819,7 @@ round, at the median with the 95th percentile between brackets
 h3=<build>`): on GitHub's Windows runner (`windows-2025-vs2026`, Node
 24.21.0, Git for Windows 2.56.0), thirty rounds, through a workflow of a
 draft pull request that measured and was closed
-(DescentVTT/spec-harness#111), where starting node to do nothing took 60
+(spec-family/spec-harness#111), where starting node to do nothing took 60
 ms; and on the Windows workstation (Node 24.18.1, Git for Windows 2.55.0),
 ten rounds, where it took 693 ms, the machine shared. main's hook answered
 the question with exit 1 and nothing else.
@@ -2436,7 +2436,7 @@ wired.
   nothing under `--strict`, and are left (below).
 - **On Windows a drive letter names its volume in either case**, by
   spec-core's ADR-0005 as amended on 2026-10-19
-  (DescentVTT/spec-core#42), which reads Microsoft's *Naming Files, Paths,
+  (spec-family/spec-core#42), which reads Microsoft's *Naming Files, Paths,
   and Namespaces* (*Naming Conventions*): two roots are compared with the
   drive letter of each resolved path in one case (`foldDrive`,
   `src/usage.ts`), and the rest of the path as resolved, since NTFS can be

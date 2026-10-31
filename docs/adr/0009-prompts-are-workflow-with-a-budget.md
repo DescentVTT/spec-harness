@@ -39,7 +39,7 @@ project's install. `--no-install` in front of the bare name was measured
 and is not enough: it stops a download, and npm still runs a copy an
 earlier fetch left in its cache, and names the other publisher's package as
 the one to install, which is what an agent would then do.
-[spec-core's ADR-0005](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0005-the-family-contract.md#names)
+[spec-core's ADR-0005](https://github.com/spec-family/spec-core/blob/main/docs/adr/0005-the-family-contract.md#names)
 has the family's rule and the measurements, under npm 10.9.9, 11.20.0 and
 12.2.0. `tests/names.test.ts` holds the skills, the README and every other
 file here to it. The four skills went from 8,404 characters to 11,885.

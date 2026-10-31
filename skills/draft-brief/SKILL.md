@@ -21,7 +21,7 @@ dependencies are not installed in this work tree - a fresh clone, a new
 worktree - or you are not at its root. Install them there, as with `npm ci`,
 and run the command again; if that fails, stop and tell the person.
 
-Never work around it by dropping `--no-install` or the `@descent-vtt/` in
+Never work around it by dropping `--no-install` or the `@spec-family/` in
 front of the name. Without the scope the names are not these tools: on npm
 `spec-harness` is another publisher's package, and `npx` would fetch it and
 run it.
@@ -29,7 +29,7 @@ run it.
 ## 1. Scaffold from the repository's own rules
 
 ```bash
-npx --no-install @descent-vtt/spec-brief new "<short title>" --type <feature|defect|refactor|chore> --wave <n>
+npx --no-install @spec-family/spec-brief new "<short title>" --type <feature|defect|refactor|chore> --wave <n>
 ```
 
 The scaffold holds every section this repository requires, each with a hint
@@ -46,8 +46,8 @@ Press hardest on the two that keep a round from wandering:
 
 - Find the files the change touches: search the code, read `git log` for
   files that change together, and, where the project's `package.json` lists
-  `@descent-vtt/spec-guard`, ask it which rules govern them:
-  `npx --no-install @descent-vtt/spec-guard query <path> --json`. A project
+  `@spec-family/spec-guard`, ask it which rules govern them:
+  `npx --no-install @spec-family/spec-guard query <path> --json`. A project
   that does not list it has no such rules to ask about.
 - Write `affectedFiles` as narrow globs (`src/auth/**`, not `src/**`). A scope
   too wide makes rounds that could run in parallel wait for each other; one
@@ -71,7 +71,7 @@ the registry has under that name, so `probe` has it stop there and the probe
 is `invalid`. Never add `--yes` to get past that. Then:
 
 ```bash
-npx --no-install @descent-vtt/spec-harness probe <id> --at base
+npx --no-install @spec-family/spec-harness probe <id> --at base
 ```
 
 `measured` means the defect is real; paste the evidence table into the
@@ -82,8 +82,8 @@ command's output, printed after the table, and fix the probe.
 ## 4. Check, then hand over
 
 ```bash
-npx --no-install @descent-vtt/spec-brief lint <id> --format json    # until it reports nothing
-npx --no-install @descent-vtt/spec-brief matrix                     # no collision with its wave
+npx --no-install @spec-family/spec-brief lint <id> --format json    # until it reports nothing
+npx --no-install @spec-family/spec-brief matrix                     # no collision with its wave
 ```
 
 Show the person the brief, the scope and the protections, and wait for their
