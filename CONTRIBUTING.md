@@ -118,7 +118,7 @@ second factor, never published from a workstation
 
 The release workflow runs CI again, packs, stages the version on npm with
 provenance and makes the GitHub release. Then a maintainer releases it with a
-second factor: `npm stage list @descent-vtt/spec-harness`,
+second factor: `npm stage list @spec-family/spec-harness`,
 `npm stage view <id>`, `npm stage approve <id>`. A prerelease (`0.2.0-rc.1`)
 is staged under the `next` dist-tag. To try the workflow without publishing,
 run it by hand from main (Actions, Release, Run workflow): it does everything
@@ -129,11 +129,13 @@ exact version in its `npm_version` input, as in
 with the pin whatever was rehearsed, and ADR-0011 says what a rehearsal does
 and does not show.
 
-### Once, before the first release
+### Once, before the first release under a name
 
 npm attaches a trusted publisher only to a package that exists, so the name is
 claimed by hand with a placeholder that has no code in it, and every version
-with code comes from the workflow.
+with code comes from the workflow. `@descent-vtt/spec-harness` was set up so
+before 0.1.0, and `@spec-family/spec-harness`, the name from 2026-10-26,
+before 0.22.0.
 
 1. **Publish the placeholder.** In an empty directory outside the repository,
    so that nothing of the work tree can be packed, write this `package.json`
@@ -141,13 +143,13 @@ with code comes from the workflow.
 
    ```json
    {
-     "name": "@descent-vtt/spec-harness",
+     "name": "@spec-family/spec-harness",
      "version": "0.0.0",
-     "description": "A placeholder that claims the name for spec-harness. It contains no code; install 0.1.0 or later.",
+     "description": "A placeholder that claims the name for spec-harness. It contains no code; install 0.22.0 or later.",
      "license": "MIT",
      "repository": {
        "type": "git",
-       "url": "git+https://github.com/DescentVTT/spec-harness.git"
+       "url": "git+https://github.com/spec-family/spec-harness.git"
      }
    }
    ```
@@ -155,23 +157,23 @@ with code comes from the workflow.
    ```bash
    npm pack --dry-run                    # one file: package.json
    npm publish --access public
-   npm view @descent-vtt/spec-harness    # 0.0.0, the latest
+   npm view @spec-family/spec-harness    # 0.0.0, the latest
    ```
 
 2. **Attach the trusted publisher.** On npmjs.com, in the package's settings,
    add a trusted publisher: GitHub Actions, repository
-   `DescentVTT/spec-harness`, workflow `release.yml`, environment `npm`.
+   `spec-family/spec-harness`, workflow `release.yml`, environment `npm`.
 3. **Close every other way in.** In the same settings, set publishing access
    to require two-factor authentication and disallow tokens. The workflow and
    a person with a second factor are then the only ways to publish.
-4. **Release 0.1.0** as above: tag the commit on main that carries it, wait
-   for the run to stage it, and approve it. The `npm` environment is created
-   in the repository by that first run; a required reviewer, if a release
-   should wait for one, goes on it.
+4. **Release 0.22.0** as above: tag the commit on main that carries it, wait
+   for the run to stage it, and approve it. The `npm` environment is the one
+   0.1.0's run created, which came with the repository when it moved; a
+   required reviewer, if a release should wait for one, goes on it.
 5. **Deprecate the placeholder** once a version with code is installable:
 
    ```bash
-   npm deprecate @descent-vtt/spec-harness@0.0.0 "A placeholder without code; install 0.1.0 or later."
+   npm deprecate @spec-family/spec-harness@0.0.0 "A placeholder without code; install 0.22.0 or later."
    ```
 
 ## Commits

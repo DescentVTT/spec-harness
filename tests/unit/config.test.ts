@@ -151,13 +151,13 @@ describe('every refusal', () => {
   it('refuses a tool command that is not a list with a first word, suggesting the form that runs on every host', () => {
     // node and the script: npx is a shim Windows cannot start without a shell, and siblings never run through one.
     const message =
-      '.spec-harness.json: "tools.spec-brief" must be a command as a list, such as ["node", "node_modules/@descent-vtt/spec-brief/bin/spec-brief.js"], or null';
+      '.spec-harness.json: "tools.spec-brief" must be a command as a list, such as ["node", "node_modules/@spec-family/spec-brief/bin/spec-brief.js"], or null';
     expect(refusal({ tools: { 'spec-brief': [] } })).toBe(message);
     expect(refusal({ tools: { 'spec-brief': ['  ', 'x'] } })).toBe(message);
     expect(refusal({ tools: { 'spec-brief': 'node x.js' } })).toBe(message);
     expect(refusal({ tools: { 'spec-brief': [1] } })).toBe(message);
     expect(refusal({ tools: { 'spec-guard': [] } })).toBe(
-      '.spec-harness.json: "tools.spec-guard" must be a command as a list, such as ["node", "node_modules/@descent-vtt/spec-guard/bin/spec-guard.js"], or null',
+      '.spec-harness.json: "tools.spec-guard" must be a command as a list, such as ["node", "node_modules/@spec-family/spec-guard/bin/spec-guard.js"], or null',
     );
   });
 });

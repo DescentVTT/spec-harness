@@ -111,7 +111,7 @@ export function formatSarif(findings: readonly Finding[], options: FormatOptions
           driver: {
             name: 'spec-harness',
             version: options.version,
-            informationUri: 'https://github.com/DescentVTT/spec-harness',
+            informationUri: 'https://github.com/spec-family/spec-harness',
             rules: ids.map((id) => ({ id, shortDescription: { text: describeRule(id) } })),
           },
         },

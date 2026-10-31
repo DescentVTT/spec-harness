@@ -550,6 +550,46 @@ left as it was:
   write, and without the field lets it go ahead. What the hook waits on
   within that minute is not changed here.
 
+*Amended 2026-10-26.* **The lines an earlier release wrote, under the scope
+the family left.** From 0.22.0 the package is `@spec-family/spec-harness`
+(ADR-0011, amended the same day), and every line `init` writes and the
+plugin brings runs
+`${CLAUDE_PROJECT_DIR}/node_modules/@spec-family/spec-harness/bin/spec-harness.js`.
+The lines 0.1.2 to 0.21.0 wrote run the same script under `@descent-vtt`,
+which no release under the new name installs or looks for. Claude Code's
+hooks reference (https://code.claude.com/docs/en/hooks, *Block the action
+when a hook fails*, read 2026-10-29) counts a command hook that cannot
+start, its script not there, as one that failed, and on most events
+carries out the action all the same; the exception it names is a
+shell-form `PreToolUse` hook on Windows without Git Bash, and these lines
+are exec form. It follows that such a line guards only while the earlier
+package is installed, and once it is uninstalled lets every write go
+ahead, where `init` writing a line once and never again had been safe.
+
+- **`init --write` rewrites them.** An entry whose command is `node` and
+  whose arguments are the earlier line's, word for word, is init's own:
+  it is rewritten where it stands, keeping its other fields
+  (`timeout`, `async`, `onFailure`), under `PreToolUse` and
+  `PostToolUse`, as 0.1's npx line was, and under `SessionStart`, which
+  0.19.0 on wrote, and `Stop`, which 0.20.0 on wrote. So is the server's
+  entry in `.mcp.json`, the spec-brief plugin's name in `.spec-brief.json`,
+  `@descent-vtt/spec-harness/spec-brief-plugin` from 0.1.2 on, which
+  spec-brief 0.12.0 stops its `lint` at exit 2 for once the package is
+  gone (measured), and, with `--git-hook`, git's pre-commit hook where it
+  is byte for byte one 0.10.0 to 0.21.0 wrote. A line with more on it, one
+  in another settings file, a hook with anything else in it and a plugin
+  named by a path are a person's, and are said, not rewritten.
+- **`doctor` says where one stands.** A line whose script ends in the
+  earlier scope's path guards while that script is there, and is said with
+  how to move it, failing nothing; where it is not there it is off, exit 1,
+  as any line whose script is gone, with the same mend. git's hook and the
+  plugin's earlier name are noted the same way. The plugin's own hooks are
+  still not read: a plugin user installs the new package in each project
+  the plugin guards before taking the release that names it.
+- **`tests/integration/released-lines.test.ts` keeps the earlier lines**
+  beside the new ones, as data, and runs the rewritten entries as Claude
+  Code starts them.
+
 ## Consequences
 
 - A plugin turned on by managed settings or `--settings` is invisible to

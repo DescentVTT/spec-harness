@@ -17,7 +17,7 @@ already print.
 **Command lines and versioned JSON, never imports** (spec-core ADR-0005).
 
 - A sibling is found as the repository installed it,
-  `node_modules/@descent-vtt/<tool>/bin/<tool>.js`, run with the current
+  `node_modules/@spec-family/<tool>/bin/<tool>.js`, run with the current
   Node - or as `tools` in `.spec-harness.json` names it. Never through a
   shell: a brief id or a path is an argument, not syntax.
 - A JSON document is read only at a `schemaVersion` this release knows. An
@@ -478,7 +478,7 @@ brackets (`h24-bench.mjs <work> <rounds> <out.json> main=<build>
 h2=<build> h3=<build>`). On GitHub's Windows runner (`windows-2025-vs2026`,
 Node 24.21.0, Git for Windows 2.56.0, four cores), thirty rounds, through a
 workflow of a draft pull request that measured and was closed
-(DescentVTT/spec-harness#111), where starting node to do nothing took 60
+(spec-family/spec-harness#111), where starting node to do nothing took 60
 ms; and on the Windows workstation (Node 24.18.1, Git for Windows 2.55.0,
 sixteen threads), ten rounds, where it took 693 ms, the machine shared:
 
@@ -519,7 +519,7 @@ spec-core's ADR-0005, amended 2026-10-19, has a tool give another's answer
 again without starting it where that answer named everything it was read
 from and each reads as listed, and start the other on any doubt. spec-brief
 names it in `list --format json` as `inputs`, built at the same time
-(DescentVTT/spec-brief#69): `keep`, the version that answered as `tool`,
+(spec-family/spec-brief#69): `keep`, the version that answered as `tool`,
 each file read with the SHA-256 of its bytes or `null` where it was looked
 for and was not there, each directory listed with the names of the files in
 it, or `entries: null` where it was looked for and was not there, which the
@@ -567,7 +567,7 @@ an absolute one as it stands.
   Keeping an answer is passed over where it fails, which changes nothing of
   the answer given.
 - **What spec-brief does not keep, `keep: false`, is never kept here**:
-  DescentVTT/spec-brief#69 says so where its root is not the directory it
+  spec-family/spec-brief#69 says so where its root is not the directory it
   was started in and where no configuration file names the root, so that
   git or the search above the root decides it.
 - **What is left as it was.** A spec-brief changed in place under the
@@ -576,7 +576,7 @@ an absolute one as it stands.
   session lasts. Verified rulings are not kept by this change.
 
 *Measured* through the launchers of main and of this change, with
-spec-brief's main at 716da8d, where DescentVTT/spec-brief#69 merged, built
+spec-brief's main at 716da8d, where spec-family/spec-brief#69 merged, built
 and installed, and spec-brief 0.9.0 beside them for the release, the three
 taking turns inside each round, ten rounds at the median with the 95th
 percentile between brackets, on the Windows workstation, where starting node
@@ -600,7 +600,7 @@ spec-brief's `list` alone took 760 ms (836) for 0.9.0, and 722 (785) and
 
 On GitHub's Windows runner (`windows-2025-vs2026`), thirty rounds, through a
 workflow of a draft pull request that measured and was closed
-(DescentVTT/spec-harness#124), where starting node to do nothing took 59 ms
+(spec-family/spec-harness#124), where starting node to do nothing took 59 ms
 (Node 24.21.0, Git for Windows 2.56.0, four cores):
 
 | The hook | main, spec-brief 0.9.0 | main, spec-brief 716da8d | This change, 716da8d |
@@ -617,7 +617,7 @@ spec-brief's `list` alone took 173 ms (182) for 0.9.0 and 133 (139) for
 716da8d.
 
 Measured first against #69's head at 2524903, through the draft
-DescentVTT/spec-harness#116, this change took 162 ms before an Edit in the
+spec-family/spec-harness#116, this change took 162 ms before an Edit in the
 scope on the runner where main took 285 with that spec-brief and 325 with
 0.9.0, and 944 ms on the workstation where main took 1,785 and 1,910.
 
@@ -630,7 +630,7 @@ finds what it reads changed starts spec-brief and keeps the new answer.
 
 Every answer the hook gives is the one it gave. Each line of the hook the
 amendments of ADR-0005 measured was run through both builds, with
-DescentVTT/spec-brief#69 installed so that answers are kept and given again,
+spec-family/spec-brief#69 installed so that answers are kept and given again,
 in one session, before seven writes and after each, as the session starts,
 and git's hook beside them, and again after each of seven changes to what an
 answer is read from, made by no hook: the brief's bytes, a brief added, a
@@ -723,7 +723,7 @@ go ahead.
   runner the hook as a session starts on a brief's branch, a write's check
   without the write, two of git's starts and spec-brief's list, took 325 ms
   at the median (ADR-0005, the fourth amendment of 2026-10-18,
-  DescentVTT/spec-harness#111). The limit is twenty times the slowest here
+  spec-family/spec-harness#111). The limit is twenty times the slowest here
   and some sixty times the whole hook there.
 - **Only a regular file is read where a file is expected** (`isFile`,
   `src/fs.ts`), as `.spec-harness.json` and the settings files were from
@@ -933,6 +933,18 @@ So the claim holds, and Linux said less than it could as well.
   and a `#!` line starts with no `node` before it, and is run as before;
   the example the answer gives starts with `node`, which works on every
   host.
+
+*Amended 2026-10-26.* **A sibling is found under `@spec-family` alone.** The
+family's packages moved to that scope that day
+([spec-core's ADR-0005](https://github.com/spec-family/spec-core/blob/main/docs/adr/0005-the-family-contract.md#names),
+amended 2026-10-26), and no release under it looks for an `@descent-vtt`
+package. So a sibling is found as
+`node_modules/@spec-family/<tool>/bin/<tool>.js`, or as `tools` names it,
+and every hint that names a package to install names
+`@spec-family/<tool>`. A project with only the earlier packages has
+no sibling here, and is told so as it would be with none; a command it
+named under `tools` with the earlier path runs as named, as before. The
+minimums move with the scope (ADR-0011, amended the same day).
 
 ## Consequences
 

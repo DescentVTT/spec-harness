@@ -245,13 +245,13 @@ describe('init', () => {
   it('advises installing spec-brief when it is not there to ask', async () => {
     const repo = repository({}, null);
     const result = await cli(['init'], repo.root);
-    expect(result.stdout).toContain('advise  .spec-brief.json\n        spec-brief is not installed here: npm install --save-dev @descent-vtt/spec-brief');
+    expect(result.stdout).toContain('advise  .spec-brief.json\n        spec-brief is not installed here: npm install --save-dev @spec-family/spec-brief');
   });
 
   it('advises upgrading a sibling older than this release runs, and runs nothing of it', async () => {
     const repo = repository({}, null);
     installFake(repo.root, 'spec-brief', JSON.stringify({ version: '0.1.0' }));
-    installFake(repo.root, 'spec-graph', JSON.stringify({ version: '0.8.0' }));
+    installFake(repo.root, 'spec-graph', JSON.stringify({ version: '0.20.0' }));
     const result = await cli(['init', '--write', '--format', 'json'], repo.root);
     expect(result.code).toBe(0);
     const steps = parsed<{ steps: Step[] }>(result).steps;
@@ -259,12 +259,12 @@ describe('init', () => {
       {
         file: '.spec-brief.json',
         action: 'advise',
-        detail: 'spec-brief 0.1.0 is installed here; spec-harness needs 0.2.0 or later: npm install --save-dev @descent-vtt/spec-brief@latest',
+        detail: 'spec-brief 0.1.0 is installed here; spec-harness needs 0.12.0 or later: npm install --save-dev @spec-family/spec-brief@latest',
       },
       {
         file: '.spec-graph.json',
         action: 'advise',
-        detail: 'spec-graph 0.8.0 is installed here; spec-harness needs 0.9.0 or later: npm install --save-dev @descent-vtt/spec-graph@latest',
+        detail: 'spec-graph 0.20.0 is installed here; spec-harness needs 0.21.0 or later: npm install --save-dev @spec-family/spec-graph@latest',
       },
     ]);
     expect(existsSync(join(repo.root, '.spec-brief.json'))).toBe(false);
@@ -432,7 +432,7 @@ describe('init', () => {
 
     const other = repository({});
     other.write('.git/hooks/pre-commit', '#!/bin/sh\nnpm test\n');
-    const line = 'advise  .git/hooks/pre-commit\n        a pre-commit hook exists; add the line "node node_modules/@descent-vtt/spec-harness/bin/spec-harness.js hook git" to it\n';
+    const line = 'advise  .git/hooks/pre-commit\n        a pre-commit hook exists; add the line "node node_modules/@spec-family/spec-harness/bin/spec-harness.js hook git" to it\n';
     expect((await cli(['init', '--git-hook', '--write'], other.root)).stdout).toContain(line);
     expect((await cli(['init', '--write'], other.root)).stdout).toContain(line);
     expect(other.read('.git/hooks/pre-commit')).toBe('#!/bin/sh\nnpm test\n');
@@ -512,7 +512,7 @@ describe('init', () => {
       installHarness(repo.root);
       const hook = join(repo.root, '.git', 'hooks', 'pre-commit');
       mkdirSync(join(repo.root, '.git', 'hooks'), { recursive: true });
-      writeFileSync(hook, `#!/bin/sh\nexec node ${'node_modules/@descent-vtt/spec-harness/bin/spec-harness.js'} hook git\n`);
+      writeFileSync(hook, `#!/bin/sh\nexec node ${'node_modules/@spec-family/spec-harness/bin/spec-harness.js'} hook git\n`);
       const reason = `EACCES: permission denied, open '${hook}'`;
       // Not executable: git skips it with a hint and commits, as it skips any hook it may not execute.
       chmodSync(hook, 0o000);
@@ -615,11 +615,11 @@ describe('init', () => {
   });
 
   it('keeps a spec-brief configuration that loads the plugin by a path to its file, and adds no second one', async () => {
-    const repo = repository({ '.spec-brief.json': JSON.stringify({ plugins: ['./node_modules/@descent-vtt/spec-harness/plugin.js'], archiving: { base: 'main' } }) });
+    const repo = repository({ '.spec-brief.json': JSON.stringify({ plugins: ['./node_modules/@spec-family/spec-harness/plugin.js'], archiving: { base: 'main' } }) });
     installHarness(repo.root);
     const result = await cli(['init', '--write'], repo.root);
     expect(result.stdout).toContain("keep    .spec-brief.json\n        spec-harness's plugin is loaded, and the archive is measured from main\n");
-    expect(JSON.parse(repo.read('.spec-brief.json')).plugins).toEqual(['./node_modules/@descent-vtt/spec-harness/plugin.js']);
+    expect(JSON.parse(repo.read('.spec-brief.json')).plugins).toEqual(['./node_modules/@spec-family/spec-harness/plugin.js']);
     // A path to another file is another plugin.
     const other = repository({ '.spec-brief.json': JSON.stringify({ plugins: ['./tools/plugin.js'] }) });
     installHarness(other.root);
@@ -693,7 +693,7 @@ describe('init', () => {
   });
 
   describe("beside a line of Claude Code's hook that init did not write (ADR-0005)", () => {
-    const SCRIPT = '${CLAUDE_PROJECT_DIR}/node_modules/@descent-vtt/spec-harness/bin/spec-harness.js';
+    const SCRIPT = '${CLAUDE_PROJECT_DIR}/node_modules/@spec-family/spec-harness/bin/spec-harness.js';
     const MATCHER = 'Edit|Write|MultiEdit|NotebookEdit';
     const line = (...rest: string[]) => ({ type: 'command', command: 'node', args: [SCRIPT, 'hook', 'claude', ...rest] });
     const under = (matcher: string, hook: unknown) => ({ matcher, hooks: [hook] });

@@ -7,6 +7,11 @@
  * archive refuses a protected file a signed ruling allows. It is reported with
  * the minimum instead, as a missing sibling is reported (ADR-0002, ADR-0011).
  *
+ * A sibling is looked for under `@spec-family` alone, and each minimum is its
+ * first release there, from 2026-10-26 (spec-core's ADR-0005, Names): the
+ * versions before it there are placeholders with no code. Each is later than
+ * the release the reason beside it names, and has what that one brought.
+ *
  * package.json says the same minimums to npm as `peerDependencies`; a test
  * holds the two together. So is the oldest Claude Code that runs the hooks,
  * which doctor measures the one on `PATH` against.
@@ -15,15 +20,16 @@
 import type { SiblingName } from './config.js';
 
 export const MINIMUM_VERSIONS: Readonly<Record<SiblingName, string>> = {
-  // The plugin `waive` hook, through which spec-brief's archive accepts a
-  // protected file that a signed ruling allows.
-  'spec-brief': '0.2.0',
-  // An archived brief read as a record, as init configures it, where an older
-  // release reads it as retired and what depends on it as a stale premise.
-  'spec-graph': '0.9.0',
+  // The plugin `waive` hook, from 0.2.0, through which spec-brief's archive
+  // accepts a protected file that a signed ruling allows.
+  'spec-brief': '0.12.0',
+  // An archived brief read as a record, as init configures it, from 0.9.0,
+  // where an older release reads it as retired and what depends on it as a
+  // stale premise.
+  'spec-graph': '0.21.0',
   // Scopes read with the spec-core globs the harness reads them with, and an
-  // archived brief's assertions withheld rather than run.
-  'spec-guard': '0.12.0',
+  // archived brief's assertions withheld rather than run, from 0.12.0.
+  'spec-guard': '0.30.0',
 };
 
 export interface Version {
@@ -61,7 +67,7 @@ export type VersionCheck =
  */
 export function checkVersion(name: SiblingName, declared: unknown): VersionCheck {
   const minimum = MINIMUM_VERSIONS[name];
-  const needs = `spec-harness needs ${minimum} or later: npm install --save-dev @descent-vtt/${name}@latest`;
+  const needs = `spec-harness needs ${minimum} or later: npm install --save-dev @spec-family/${name}@latest`;
   if (typeof declared !== 'string') return { ok: false, version: null, reason: `the ${name} installed here declares no version; ${needs}` };
   const parsed = parseVersion(declared);
   if (parsed === null) return { ok: false, version: declared, reason: `the ${name} installed here declares "${declared}", which is not a version; ${needs}` };

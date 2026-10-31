@@ -16,7 +16,7 @@ import { parseOptions, type CliIO } from '../../src/workspace.js';
 
 const HERE = dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'));
 const ROOT = join(HERE, '..', '..');
-const BIN = (tool: string): string => join(ROOT, 'node_modules', '@descent-vtt', tool, 'bin', `${tool}.js`).replace(/\\/g, '/');
+const BIN = (tool: string): string => join(ROOT, 'node_modules', '@spec-family', tool, 'bin', `${tool}.js`).replace(/\\/g, '/');
 
 const made: string[] = [];
 afterEach(() => {

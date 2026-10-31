@@ -17,8 +17,8 @@ import type { SiblingName } from '../../src/config.js';
 
 export const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 export const BIN = join(ROOT, 'bin', 'spec-harness.js');
-export const SPEC_BRIEF = join(ROOT, 'node_modules', '@descent-vtt', 'spec-brief', 'bin', 'spec-brief.js');
-export const SPEC_GUARD = join(ROOT, 'node_modules', '@descent-vtt', 'spec-guard', 'bin', 'spec-guard.js');
+export const SPEC_BRIEF = join(ROOT, 'node_modules', '@spec-family', 'spec-brief', 'bin', 'spec-brief.js');
+export const SPEC_GUARD = join(ROOT, 'node_modules', '@spec-family', 'spec-guard', 'bin', 'spec-guard.js');
 
 /** Native, which expands Windows short names (`RUNNER~1`) as git does, so paths compare. */
 const TEMP = realpathSync.native(tmpdir());
@@ -155,7 +155,7 @@ export function repository(files: Readonly<Record<string, string>> = {}, config:
 
 /** This repository's copy of a sibling, installed into `root` where `locate()` looks for it. */
 export function install(root: string, name: 'spec-brief' | 'spec-guard'): void {
-  cpSync(join(ROOT, 'node_modules', '@descent-vtt', name), join(root, 'node_modules', '@descent-vtt', name), { recursive: true });
+  cpSync(join(ROOT, 'node_modules', '@spec-family', name), join(root, 'node_modules', '@spec-family', name), { recursive: true });
 }
 
 /**
@@ -165,10 +165,10 @@ export function install(root: string, name: 'spec-brief' | 'spec-guard'): void {
  */
 export function installHarness(root: string): void {
   if (!existsSync(join(ROOT, 'dist', 'plugin.js'))) throw new Error('dist/plugin.js is missing: run "npm run build" before the suite');
-  const directory = join(root, 'node_modules', '@descent-vtt', 'spec-harness');
+  const directory = join(root, 'node_modules', '@spec-family', 'spec-harness');
   const url = (path: string): string => JSON.stringify(pathToFileURL(join(ROOT, path)).href);
   mkdirSync(join(directory, 'bin'), { recursive: true });
-  const manifest = { name: '@descent-vtt/spec-harness', type: 'module', exports: { './spec-brief-plugin': './plugin.js', './package.json': './package.json' } };
+  const manifest = { name: '@spec-family/spec-harness', type: 'module', exports: { './spec-brief-plugin': './plugin.js', './package.json': './package.json' } };
   writeFileSync(join(directory, 'package.json'), `${JSON.stringify(manifest)}\n`);
   writeFileSync(join(directory, 'bin', 'spec-harness.js'), `await import(${url('bin/spec-harness.js')});\n`);
   writeFileSync(join(directory, 'plugin.js'), `export { default, waive } from ${url('dist/plugin.js')};\n`);
@@ -180,7 +180,7 @@ export function installHarness(root: string): void {
  * `null`, for measuring how an installed version is read.
  */
 export function installFake(root: string, name: SiblingName, manifest: string | null): string {
-  const directory = join(root, 'node_modules', '@descent-vtt', name);
+  const directory = join(root, 'node_modules', '@spec-family', name);
   mkdirSync(join(directory, 'bin'), { recursive: true });
   writeFileSync(join(directory, 'bin', `${name}.js`), '');
   if (manifest !== null) writeFileSync(join(directory, 'package.json'), manifest);

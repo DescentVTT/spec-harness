@@ -28,6 +28,7 @@ import {
   hooksDisabled,
   HOSTED_REGISTRY,
   isStarted,
+  loadsEarlierPlugin,
   loadsPlugin,
   MARKETPLACE_REGISTRY,
   matchingUnder,
@@ -376,7 +377,7 @@ function realFile(path: string): string | null {
  * read as another plugin would say the archive cannot accept a ruling it can.
  */
 export function pluginFile(root: string): (path: string) => boolean {
-  const installed = join(root, 'node_modules', '@descent-vtt', 'spec-harness');
+  const installed = join(root, 'node_modules', '@spec-family', 'spec-harness');
   const candidates: string[] = [fileURLToPath(new URL('../dist/plugin.js', import.meta.url))];
   try {
     // A manifest with no exports, or none for the plugin, throws in `join`
@@ -409,7 +410,9 @@ export async function specBriefPlugin(root: string): Promise<PluginState> {
   // The file was found a moment ago, so null is one removed in between, and
   // reads as the unreadable one it has become.
   if (config === null || config === 'unreadable') return { kind: 'unreadable', file };
-  return { kind: loadsPlugin(config, pluginFile(root)) ? 'loaded' : 'not-loaded', file };
+  // One that names the plugin by its name now loads it, whatever else it
+  // names; one that names it by an earlier release's name alone is said so.
+  return { kind: loadsPlugin(config, pluginFile(root)) ? 'loaded' : loadsEarlierPlugin(config) ? 'earlier' : 'not-loaded', file };
 }
 
 /** Claude Code's configuration directory, where it is known: `CLAUDE_CONFIG_DIR`, otherwise `.claude` under the home directory it uses. */

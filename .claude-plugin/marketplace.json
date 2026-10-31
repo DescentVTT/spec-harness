@@ -1,8 +1,8 @@
 {
   "name": "spec-tools",
   "owner": {
-    "name": "DescentVTT",
-    "url": "https://github.com/DescentVTT"
+    "name": "spec-family",
+    "url": "https://github.com/spec-family"
   },
   "description": "The spec-* tools for agents: briefs, guards, audits and rulings.",
   "plugins": [

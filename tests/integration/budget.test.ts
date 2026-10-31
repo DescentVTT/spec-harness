@@ -81,7 +81,7 @@ describe("a run of Claude Code's hook, which has one budget", () => {
 
   it("is said by doctor of an entry whose timeout is below it, and of none that gives it as much", async () => {
     const repo = project(0);
-    const entry = (timeout: number) => ({ matcher: 'Edit|Write|MultiEdit|NotebookEdit', hooks: [{ type: 'command', command: 'node', args: ['${CLAUDE_PROJECT_DIR}/node_modules/@descent-vtt/spec-harness/bin/spec-harness.js', 'hook', 'claude'], timeout }] });
+    const entry = (timeout: number) => ({ matcher: 'Edit|Write|MultiEdit|NotebookEdit', hooks: [{ type: 'command', command: 'node', args: ['${CLAUDE_PROJECT_DIR}/node_modules/@spec-family/spec-harness/bin/spec-harness.js', 'hook', 'claude'], timeout }] });
     const settings = (before: number, after: number) => repo.write('.claude/settings.json', `${JSON.stringify({ hooks: { PreToolUse: [entry(before)], PostToolUse: [entry(after)] } }, null, 2)}\n`);
     settings(2, 60);
     const noted = await cli(['doctor'], repo.root);

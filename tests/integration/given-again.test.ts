@@ -105,13 +105,13 @@ interface Fake {
 }
 
 function spec(root: string): string {
-  return join(root, 'node_modules', '@descent-vtt', 'spec-brief');
+  return join(root, 'node_modules', '@spec-family', 'spec-brief');
 }
 
 /** The test's spec-brief, installed into `root` at `version`, answering as `fake` says. */
-function installFake(root: string, fake: Fake = {}, version = '0.10.0'): void {
+function installFake(root: string, fake: Fake = {}, version = '0.12.0'): void {
   mkdirSync(join(spec(root), 'bin'), { recursive: true });
-  writeFileSync(join(spec(root), 'package.json'), `${JSON.stringify({ name: '@descent-vtt/spec-brief', version })}\n`);
+  writeFileSync(join(spec(root), 'package.json'), `${JSON.stringify({ name: '@spec-family/spec-brief', version })}\n`);
   writeFileSync(join(spec(root), 'bin', 'spec-brief.js'), FAKE);
   writeFileSync(join(spec(root), 'fake.json'), `${JSON.stringify(fake)}\n`);
 }
@@ -287,7 +287,7 @@ describe("spec-brief's answer, kept for a session", () => {
   it('is kept for the spec-brief that answered, by its version, and for no command the configuration names', async () => {
     const repo = project();
     expect(await before(repo, 'src/db/schema.ts')).toBe('refused');
-    writeFileSync(join(spec(repo.root), 'package.json'), `${JSON.stringify({ name: '@descent-vtt/spec-brief', version: '0.10.1' })}\n`);
+    writeFileSync(join(spec(repo.root), 'package.json'), `${JSON.stringify({ name: '@spec-family/spec-brief', version: '0.12.1' })}\n`);
     expect(await before(repo, 'src/db/schema.ts')).toBe('refused');
     expect(starts(repo.root)).toBe(2);
     expect(await before(repo, 'src/db/schema.ts')).toBe('refused');

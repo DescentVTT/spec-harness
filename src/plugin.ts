@@ -10,7 +10,7 @@
  * as `spec-harness init` writes it:
  *
  * ```json
- * { "plugins": ["@descent-vtt/spec-harness/spec-brief-plugin"] }
+ * { "plugins": ["@spec-family/spec-harness/spec-brief-plugin"] }
  * ```
  *
  * It waives a `protected-file` refusal for a path a verified `allow` ruling

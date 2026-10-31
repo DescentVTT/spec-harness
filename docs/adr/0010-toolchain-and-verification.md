@@ -264,7 +264,7 @@ runner asks for the tests of a mutant by names joined with a space
 ([stryker-js #6210](https://github.com/stryker-mutator/stryker-js/issues/6210),
 open). The evidence is spec-guard's, which met this on 2026-09-07 and pinned
 vitest then
-([its ADR-0003](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0003-mutation-testing.md)).
+([its ADR-0003](https://github.com/spec-family/spec-guard/blob/main/docs/adr/0003-mutation-testing.md)).
 On 2026-10-06 Dependabot proposed vitest 5.0.0 (pull request 45), and the
 core sweep measured it:
 
@@ -284,7 +284,7 @@ bump made by hand fails `npm test` with its reason. Minors and patches of 4
 still come, and a security update is not held back.
 
 The hold is the family's and is lifted in spec-core first, by the steps in
-[its ADR-0008](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0008-toolchain.md)
+[its ADR-0008](https://github.com/spec-family/spec-core/blob/main/docs/adr/0008-toolchain.md)
 (amended 2026-10-07), which also records what vitest 4 still receives while
 it is held. When the bump comes here, its pull request's core sweep
 measures it; dispatch `mutation.yml` on the branch as well, for the modules
@@ -1056,7 +1056,7 @@ newest report, and that amendment has it expiring fourteen days after its
 run. The workflow does not say so: the upload of the merged report names no
 `retention-days`, and the fourteen days are the repository's setting, read
 on 2026-10-14 from GitHub's API as 14 days, with 14 the most that may be set
-(`gh api repos/DescentVTT/spec-harness/actions/permissions/artifact-and-log-retention`).
+(`gh api repos/spec-family/spec-harness/actions/permissions/artifact-and-log-retention`).
 From GitHub's documentation as read the same day:
 
 - *Store and share data with workflow artifacts*, under *Configuring a

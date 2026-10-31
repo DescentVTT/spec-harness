@@ -306,7 +306,7 @@ describe('probe', () => {
  * it, the answer is that there is no such package.
  */
 describe('a probe whose command starts a tool through npx, by a name the project has not installed', () => {
-  const NAME = '@descent-vtt/no-such-probe-tool';
+  const NAME = '@spec-family/no-such-probe-tool';
   const FETCHED = 'SPEC_HARNESS_TEST_FETCHED';
   // The package's command says that it ran, in a file and in what it prints, and fails as a probe's command does.
   const SCRIPT = `require('node:fs').writeFileSync(process.env.${FETCHED}, 'ran'); console.log('FETCHED AND RAN'); process.exit(1);`;
@@ -349,7 +349,7 @@ describe('a probe whose command starts a tool through npx, by a name the project
     expect(run).toMatchObject({ outcome: 'wrong-failure', detail: 'the command exited 1 and its output does not contain "FETCHED AND RAN"' });
     // npm reached the registry, was told of the package, and stopped there: its reason is what the person is shown.
     expect(asked).toContain(`GET /${NAME}`);
-    expect(run?.output).toMatch(/npx canceled due to missing packages.*@descent-vtt\/no-such-probe-tool@9\.9\.9/);
+    expect(run?.output).toMatch(/npx canceled due to missing packages.*@spec-family\/no-such-probe-tool@9\.9\.9/);
   });
 
   it('fetches where the line itself says `--yes`: the line is the person\'s, approved with the brief', async () => {

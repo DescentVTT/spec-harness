@@ -143,7 +143,7 @@ describe('SARIF', () => {
     expect(document.$schema).toBe('https://json.schemastore.org/sarif-2.1.0.json');
     expect(document.version).toBe('2.1.0');
     const driver = document.runs[0]?.tool.driver;
-    expect(driver).toMatchObject({ name: 'spec-harness', version: '9.9.9', informationUri: 'https://github.com/DescentVTT/spec-harness' });
+    expect(driver).toMatchObject({ name: 'spec-harness', version: '9.9.9', informationUri: 'https://github.com/spec-family/spec-harness' });
     expect(driver?.rules).toEqual([
       { id: 'archive/protected-file', shortDescription: { text: "A reason spec-brief's archive gives: protected-file." } },
       { id: 'goal-failed', shortDescription: { text: RULES['goal-failed'] } },

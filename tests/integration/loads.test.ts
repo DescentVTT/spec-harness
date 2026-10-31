@@ -96,7 +96,7 @@ const hook = (repo: Repository, event: string, path: string, options: { readonly
 
 /** The settings of a project whose writes Claude Code hands to the hook, as `init` writes the entry. */
 const WIRED = JSON.stringify({
-  hooks: { PreToolUse: [{ matcher: 'Edit|Write', hooks: [{ type: 'command', command: 'node', args: ['${CLAUDE_PROJECT_DIR}/node_modules/@descent-vtt/spec-harness/bin/spec-harness.js', 'hook', 'claude'], timeout: 60 }] }] },
+  hooks: { PreToolUse: [{ matcher: 'Edit|Write', hooks: [{ type: 'command', command: 'node', args: ['${CLAUDE_PROJECT_DIR}/node_modules/@spec-family/spec-harness/bin/spec-harness.js', 'hook', 'claude'], timeout: 60 }] }] },
 });
 
 const RULINGS = ['## Rulings', '', '| id | paths | decision | note |', '| --- | --- | --- | --- |'];

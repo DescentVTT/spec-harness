@@ -47,7 +47,7 @@ describe.skipIf(!hasSshKeygen())('a round from init to the archive (needs ssh-ke
     const init = await cli(['init', '--write'], repo.root);
     expect(init.code).toBe(0);
     expect(JSON.parse(repo.read('.spec-harness.json'))).toEqual({ base: 'main' });
-    expect(JSON.parse(repo.read('.spec-brief.json')).plugins).toEqual(['@descent-vtt/spec-harness/spec-brief-plugin']);
+    expect(JSON.parse(repo.read('.spec-brief.json')).plugins).toEqual(['@spec-family/spec-harness/spec-brief-plugin']);
     const person = signingKey(temp());
     repo.write('.github/allowed_signers', person.signers);
     // The heading as spec-brief new writes it, with an em dash after the id.

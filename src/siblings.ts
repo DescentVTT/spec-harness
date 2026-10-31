@@ -6,7 +6,7 @@
  * becomes a dependency of this one (spec-core ADR-0005, ADR-0002 here).
  *
  * A sibling is found as the repository installed it -
- * `node_modules/@descent-vtt/<name>/bin/<name>.js`, run with this Node - or
+ * `node_modules/@spec-family/<name>/bin/<name>.js`, run with this Node - or
  * as `.spec-harness.json` names it. One that is not there is `absent`, and
  * what needed it says so; nothing it would have checked is reported clean.
  * One installed below this release's minimum is `outdated`, and is reported
@@ -57,7 +57,7 @@ export function locate(name: SiblingName, root: string, config: HarnessConfig, i
   const configured = config.tools[name];
   if (configured !== null) return { kind: 'found', command: configured, version: null };
   for (const place of [root, ...installs]) {
-    const directory = join(place, 'node_modules', '@descent-vtt', name);
+    const directory = join(place, 'node_modules', '@spec-family', name);
     const bin = join(directory, 'bin', `${name}.js`);
     if (!existsSync(bin)) continue;
     const check = checkVersion(name, declaredVersion(join(directory, 'package.json')));
@@ -67,7 +67,7 @@ export function locate(name: SiblingName, root: string, config: HarnessConfig, i
   }
   return {
     kind: 'absent',
-    reason: `${name} is not installed here: npm install --save-dev @descent-vtt/${name}, or name its command under "tools" in .spec-harness.json`,
+    reason: `${name} is not installed here: npm install --save-dev @spec-family/${name}, or name its command under "tools" in .spec-harness.json`,
   };
 }
 
@@ -111,7 +111,7 @@ export function runSibling(name: string, command: readonly string[], args: reado
   const unstarted: SiblingRun = {
     code: -1,
     stdout: '',
-    stderr: `cannot start "${first}": name the tool's script, such as ["node", "node_modules/@descent-vtt/<tool>/bin/<tool>.js"]`,
+    stderr: `cannot start "${first}": name the tool's script, such as ["node", "node_modules/@spec-family/<tool>/bin/<tool>.js"]`,
   };
   return new Promise((resolve, reject) => {
     try {

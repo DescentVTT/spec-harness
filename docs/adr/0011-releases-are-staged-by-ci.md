@@ -202,16 +202,50 @@ end. So npmjs.com does give a rehearsal dispatched from main a token.
 spec-guard's ADR-0019 has the same day's dry run under 12.2.0, which read the
 same as far as a dry run goes.
 
+*Amended 2026-10-26.* From 0.22.0 the package is `@spec-family/spec-harness`,
+published from the repository `spec-family/spec-harness`: that day the family
+moved to a GitHub organization and an npm scope of its own, and its versions
+go on under the new names
+([spec-core's ADR-0005](https://github.com/spec-family/spec-core/blob/main/docs/adr/0005-the-family-contract.md#names),
+amended 2026-10-26). 0.1.0 to 0.21.0 were published as
+`@descent-vtt/spec-harness` from `DescentVTT/spec-harness`, and keep that
+name on the registry. The new name has its own placeholder, `0.0.0`, and its
+own trusted publisher on npmjs.com, for the repository
+`spec-family/spec-harness`, the workflow `release.yml` and the environment
+`npm`, which a maintainer configures once this change has merged.
+
+**The minimums are each sibling's first release under the new scope.** No
+release under `@spec-family` looks for an `@descent-vtt` package, so the
+harness finds a sibling in `node_modules/@spec-family/<name>` alone, and
+the oldest release with code there is the one the move published:
+
+| Sibling | Minimum | Was |
+| --- | --- | --- |
+| spec-brief, required | 0.12.0 | 0.2.0 |
+| spec-graph, optional | 0.21.0 | 0.9.0 |
+| spec-guard, optional | 0.30.0 | 0.12.0 |
+
+Each is later than the release the table above gives a reason for, and has
+what it brought. Below them the scope holds a placeholder with no code,
+`0.0.0`, and a `0.0.0-stage` of the same kind, read on npm on 2026-10-29.
+Raising the minimums turns no project away that could have run: a project
+with `@descent-vtt` siblings alone has none this release looks for, and
+`doctor` names each as not installed, with `npm install --save-dev
+@spec-family/<name>`. `devDependencies` hold spec-brief and spec-guard at
+`^0.12.0` and `^0.30.0`, their newest releases, so CI's
+`test (minimum siblings)` job installs what the lockfile does until a later
+one is published.
+
 ## Consequences
 
 - A maintainer sets up npmjs.com once: publish the placeholder; in the
   package's settings add a trusted publisher - GitHub Actions, repository
-  `DescentVTT/spec-harness`, workflow `release.yml`, environment `npm`; then
+  `spec-family/spec-harness`, workflow `release.yml`, environment `npm`; then
   set publishing access to require two-factor authentication and disallow
   tokens, which leaves this workflow and a person with a second factor as
   the only ways to publish. `CONTRIBUTING.md` has the steps.
 - **A maintainer approves each release**: `npm stage list
-  @descent-vtt/spec-harness`, `npm stage view <id>`, then `npm stage approve
+  @spec-family/spec-harness`, `npm stage view <id>`, then `npm stage approve
   <id>` with a second factor, or the Staged Packages tab on npmjs.com. The
   tag's run ends with those commands in its summary.
 - The `npm` environment in the repository's settings is where a required

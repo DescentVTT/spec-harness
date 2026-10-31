@@ -7,7 +7,74 @@ code, a flag, key or field renamed or removed, each deprecated with a warning
 for a minor release first - and brings new features, while a patch release
 only fixes, reports less or documents, so `^0.7.0` takes only releases that
 cannot turn a run red. The family's policy is
-[spec-core's ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
+[spec-core's ADR-0009](https://github.com/spec-family/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
+
+## Unreleased
+
+### Changed
+
+- **Published as `@spec-family/spec-harness`, from
+  `spec-family/spec-harness`, and every sibling found under
+  `@spec-family` alone.** The family moved to a GitHub organization and an
+  npm scope of its own on 2026-10-26, and versions go on from 0.21.0 under
+  the new name. A sibling is looked for in `node_modules/@spec-family/` and
+  nowhere else, and each install hint names `@spec-family/<name>`. The
+  minimums are each sibling's first release there, spec-brief 0.12.0,
+  spec-graph 0.21.0 and spec-guard 0.30.0, in place of 0.2.0, 0.9.0 and
+  0.12.0: the scope holds no older release with code. The hooks, the
+  server and git's hook that `init` writes, and the Claude Code plugin's,
+  run `node_modules/@spec-family/spec-harness/bin/spec-harness.js`; SARIF
+  names `https://github.com/spec-family/spec-harness`; the plugin's
+  marketplace is `spec-family/spec-harness`, and its install id stays
+  `spec-harness@spec-tools`
+  ([ADR-0011](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0011-releases-are-staged-by-ci.md),
+  amended 2026-10-26). Upgrading, in this order, so that no write goes
+  unguarded: `npm install --save-dev @spec-family/spec-harness
+  @spec-family/spec-brief`, with `@spec-family/spec-guard` and
+  `@spec-family/spec-graph` where the project has them, beside the
+  `@descent-vtt` packages; then `npx --no-install @spec-family/spec-harness
+  init --write`, and `npx --no-install @spec-family/spec-harness init
+  --git-hook --write` where an earlier `init --git-hook` wrote git's hook;
+  then `npm uninstall @descent-vtt/spec-harness @descent-vtt/spec-brief`
+  and the other `@descent-vtt` packages. A CI step or script that runs
+  `npx --no-install @descent-vtt/spec-harness doctor`, or any other
+  command, names `@spec-family/spec-harness` in its place. A plugin user
+  installs `@spec-family/spec-harness` in every project the plugin guards
+  first, since the plugin's hooks name it from this release on, then runs
+  `claude plugin marketplace remove spec-tools`, which uninstalls the
+  plugin with it where no other settings scope declares the marketplace
+  (Claude Code's plugin commands reference, *plugin marketplace remove*,
+  read 2026-10-29), `claude plugin marketplace add
+  spec-family/spec-harness` and `claude plugin install
+  spec-harness@spec-tools`, and only then uninstalls the `@descent-vtt`
+  packages, which the plugin it had runs.
+- **`init --write` rewrites the lines 0.1.2 to 0.21.0 wrote with the
+  earlier scope's script, and `doctor` says where one stands.** Claude
+  Code cannot start a hook whose script is not there, and on most events
+  lets the action go ahead without it (its hooks reference, *Block the
+  action when a hook fails*, read 2026-10-29; the exception it names is a
+  shell-form hook on Windows without Git Bash, and init's are not shell
+  form), so a line naming
+  `node_modules/@descent-vtt/spec-harness/bin/spec-harness.js` guards
+  only while that package is installed. `init --write` rewrites each such
+  entry of its own where it stands, under `PreToolUse`, `PostToolUse`,
+  `SessionStart` and `Stop`, keeping its other fields, and the server's in
+  `.mcp.json`; names the spec-brief plugin by its name now where
+  `.spec-brief.json` names it `@descent-vtt/spec-harness/spec-brief-plugin`,
+  which spec-brief cannot load once that package is gone, when its `lint`
+  and `archive` stop at exit 2; and with `--git-hook` writes its own hook
+  over the one 0.10.0 to 0.21.0 wrote, which stops every commit once the
+  package is gone. `doctor` says of a line that runs the earlier script
+  that it guards while that package is installed, and how to move it, and
+  of one whose script is gone that it is off, exit 1, with the same; it
+  notes git's hook and the plugin's name the same way. A line, a hook or a
+  plugin a person wrote is left, and said
+  ([ADR-0012](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0012-one-way-into-claude-code.md),
+  amended 2026-10-26). Upgrading: nothing beyond the entry above, whose
+  second step this is. `doctor --format json` has `plugin.state`
+  `"earlier"` where `.spec-brief.json` names the plugin by its earlier name
+  alone, a value it did not have, and `claudeCode.lines[].detail` the note
+  where a line guards that had none.
 
 ## 0.21.0
 
@@ -19,8 +86,8 @@ archived its brief, a round's last commit, where git says the branch
 archived it, so a CI job that runs it passes a round's last pull request;
 and it fails for a hook's line whose script is not there and for a brief the
 branch names that spec-brief cannot be asked about
-([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md),
-[ADR-0004](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0004-the-active-brief-is-named-not-guessed.md)).
+([ADR-0005](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md),
+[ADR-0004](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0004-the-active-brief-is-named-not-guessed.md)).
 
 ### Changed
 
@@ -34,7 +101,7 @@ branch names that spec-brief cannot be asked about
   leads into it as outside. Each such path is now decided both ways, each
   file by the work tree that holds it, and a refusal says where the link
   leads. On Windows, which reads the `..` first, no answer changes
-  ([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
+  ([ADR-0005](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
   Upgrading: nothing to change. A write through a link to a file the brief
   protects, which passed, is refused, and `guard` exits 1 for it.
 - **A run of the hook has one budget, 45 seconds, for every process it
@@ -48,7 +115,7 @@ branch names that spec-brief cannot be asked about
   seconds the hook's run is given, and was stopped`, exit 2. `doctor`
   notes an entry of the hook whose `timeout` is below the 45 seconds, and
   `--format json` has the note as each line's `timeout`
-  ([ADR-0002](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0002-siblings-through-their-command-lines.md)).
+  ([ADR-0002](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0002-siblings-through-their-command-lines.md)).
   Upgrading: nothing to change where the hook's entry has the 60 seconds
   `init` writes, or no timeout; an entry below 45 is noted, and fails
   nothing.
@@ -61,8 +128,8 @@ branch names that spec-brief cannot be asked about
   brief's, where the call was a tool error. spec-brief is asked only where
   a brief is named and a path is inside. The report at the end of a turn
   says that every write is held but one to a file outside every work tree
-  ([ADR-0008](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0008-one-server-for-rounds.md),
-  [ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
+  ([ADR-0008](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0008-one-server-for-rounds.md),
+  [ADR-0005](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
   Upgrading: a client that read a tool error from `check_path` for a
   brief's problem or for no brief named reads an answer for each path, and
   `held` is a new `reason` of a decision.
@@ -76,7 +143,7 @@ branch names that spec-brief cannot be asked about
   exits 1 as before, and so where git cannot say. `--format json` has the
   answer as `closedRound`. The hook holds every write on such a branch as
   before, and says the round is archived and ends when the branch merges
-  ([ADR-0004](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0004-the-active-brief-is-named-not-guessed.md)).
+  ([ADR-0004](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0004-the-active-brief-is-named-not-guessed.md)).
   Upgrading: a CI job that runs `doctor` fetches the base under the name it
   is configured by, with its history (`git fetch origin main:main`, in a
   clone that is not shallow); without it, a base that names no commit or a
@@ -90,7 +157,7 @@ branch names that spec-brief cannot be asked about
   for where `${CLAUDE_PROJECT_DIR}` can point, a linked worktree's main
   checkout among them; a relative path, npx's package and a word a shell
   reads are not
-  ([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
+  ([ADR-0005](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
   Upgrading: a project whose hook's line names an install that is not
   there has `doctor` exit 1 where it exited 0: install
   `@descent-vtt/spec-harness`, or mend the line. `claudeCode.lines` has a
@@ -100,7 +167,7 @@ branch names that spec-brief cannot be asked about
   briefs, since the hook holds every write there, and says why on its
   `brief` line; a hook's line that names a brief where spec-brief cannot
   be run is said as one that holds every write
-  ([ADR-0004](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0004-the-active-brief-is-named-not-guessed.md)).
+  ([ADR-0004](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0004-the-active-brief-is-named-not-guessed.md)).
   Upgrading: exit 1 where it was 0; the flag and `SPEC_BRIEF` still fail
   nothing.
 
@@ -109,7 +176,7 @@ branch names that spec-brief cannot be asked about
 - **`doctor` notes a report at the end of a turn that nothing runs**:
   `"turnReport"` on, and no settings file starting the hook as a turn
   ends. It fails nothing; `--format json` has `claudeCode.turnEnd`
-  ([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
+  ([ADR-0005](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
 
 ### Fixed
 
@@ -120,7 +187,7 @@ branch names that spec-brief cannot be asked about
   `unexpected error: Error: spawn EFTYPE` (or `EINVAL`) and a stack trace,
   and on Linux a file that may not be run was `exited -1` and nothing more;
   the hook holds the write as it did
-  ([ADR-0002](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0002-siblings-through-their-command-lines.md)).
+  ([ADR-0002](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0002-siblings-through-their-command-lines.md)).
 
 ## 0.20.0
 
@@ -134,22 +201,22 @@ the hook cannot start. It gives a session spec-brief's answer again where
 nothing that answer was read from has changed, and it can report, at the end
 of a turn and where the configuration asks for it, what the work tree holds
 that the brief protects or that is outside its scope
-([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md),
-[ADR-0002](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0002-siblings-through-their-command-lines.md)).
+([ADR-0005](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md),
+[ADR-0002](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0002-siblings-through-their-command-lines.md)).
 
 A configuration that does not load lets a write to itself through, so
 that a session can mend it; a write outside every work tree of the
 repository is held by no brief and no configuration; and `doctor` fails
 where the branch names a brief no round can work under
-([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md),
-[ADR-0004](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0004-the-active-brief-is-named-not-guessed.md)).
+([ADR-0005](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md),
+[ADR-0004](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0004-the-active-brief-is-named-not-guessed.md)).
 
 `doctor` says a line of Claude Code's hook that asks for the help or the
 version as a guard that is off, fails `--strict` where git cannot say
 where it runs its hooks, and notes in a linked worktree the release the
 hook's line runs; a `.spec-harness.json` that cannot be read is said as
 that; and on Windows a drive letter is one in either case
-([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
+([ADR-0005](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
 
 ### Added
 
@@ -162,8 +229,8 @@ that; and on Windows a drive letter is one in either case
   in the background, where the key is on, and Claude reads the report as the
   next turn begins; the plugin carries none, and with it on `init` says
   what to add
-  ([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md),
-  [ADR-0012](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0012-one-way-into-claude-code.md)).
+  ([ADR-0005](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md),
+  [ADR-0012](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0012-one-way-into-claude-code.md)).
   Upgrading: off by default, so nothing changes until the key is turned on
   and `spec-harness init --write` run again. A `Stop` entry aimed at the
   hook exited 1, `the hook input names no event or tool`, and now exits 0;
@@ -178,7 +245,7 @@ that; and on Windows a drive letter is one in either case
   older release does with the key. `doctor` advises it in a note, failing
   nothing, for a line that guards without it where the Claude Code on
   `PATH` reads the field
-  ([ADR-0012](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0012-one-way-into-claude-code.md)).
+  ([ADR-0012](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0012-one-way-into-claude-code.md)).
   The entry at the end of a turn is left without it: it runs in the
   background, where the hooks reference gives the field no effect.
 - **`doctor`, run in a linked worktree, notes the release the hook's line
@@ -198,8 +265,8 @@ that; and on Windows a drive letter is one in either case
   gives it again to the session's later runs while every file, directory
   and index on the list reads as listed, with no process started; anything
   else starts spec-brief as before. No answer changes
-  ([ADR-0002](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0002-siblings-through-their-command-lines.md),
-  [ADR-0003](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0003-state-outside-the-work-tree.md)).
+  ([ADR-0002](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0002-siblings-through-their-command-lines.md),
+  [ADR-0003](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0003-state-outside-the-work-tree.md)).
   Upgrading: nothing to change. A spec-brief whose `list` names no
   `inputs`, 0.9.0 and every release before it, is started before every
   write as it was.
@@ -213,7 +280,7 @@ that; and on Windows a drive letter is one in either case
   20 seconds, and was stopped`; before a write that is `cannot check this
   write: ...`, exit 2, which holds it. A round's work, a diff, a probe's
   worktree, a sibling's check, keeps ten minutes
-  ([ADR-0002](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0002-siblings-through-their-command-lines.md)).
+  ([ADR-0002](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0002-siblings-through-their-command-lines.md)).
   Upgrading: where git or spec-brief takes longer than 20 seconds to
   answer, which none measured does, writes are held and commands exit 2
   with the line: find what it waits on.
@@ -224,7 +291,7 @@ that; and on Windows a drive letter is one in either case
   outside the project, and a write its own brief protects passed with no
   word. That work tree now decides it, by its branch, briefs and
   configuration; a nested repository's file is decided as before
-  ([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
+  ([ADR-0005](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
   Upgrading: a session that writes into another worktree has the write
   refused where that worktree's brief protects it.
 - **Every command finds the siblings in the main work tree's install** where
@@ -243,7 +310,7 @@ that; and on Windows a drive letter is one in either case
   argument names, else the one the client's roots name where they name
   exactly one of the repository's, else the project's, and say which as
   `workTree`
-  ([ADR-0008](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0008-one-server-for-rounds.md)).
+  ([ADR-0008](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0008-one-server-for-rounds.md)).
   Upgrading: a client that declares roots naming a worktree has its calls
   answered for that worktree; a script reading the tools' structured
   answers finds `workTree`.
@@ -255,7 +322,7 @@ that; and on Windows a drive letter is one in either case
   that mends the line among them. Each is now the same line to the person,
   as `systemMessage`, and exit 0, and the write goes on as it did, so
   `onFailure` holds only a hook that did not run
-  ([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
+  ([ADR-0005](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
   Upgrading: a script that read the hook's exit 1 or its stderr reads the
   line as `systemMessage` on stdout, with exit 0.
 - **A write to `.spec-harness.json` itself goes on while it does not
@@ -322,7 +389,7 @@ that; and on Windows a drive letter is one in either case
   and a worktree's `commondir` as the hook reads them, a request waiting
   for a ruling, a probe's report. Only a regular file is read, and what
   else stands there is read as a file that is not there
-  ([ADR-0002](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0002-siblings-through-their-command-lines.md)).
+  ([ADR-0002](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0002-siblings-through-their-command-lines.md)).
 - **A `.spec-harness.json` that cannot be read is said as that.** One the
   account may not read, or one another process holds open on Windows, was
   `.spec-harness.json is not valid JSON: EACCES: ...`. It is
@@ -339,21 +406,21 @@ that; and on Windows a drive letter is one in either case
 An option that takes one value is given one, and a line that is wrong is
 refused with `--help` or `--version` on it, as the family's contract has
 it from 2026-10-18 (spec-core's ADR-0005, and
-[ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)
+[ADR-0005](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)
 here).
 
 `doctor` reads a hyphen in a matcher as the Claude Code on `PATH` reads
 it, and no command ends on a stack or fails to come back for what stands
 where a repository or a settings file is read
-([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
+([ADR-0005](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
 
 The hook decides a write in the work tree Claude works in, where a write a
 worktree's brief protects went through unchecked in a worktree session, and
 names the brief of a branch beside a tag of its name; it answers after a
 write from what it decided before it, and says as a session starts what
 would hold every write of it
-([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md),
-[ADR-0002](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0002-siblings-through-their-command-lines.md)).
+([ADR-0005](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md),
+[ADR-0002](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0002-siblings-through-their-command-lines.md)).
 
 ### Changed
 
@@ -415,7 +482,7 @@ would hold every write of it
   decide the paths it holds, with its siblings looked for in its own install
   and then the project's; any other path, and a `cwd` in another repository
   or in none, is decided as before
-  ([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
+  ([ADR-0005](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
   Upgrading: in a worktree session a write the worktree's brief protects is refused, and one outside its scope warned of by that brief; nothing on the hook's line changes.
 - **A branch beside a tag of its name names its brief.** The branch was read
   by git's short name, `heads/<name>` where a tag or a ref `refs/<name>` has
@@ -439,7 +506,7 @@ would hold every write of it
   one that finds nothing kept for its call, or another call's, decides as
   before. Under `outOfScope: "ask"` or `"deny"`, where nothing was kept, it
   says nothing with no process started
-  ([ADR-0002](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0002-siblings-through-their-command-lines.md)).
+  ([ADR-0002](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0002-siblings-through-their-command-lines.md)).
   Upgrading: nothing to change. What another process changes between the two runs of one write, the configuration or what spec-brief reads, is read at the next write rather than after this one.
 - **The hook says, as a session starts, what would hold every write of it.**
   A SessionStart entry aimed at `hook claude` exited 1, `the hook input
@@ -451,8 +518,8 @@ would hold every write of it
   `init` writes the entry beside its two, the plugin's `hooks/hooks.json`
   carries it, and `doctor` notes a settings file that guards writes and has
   none
-  ([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md),
-  [ADR-0012](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0012-one-way-into-claude-code.md)).
+  ([ADR-0005](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md),
+  [ADR-0012](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0012-one-way-into-claude-code.md)).
   Upgrading: `init` writes its lines once, so run `spec-harness init
   --write` again to add the entry to a `.claude/settings.json` an earlier
   release wrote; a plugin brings it with this release. A script reading
@@ -501,12 +568,12 @@ nothing: a matcher the Claude Code on this machine reads otherwise, and a
 root on the hook's line that is in another work tree. And a directory where
 git looks for its hook, or a probe for its report, ends in a sentence where
 it ended on a stack
-([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
+([ADR-0005](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
 The hook loads only what it runs and opens its work tree in one start of
 git, so it answers a write sooner: on a Windows workstation 1.0 seconds
 where it took 1.4 with no brief named, and 1.9 where it took 3.6 before a
 write to a protected file. Nothing any command prints changes
-([ADR-0002](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0002-siblings-through-their-command-lines.md)).
+([ADR-0002](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0002-siblings-through-their-command-lines.md)).
 
 ### Changed
 
@@ -576,7 +643,7 @@ write to a protected file. Nothing any command prints changes
   missing`, and one that runs it ends on that line still, exit 2. In the
   programmatic API, `checkPaths` takes as its reader a reader or a function
   that makes one
-  ([ADR-0002](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0002-siblings-through-their-command-lines.md)).
+  ([ADR-0002](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0002-siblings-through-their-command-lines.md)).
 - **A work tree is opened in two starts of git, asked at once, where it
   took three in two waves.** Git is asked for the top of the work tree and
   its common directory in one start, and where the command runs at the top
@@ -620,7 +687,7 @@ is a pattern is read once in a run.
   work tree, which the hook reads as a session outside one, exit 0 and no
   word, so the guard is off and no write is checked`. `init` says the same
   of the file (`advise`) and writes nothing into it. The hook answers as it
-  did ([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
+  did ([ADR-0005](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
   Upgrading: `doctor` exits 1 for such a line, where it exited 0 while no
   write was checked: give the line a directory in the work tree, or take
   `--root` off it for the project Claude Code names.
@@ -671,7 +738,7 @@ is a pattern is read once in a run.
   plugin is on, with its `state` (`present`, `absent` or `unknown`) and the
   reason as `detail`, and `claudeCode.notes`, what is said of the plugin
   and of `disableAllHooks`
-  ([ADR-0012](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0012-one-way-into-claude-code.md)).
+  ([ADR-0012](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0012-one-way-into-claude-code.md)).
   Upgrading: `doctor` exits 1 where the project's settings alone turn the
   plugin on and the machine has neither a version of it nor its
   marketplace: install the plugin there, or turn it off for the project and
@@ -691,7 +758,7 @@ is a pattern is read once in a run.
   under the matcher `init` writes is. The hook reads the file a `MultiEdit`
   names as it did, for whatever still sends one, and `init` writes the
   matcher it wrote
-  ([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
+  ([ADR-0005](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
   Upgrading: in `doctor --format json`, `before` and `after` of each of
   `claudeCode.lines` hold `Edit`, `Write` and `NotebookEdit` at most, three
   names for `init`'s own line where they held four, so a script that
@@ -714,7 +781,7 @@ is a pattern is read once in a run.
   took 25.5. `init` and the hooks take a tenth of a second less than they
   did, of one to two and a half. On Linux, where git answers in 2 ms, a
   `doctor` takes 0.10 seconds either way. Nothing any of them prints changes
-  ([ADR-0002](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0002-siblings-through-their-command-lines.md)).
+  ([ADR-0002](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0002-siblings-through-their-command-lines.md)).
 - **A matcher that is a pattern is read once in a run.** `doctor` read it
   again for every entry under it, and `init` once more for what to write.
   Under a pattern that runs out its budget of 100 ms, fifty entries took a
@@ -745,7 +812,7 @@ beside a line of the hook a person changed, and says of each file what
   brief 404, and spec-brief knows no such brief, so the hook holds every
   write until the line is mended`. `--format json` has the line's `state` as
   `held`. The hook answers as it did
-  ([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
+  ([ADR-0005](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
   Upgrading: `doctor` exits 1 for such a line, where it exited 0 while every
   write was held: name a brief spec-brief lists on the line, or take
   `--brief` off it.
@@ -785,7 +852,7 @@ beside a line of the hook a person changed, and says of each file what
   plugin the file is `advise`, the double install, and so where the line
   stands in a settings file of your own. It rewrites no line but the one 0.1
   wrote
-  ([ADR-0012](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0012-one-way-into-claude-code.md)).
+  ([ADR-0012](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0012-one-way-into-claude-code.md)).
   Upgrading: `init --write` leaves `.claude/settings.json` as it is where it
   added a second line; a file that holds two since an earlier `init` keeps
   both, and one of them is yours to take out. A line Claude Code starts for
@@ -821,7 +888,7 @@ or not reported.
   change what follows the command: said, and a failure under `--strict`.
   `"onFailure": "block"` on the entry is said in a note, with what it
   changes. `--format json` has each line as `claudeCode.lines`
-  ([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
+  ([ADR-0005](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
   Upgrading: a hook's line changed by hand is now the guard to `doctor`, so
   it asks Claude Code its release for it, and beside the plugin it is the
   double install it always was, exit 1. Where `doctor` now exits 1 for a
@@ -850,7 +917,7 @@ sentence that names the pattern, where it listed none.
   while the write goes on, as for a `--root` that is not a directory. Exit 2
   from the hook is for a write it could not check, and `hook git` and every
   other command stop on such a line as before
-  ([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
+  ([ADR-0005](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
   Upgrading: no release wrote more than `hook claude` on the hook's line. If
   yours holds more and cannot be read, it held every write and now holds
   none: mend the line the hook error names. A hook entry that sets
@@ -868,7 +935,7 @@ sentence that names the pattern, where it listed none.
   `--format json` and in `start_round` as `unmatchedSpecs`, an empty list
   where there is none. Any other refusal reads as it did, and so does a
   spec-guard older than 0.22.0, which writes no such field
-  ([ADR-0001](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0001-the-harness-decides-the-agent-writes.md)).
+  ([ADR-0001](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0001-the-harness-decides-the-agent-writes.md)).
 
 ## 0.13.0
 
@@ -886,7 +953,7 @@ argument and as `--brief` at once.
   write went on unguarded; it is now one line on stderr that names the root,
   and exit 1, which Claude Code shows as a hook error without blocking the
   write
-  ([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
+  ([ADR-0005](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
   Upgrading: no release wrote a `--root` on the hook's line; if you added
   one, point it at a directory that exists, or take it off.
 - **`premises` refuses a brief `--brief` or `SPEC_BRIEF` names that
@@ -894,14 +961,14 @@ argument and as `--brief` at once.
   --brief 999` was read as no round, and held the round's own premise
   against it. It is exit 2 and `the flag names brief 999, and spec-brief
   knows no such brief`
-  ([ADR-0004](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0004-the-active-brief-is-named-not-guessed.md)).
+  ([ADR-0004](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0004-the-active-brief-is-named-not-guessed.md)).
   Upgrading: name a brief spec-brief lists, or none. A branch whose name
   reads as a brief's and names none is read as no round, as before.
 - **`escalate --list` and `--show` refuse an option they do not read.**
   Beside either, `--path`, `--reason`, `--option`, `--recommend` and
   `--brief` did nothing, and `--show` did nothing beside `--list`: the list
   was printed, exit 0, and a request spelled out beside it was never raised
-  ([ADR-0006](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0006-a-ruling-is-a-signed-commit.md)).
+  ([ADR-0006](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0006-a-ruling-is-a-signed-commit.md)).
   Upgrading: give `--list` or `--show` with `--root` and `--format` alone,
   and raise a request in a call of its own.
 - **A brief given as the argument and as `--brief` at once is refused**,
@@ -946,7 +1013,7 @@ line a release's `init` wrote is read as it was.
   `probe` now waits three seconds for that output, as GitHub's runner waits
   five for a step's, judges the command by its exit code and what it had
   printed, and says that something it started was left running
-  ([ADR-0003](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0003-state-outside-the-work-tree.md)).
+  ([ADR-0003](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0003-state-outside-the-work-tree.md)).
   Upgrading: a command's work must be done when its shell ends, so have it
   wait for what it starts. A probe that was `invalid` at its timeout may now
   be `measured`, `vacuous`, `fixed` or `still-failing`, and a `setup` that
@@ -964,7 +1031,7 @@ line a release's `init` wrote is read as it was.
   there. Each is now exit 2 and one line that names it, `doctor does not
   take --note; its options are --brief, --base, --root, --format and
   --strict`
-  ([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md),
+  ([ADR-0005](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md),
   [An input that names nothing](README.md#an-input-that-names-nothing)).
   Upgrading: drop the option. The README's table has what each command
   reads; `--strict` is for `guard`, `audit`, `premises` and `doctor`, and
@@ -981,7 +1048,7 @@ line a release's `init` wrote is read as it was.
   exit 2 and a line such as `--root is "", which names no directory`, for a
   value of only space too; `probe --id ""` and `escalate --show ""`, exit 2
   before, say the same line
-  ([ADR-0004](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0004-the-active-brief-is-named-not-guessed.md)).
+  ([ADR-0004](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0004-the-active-brief-is-named-not-guessed.md)).
   Upgrading: where a script may hand an option nothing, leave the option
   out, as `${ID:+--brief "$ID"}` does in a shell. `SPEC_BRIEF` set and
   empty is still as unset.
@@ -991,7 +1058,7 @@ line a release's `init` wrote is read as it was.
   recorded a request a person could not rule on: a file with no name, an
   empty *Why*, `1. **** - `. Each is refused, exit 2 or a tool error that
   names the argument, and nothing is recorded
-  ([ADR-0006](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0006-a-ruling-is-a-signed-commit.md)).
+  ([ADR-0006](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0006-a-ruling-is-a-signed-commit.md)).
   Upgrading: give each of them something, or leave `--option` and
   `--recommend` out; an option needs a label, `"<label>: <cost>"`, and its
   cost may be left out.
@@ -1006,7 +1073,7 @@ line a release's `init` wrote is read as it was.
   passed over as before, since exit 2 from it holds every write of a
   session. Every command line a release's `init` wrote, or its plugin
   ships, is read as it was, and a test holds each
-  ([ADR-0012](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0012-one-way-into-claude-code.md)).
+  ([ADR-0012](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0012-one-way-into-claude-code.md)).
 
 ### Added
 
@@ -1043,7 +1110,7 @@ limit; and an exit 2 the harness could foresee says so in a line.
   it now prints `spec-harness: stdout was closed before all of the output
   was written` on stderr, from every command and the server. The exit code
   is 2, as it was
-  ([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
+  ([ADR-0005](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
 - A git command that failed - the diff `audit` reads, the staged files
   `hook git` reads, the worktree `probe` adds - is reported as what git
   said, on one line: `spec-harness: git diff --cached failed: fatal: ...`.
@@ -1055,7 +1122,7 @@ limit; and an exit 2 the harness could foresee says so in a line.
   while it ran. The command is now answered three seconds after its timeout,
   as stopped at it, with what it had printed, and the run's evidence says
   that something it started was left running
-  ([ADR-0003](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0003-state-outside-the-work-tree.md)).
+  ([ADR-0003](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0003-state-outside-the-work-tree.md)).
 - A probe's `setup` that was stopped at its timeout says so, and after how
   many seconds. It said only that the setup failed, with whatever the setup
   had printed.
@@ -1084,7 +1151,7 @@ nothing; and a command is stopped by its id only while the harness holds it.
   stdout, and exit 2, as does an error thrown where nothing waits for it. In
   `hook claude` that holds the write the guard could not check, where the
   failed hook let it through
-  ([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
+  ([ADR-0005](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
   Upgrading: a script that took exit 1 after a crash for a refusal now sees
   2, "the answer cannot be trusted"; `run()` and `main()` from the package
   resolve to 2 where their promise rejected.
@@ -1092,7 +1159,7 @@ nothing; and a command is stopped by its id only while the harness holds it.
   so `npx <tool>` given a name the project has not installed stops and names
   the package, where it fetched the registry's package of that name and ran
   it, unasked. A probe that passed by fetching is now `invalid`
-  ([ADR-0007](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0007-probes-declare-their-failure.md)).
+  ([ADR-0007](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0007-probes-declare-their-failure.md)).
   Upgrading: install the tool in the probe's `setup`, as `setup: npm ci`
   does, and start it through one of the project's scripts or
   `npx --no-install <tool>`. To have npm fetch as before, say `--yes` on the
@@ -1121,7 +1188,7 @@ nothing; and a command is stopped by its id only while the harness holds it.
   `taskkill /T /F` ended with all it had started; on Linux and macOS what the
   shell left in its process group is still stopped, unless a process has the
   id by then
-  ([ADR-0003](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0003-state-outside-the-work-tree.md)).
+  ([ADR-0003](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0003-state-outside-the-work-tree.md)).
 
 ## 0.10.1
 
@@ -1138,7 +1205,7 @@ started its tool through `npx`.
   registry's package of that name and runs it, unasked: the example is now
   `run: npm test -- tests/probes/rotate.test.ts`, and the skill tells an
   agent to write a probe so
-  ([ADR-0007](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0007-probes-declare-their-failure.md)).
+  ([ADR-0007](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0007-probes-declare-their-failure.md)).
   Upgrading: in a brief of your own, have a probe's `run` and `setup` start
   a tool through one of the project's scripts, or through
   `npx --no-install <tool>`. `probe` itself runs a line as it is written.
@@ -1152,7 +1219,7 @@ started its tool through `npx`.
   left in the repository. Git now forgets the worktree first, `probe` prints
   and exits by its verdict, and it names the directory it left on the
   standard error as it exits
-  ([ADR-0003](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0003-state-outside-the-work-tree.md)).
+  ([ADR-0003](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0003-state-outside-the-work-tree.md)).
 - Ctrl+Break on Windows, which GitHub's runner also sends a step it
   cancels, stops a `probe`'s commands and removes its worktree, as Ctrl+C
   does, and exits 149. It ended the harness at once before, with the
@@ -1179,7 +1246,7 @@ allowed to run install scripts; and git's hook runs `node`, not `npx`.
   to do when a command stops for a missing package - install the project's
   dependencies, as with `npm ci` - and never to drop the flag or the scope
   ([Names](README.md#names), ADR-0009, and the family's
-  [adopting guide](https://github.com/DescentVTT/spec-core/blob/main/docs/adopting.md#names)).
+  [adopting guide](https://github.com/spec-family/spec-core/blob/main/docs/adopting.md#names)).
   The hooks, the MCP server and git's hook run `node` with the installed
   file's path and were not exposed.
   Upgrading: update the Claude Code plugin, or the package, to get the
@@ -1206,7 +1273,7 @@ allowed to run install scripts; and git's hook runs `node`, not `npx`.
   approvals, or turned from `false` to `true` - as `install-script-allowed`,
   a warning as a new dependency is; a denial and a removed entry are notes.
   `--format json` gains `installScripts`
-  ([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
+  ([ADR-0005](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
   Upgrading: a round that approves a dependency's install script now fails
   `audit --strict`; say in the brief why it must run and audit without
   `--strict`, or remove the entry.
@@ -1216,7 +1283,7 @@ allowed to run install scripts; and git's hook runs `node`, not `npx`.
   `npx --no-install spec-harness hook git`: a commit starts no npm. Where
   the harness is not installed in the work tree, the hook says so and stops
   the commit
-  ([ADR-0012](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0012-one-way-into-claude-code.md)).
+  ([ADR-0012](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0012-one-way-into-claude-code.md)).
   Upgrading: a hook written before keeps working; to move it, use the line
   `doctor` names, or delete the hook and run `init --git-hook --write`.
 
@@ -1259,7 +1326,7 @@ messages name what is really missing.
   `premises` exit 2 naming the tool and the field, where they stopped with
   a stack trace or read the document halfway; `context` says the rules could
   not be read and why, as it does for spec-guard output that is not JSON
-  ([ADR-0002](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0002-siblings-through-their-command-lines.md)).
+  ([ADR-0002](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0002-siblings-through-their-command-lines.md)).
 
 ## 0.8.0
 
@@ -1272,7 +1339,7 @@ spec-harness reads status words in English only again.
 - `context` names each line of a cited document's front matter that is not
   `key: value`, with its line number and reason, and says a status on it was
   not read; `--format json` and `start_round` gain `unreadableFrontMatter`
-  ([ADR-0001](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0001-the-harness-decides-the-agent-writes.md)).
+  ([ADR-0001](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0001-the-harness-decides-the-agent-writes.md)).
 
 ### Removed
 
@@ -1284,12 +1351,12 @@ spec-harness reads status words in English only again.
 - `doctor` reads the release of an npm-installed Claude Code on Windows from
   the package its `claude.cmd` shim runs, without running the shim, where it
   could not tell and failed `--strict`
-  ([ADR-0012](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0012-one-way-into-claude-code.md)).
+  ([ADR-0012](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0012-one-way-into-claude-code.md)).
 - `doctor` says it cannot tell the release of a `claude.exe` Windows cannot
   start, where it stopped with `spawn UNKNOWN`.
 - `doctor` reads the allowed-signers file's quotes and options as OpenSSH
   does, and notes a line OpenSSH refuses as no signer
-  ([ADR-0006](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0006-a-ruling-is-a-signed-commit.md)).
+  ([ADR-0006](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0006-a-ruling-is-a-signed-commit.md)).
 - `init` and `doctor` resolve the spec-brief plugin export as Node does: the
   first matching condition in written order, and a `null` target as not
   exported.
@@ -1306,7 +1373,7 @@ marked wherever it protects, allows or scopes nothing. spec-core is at
 
 - `audit` and `premises` take `--format gitlab`, `sarif` and `github`. A
   fingerprint is the rule, the file and the finding's subject, never its
-  message or line ([ADR-0005](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
+  message or line ([ADR-0005](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0005-a-guard-is-a-guardrail.md)).
 - `audit` prints what it measured above the counts line, which stays last,
   and `--format json` and `audit_round` gain `measured`. A brief with no
   assertion says `goals: none declared`.
@@ -1339,7 +1406,7 @@ marked wherever it protects, allows or scopes nothing. spec-core is at
 - `doctor` exits 1 when the Claude Code wired to the guard is older than
   2.1.139, which runs every write unguarded; one it cannot find or run is
   unknown, never fine, and fails `--strict`
-  ([ADR-0012](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0012-one-way-into-claude-code.md)).
+  ([ADR-0012](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0012-one-way-into-claude-code.md)).
   Upgrading: `claude update`.
 - `context` shows a cited document's status under `狀態` or `状态` when it
   has no `status` key. Upgrading: nothing; write the key with an ASCII colon.
@@ -1350,7 +1417,7 @@ marked wherever it protects, allows or scopes nothing. spec-core is at
   variable (`GITHUB_HEAD_REF`, `GITHUB_REF_NAME` on a branch push,
   `CI_MERGE_REQUEST_SOURCE_BRANCH_NAME`, `CI_COMMIT_BRANCH`), so `premises`
   no longer fails a round's own CI run
-  ([ADR-0004](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0004-the-active-brief-is-named-not-guessed.md)).
+  ([ADR-0004](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0004-the-active-brief-is-named-not-guessed.md)).
 - A rooted pattern in `affectedFiles` no longer makes spec-guard refuse the
   whole scope; the rules over the other patterns come back.
 - `init --git-hook` writes the hook where git runs it, for an absolute or
@@ -1430,7 +1497,7 @@ gain `unreadableProtections` and `unreadableRulingPaths`.
   fields added beside `unreadableScope`, so no `schemaVersion` moves; in the
   programmatic API a context packet carries both, each entry of the second
   an `UnreadableRulingPath`. The reasoning is in
-  [ADR-0001](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0001-the-harness-decides-the-agent-writes.md)'s
+  [ADR-0001](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0001-the-harness-decides-the-agent-writes.md)'s
   third amendment of 2026-09-29.
 
 ## 0.5.0
@@ -1456,7 +1523,7 @@ be unread, not to be ruled by nothing. `context --format json` and
   `pattern` and `reason`, a field added beside `unclosedFrontMatter`, so no
   `schemaVersion` moves; in the programmatic API a context packet carries
   it as well, each entry an `UnreadablePattern`. The reasoning is in
-  [ADR-0001](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0001-the-harness-decides-the-agent-writes.md)'s
+  [ADR-0001](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0001-the-harness-decides-the-agent-writes.md)'s
   amendment.
 
 ## 0.4.0
@@ -1606,7 +1673,7 @@ adds one field.
   cited document may carry `unclosedFrontMatter`, a context packet lists
   them, and a reader's `titleAndStatus` returns it: a reader written for
   `buildContext` by hand adds it. The reasoning is in
-  [ADR-0001](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0001-the-harness-decides-the-agent-writes.md)'s
+  [ADR-0001](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0001-the-harness-decides-the-agent-writes.md)'s
   amendment.
 - An interrupted `probe` stops the commands it started before it removes
   their worktree. On Linux and macOS a probe's command runs in a process
@@ -1617,7 +1684,7 @@ adds one field.
   with everything it started, as its timeout stops it, and an interrupt waits
   up to three seconds for them to end before it removes the worktree. The
   reasoning is in
-  [ADR-0003](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0003-state-outside-the-work-tree.md)'s
+  [ADR-0003](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0003-state-outside-the-work-tree.md)'s
   amendment.
 - A run ended by SIGHUP while it held a worktree, as when its terminal is
   closed, exits 129, as a shell reports a process SIGHUP ended, where it
@@ -1631,7 +1698,7 @@ adds one field.
   now deletes the worktree's directory and runs `git worktree remove
   --force` on that path, which forgets that worktree and no other. The
   reasoning is in
-  [ADR-0003](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0003-state-outside-the-work-tree.md)'s
+  [ADR-0003](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0003-state-outside-the-work-tree.md)'s
   amendment.
 
 ## 0.2.0
@@ -1673,7 +1740,7 @@ cites.
   exits 1, with how to keep one.
 - The README and the plugin's manifest state the Claude Code release the
   hooks and the plugin's server need, 2.1.139 or later
-  ([ADR-0012](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0012-one-way-into-claude-code.md)).
+  ([ADR-0012](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0012-one-way-into-claude-code.md)).
 
 ## 0.1.5
 
@@ -1804,7 +1871,7 @@ are installed; an older one is reported with its minimum and never run.
 This version was staged on npm by CI from its tag, with provenance, and
 released by a maintainer with a second factor. 0.0.0 on npm is a placeholder
 without code, published by hand to claim the name, and is deprecated
-([ADR-0011](https://github.com/DescentVTT/spec-harness/blob/main/docs/adr/0011-releases-are-staged-by-ci.md)).
+([ADR-0011](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0011-releases-are-staged-by-ci.md)).
 
 ### Added
 

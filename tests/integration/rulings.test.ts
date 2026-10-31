@@ -399,7 +399,7 @@ describe.skipIf(!hasSshKeygen())('a ruling is a row whose commit a person signed
         [BRIEF_FILE]: brief({ affected: ['src/auth/**'], protected: ['src/db/**'] }),
         ...FILES,
         '.github/allowed_signers': signers,
-        '.spec-brief.json': `${JSON.stringify({ plugins: ['@descent-vtt/spec-harness/spec-brief-plugin'] })}\n`,
+        '.spec-brief.json': `${JSON.stringify({ plugins: ['@spec-family/spec-harness/spec-brief-plugin'] })}\n`,
       },
       { tools: { ...siblings(), 'spec-brief': ['node', join(fake, 'spec-brief.mjs')] } },
     );
@@ -533,7 +533,7 @@ describe.skipIf(!hasSshKeygen())('a ruling is a row whose commit a person signed
     expect(refused[0]?.hint).toContain('ruling R-001-1, signed by t@example.com, allows it, but spec-brief does not load spec-harness\'s plugin');
     expect((await cli(['doctor'], other.root)).stdout).toContain('\nplugin  spec-brief has no configuration at the root, so it loads no plugin');
 
-    other.write('.spec-brief.json', `${JSON.stringify({ plugins: ['@descent-vtt/spec-harness/spec-brief-plugin'] })}\n`);
+    other.write('.spec-brief.json', `${JSON.stringify({ plugins: ['@spec-family/spec-harness/spec-brief-plugin'] })}\n`);
     other.commit('spec-brief: load the spec-harness plugin');
     const findings = await audit();
     expect(findings.filter((f) => f.severity === 'error')).toEqual([]);

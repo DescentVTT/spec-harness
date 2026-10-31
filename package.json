@@ -1,5 +1,5 @@
 {
-  "name": "@descent-vtt/spec-harness",
+  "name": "@spec-family/spec-harness",
   "version": "0.21.0",
   "description": "The agent-facing member of the spec-* tools: context for a round, a guard on every write, an audit when it ends, probes that prove a defect before it is filed, and rulings a person signs.",
   "keywords": [
@@ -60,21 +60,21 @@
     "prepublishOnly": "node -e \"if (process.env.GITHUB_ACTIONS !== 'true') { console.error('npm publish is refused outside GitHub Actions: a release is a v* tag, staged by CI with provenance.'); process.exit(1) }\" && npm run clean && npm run build"
   },
   "peerDependencies": {
-    "@descent-vtt/spec-brief": ">=0.2.0",
-    "@descent-vtt/spec-graph": ">=0.9.0",
-    "@descent-vtt/spec-guard": ">=0.12.0"
+    "@spec-family/spec-brief": ">=0.12.0",
+    "@spec-family/spec-graph": ">=0.21.0",
+    "@spec-family/spec-guard": ">=0.30.0"
   },
   "peerDependenciesMeta": {
-    "@descent-vtt/spec-graph": {
+    "@spec-family/spec-graph": {
       "optional": true
     },
-    "@descent-vtt/spec-guard": {
+    "@spec-family/spec-guard": {
       "optional": true
     }
   },
   "devDependencies": {
-    "@descent-vtt/spec-brief": "^0.10.0",
-    "@descent-vtt/spec-guard": "^0.28.0",
+    "@spec-family/spec-brief": "^0.12.0",
+    "@spec-family/spec-guard": "^0.30.0",
     "@stryker-mutator/core": "^10.0.0",
     "@stryker-mutator/vitest-runner": "^10.0.0",
     "@types/node": "^22.20.4",
@@ -84,12 +84,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/DescentVTT/spec-harness.git"
+    "url": "git+https://github.com/spec-family/spec-harness.git"
   },
   "bugs": {
-    "url": "https://github.com/DescentVTT/spec-harness/issues"
+    "url": "https://github.com/spec-family/spec-harness/issues"
   },
-  "homepage": "https://github.com/DescentVTT/spec-harness#readme",
+  "homepage": "https://github.com/spec-family/spec-harness#readme",
   "overrides": {
     "qs": "^6.16.0"
   }

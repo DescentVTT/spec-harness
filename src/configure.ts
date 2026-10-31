@@ -38,7 +38,7 @@ function sameStrings(value: unknown, expected: readonly string[]): boolean {
  * everywhere. git's hook runs the same script, from the top of the work
  * tree, where git starts it.
  */
-const BIN = 'node_modules/@descent-vtt/spec-harness/bin/spec-harness.js';
+const BIN = 'node_modules/@spec-family/spec-harness/bin/spec-harness.js';
 
 /** The project root, as Claude Code substitutes it in a hook's arguments and in a plugin server's. */
 export const PROJECT_DIR = '${CLAUDE_PROJECT_DIR}';
@@ -100,6 +100,21 @@ export const TURN_HOOK: Readonly<Json> = Object.freeze({ ...GUARD_HOOK, async: t
 const LEGACY_HOOK = 'npx --no-install spec-harness hook claude';
 const LEGACY_SERVER_ARGS = ['--no-install', 'spec-harness', 'mcp'];
 
+/**
+ * The script as the releases from 0.1.2 to 0.21.0 wrote it, in the package
+ * they were published as until the family moved to the `@spec-family` scope
+ * on 2026-10-26 (spec-core's ADR-0005, Names). No release under the new name
+ * looks for that package, and a line that names its script starts nothing
+ * once it is uninstalled, which Claude Code takes as a hook that failed and
+ * lets each write go ahead without. Read here so that init rewrites the lines
+ * it wrote with it and doctor says where one stands, and never run.
+ */
+const EARLIER_BIN = 'node_modules/@descent-vtt/spec-harness/bin/spec-harness.js';
+const EARLIER_GUARD_ARGS: readonly string[] = Object.freeze([`${PROJECT_DIR}/${EARLIER_BIN}`, 'hook', 'claude']);
+
+/** What init says it rewrote of the entries an earlier release wrote in Claude Code's settings. */
+export const GUARD_MOVED = `the entries an earlier release wrote, which ran ${EARLIER_BIN}, run ${BIN}, where they stand`;
+
 function isGuard(hook: unknown): boolean {
   return isObject(hook) && hook['command'] === 'node' && sameStrings(hook['args'], GUARD_ARGS);
 }
@@ -108,15 +123,34 @@ function isLegacyGuard(hook: unknown): boolean {
   return isObject(hook) && hook['command'] === LEGACY_HOOK;
 }
 
+/** init's entry as the releases from 0.1.2 to 0.21.0 wrote it, under each event they wrote one under. */
+function isEarlierGuard(hook: unknown): boolean {
+  return isObject(hook) && hook['command'] === 'node' && sameStrings(hook['args'], EARLIER_GUARD_ARGS);
+}
+
+/** An entry an earlier release of init wrote that runs the harness another way than init does now. */
+function isReleasedGuard(hook: unknown): boolean {
+  return isLegacyGuard(hook) || isEarlierGuard(hook);
+}
+
 function hooksOf(group: unknown): unknown[] {
   return isObject(group) && Array.isArray(group['hooks']) ? group['hooks'] : [];
 }
 
-/** A group with 0.1's guard replaced where it stands, keeping its other fields; the group itself when it has none. */
-function upgraded(group: unknown): unknown {
+/** A group with each entry `replaced` says an earlier release wrote put in init's line where it stands, keeping its other fields; the group itself when it has none. */
+function upgraded(group: unknown, replaced: (hook: unknown) => boolean): unknown {
   const hooks = hooksOf(group);
-  if (!hooks.some(isLegacyGuard)) return group;
-  return { ...(group as Json), hooks: hooks.map((hook) => (isLegacyGuard(hook) ? { ...(hook as Json), command: 'node', args: [...GUARD_ARGS] } : hook)) };
+  if (!hooks.some(replaced)) return group;
+  return { ...(group as Json), hooks: hooks.map((hook) => (replaced(hook) ? { ...(hook as Json), command: 'node', args: [...GUARD_ARGS] } : hook)) };
+}
+
+/** Whether settings hold an entry init wrote before 0.22.0, which runs the script of the earlier scope, under any event init writes one under. */
+export function holdsEarlierGuard(settings: unknown): boolean {
+  const hooks = field(settings, 'hooks');
+  return [...INIT_EVENTS, AT_TURN_END].some((event) => {
+    const groups = field(hooks, event);
+    return Array.isArray(groups) && groups.some((group) => hooksOf(group).some(isEarlierGuard));
+  });
 }
 
 /**
@@ -332,7 +366,9 @@ function answered(event: string, matcher: unknown, hook: Json, pattern: PatternR
  * starts for a write, one `isHook` knows as the hook's by the words after
  * the harness's command, nothing is merged in at all: the line is a
  * person's, a second one beside it would run for every write as well, and
- * init rewrites none but the one 0.1 wrote. Without `isHook`, only init's
+ * init rewrites none but those an earlier release wrote: 0.1's npx command,
+ * and the line of 0.1.2 to 0.21.0, whose script is the earlier scope's,
+ * under each event it stood under. Without `isHook`, only init's
  * own line is known: the default's `false` and an `undefined` read the same
  * in `some`, so that mutant is equivalent.
  *
@@ -350,18 +386,31 @@ export function mergeClaudeSettings(
   matching: Matching = TODAY,
 ): Json | null {
   const hooks = isObject(current['hooks']) ? current['hooks'] : {};
-  const theirs = harnessEntries(current).some((entry) => !isGuard(entry.hook) && !isLegacyGuard(entry.hook) && isHook(entry.words) && isStarted(toolsOf(entry, pattern, matching)));
+  const theirs = harnessEntries(current).some((entry) => !isGuard(entry.hook) && !isReleasedGuard(entry.hook) && isHook(entry.words) && isStarted(toolsOf(entry, pattern, matching)));
   if (theirs) return null;
   let changed = false;
   const next: Json = { ...hooks };
   for (const event of GUARDED_EVENTS) {
     const listed = hooks[event];
     const before: unknown[] = Array.isArray(listed) ? listed : [];
-    const groups = before.map(upgraded);
+    const groups = before.map((group) => upgraded(group, isReleasedGuard));
     const replaced = groups.some((group, index) => group !== before[index]);
     const present = harnessEntries({ hooks: { [event]: groups } }).some((entry) => isGuard(entry.hook) && isStarted(toolsOf(entry, pattern, matching)));
     if (!present) groups.push({ matcher: HOOK_MATCHER, hooks: [{ ...GUARD_HOOK, args: [...GUARD_ARGS] }] });
     if (replaced || !present) {
+      next[event] = groups;
+      changed = true;
+    }
+  }
+  // The entries 0.19.0 to 0.21.0 wrote as a session starts, and 0.20.0 and
+  // 0.21.0 as a turn ends, run the earlier scope's script too, and are
+  // init's own beside the two: rewritten where they stand. 0.1 wrote none
+  // there, so a line of its npx command under them is a person's.
+  for (const event of [AT_START, AT_TURN_END]) {
+    const listed = hooks[event];
+    if (!Array.isArray(listed)) continue;
+    const groups = listed.map((group) => upgraded(group, isEarlierGuard));
+    if (groups.some((group, index) => group !== listed[index])) {
       next[event] = groups;
       changed = true;
     }
@@ -493,16 +542,32 @@ function isLegacyServer(server: unknown): boolean {
   return isObject(server) && server['command'] === 'npx' && sameStrings(server['args'], LEGACY_SERVER_ARGS);
 }
 
+const EARLIER_SERVER_ARGS: readonly string[] = Object.freeze([`${PROJECT_DIR_OR_HERE}/${EARLIER_BIN}`, 'mcp', '--root', PROJECT_DIR_OR_HERE]);
+
+/** The server's entry in a project's `.mcp.json` as the releases from 0.1.2 to 0.21.0 wrote it, with the earlier scope's script. */
+function isEarlierServer(server: unknown): boolean {
+  return isObject(server) && server['command'] === 'node' && sameStrings(server['args'], EARLIER_SERVER_ARGS);
+}
+
+/** Whether a project's `.mcp.json` registers the server as a release before 0.22.0 wrote it, with the earlier scope's script. */
+export function holdsEarlierServer(mcp: unknown): boolean {
+  return isEarlierServer(field(field(mcp, 'mcpServers'), 'spec-harness'));
+}
+
+/** What init says it rewrote of the server's entry an earlier release wrote. */
+export const SERVER_MOVED = `the entry an earlier release wrote, which ran ${EARLIER_BIN}, runs ${BIN}`;
+
 /**
  * A project's `.mcp.json` with the harness's server merged in, or `null` when
  * one is registered. A server registered under the name some other way is
- * the person's, and stays; 0.1's npx entry is replaced, keeping its other
- * fields.
+ * the person's, and stays; an entry an earlier release wrote, 0.1's npx
+ * entry or the line of 0.1.2 to 0.21.0 with the earlier scope's script, is
+ * replaced, keeping its other fields.
  */
 export function mergeMcp(current: Json): Json | null {
   const servers = isObject(current['mcpServers']) ? current['mcpServers'] : {};
   const existing = servers['spec-harness'];
-  if ('spec-harness' in servers && !isLegacyServer(existing)) return null;
+  if ('spec-harness' in servers && !isLegacyServer(existing) && !isEarlierServer(existing)) return null;
   return { ...current, mcpServers: { ...servers, 'spec-harness': { ...(existing as Json | undefined), ...mcpServer(PROJECT_DIR_OR_HERE) } } };
 }
 
@@ -679,6 +744,28 @@ function harnessEntries(settings: unknown): HarnessEntry[] {
 /** Whether Claude Code starts a line for a write, by the tools it is waited on for: one whose tools cannot be told is taken as started. */
 export function isStarted(tools: readonly string[] | null): boolean {
   return tools === null || tools.length > 0;
+}
+
+/** The parts of the earlier scope's script, which a path ends in wherever it has it from. */
+const EARLIER_PARTS: readonly string[] = EARLIER_BIN.split('/');
+
+/**
+ * Whether the script a line runs is the earlier scope's, by the parts its
+ * path ends in: after the placeholder, after a path of the line's own, and
+ * in a word a shell reads, with either separator.
+ */
+function namesEarlierScript(word: string): boolean {
+  return sameStrings(word.split(/[\\/]/).slice(-EARLIER_PARTS.length), EARLIER_PARTS);
+}
+
+/**
+ * How a line that runs the earlier scope's script is moved to this one's:
+ * by init, where `rewrites`, the line being one an earlier release wrote in
+ * the file init writes, and otherwise by hand.
+ */
+function moveTo(rewrites: boolean): string {
+  const there = `${BIN}, which npm install --save-dev @spec-family/spec-harness installs`;
+  return rewrites ? `spec-harness init --write rewrites the line an earlier release wrote to run ${there}` : `name ${there}, on the line in its place`;
 }
 
 /** What doctor reports of one line of Claude Code's hook. */
@@ -982,7 +1069,22 @@ export function reportHooks(
       const note = describeOnFailure(where, hook.blocks);
       // Where the release here reads the field, a line that guards without it is advised it.
       const own = file === PROJECT_SETTINGS && mine.every((entry) => isGuard(entry.hook));
-      const guards = (detail: string | null): HookReport => ({ ...written, state: 'guards', detail, note: note ?? (onFailureHere ? adviseOnFailure(where, own) : null) });
+      // A line that runs the earlier scope's script is mended by init where
+      // it is init's own, as a release before 0.22.0 wrote it in the file
+      // init writes, and by hand anywhere else.
+      const rewrites = file === PROJECT_SETTINGS && mine.every((entry) => isEarlierGuard(entry.hook));
+      const earlier = namesEarlierScript(hook.launcher.word) ? moveTo(rewrites) : null;
+      // Where doctor found that script, the line guards by the release of
+      // the earlier package until it is uninstalled: said, failing nothing.
+      // init asks of no script, and says it of a line it leaves, which is a
+      // person's, and of none it rewrites.
+      const moved = earlier === null || (scripts === null && rewrites) ? null : `${where} runs ${hook.launcher.word}, the script of @descent-vtt/spec-harness, the name of this package's releases up to 0.21.0: it guards while that package is installed, and once it is uninstalled the hook cannot start and Claude Code lets each write go ahead without it; ${earlier}`;
+      const guards = (detail: string | null): HookReport => ({
+        ...written,
+        state: 'guards',
+        detail: detail === null ? moved : moved === null ? detail : `${detail}; ${moved}`,
+        note: note ?? (onFailureHere ? adviseOnFailure(where, own) : null),
+      });
       if (hook.untyped !== null) {
         const detail = `${where} stands on an entry with ${hook.untyped}, where Claude Code's hooks reference has "type": "command" on an entry it runs as a command, so whether Claude Code runs it cannot be told here: give the entry "type": "command"`;
         return [{ ...written, state: 'unknown', detail, note }];
@@ -1003,7 +1105,7 @@ export function reportHooks(
       const absent = scripts === null ? null : absentScript(hook.launcher, scripts);
       if (absent !== null) {
         if (!waited && !isStarted(after)) return [unstarted];
-        const mend = 'install spec-harness in the project, npm install --save-dev @descent-vtt/spec-harness, or name its script where it is';
+        const mend = earlier ?? 'install spec-harness in the project, npm install --save-dev @spec-family/spec-harness, or name its script where it is';
         if (hook.blocks && onFailureHere && waited) {
           return [{ ...written, state: 'held', detail: `${where}: ${absent}, so the hook cannot start, and Claude Code holds every write it is started for before, since the entry sets onFailure to "block"; ${mend}`, note }];
         }
@@ -1392,7 +1494,21 @@ export function describeClaudeCode(wiring: Wired): string {
 }
 
 /** The spec-brief plugin this package ships, as spec-brief's `plugins` names it. */
-export const PLUGIN = '@descent-vtt/spec-harness/spec-brief-plugin';
+export const PLUGIN = '@spec-family/spec-harness/spec-brief-plugin';
+
+/**
+ * The plugin by the name init wrote from 0.1.2 to 0.21.0, the earlier
+ * scope's. spec-brief loads it from that package while it is installed, and
+ * once it is not, its lint and its archive stop at exit 2: the plugin
+ * could not be loaded. Read so that init names the plugin by its name now
+ * in its place, and never loaded.
+ */
+const EARLIER_PLUGIN = '@descent-vtt/spec-harness/spec-brief-plugin';
+
+/** Whether an entry of spec-brief's `plugins` names the plugin by its earlier name, alone or as `{ module, options }`. */
+function namesEarlierPlugin(entry: unknown): boolean {
+  return entry === EARLIER_PLUGIN || (isObject(entry) && entry['module'] === EARLIER_PLUGIN);
+}
 
 export { SPEC_BRIEF_CONFIGS } from './config.js';
 
@@ -1464,23 +1580,41 @@ export function measuresArchive(config: Json): boolean {
  * all only when it knows the base: without one it warns that the scope went
  * unmeasured and passes, so the gate is open until a base is named. A base a
  * person wrote is kept.
+ *
+ * An entry that names the plugin by the name an earlier release wrote names
+ * it by its name now, where it stands and with its options; beside an entry
+ * that names it so already it is taken out, since spec-brief refuses two
+ * plugins of one name.
  */
 export function mergeSpecBrief(current: Json, base: string | null = null, isPluginFile?: (path: string) => boolean): Json | null {
-  const plugin = loadsPlugin(current, isPluginFile);
+  const named = loadsPlugin(current, isPluginFile);
+  const listed: unknown[] = Array.isArray(current['plugins']) ? current['plugins'] : [];
+  const moved = listed.some(namesEarlierPlugin);
+  const renamed = listed.flatMap((entry) => (!namesEarlierPlugin(entry) ? [entry] : named ? [] : [isObject(entry) ? { ...entry, module: PLUGIN } : PLUGIN]));
+  const plugin = named || moved;
   const measure = base !== null && !measuresArchive(current);
-  if (plugin && !measure) return null;
-  const plugins: unknown[] = Array.isArray(current['plugins']) ? current['plugins'] : [];
+  if (plugin && !measure && !moved) return null;
   const archiving: Json = isObject(current['archiving']) ? current['archiving'] : {};
   return {
     ...current,
-    ...(plugin ? {} : { plugins: [...plugins, PLUGIN] }),
+    plugins: plugin ? renamed : [...renamed, PLUGIN],
     ...(measure ? { archiving: { ...archiving, base } } : {}),
   };
 }
 
+/** What init says where it names the plugin in place of its earlier name. */
+export const PLUGIN_MOVED = `name spec-harness's plugin "${PLUGIN}" where an earlier release wrote "${EARLIER_PLUGIN}", which spec-brief cannot load once @descent-vtt/spec-harness is uninstalled`;
+
+/** Whether spec-brief's configuration names the plugin by the name an earlier release wrote, the earlier scope's. */
+export function loadsEarlierPlugin(config: Json): boolean {
+  const plugins = config['plugins'];
+  return Array.isArray(plugins) && plugins.some(namesEarlierPlugin);
+}
+
 /** Whether spec-brief loads the plugin, as its configuration at the root says. */
 export type PluginState =
-  | { readonly kind: 'loaded' | 'not-loaded' | 'unreadable'; readonly file: string }
+  /** `earlier`: it names the plugin by the name an earlier release wrote, and no entry names it by its name now. */
+  | { readonly kind: 'loaded' | 'earlier' | 'not-loaded' | 'unreadable'; readonly file: string }
   | { readonly kind: 'unconfigured' };
 
 /** What a person reads about the plugin, and what to do when it is not loaded. */
@@ -1488,6 +1622,8 @@ export function describePlugin(state: PluginState): string {
   switch (state.kind) {
     case 'loaded':
       return `spec-brief loads spec-harness's plugin (${state.file}): its archive accepts a protected file a signed ruling allows`;
+    case 'earlier':
+      return `${state.file} names spec-harness's plugin "${EARLIER_PLUGIN}", by the name of this package's releases up to 0.21.0: spec-brief loads it from @descent-vtt/spec-harness while that is installed, and once it is not, its lint and its archive stop at exit 2, the plugin not loaded. spec-harness init --write names "${PLUGIN}" in its place`;
     case 'not-loaded':
       return `spec-brief does not load spec-harness's plugin, so its archive refuses a protected file whatever ruling is signed: add "${PLUGIN}" to "plugins" in ${state.file}, or run spec-harness init --write`;
     case 'unreadable':
@@ -1659,12 +1795,16 @@ export const GIT_HOOK_LINE = `node ${BIN} hook git`;
  * would end on a stack trace, so the hook says what is missing and where,
  * and the commit waits, as it did when npx found nothing to run.
  */
-export const PRE_COMMIT = `#!/bin/sh
+export const PRE_COMMIT = preCommit(BIN);
+
+/** The hook, run with the script at `bin`: init's, and the one 0.19.0 to 0.21.0 wrote with the earlier scope's script. */
+function preCommit(bin: string): string {
+  return `#!/bin/sh
 # spec-harness: refuse a commit that changes what the active brief protects.
 # git runs this at the top of the work tree it commits in, a linked worktree's
 # own, wherever the hook is kept: the project's install is read from there,
 # or, where a linked worktree has none, from the repository's main work tree.
-bin=${BIN}
+bin=${bin}
 if [ ! -f "$bin" ]; then
   common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)
   if [ "\${common##*/}" = .git ] && [ -f "\${common%/.git}/$bin" ]; then
@@ -1676,6 +1816,38 @@ if [ ! -f "$bin" ]; then
 fi
 exec node "$bin" hook git
 `;
+}
+
+/**
+ * The hooks the releases from 0.10.0 to 0.21.0 wrote, which run the earlier
+ * scope's script: 0.19.0 to 0.21.0 the hook init writes now, and 0.10.0 to
+ * 0.18.0 one that looks in no main work tree, as its tag has it. Once that
+ * package is uninstalled either stops every commit, as where the install is
+ * not there, so `init --git-hook --write` writes init's hook over one. A
+ * hook with anything else in it is the repository's own.
+ */
+const EARLIER_PRE_COMMITS: readonly string[] = [
+  preCommit(EARLIER_BIN),
+  `#!/bin/sh
+# spec-harness: refuse a commit that changes what the active brief protects.
+# git runs this at the top of the work tree it commits in, a linked worktree's
+# own, wherever the hook is kept: the project's install is read from there.
+bin=${EARLIER_BIN}
+if [ ! -f "$bin" ]; then
+  printf '%s\\n' "spec-harness: $bin is not in $PWD, the work tree git commits in: install the project's dependencies there, as with npm ci, and commit again" >&2
+  exit 2
+fi
+exec node "$bin" hook git
+`,
+];
+
+/** Whether a pre-commit hook is one an earlier release of init wrote, which runs the earlier scope's script. */
+export function isEarlierPreCommit(text: string): boolean {
+  return EARLIER_PRE_COMMITS.includes(text);
+}
+
+/** What init says where it writes its hook over one an earlier release wrote. */
+export const HOOK_MOVED = `the hook an earlier release of init wrote, which runs ${EARLIER_BIN}, written again to run ${BIN}`;
 
 /**
  * What doctor and init add of a hook whose text runs the harness through
@@ -1684,11 +1856,25 @@ exec node "$bin" hook git
  * did. npx starts npm to start node, and npm 12 says on stderr what it runs,
  * twice a commit. A comment that names the command runs nothing, and neither
  * does another runner's line, which is the repository's to choose.
+ *
+ * And of a hook whose text names the earlier scope's script, the hook init
+ * wrote from 0.10.0 to 0.21.0 or the line it advised: it runs while that
+ * package is installed, and the script is not there once it is not. A note
+ * too: the hook runs as it did, and what it does once the package is gone
+ * is the hook's own text to say.
  */
 export function gitHookNote(text: string): string | null {
-  const npx = text.split('\n').some((line) => /^[^#]*\bnpx\b.*\bspec-harness\s+hook\s+git\b/.test(line));
-  if (!npx) return null;
-  return `it runs spec-harness through npx, which starts npm to start node on every commit, and under npm 12 prints two "npm notice run" lines each time: to run it with node from the project's install, as Claude Code's hooks are, replace the npx command there with "${GIT_HOOK_LINE}"`;
+  const lines = text.split('\n');
+  const npx = lines.some((line) => /^[^#]*\bnpx\b.*\bspec-harness\s+hook\s+git\b/.test(line));
+  // What stands before a `#` is what the shell runs, as for npx above.
+  const earlier = lines.some((line) => line.split('#')[0]!.includes(EARLIER_BIN));
+  const said: string[] = [];
+  if (npx) said.push(`it runs spec-harness through npx, which starts npm to start node on every commit, and under npm 12 prints two "npm notice run" lines each time: to run it with node from the project's install, as Claude Code's hooks are, replace the npx command there with "${GIT_HOOK_LINE}"`);
+  if (earlier) {
+    const mend = isEarlierPreCommit(text) ? `it is the hook an earlier release of init wrote, and spec-harness init --git-hook --write writes it again to run ${BIN}` : `name ${BIN} there in its place`;
+    said.push(`it runs ${EARLIER_BIN}, the script of @descent-vtt/spec-harness, the name of this package's releases up to 0.21.0, which is not there once that package is uninstalled: ${mend}`);
+  }
+  return said.length === 0 ? null : said.join('; ');
 }
 
 /** What doctor says of git's pre-commit hook. */

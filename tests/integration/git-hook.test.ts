@@ -21,7 +21,7 @@ beforeAll(() => {
   if (!existsSync(join(ROOT, 'dist', 'cli.js'))) throw new Error('dist/cli.js is missing: run "npm run build" before the suite');
 });
 
-const SCRIPT = 'node_modules/@descent-vtt/spec-harness/bin/spec-harness.js';
+const SCRIPT = 'node_modules/@spec-family/spec-harness/bin/spec-harness.js';
 const REFUSED = [
   'refused  brief 001 does not empower this round to change src/db/schema.ts (protectedFiles: src/db/**)',
   '         if the round cannot be done without it, stop and ask for a ruling: spec-harness escalate --path <file> --reason <why>, or the request_escalation tool',
@@ -122,7 +122,7 @@ describe('the pre-commit hook init writes, run by git', () => {
     expect(commit(linked)).toEqual({ code: 0, stdout: '', stderr: '' });
     expect(head(linked)).not.toBe(before);
     // An install of its own is the one run, whatever the main work tree has.
-    mkdirSync(join(linked, 'node_modules', '@descent-vtt', 'spec-harness', 'bin'), { recursive: true });
+    mkdirSync(join(linked, 'node_modules', '@spec-family', 'spec-harness', 'bin'), { recursive: true });
     writeFileSync(join(linked, SCRIPT), "process.stderr.write('the linked install\\n');\nprocess.exit(2);\n");
     change('src/auth/a.ts', 'linked again;\n');
     expect(commit(join(linked, 'src'))).toEqual({ code: 1, stdout: '', stderr: 'the linked install\n' });
@@ -167,16 +167,16 @@ describe('the pre-commit hook init writes, run by git', () => {
     expect(row?.detail.endsWith(`, the install of ${main.root}: this work tree has none of its own)`)).toBe(true);
     expect(there.siblings.find((sibling) => sibling.tool === 'spec-guard')).toMatchObject({ state: 'absent', elsewhere: null });
     // One too old there is said with whose install it is, and fails doctor, as it does in the main work tree.
-    installFake(repo.root, 'spec-guard', JSON.stringify({ version: '0.11.0' }));
+    installFake(repo.root, 'spec-guard', JSON.stringify({ version: '0.29.0' }));
     const outdated = await cli(['doctor', '--format', 'json'], linked);
     expect(outdated.code).toBe(1);
     expect(parsed<Rows>(outdated).siblings.find((sibling) => sibling.tool === 'spec-guard')).toEqual({
       tool: 'spec-guard',
       state: 'outdated',
-      minimum: '0.12.0',
-      version: '0.11.0',
+      minimum: '0.30.0',
+      version: '0.29.0',
       elsewhere: main.root,
-      detail: `spec-guard 0.11.0 is installed here; spec-harness needs 0.12.0 or later: npm install --save-dev @descent-vtt/spec-guard@latest, the install of ${main.root}: this work tree has none of its own`,
+      detail: `spec-guard 0.29.0 is installed here; spec-harness needs 0.30.0 or later: npm install --save-dev @spec-family/spec-guard@latest, the install of ${main.root}: this work tree has none of its own`,
     });
   });
 

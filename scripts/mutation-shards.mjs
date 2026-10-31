@@ -17,7 +17,7 @@
  * does.
  *
  * Adapted from spec-core (its ADR-0007), which took it from
- * @descent-vtt/spec-graph (its ADR-0019) and @descent-vtt/spec-guard (its
+ * @spec-family/spec-graph (its ADR-0019) and @spec-family/spec-guard (its
  * ADR-0003); the same merge scores all their sweeps. The full sweep has no
  * incremental file to split between the shards.
  *

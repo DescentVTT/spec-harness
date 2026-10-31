@@ -532,7 +532,7 @@ describe('a file read where a file is expected, and what stands there instead (A
     expect(gitDirectories(worktree, {})?.common).toBe(join(realSpelling(linked.root), '.git', 'worktrees', 'w'));
     // This package's manifest in the project's install: no installed copy to compare.
     const project = temp();
-    fifo(join(project, 'node_modules', '@descent-vtt', 'spec-harness', 'package.json'));
+    fifo(join(project, 'node_modules', '@spec-family', 'spec-harness', 'package.json'));
     expect(pluginFile(project)(join(project, 'x.js'))).toBe(false);
   });
 
@@ -594,46 +594,46 @@ describe('finding the siblings', () => {
     const found = locate('spec-brief', root, DEFAULT_CONFIG);
     expect(found).toMatchObject({
       kind: 'found',
-      command: [process.execPath, join(root, 'node_modules', '@descent-vtt', 'spec-brief', 'bin', 'spec-brief.js')],
+      command: [process.execPath, join(root, 'node_modules', '@spec-family', 'spec-brief', 'bin', 'spec-brief.js')],
     });
-    expect(found.kind === 'found' ? found.version : null).toBe(JSON.parse(readFileSync(join(root, 'node_modules', '@descent-vtt', 'spec-brief', 'package.json'), 'utf8')).version);
+    expect(found.kind === 'found' ? found.version : null).toBe(JSON.parse(readFileSync(join(root, 'node_modules', '@spec-family', 'spec-brief', 'package.json'), 'utf8')).version);
     expect(locate('spec-guard', root, DEFAULT_CONFIG).kind).toBe('absent');
   });
 
   it('reads the installed version, and runs a sibling at its minimum or later', () => {
     const root = temp();
-    const bin = installFake(root, 'spec-guard', JSON.stringify({ name: '@descent-vtt/spec-guard', version: '0.12.0' }));
-    expect(locate('spec-guard', root, DEFAULT_CONFIG)).toEqual({ kind: 'found', command: [process.execPath, bin], version: '0.12.0' });
+    const bin = installFake(root, 'spec-guard', JSON.stringify({ name: '@spec-family/spec-guard', version: '0.30.0' }));
+    expect(locate('spec-guard', root, DEFAULT_CONFIG)).toEqual({ kind: 'found', command: [process.execPath, bin], version: '0.30.0' });
     installFake(root, 'spec-graph', JSON.stringify({ version: '1.0.0-rc.1' }));
     expect(locate('spec-graph', root, DEFAULT_CONFIG)).toMatchObject({ kind: 'found', version: '1.0.0-rc.1' });
   });
 
   it('never runs a sibling older than its minimum, and names the minimum', () => {
     const root = temp();
-    installFake(root, 'spec-guard', JSON.stringify({ version: '0.11.0' }));
-    const reason = 'spec-guard 0.11.0 is installed here; spec-harness needs 0.12.0 or later: npm install --save-dev @descent-vtt/spec-guard@latest';
-    expect(locate('spec-guard', root, DEFAULT_CONFIG)).toEqual({ kind: 'outdated', version: '0.11.0', reason });
+    installFake(root, 'spec-guard', JSON.stringify({ version: '0.29.0' }));
+    const reason = 'spec-guard 0.29.0 is installed here; spec-harness needs 0.30.0 or later: npm install --save-dev @spec-family/spec-guard@latest';
+    expect(locate('spec-guard', root, DEFAULT_CONFIG)).toEqual({ kind: 'outdated', version: '0.29.0', reason });
   });
 
   it("looks in the installs it is given after the work tree's own, and the first that has the sibling decides, at the floor", async () => {
     const root = temp();
     const project = temp();
     const other = temp();
-    const bin = installFake(project, 'spec-guard', JSON.stringify({ version: '0.12.0' }));
+    const bin = installFake(project, 'spec-guard', JSON.stringify({ version: '0.30.0' }));
     // None here: the project's, named as another install's.
-    expect(locate('spec-guard', root, DEFAULT_CONFIG, [project])).toEqual({ kind: 'found', command: [process.execPath, bin], version: '0.12.0', elsewhere: project });
+    expect(locate('spec-guard', root, DEFAULT_CONFIG, [project])).toEqual({ kind: 'found', command: [process.execPath, bin], version: '0.30.0', elsewhere: project });
     expect(locate('spec-guard', root, DEFAULT_CONFIG, [other, project])).toMatchObject({ kind: 'found', elsewhere: project });
     expect(locate('spec-guard', root, DEFAULT_CONFIG)).toMatchObject({ kind: 'absent' });
     expect(locate('spec-guard', root, DEFAULT_CONFIG, [other])).toEqual({
       kind: 'absent',
-      reason: 'spec-guard is not installed here: npm install --save-dev @descent-vtt/spec-guard, or name its command under "tools" in .spec-harness.json',
+      reason: 'spec-guard is not installed here: npm install --save-dev @spec-family/spec-guard, or name its command under "tools" in .spec-harness.json',
     });
     // One there is the one run, and one too old there is not passed over for the project's.
-    installFake(root, 'spec-guard', JSON.stringify({ version: '0.11.0' }));
-    expect(locate('spec-guard', root, DEFAULT_CONFIG, [project])).toMatchObject({ kind: 'outdated', version: '0.11.0' });
+    installFake(root, 'spec-guard', JSON.stringify({ version: '0.29.0' }));
+    expect(locate('spec-guard', root, DEFAULT_CONFIG, [project])).toMatchObject({ kind: 'outdated', version: '0.29.0' });
     expect(locate('spec-guard', root, DEFAULT_CONFIG, [project])).not.toHaveProperty('elsewhere');
-    installFake(other, 'spec-guard', JSON.stringify({ version: '0.11.0' }));
-    expect(locate('spec-guard', temp(), DEFAULT_CONFIG, [other, project])).toMatchObject({ kind: 'outdated', version: '0.11.0', elsewhere: other });
+    installFake(other, 'spec-guard', JSON.stringify({ version: '0.29.0' }));
+    expect(locate('spec-guard', temp(), DEFAULT_CONFIG, [other, project])).toMatchObject({ kind: 'outdated', version: '0.29.0', elsewhere: other });
     // And the siblings of a work tree look in the same places, for what they run as well.
     expect(createSiblings(temp(), DEFAULT_CONFIG, [project]).locate('spec-guard')).toMatchObject({ kind: 'found', elsewhere: project });
     await expect(createSiblings(temp(), DEFAULT_CONFIG, [project]).json('spec-guard', ['query'])).rejects.toThrow('spec-guard exited 0 without JSON');
@@ -646,7 +646,7 @@ describe('finding the siblings', () => {
       installFake(root, 'spec-brief', manifest);
       const sibling = locate('spec-brief', root, DEFAULT_CONFIG);
       expect(sibling.kind, String(manifest)).toBe('outdated');
-      expect(sibling.kind === 'outdated' ? sibling.reason : '', String(manifest)).toContain('spec-harness needs 0.2.0 or later');
+      expect(sibling.kind === 'outdated' ? sibling.reason : '', String(manifest)).toContain('spec-harness needs 0.12.0 or later');
     }
   });
 
@@ -661,12 +661,12 @@ describe('finding the siblings', () => {
   it('answers an outdated sibling as it answers an absent one, with the reason', async () => {
     const root = temp();
     installFake(root, 'spec-brief', JSON.stringify({ version: '0.1.0' }));
-    installFake(root, 'spec-guard', JSON.stringify({ version: '0.11.0' }));
+    installFake(root, 'spec-guard', JSON.stringify({ version: '0.29.0' }));
     const siblings = createSiblings(root, DEFAULT_CONFIG);
     expect(await siblings.json('spec-guard', ['query'])).toEqual({
-      absent: 'spec-guard 0.11.0 is installed here; spec-harness needs 0.12.0 or later: npm install --save-dev @descent-vtt/spec-guard@latest',
+      absent: 'spec-guard 0.29.0 is installed here; spec-harness needs 0.30.0 or later: npm install --save-dev @spec-family/spec-guard@latest',
     });
-    await expect(siblings.briefs()).rejects.toThrow('spec-brief 0.1.0 is installed here; spec-harness needs 0.2.0 or later');
+    await expect(siblings.briefs()).rejects.toThrow('spec-brief 0.1.0 is installed here; spec-harness needs 0.12.0 or later');
   });
 
   it('runs "node" as this Node, and passes the exit code through', async () => {
@@ -705,7 +705,7 @@ describe('finding the siblings', () => {
     expect(await runSibling('a sibling', ['no-such-program-for-spec-harness'], [], temp())).toEqual({
       code: -1,
       stdout: '',
-      stderr: 'cannot start "no-such-program-for-spec-harness": name the tool\'s script, such as ["node", "node_modules/@descent-vtt/<tool>/bin/<tool>.js"]',
+      stderr: 'cannot start "no-such-program-for-spec-harness": name the tool\'s script, such as ["node", "node_modules/@spec-family/<tool>/bin/<tool>.js"]',
     });
   });
 
@@ -734,7 +734,7 @@ describe('finding the siblings', () => {
       const unanswered = new Promise<string>((resolve) => (timer = setTimeout(() => resolve('no answer'), 10_000)));
       const answered = await Promise.race([runSibling('a sibling', [program], [], temp()), unanswered]);
       clearTimeout(timer);
-      expect(answered, program).toEqual({ code: -1, stdout: '', stderr: `cannot start "${program}": name the tool's script, such as ["node", "node_modules/@descent-vtt/<tool>/bin/<tool>.js"]` });
+      expect(answered, program).toEqual({ code: -1, stdout: '', stderr: `cannot start "${program}": name the tool's script, such as ["node", "node_modules/@spec-family/<tool>/bin/<tool>.js"]` });
     }
   });
 
@@ -752,7 +752,7 @@ describe('finding the siblings', () => {
   it('answers "absent" for JSON from a sibling that is not there', async () => {
     const siblings = createSiblings(temp(), DEFAULT_CONFIG);
     expect(await siblings.json('spec-guard', ['query'])).toEqual({
-      absent: 'spec-guard is not installed here: npm install --save-dev @descent-vtt/spec-guard, or name its command under "tools" in .spec-harness.json',
+      absent: 'spec-guard is not installed here: npm install --save-dev @spec-family/spec-guard, or name its command under "tools" in .spec-harness.json',
     });
     await expect(siblings.briefs()).rejects.toBeInstanceOf(SiblingError);
     await expect(siblings.briefs()).rejects.toMatchObject({ name: 'SiblingError' });
