@@ -28,12 +28,14 @@ import {
   exportedFile,
   graphReadsBriefs,
   GUARD_HOOK,
+  GUARD_MOVED,
   guardSwitchedOff,
   handedLines,
   hooksDisabled,
   HYPHEN_SINCE,
   holdsEarlierGuard,
   holdsEarlierServer,
+  HOOK_MOVED,
   isEarlierPreCommit,
   isStarted,
   loadsEarlierPlugin,
@@ -58,6 +60,7 @@ import {
   ONE_STRING,
   patternReader,
   PLUGIN,
+  PLUGIN_MOVED,
   pluginMarketplace,
   pluginPresence,
   PRE_COMMIT,
@@ -66,6 +69,7 @@ import {
   PROJECT_DIR_OR_HERE,
   registersServer,
   reportHooks,
+  SERVER_MOVED,
   SPEC_BRIEF_CONFIGS,
   SPEC_GRAPH_CONFIGS,
   wiringState,
@@ -2381,8 +2385,8 @@ describe("the lines 0.21.0 and earlier wrote, with the script of the scope the f
   });
 
   describe("in git's pre-commit hook", () => {
-    /** The hook 0.19.0 to 0.21.0 wrote: init's now, with the earlier script. */
-    const HOOK_19 = PRE_COMMIT.split(BIN).join(EARLIER_BIN);
+    /** The hook 0.19.0 to 0.21.0 wrote: init's now, with the earlier script. Read in a test: read as the file loads, a mutant under which init's hook is no text would stop the file, and fail no test. */
+    const hook19 = (): string => PRE_COMMIT.split(BIN).join(EARLIER_BIN);
     /** The hook 0.10.0 to 0.18.0 wrote, as their tags have it. */
     const HOOK_10 = "#!/bin/sh\n# spec-harness: refuse a commit that changes what the active brief protects.\n# git runs this at the top of the work tree it commits in, a linked worktree's\n# own, wherever the hook is kept: the project's install is read from there.\nbin=node_modules/@descent-vtt/spec-harness/bin/spec-harness.js\nif [ ! -f \"$bin\" ]; then\n  printf '%s\\n' \"spec-harness: $bin is not in $PWD, the work tree git commits in: install the project's dependencies there, as with npm ci, and commit again\" >&2\n  exit 2\nfi\nexec node \"$bin\" hook git\n";
     const NOTE = `it runs ${EARLIER_BIN}, the script of @descent-vtt/spec-harness, the name of this package's releases up to 0.21.0, which is not there once that package is uninstalled`;
@@ -2391,15 +2395,15 @@ describe("the lines 0.21.0 and earlier wrote, with the script of the scope the f
       `to run it with node from the project's install, as Claude Code's hooks are, replace the npx command there with "node ${BIN} hook git"`;
 
     it('is known as one init wrote, byte for byte, and no other is', () => {
-      expect(HOOK_19).not.toBe(PRE_COMMIT);
-      expect(isEarlierPreCommit(HOOK_19)).toBe(true);
+      expect(hook19()).not.toBe(PRE_COMMIT);
+      expect(isEarlierPreCommit(hook19())).toBe(true);
       expect(isEarlierPreCommit(HOOK_10)).toBe(true);
-      for (const text of [PRE_COMMIT, `${HOOK_19}npm test\n`, HOOK_10.split('\n').join('\r\n'), HOOK_10.trimEnd(), '']) expect(isEarlierPreCommit(text), JSON.stringify(text)).toBe(false);
+      for (const text of [PRE_COMMIT, `${hook19()}npm test\n`, HOOK_10.split('\n').join('\r\n'), HOOK_10.trimEnd(), '']) expect(isEarlierPreCommit(text), JSON.stringify(text)).toBe(false);
     });
 
     it('is noted with how to move it: init writes its own hook again, and a hook of the repository\'s own names this package\'s script', () => {
       const again = `${NOTE}: it is the hook an earlier release of init wrote, and spec-harness init --git-hook --write writes it again to run ${BIN}`;
-      expect(gitHookNote(HOOK_19)).toBe(again);
+      expect(gitHookNote(hook19())).toBe(again);
       expect(gitHookNote(HOOK_10)).toBe(again);
       const own = `#!/bin/sh\nnpm test || exit 1\nnode ${EARLIER_BIN} hook git # the guard\n`;
       expect(gitHookNote(own)).toBe(`${NOTE}: name ${BIN} there in its place`);
@@ -2410,6 +2414,13 @@ describe("the lines 0.21.0 and earlier wrote, with the script of the scope the f
         expect(gitHookNote(text), text).toBeNull();
       }
     });
+  });
+
+  it('is said by init, in each file it rewrites one, with the path it ran and the one it runs', () => {
+    expect(GUARD_MOVED).toBe(`the entries an earlier release wrote, which ran ${EARLIER_BIN}, run ${BIN}, where they stand`);
+    expect(SERVER_MOVED).toBe(`the entry an earlier release wrote, which ran ${EARLIER_BIN}, runs ${BIN}`);
+    expect(HOOK_MOVED).toBe(`the hook an earlier release of init wrote, which runs ${EARLIER_BIN}, written again to run ${BIN}`);
+    expect(PLUGIN_MOVED).toBe(`name spec-harness's plugin "${PLUGIN}" where an earlier release wrote "@descent-vtt/spec-harness/spec-brief-plugin", which spec-brief cannot load once @descent-vtt/spec-harness is uninstalled`);
   });
 
   describe('as doctor reads it', () => {

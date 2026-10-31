@@ -658,7 +658,8 @@ describe('the lines 0.1.2 to 0.21.0 wrote, once the package is @spec-family/spec
   };
   const SERVER = { command: 'node', args: [`\${CLAUDE_PROJECT_DIR:-.}/${EARLIER}`, 'mcp', '--root', '${CLAUDE_PROJECT_DIR:-.}'] };
   const NAME = '@descent-vtt/spec-harness/spec-brief-plugin';
-  const HOOK_19 = PRE_COMMIT.split(SCRIPT).join(EARLIER);
+  /** The hook 0.19.0 to 0.21.0 wrote, read in a test: as the file loads, a mutant of init's hook would stop the file, and fail no test. */
+  const hook19 = (): string => PRE_COMMIT.split(SCRIPT).join(EARLIER);
 
   /** A project on brief 001's branch with what 0.21.0's init wrote, this release installed, and the earlier package as well where `earlier`. */
   function moving(earlier: boolean, settings: unknown = SETTINGS): Repository {
@@ -667,7 +668,7 @@ describe('the lines 0.1.2 to 0.21.0 wrote, once the package is @spec-family/spec
     project.write('.claude/settings.json', `${JSON.stringify(settings, null, 2)}\n`);
     project.write('.mcp.json', `${JSON.stringify({ mcpServers: { other: { command: 'x' }, 'spec-harness': SERVER } }, null, 2)}\n`);
     project.write('.spec-brief.json', `${JSON.stringify({ plugins: [NAME] }, null, 2)}\n`);
-    project.write('.git/hooks/pre-commit', HOOK_19);
+    project.write('.git/hooks/pre-commit', hook19());
     chmodSync(join(project.root, '.git', 'hooks', 'pre-commit'), 0o755);
     installHarness(project.root);
     // doctor asks only whether the earlier script is a file.
@@ -724,7 +725,7 @@ describe('the lines 0.1.2 to 0.21.0 wrote, once the package is @spec-family/spec
       expect(step('.spec-brief.json')).toMatchObject({ action: 'update', detail: expect.stringContaining(`name spec-harness's plugin "${PLUGIN}" where an earlier release wrote "${NAME}"`) });
       // git's hook is written only where asked for, and kept with a note until then.
       expect(step('.git/hooks/pre-commit')).toMatchObject({ action: 'keep', detail: expect.stringContaining('spec-harness init --git-hook --write writes it again') });
-      expect(project.read('.git/hooks/pre-commit')).toBe(HOOK_19);
+      expect(project.read('.git/hooks/pre-commit')).toBe(hook19());
       const now = { ...GUARD_HOOK };
       expect(JSON.parse(project.read('.claude/settings.json'))).toEqual({
         hooks: { PreToolUse: [{ matcher: MATCHER, hooks: [now] }], PostToolUse: [{ matcher: MATCHER, hooks: [now] }], SessionStart: [{ hooks: [now] }], Stop: [{ hooks: [TURN_HOOK] }] },
@@ -775,7 +776,7 @@ describe('the lines 0.1.2 to 0.21.0 wrote, once the package is @spec-family/spec
       action: 'advise',
       detail: '.git/hooks/pre-commit runs spec-harness, but is not executable, so git skips it: chmod +x .git/hooks/pre-commit',
     });
-    expect(project.read('.git/hooks/pre-commit')).toBe(HOOK_19);
+    expect(project.read('.git/hooks/pre-commit')).toBe(hook19());
   });
 
   it("is left where a person wrote it: more on the line, or a hook of the repository's own", async () => {
