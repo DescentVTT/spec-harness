@@ -210,6 +210,17 @@ release's seven pull requests that changed a source or the integration suite
 was swept before it merged, and each ended with every undetected mutant new
 against main's killed or said equivalent.
 
+For 0.22.0, the first release as `@spec-family/spec-harness`, the sweep of
+c7c8100 (run 41202882905) read 97.85% over 12,159 mutants, 97.17% with every
+timeout lost, in shards of 20m39s to 46m25s, and the `break` stays 95. It
+has 186 mutants more than 0.21.0's sweep (run 40157462678, of e8a2c5f), in
+the three modules that took the move's lines, `configure.ts` with 156 of
+them and `setup.ts` with 29, and 234 survivors and 27 without coverage to
+that sweep's 235 and 27. No undetected mutant is new against it, and one of
+its is gone: `round.ts`'s `'hex'`, which its comment says is counted killed
+now and then. The release's one pull request was swept before it merged, and
+ended with no undetected mutant new against main's.
+
 One runner took 69 to 130 minutes for the full sweep. Before any sharded
 sweep ran, the report of eb39599 was cut into shards the way Stryker writes
 them and put back by the merge: all 7,507 verdicts came back with their
