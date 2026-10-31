@@ -9,7 +9,16 @@ only fixes, reports less or documents, so `^0.7.0` takes only releases that
 cannot turn a run red. The family's policy is
 [spec-core's ADR-0009](https://github.com/spec-family/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
-## Unreleased
+## 0.22.0
+
+The first release as `@spec-family/spec-harness`, from
+`spec-family/spec-harness`: the family moved to a GitHub organization and an
+npm scope of its own. Siblings are found under `@spec-family` alone, at
+their first releases there, and `init --write` moves the lines 0.1.2 to
+0.21.0 wrote, so that a project moving over in the order the first entry
+gives keeps its guard at each step. What the hook decides of a write is as
+in 0.21.0
+([ADR-0011](https://github.com/spec-family/spec-harness/blob/main/docs/adr/0011-releases-are-staged-by-ci.md)).
 
 ### Changed
 
